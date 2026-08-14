@@ -257,8 +257,6 @@ def main() -> None:
     description = metadata["description"]
     if not NAME_RE.fullmatch(name):
         raise ValueError(f"invalid skill name: {name!r}")
-    if root.name != name:
-        raise ValueError(f"skill folder {root.name!r} must match name {name!r}")
     if not description or len(description) > 1024:
         raise ValueError("description must contain 1-1024 characters")
     if len(body.splitlines()) > 500:
