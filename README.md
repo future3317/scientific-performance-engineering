@@ -125,12 +125,14 @@ Benchmark records declare comparison class and evidence level. Micro/module evid
 - [`references/MEASUREMENT_CONTRACT.md`](references/MEASUREMENT_CONTRACT.md): measurement-contract template.
 - [`references/CODE_AND_RUNTIME_AUDIT.md`](references/CODE_AND_RUNTIME_AUDIT.md): runtime compatibility, custom-op, synchronization, and numerical-localization gates.
 - [`references/DATA_AND_TRAINING_LIFECYCLE.md`](references/DATA_AND_TRAINING_LIFECYCLE.md): data/cache/H2D, logical-update DAG, optimizer-adjacent work, and amortized campaign cost.
+- [`references/EXPERIENCE_EVOLUTION.md`](references/EXPERIENCE_EVOLUTION.md): auditable experience capture, candidate promotion, replay, and retirement boundaries.
 - [`references/MEMORY_COMPILER_DISTRIBUTED.md`](references/MEMORY_COMPILER_DISTRIBUTED.md): memory forensics, compile/CUDA Graphs, distributed diagnostics, and resume routes.
 - [`scripts/collect_env.py`](scripts/collect_env.py): captures hardware, software, CPU, memory, and swap context.
 - [`scripts/run_with_gpu_monitor.py`](scripts/run_with_gpu_monitor.py): captures NVIDIA GPU and optional host timelines; supporting telemetry only.
 - [`scripts/compare_benchmarks.py`](scripts/compare_benchmarks.py): rejects incomparable benchmark records and computes deltas.
 - [`scripts/validate_skill.py`](scripts/validate_skill.py): validates structure, links, assets, and Python syntax.
 - [`scripts/validate_benchmark.py`](scripts/validate_benchmark.py): validates the schema-driven lifecycle and evidence contract.
+- [`scripts/validate_experience.py`](scripts/validate_experience.py): validates experience records without promoting them to rules.
 
 ### Open-source use and contributions
 

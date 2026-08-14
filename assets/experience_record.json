@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "case_id": "EXP-2026-08-0001",
+  "status": "inbox",
+  "created_at": "2026-08-14",
+  "capture_reasons": ["negative_result"],
+  "symptom": ["replace_with_observed_symptom"],
+  "workload": {
+    "framework": "pytorch",
+    "domain": "materials_gnn",
+    "mode": "training"
+  },
+  "observed_evidence": [
+    {"name": "metric_name", "value": 0, "unit": "unit", "source": "benchmark_record.json"}
+  ],
+  "attempts": [
+    {"action": "describe_attempt", "result": "rejected", "why_rejected": "describe measured reason"},
+    {"action": "describe_replacement", "result": "accepted", "evidence": "relative/path/to/record"}
+  ],
+  "lesson": {
+    "type": "candidate",
+    "text": "State the conditional lesson without claiming a universal rule."
+  },
+  "scope": {
+    "requires": ["measured prerequisite"],
+    "excludes": ["known counterexample"]
+  },
+  "confidence": "medium",
+  "artifacts": {
+    "benchmark_record": "relative/path/to/benchmark_record.json",
+    "trace": "relative/path/to/trace"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/experience_record.schema.json",
+  "title": "Scientific GPU optimizer experience record",
+  "type": "object",
+  "required": [
+    "schema_version", "case_id", "status", "created_at", "capture_reasons", "symptom", "workload",
+    "observed_evidence", "attempts", "lesson", "scope", "confidence", "artifacts"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "case_id": {"type": "string", "pattern": "^EXP-[0-9]{4}-[0-9]{2}-[0-9]{4,}$"},
+    "status": {"enum": ["inbox", "case", "archived"]},
+    "created_at": {"type": "string", "minLength": 10},
+    "capture_reasons": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "symptom": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "workload": {"type": "object", "required": ["framework", "domain", "mode"]},
+    "observed_evidence": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["name", "value", "source"]}},
+    "attempts": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["action", "result"]}},
+    "lesson": {"type": "object", "required": ["type", "text"]},
+    "scope": {"type": "object", "required": ["requires", "excludes"]},
+    "confidence": {"enum": ["low", "medium", "high"]},
+    "artifacts": {"type": "object"}
+  }
+}

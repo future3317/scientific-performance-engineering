@@ -29,6 +29,8 @@ jobs:
           python scripts/validate_benchmark.py assets/benchmark_record.json
           python scripts/compare_benchmarks.py --self-test
           python assets/materials_gnn_checks.py --self-test
+      - name: Run experience contract fixtures
+        run: python scripts/experience_contract_tests.py
       - name: Compile Python tools
         run: python -m compileall -q scripts assets
 

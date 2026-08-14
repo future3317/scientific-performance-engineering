@@ -16,8 +16,10 @@ FRONTMATTER_KEYS = {"name", "description"}
 REQUIRED_SCRIPTS = {
     "collect_env.py",
     "compare_benchmarks.py",
+    "experience_contract_tests.py",
     "run_with_gpu_monitor.py",
     "validate_benchmark.py",
+    "validate_experience.py",
     "validate_skill.py",
 }
 REQUIRED_REFERENCES = {
@@ -27,6 +29,7 @@ REQUIRED_REFERENCES = {
     "MEASUREMENT_CONTRACT.md",
     "CODE_AND_RUNTIME_AUDIT.md",
     "DATA_AND_TRAINING_LIFECYCLE.md",
+    "EXPERIENCE_EVOLUTION.md",
     "MEMORY_COMPILER_DISTRIBUTED.md",
     "PATCH_PATTERNS.md",
     "PERFORMANCE_PLAYBOOK.md",
@@ -37,12 +40,15 @@ REQUIRED_REFERENCES = {
 REQUIRED_ASSETS = {
     "benchmark_record.json",
     "benchmark_record.schema.json",
+    "experience_record.json",
+    "experience_record.schema.json",
     "materials_gnn_checks.py",
     "performance_report.md",
 }
 REQUIRED_MAIN_ROUTES = {
     "CODE_AND_RUNTIME_AUDIT.md",
     "DATA_AND_TRAINING_LIFECYCLE.md",
+    "EXPERIENCE_EVOLUTION.md",
     "MEMORY_COMPILER_DISTRIBUTED.md",
     "PERFORMANCE_PLAYBOOK.md",
     "GNN_PREDICTION_WORKLOADS.md",
@@ -183,6 +189,17 @@ def validate_benchmark_with_tool(root: Path) -> None:
         raise ValueError(f"benchmark_record.json failed lifecycle validation: {'; '.join(errors)}")
 
 
+def validate_experience_with_tool(root: Path) -> None:
+    source = (root / "scripts" / "validate_experience.py").read_text(encoding="utf-8")
+    namespace: dict[str, Any] = {"__name__": "validate_experience", "__file__": str(root / "scripts" / "validate_experience.py")}
+    exec(compile(source, "validate_experience.py", "exec"), namespace)
+    schema = namespace["load_schema"](root / "assets" / "experience_record.schema.json")
+    record = json.loads((root / "assets" / "experience_record.json").read_text(encoding="utf-8"))
+    errors = namespace["validate_record"](record, schema)
+    if errors:
+        raise ValueError(f"experience_record.json failed validation: {'; '.join(errors)}")
+
+
 def main() -> None:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
     skill_path = root / "SKILL.md"
@@ -208,6 +225,7 @@ def main() -> None:
     validate_links(root)
     validate_python(root)
     validate_benchmark_with_tool(root)
+    validate_experience_with_tool(root)
     print(f"valid: {name}")
 
 

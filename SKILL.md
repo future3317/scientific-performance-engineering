@@ -40,6 +40,10 @@ Use this sequence:
 
 The record is the executable contract. Compare frozen contract fields exactly; declare intervention fields such as cache/H2D/synchronization/compiler changes; treat measured evidence such as sync counts, cache hits, overlap, launch count, memory, and latency as expected-to-change observations. Missing evidence required by the declared scope is `inconclusive`, never an accepted speedup. Host contention is a materiality confounder, not a byte-for-byte identity field. A training-contract mismatch or an unbudgeted CPU/process fan-out outranks a performance gain; stop at the shortest useful horizon and run a matched ablation before spending the full campaign budget. Unsupported hypothetical cases remain non-blocking.
 
+## Experience boundary
+
+Treat self-evolution as a separate, auditable maintenance workflow. During a task, the practitioner may record a reusable surprise, falsified hypothesis, negative result, rule boundary, or hidden synchronization in `experience/inbox/` using `assets/experience_record.json`; an experience is evidence, not a rule. Do not let runtime work edit `SKILL.md`, canonical references, rule status, or acceptance semantics. A maintainer may consolidate cases into a candidate only after checking scope and counterexamples; replay/regression evidence and human review are required before a candidate becomes canonical. Read [EXPERIENCE_EVOLUTION.md](references/EXPERIENCE_EVOLUTION.md) when capturing or maintaining experience.
+
 ## Required records and tools
 
 - Copy `assets/benchmark_record.json` and `assets/performance_report.md` for durable work.
@@ -60,6 +64,7 @@ The record is the executable contract. Compare frozen contract fields exactly; d
 ## Detailed references
 
 - [Measurement contract](references/MEASUREMENT_CONTRACT.md)
+- [Experience-driven evolution](references/EXPERIENCE_EVOLUTION.md)
 - [Code and runtime audit](references/CODE_AND_RUNTIME_AUDIT.md)
 - [Data and training lifecycle](references/DATA_AND_TRAINING_LIFECYCLE.md)
 - [Memory, compiler, and distributed routes](references/MEMORY_COMPILER_DISTRIBUTED.md)
