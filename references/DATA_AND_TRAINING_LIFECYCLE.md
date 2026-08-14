@@ -28,6 +28,14 @@ Separate systems changes from objective changes. Changing loss weights, task mem
 
 When two expensive auxiliary paths have the same expected frequency, prefer a deterministic mutually exclusive schedule when the scientific contract permits it. Prove the average update frequency and reweighting, then measure tail latency and compile/capture stability; independent Bernoulli masks can create avoidable overlap. An unselected task must skip its forward and derivative path, not merely mask a computed loss.
 
+### Optimizer-aware thinning
+
+The usual (1/p) loss reweighting preserves the first-moment gradient expectation, not Adam-like second moments or the resulting preconditioned update. Treat `p < 1` as a gradient-statistics change until proven otherwise: run a matched `p=1` control and compare optimizer second-moment state, preconditioned update norms, clipping fractions, late-window quality, and resume behavior. Do not call thinning objective-equivalent from unbiased gradients alone; if these statistics or quality move materially, record it as an `algorithmic_experiment` and keep the systems speed result separate.
+
+### Gradient ownership and shared trunks
+
+For sparse auxiliary tasks sharing a trunk, report per-task gradient norms and pairwise cosine/ownership for trunk, adapter, and head parameters before aggregating all auxiliary terms. An `auxiliary` total can hide cancellation or one sparse task dominating the shared trunk. A fresh conditioner attached to a pretrained trunk should be zero-initialized/gated or isolated behind a declared adapter when warm-start preservation is required; verify step-0 output closeness and the first-block gradient path. Freezing the trunk and training cached-feature heads can reduce recurring work, but it changes supervision/parameter ownership and needs a matched quality and time-to-quality experiment.
+
 Use staged horizons before a long campaign: stop or revise at the shortest checkpoint that can distinguish regression from noise, then extend only candidates that pass validation Pareto and time-to-quality gates. A full horizon is not evidence when initialization, anchor provenance, supervision coverage, or objective coupling is unresolved.
 
 ## Scientific gradients and graph lifetime
