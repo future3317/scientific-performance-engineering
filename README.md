@@ -44,6 +44,7 @@
 ### 它解决什么问题
 
 - 识别 CPU 驱动、Python 循环、短 CUDA kernel、同步和错误计时分桶，而不是只看 GPU 利用率。
+- 把预计算/缓存构建和多 seed campaign 的进程、worker、线程、NUMA、GPU 拓扑纳入性能预算，避免“前置步骤耗几十小时”或 worker fan-out 把服务器拖垮。
 - 将多任务 step 拆成 batch、图构建、H2D、backbone、mechanism/property/physical、`autograd.grad`、backward、optimizer 和 DDP communication。
 - 在保持模型、数据、数值、物理约束、采样律和恢复语义不变的前提下，优先复用 backbone、向量化 ragged work、合并 VJP、预取和测量真实 logical update。
 - 对 stochastic thinning、activation checkpoint、DDP used-parameter set、主机争用和 objective-specific acceptance 提供可验证合同。
@@ -101,6 +102,7 @@ This Codex skill targets end-to-end performance problems in PyTorch scientific t
 ### What it addresses
 
 - Distinguishes CPU-driven execution, Python loops, short CUDA kernels, synchronization, and misleading timing buckets from genuine GPU compute limits.
+- Budgets precompute/cache construction and multi-seed process, worker, thread, NUMA, and GPU topology, preventing hour-scale hidden setup cost and worker fan-out that overloads the host.
 - Splits a multitask step into batch preparation, graph construction, H2D, backbone, mechanism/property/physical work, `autograd.grad`, backward, optimizer, and DDP communication.
 - Preserves model, data, numerical, physical, sampler, and resume semantics while prioritizing feature reuse, ragged-work vectorization, batched VJPs, prefetching, and logical-update accounting.
 - Defines verifiable contracts for stochastic thinning, activation checkpointing, DDP used-parameter behavior, host contention, and objective-specific acceptance.

@@ -8,6 +8,12 @@ Separate `storage → dataset → collate/preprocess → transfer`. Locate the b
 
 Benchmark `cold-cache`, `warm-cache`, and the intended long-run cache hit regime separately. A warm-cache result is not a first-epoch claim. For custom batches, prove `is_pinned()`, `non_blocking=True`, copy stream, source lifetime, consumer-stream dependency, and an overlap timeline; the flag alone is not proof.
 
+## Precompute and campaign resource census
+
+Treat preprocessing, graph/geometry construction, feature materialization, and cache building as measured workloads, not invisible setup. Record wall time to first usable batch, CPU/GPU time, peak host/device/pinned memory, reuse count, invalidation/rebuild triggers, and amortized cost per logical update. If precompute is material to time-to-first-use or campaign time, profile and optimize it before launching a long training run; compare vectorized/batched construction, reuse, and bounded parallelism without changing provenance.
+
+For concurrent seeds or endpoints, budget the whole process tree before starting: concurrent jobs × endpoints per process × train/validation/test loader sets × workers per loader, plus intra-op/inter-op/BLAS/native threads. Compare the resulting worker/thread count with physical cores, NUMA placement, host memory, swap, and GPU assignment. A single-seed setting that is healthy does not authorize multiplying its workers by the campaign concurrency. Start with one seed or a measured low-worker topology, then increase concurrency only when GPU duty cycle, loader wait, host load, RSS, and result isolation remain within the contract. Keep artifact roots and seed identities separate when stopping or restarting a campaign.
+
 ## Logical-update DAG
 
 Account for every stage: fetch, CPU preprocessing, H2D, GPU preprocessing, backbone/heads, loss, auxiliary derivatives, backward, unscale/gradient transforms, clipping, communication, optimizer, scheduler, EMA/SWA, metrics, checkpoint staging, and validation trigger. `step_ms` is not the whole job. Record steady-state train-step throughput and an amortized training throughput that includes the real logging, validation, checkpoint, and sampling cadence. For a fixed quality target, report time-to-quality as a campaign metric.

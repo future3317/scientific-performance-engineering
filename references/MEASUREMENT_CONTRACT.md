@@ -11,7 +11,9 @@ Fill this before modifying performance-sensitive code.
 - Selected GPU index/UUID and logical-to-physical mapping:
 - Driver / CUDA / PyTorch / dependent kernel libraries:
 - Data path, storage type, split, manifest/hash:
+- Precompute contract: entry command, time to first usable batch, reuse count, invalidation/rebuild triggers, CPU/GPU/pinned-memory cost:
 - Host contention snapshot: load average / available memory / swap / worker RSS:
+- Campaign resource topology: concurrent seeds/endpoints, process/rank mapping, loader sets/workers, intra/inter-op/BLAS/native threads, CPU/NUMA placement, GPU assignment, artifact roots:
 - Environment privacy mode: redacted by default; sensitive host metadata explicitly enabled?
 
 ## Runtime preflight

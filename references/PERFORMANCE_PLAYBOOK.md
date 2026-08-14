@@ -73,6 +73,8 @@ Use `data_seconds` only for the interval it actually measures. Cache determinist
 
 Record host load average, available memory, swap use, and worker RSS beside GPU telemetry. Material host contention invalidates a direct before/after claim unless both runs are comparable.
 
+Before a long run, audit precompute and campaign fan-out as first-class performance stages. Measure time to first usable batch and amortized cache-build cost; do not optimize only the steady-state forward while a one-time graph/feature build consumes hours. For multi-seed or multi-endpoint execution, record the process-tree upper bound (`concurrent jobs × endpoints × loader sets × workers`) and add intra-op/inter-op/BLAS/native threads, CPU/NUMA placement, host memory/swap, and GPU assignment. A worker count that works for one seed can oversubscribe the host when multiplied across seeds; use a measured concurrency/worker sweep and preserve separate artifact roots.
+
 ## 4. CPU and input pipeline
 
 1. Measure loader wait, transform, collation, H2D, and training separately. Sweep `num_workers` around 0, 2, 4, and 8 or a hardware-appropriate range; CPU count is not a setting.

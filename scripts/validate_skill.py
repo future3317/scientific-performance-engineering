@@ -60,6 +60,8 @@ REQUIRED_CORE_MARKERS = {
     "logical-update DAG",
     "synchronization census",
     "cache/H2D",
+    "precompute",
+    "campaign resource",
     "anchor provenance",
     "algorithmic_experiment",
     "shortest useful horizon",
