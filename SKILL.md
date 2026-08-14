@@ -13,6 +13,7 @@ Act as an end-to-end scientific training systems workflow, not a list of GPU tri
 - **Optimize/benchmark:** use the lifecycle below and `compare_benchmarks.py` as the judge.
 - **Architecture/algorithm experiment:** require explicit authorization; label it `algorithmic_experiment`, separate from systems optimization.
 - **Static-only:** when representative runtime/data is unavailable, report hypotheses and runnable commands, never a measured speedup.
+- **Long-run gate:** do not launch the full campaign horizon until a short staged horizon has passed the contract, quality, and time-to-quality gates.
 
 Do not use this skill for CUDA/runtime correctness bugs, installation/build failures, generic distributed correctness, or numerical instability unless performance is the primary decision.
 
@@ -25,18 +26,18 @@ Use this sequence:
 `Preflight -> Contract Freeze -> Lifecycle Census -> Baseline/Noise -> Profile/Classify -> Hypothesis/Amdahl -> Minimal Intervention -> Activation Proof -> Micro/Module/Logical Update/Amortized Job -> Scientific/Resume/Distributed/Failure Gates -> Statistical Gate`
 
 1. **Preflight:** record model construction order, rank/device mapping, topology, CPU/NUMA/thread state, allocator, and the compatibility matrix for compile, checkpointing, DDP/FSDP, CUDA Graphs, custom ops, dynamic shapes, and higher-order autograd. Reject known-incompatible combinations before a long run.
-2. **Contract Freeze:** freeze model/data/sampler/objective/effective batch/seed/world size, cache keys, timing boundaries, and acceptance policy. A code change is `base_revision + benchmark_harness_hash + candidate_patch_hash + declared_change_set`; `--allow-difference` cannot bypass scientific fields.
+2. **Contract Freeze:** freeze model/data/sampler/objective/effective batch/seed/world size, initialization checkpoint, anchor provenance and scope, constraint stack, auxiliary cadence/masks, cache keys, timing boundaries, and acceptance policy. A code change is `base_revision + benchmark_harness_hash + candidate_patch_hash + declared_change_set`; `--allow-difference` cannot bypass scientific fields.
 3. **Lifecycle Census:** enumerate the logical-update DAG and synchronization census before focusing on a kernel. Include fetch, CPU/GPU preprocessing, H2D, forward/heads, loss, auxiliary derivatives, backward, gradient transforms, clipping, communication, optimizer, scheduler, EMA/SWA, metrics, checkpoint, and validation.
 4. **Baseline/Noise:** collect cold/warm cache state, repeated randomized windows, host/GPU state, and the noise floor.
 5. **Profile/Classify:** reconcile named timing buckets and classify CPU, data, synchronization, memory, compiler, distributed, or scientific bottlenecks. Place `data_ready` after actual readiness.
-6. **Hypothesis/Amdahl:** write one attributable intervention (or declared coupled bundle with ablation), expected movement, semantic risk, falsification test, and Amdahl ceiling.
+6. **Hypothesis/Amdahl:** write one attributable intervention (or declared coupled bundle with ablation), expected movement, semantic risk, falsification test, and Amdahl ceiling. Mark changes to loss weights, anchors, gradient projection/caps, task cadence, supervision membership, solver/NFE, or sampling law as `algorithmic_experiment` when they change gradient statistics or the scientific objective.
 7. **Minimal Intervention:** preserve an eager/reference path and change only the declared lever.
 8. **Activation Proof:** prove the candidate dispatch, compile/cache state, active path, and absence of silent fallback.
 9. **Layered Measure:** compare Micro -> Module -> Logical Update -> Amortized Job on identical scientific work. Report steady-state train-step and cadence-amortized throughput/time-to-quality.
-10. **Gates:** run numerical/gradient/physics/quality, resume, distributed, OOM, and failure diagnostics before statistics.
+10. **Gates:** run numerical/gradient/physics/quality, resume, distributed, OOM, and failure diagnostics before statistics. For conditional or multitask work, include supervision coverage, fixed-condition/composition controls, route/realization probability checks, and non-inferiority of auxiliary objectives.
 11. **Statistical Gate:** require raw runs, median/IQR/MAD, bootstrap confidence, noise floor, and complete timing accounting.
 
-The record is the executable contract. Missing preflight, lifecycle, synchronization, cache/H2D, or resume evidence is `inconclusive`, never an accepted speedup. Unsupported hypothetical cases remain non-blocking.
+The record is the executable contract. Missing preflight, lifecycle, synchronization, cache/H2D, anchor provenance, or resume evidence is `inconclusive`, never an accepted speedup. A training-contract mismatch outranks a performance gain; stop at the shortest useful horizon and run a matched ablation before spending the full campaign budget. Unsupported hypothetical cases remain non-blocking.
 
 ## Required records and tools
 

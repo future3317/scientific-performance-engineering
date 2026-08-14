@@ -14,6 +14,10 @@ These are review patterns, not blind recipes. Adapt them to the project's scient
 8. Prove optimized-kernel activation
 9. Add NVTX ranges for Nsight Systems
 10. Audit misleading timing buckets
+11. Batched data and transfer proof
+12. Custom operator contract
+13. Sync budget and amortized lifecycle
+14. Periodic-geometry kernel boundary
 
 ## 1. Prove autocast is on the real path
 
@@ -203,3 +207,7 @@ Keep a reference implementation and exact signature. Register schema/mutation/al
 ## 13. Sync budget and amortized lifecycle
 
 Record `.item()`, `.cpu()`, metric all-reduce, progress/logging, validation, checkpoint staging, barriers, and explicit synchronizations in the record's `sync_census`. Classify each event as required, removable, amortizable, or overlappable. Measure EMA/SWA/scheduler/clipping and checkpoint/logging/validation cadence in a separate amortized job metric.
+
+## 14. Periodic-geometry kernel boundary
+
+If profiling attributes material time to minimum-image, Cartesian/fractional transforms, radial basis, or scatter/reduction, first prove the same short-kernel pattern on representative cells and edge counts. Then compare one fused `torch.library.triton_op`/CUDA op (or the smallest compatible group) against the eager reference. Keep FP32 behavior and existing periodic, cell-basis, O(3), empty, edge-shape, forward/backward, and compile tests. Do not optimize AdamW or rewrite the scientific architecture while forward geometry still dominates; a kernel win is accepted only when the logical-update measurement moves.

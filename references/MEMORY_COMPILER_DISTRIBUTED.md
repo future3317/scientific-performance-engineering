@@ -10,6 +10,8 @@ Classify OOM as capacity, activation peak, optimizer state, retained autograd gr
 
 Record compile cache state (`cold`, `warm`, `disabled`), cache fingerprint, hit/miss evidence, cold compile time, graph breaks, guards, recompiles, compiled-region coverage, and steady-state time. Start with specialized/static shape buckets when shapes are concentrated; use `dynamic=None`/bounded dynamic dimensions when recompiles demonstrate shape variation; use `dynamic=True` only when the measured regime benefits. Regional compile and intentional graph breaks are valid when data-dependent regions are isolated.
 
+Compile repeated, shape-stable message blocks, RBF/MLP regions, or fixed-interface scalar/vector updates before attempting a whole ragged runner. Keep periodic catalogues, routers, Python control flow, and data-dependent shape changes eager unless a trace proves a stable boundary. A regional candidate needs matched steady-state p50/p95, cold-start amortization, graph-break/recompile evidence, and output/gradient/loss equivalence; a local compile speedup without end-to-end movement is inconclusive. For higher-order derivatives, benchmark a small compiled functional region or Compiled Autograd separately rather than hiding it inside a full-run result.
+
 CUDA Graph capture requires stable shapes, control flow, addresses, allocations, streams, dependencies, DDP/NCCL path, and host callbacks. Verify input-copy and replay lifetimes after capture. Its objective is reducing launch/host overhead, not merely reacting to low GPU utilization.
 
 ## Distributed diagnostics

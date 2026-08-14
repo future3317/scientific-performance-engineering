@@ -40,11 +40,14 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 - CPU threading note: https://docs.pytorch.org/docs/stable/notes/cpu_threading_torchscript_intra_op.html
 - `torch.compile`: https://docs.pytorch.org/docs/stable/torch.compiler.html
 - Dynamic shapes: https://docs.pytorch.org/docs/stable/torch.compiler_dynamic_shapes.html
+- Regional compilation: https://docs.pytorch.org/tutorials/recipes/regional_compilation.html
 - Compiler troubleshooting: https://docs.pytorch.org/docs/stable/torch.compiler_troubleshooting.html
 - Compiler CUDA Graph Trees: https://docs.pytorch.org/docs/stable/torch.compiler_cudagraph_trees.html
 - Optimizer implementations: https://docs.pytorch.org/docs/stable/optim.html
 - torchao documentation: https://docs.pytorch.org/ao/stable/
 - Custom operators, FakeTensor, and `opcheck`: https://docs.pytorch.org/tutorials/advanced/python_custom_ops.html
+- User-defined Triton kernels with `torch.compile`: https://docs.pytorch.org/tutorials/recipes/torch_compile_user_defined_triton_kernel_tutorial.html
+- `torch.func` transforms and compiler FAQ: https://docs.pytorch.org/docs/stable/user_guide/torch_compiler/torch.compiler_faq.html
 - DebugMode numerical localization: https://docs.pytorch.org/tutorials/recipes/debug_mode_tutorial.html
 - Data loading optimization and batched `__getitems__`: https://docs.pytorch.org/docs/stable/data.html
 - `pin_memory()` and non-blocking transfers: https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html
@@ -92,6 +95,7 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 - SO(3)-to-SO(2) equivariant convolutions: https://arxiv.org/abs/2302.03655
 - Gaunt Tensor Products: https://arxiv.org/abs/2401.10216
 - Chemistry foundation model data distribution and kernel optimization: https://arxiv.org/abs/2504.10700
+- Gradient surgery for multi-task learning (PCGrad): https://arxiv.org/abs/2001.06782
 - FlowMM: generating materials with Riemannian flow matching: https://arxiv.org/abs/2406.04713
 - DiffCSP: joint equivariant diffusion for crystal structure prediction: https://arxiv.org/abs/2309.04475
 - CrystalFlow: flow-based crystalline material generation: https://arxiv.org/abs/2412.11693
@@ -110,6 +114,7 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 
 - Nsight Systems User Guide: https://docs.nvidia.com/nsight-systems/UserGuide/index.html
 - Nsight Compute Documentation: https://docs.nvidia.com/nsight-compute/
+- CUDA Graph sync-free code guidance: https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/sync-free-code.html
 - Transformer Engine User Guide: https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html
 - CUDA Programming Guide: https://docs.nvidia.com/cuda/cuda-c-programming-guide/
 

@@ -38,6 +38,10 @@ When fractional coordinates \(F_t\) or lattice \(L_t\) change, distances, edge v
 
 Measure neighbor rebuild/PBC, spherical harmonics, denoiser, guidance, and solver separately. For an independent-sample generation job, distribute sample shards across GPUs; trajectories are serial in time but independent across samples. Within one GPU, bucket compatible atom counts/shapes only when it preserves the requested output distribution.
 
+### Routing and candidate multiplicity
+
+When a route/class can have multiple realizations, verify that catalogue multiplicity does not inflate the route's marginal probability. Prefer an explicit factorization such as `P(route | condition) × P(realization | route, condition)`, or prove that the existing global softmax is mathematically equivalent. Test normalization and marginal probabilities with equal-score synthetic candidates before tuning priors.
+
 ## 5. Guidance, correctors, and I/O are first-class costs
 
 Sweep predictor-corrector count, guidance scale, and solver settings on a fixed quality panel. Compare target hit, validity, novelty/diversity, stability, and actual FE/GPU-hour; do not assume more corrector steps or larger guidance is better. Batch conditional/unconditional passes only when memory permits, and still count both computations.

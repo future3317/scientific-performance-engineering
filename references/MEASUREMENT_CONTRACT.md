@@ -22,14 +22,19 @@ Fill this before modifying performance-sensitive code.
 ## Fixed scientific contract
 
 - Model/output family:
+- Initialization checkpoint / stage / EMA provenance:
+- Anchor or proximal reference: frozen-copy identity, parameter scope, coefficient, and matched-ablation status:
 - Loss and component weights:
+- Constraint stack: shared-LR scaling / gradient projection / norm caps / task weights:
 - Invariance/equivariance/physical constraints:
 - Precision policy and FP32/FP64 islands:
 - Effective batch and accumulation:
 - Optimizer/LR/scheduler/clipping:
 - Stochastic thinning: enabled? selection probability, global/rank-local mask, seed/broadcast, loss reweighting, zero-selected behavior, used-parameter/`find_unused_parameters`/`static_graph` contract, global-norm clip fraction:
+- Auxiliary cadence: per-task update interval, mutually exclusive schedule/overlap, expected-frequency proof, optimizer/EMA boundary:
 - Activation checkpoint/autograd contract: `use_reentrant`, `preserve_rng_state`, higher-order/`autograd.grad` support, DDP `no_sync()`/accumulation support:
 - Data membership/order/augmentation:
+- Supervision coverage: eligible rows versus packed rows by task/family, leakage policy, fixed-condition/composition-shuffle controls:
 - Seed(s), checkpoint/resume semantics and supported boundary (optimizer-only or mid-accumulation):
 - Validation/sampling quality gates:
 - Numerical tolerances:
@@ -44,6 +49,7 @@ Fill this before modifying performance-sensitive code.
 - Steps included:
 - Includes data loading? transfer? optimizer? logging? checkpoint? validation?:
 - Warmup steps / measured steps / repetitions:
+- Staged horizon / early-stop checkpoints / validation Pareto rule:
 - Benchmark levels completed: micro / module / end-to-end:
 - Timing bucket definition and unaccounted step time:
 - CUDA timing proof: paired events/explicit synchronization and stream:

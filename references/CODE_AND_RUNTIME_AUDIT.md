@@ -18,6 +18,10 @@ When a numerical gate fails, localize rather than only rejecting: compare eager/
 
 Count `.item()`, `.cpu()`, tensor-to-Python branches, gradient-norm reads, metric reductions, progress updates, validation statistics, checkpoint staging, barriers, allocator calls, logging/flush/network, host indexing, and explicit synchronizations. Classify each as `required`, `removable`, `amortizable`, or `overlappable`. Reuse device-resident aggregates and one already-issued D2H copy when possible; do not remove scientific monitoring without recording the replacement cadence.
 
+For a host-driven hot loop, keep CUDA scalars and control flow on device: do not use `.item()`, `.cpu()`, or Python `if` to decide per-graph/per-task work, and do not log one scalar at a time. Stack metrics and move one aggregate to CPU at the declared cadence. `torch.cuda.set_sync_debug_mode("warn")` is a diagnostic detector, not a production optimization; confirm the call stack and overlap with Nsight Systems before changing semantics.
+
+For conservative energy→force/stress→parameter derivatives, preserve the derivative contract and isolate a pure functional region before optimizing. Compare the existing `autograd.grad(create_graph=True)` path with `torch.func.grad` and compiled/Compiled Autograd candidates on identical outputs, gradients, higher-order requirements, and work. Never remove `create_graph` merely to make a trace shorter.
+
 ## Acceptance
 
 The preflight result, active-path proof, numerical localization evidence, and sync census belong in the benchmark record. Missing evidence is `inconclusive`; a package being installed is not proof that a training backend or operator mode is active.

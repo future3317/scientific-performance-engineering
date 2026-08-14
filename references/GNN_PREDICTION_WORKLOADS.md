@@ -25,6 +25,12 @@ e'_{ijk}=R_{ia}R_{jb}R_{kc}e_{abc}.
 
 Also test the repository's permutation, translation, periodic-image, point/space-group, and component-symmetry conventions. For piezoelectric response, retain applicable strain-index symmetry and zero-response constraints; do not assume a generic rank-three test fully specifies the label convention. Compare candidate versus baseline component errors, loss terms, gradient norms/cosines, finite values, and physical downstream metrics. Use [materials_gnn_checks.py](../assets/materials_gnn_checks.py) for work-rate and raw Cartesian rank-three helpers; adapt the model invocation and project-specific gates at the call site.
 
-## 4. Prediction acceptance
+## 4. Supervision coverage and representation controls
+
+Report eligible label rows versus rows that actually enter each task's packing, split by composition/element/structure family and leakage policy. Recover legally usable rows with a size/packing fallback only when the logical-update work and batch contract stay fixed; increasing batch count is not a free coverage fix. For conditional electronic or property tasks, add fixed-condition sweeps and composition/formula-shuffle controls to distinguish learned structural effects from composition shortcuts. Do not add another head or weaken a quality gate before coverage and controls are measured.
+
+For metric or teacher encoders, use matched-budget experiments: element-balanced atom loss, teacher layer/identity, and atom-local radial/cutoff capacity are separable candidates. A high graph-level cosine does not prove atom-level fidelity; keep the declared atom/graph gates and do not raise graph capacity or lower a gate to hide a stalled local metric.
+
+## 5. Prediction acceptance
 
 Accept only when the comparable steady-state run meets the general performance rule and all graph/tensor/scientific gates. Record compiler warmup and profiling overhead separately. A faster microkernel, lower memory use, or higher GPU utilization alone is not an accepted optimization.

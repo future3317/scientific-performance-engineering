@@ -37,7 +37,7 @@ Do not use a fully connected TensorProduct as the default architecture when chan
 
 For MACE-like work, separately benchmark `ChannelwiseTensorProduct`, `SymmetricContraction`, `Linear`, `IndexedLinear`, spherical harmonics, and indexed/fused convolution on the actual irreps, multiplicities, edge counts, dtype, layout, and backward workload.
 
-- **cuEquivariance:** Test its matching operation and keep the equivariant path in `ir_mul` layout (`[2l+1, multiplicity]`) where supported. Do not alternate e3nn and cuEquivariance layouts inside every layer; account for every transpose in the end-to-end benchmark.
+- **cuEquivariance:** Test it as a backend pilot for a strict one-to-one O(3)/STF primitive mapping. Keep the equivariant path in `ir_mul` layout (`[2l+1, multiplicity]`) where supported; do not alternate e3nn and cuEquivariance layouts inside every layer. Account for every transpose, version/architecture restriction, fallback, and forward/backward/equivariance gate in the end-to-end benchmark. If the primitive cannot be mapped exactly, do not rewrite the scientific architecture just to adopt the library.
 - **OpenEquivariance:** For general CG TensorProducts, compare it with the e3nn reference and cuEquivariance when the installed NequIP/runtime exposes the modifier and the exact path is supported. It is a candidate, not a required dependency.
 - **Streaming/fused TP:** Do not materialize an \(|E|\times F\) message only because the reference code does. Prefer an indexed/fused or streaming formulation when it preserves aggregation semantics and has a proven backward path. Treat Sobek-style generated streaming kernels as experimental.
 
