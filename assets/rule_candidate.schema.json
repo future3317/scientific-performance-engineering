@@ -5,8 +5,8 @@
   "type": "object",
   "required": [
     "schema_version", "rule_id", "status", "severity", "domain", "trigger", "requires_evidence", "rule",
-    "do_not_apply_when", "risk", "source_cases", "validated_cases", "regression_cases", "conflicts_with",
-    "supersedes", "last_verified", "owner", "promotion"
+    "do_not_apply_when", "risk", "source_cases", "admission_cases", "regression_cases", "conflicts_with",
+    "supersedes", "last_verified", "owner", "collector_confidence", "confidence", "promotion"
   ],
   "properties": {
     "schema_version": {"const": 1},
@@ -19,13 +19,41 @@
     "rule": {"type": "object", "required": ["text"]},
     "do_not_apply_when": {"type": "array", "items": {"type": "string"}},
     "risk": {"enum": ["low", "medium", "high"]},
-    "source_cases": {"type": "array", "items": {"type": "string", "pattern": "^EXP-[0-9]{4}-[0-9]{2}-[0-9]{4,}$"}},
-    "validated_cases": {"type": "array", "items": {"type": "string", "pattern": "^REG-[A-Z0-9-]+$"}},
+    "source_cases": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^EXP-[0-9]{4}-[0-9]{2}-[0-9]{4,}$"}},
+    "admission_cases": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^REG-[A-Z0-9-]+$"}},
     "regression_cases": {"type": "array", "items": {"type": "string", "pattern": "^REG-[A-Z0-9-]+$"}},
     "conflicts_with": {"type": "array", "items": {"type": "string"}},
     "supersedes": {"type": "array", "items": {"type": "string"}},
     "last_verified": {"type": "object", "required": ["pytorch", "date"]},
     "owner": {"type": "string", "minLength": 1},
-    "promotion": {"type": "object", "required": ["replay_status", "human_review"]}
+    "collector_confidence": {"enum": ["low", "medium", "high"]},
+    "confidence": {
+      "type": "object",
+      "required": ["method", "prior_alpha", "prior_beta", "successes", "failures", "p_min", "delta", "posterior_probability", "effective_samples"],
+      "properties": {
+        "method": {"const": "beta-binomial"},
+        "prior_alpha": {"type": "integer", "minimum": 1},
+        "prior_beta": {"type": "integer", "minimum": 1},
+        "successes": {"type": "integer", "minimum": 0},
+        "failures": {"type": "integer", "minimum": 0},
+        "p_min": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+        "delta": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+        "posterior_probability": {"type": "number", "minimum": 0, "maximum": 1},
+        "effective_samples": {"type": "number", "minimum": 0}
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "required": ["replay_status", "human_review"],
+      "properties": {
+        "replay_status": {"enum": ["pending", "passed", "failed"]},
+        "human_review": {"type": "boolean"},
+        "replay_manifest": {"type": "object"},
+        "review_commit": {"type": "string", "pattern": "^[a-fA-F0-9]{7,64}$"},
+        "reviewer": {"type": "string", "minLength": 1},
+        "reviewed_at": {"type": "string", "minLength": 10},
+        "review_diff_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+      }
+    }
   }
 }

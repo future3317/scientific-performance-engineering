@@ -5,7 +5,7 @@
   "type": "object",
   "required": [
     "schema_version", "case_id", "status", "created_at", "capture_reasons", "symptom", "workload",
-    "observed_evidence", "attempts", "lesson", "scope", "confidence", "artifacts"
+    "observed_evidence", "attempts", "lesson", "scope", "collector_confidence", "artifacts"
   ],
   "properties": {
     "schema_version": {"const": 1},
@@ -19,7 +19,20 @@
     "attempts": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["action", "result"]}},
     "lesson": {"type": "object", "required": ["type", "text"]},
     "scope": {"type": "object", "required": ["requires", "excludes"]},
-    "confidence": {"enum": ["low", "medium", "high"]},
-    "artifacts": {"type": "object"}
+    "collector_confidence": {"enum": ["low", "medium", "high"]},
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["path", "sha256", "artifact_type", "producer", "benchmark_id"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+          "artifact_type": {"type": "string", "minLength": 1},
+          "producer": {"type": "string", "minLength": 1},
+          "benchmark_id": {"type": "string", "minLength": 1}
+        }
+      }
+    }
   }
 }

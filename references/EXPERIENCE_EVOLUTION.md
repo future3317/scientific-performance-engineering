@@ -24,7 +24,7 @@ Do not promote a single successful run. A candidate must state its trigger, requ
 
 Capture only a reusable surprise or boundary: a falsified hypothesis, rule failure, better diagnostic order, silent fallback or hidden synchronization, repeated failure, applicability boundary, negative result, or previously unclassified bottleneck. If an existing rule already explains an ordinary result, do not create a record.
 
-Each record must preserve the observed symptom, workload, evidence, every material attempt, measured reason for rejection, replacement evidence, conditional lesson, scope, confidence, and relative artifact references. Use `assets/experience_record.json` as the template and validate/capture with:
+Each record must preserve the observed symptom, workload, evidence, every material attempt, measured reason for rejection, replacement evidence, conditional lesson, scope, collector confidence, and structured artifact provenance (`path`, `sha256`, `artifact_type`, `producer`, `benchmark_id`). Use `assets/experience_record.json` as the template and validate/capture with:
 
 ```powershell
 python scripts/validate_experience.py experience/inbox/EXP-YYYY-MM-0001.json
@@ -39,13 +39,33 @@ If a host Codex setup adds a `Stop` hook, it may remind the practitioner to prep
 
 ## Candidate and promotion contract
 
-Use `assets/rule_candidate.json` as the rule-card shape and `assets/rule_regression_case.json` as the replay-case shape. A candidate must link source `EXP-*` cases, state required evidence and counterexamples, and list planned `REG-*` regression cases. A card becomes canonical only when `promotion.replay_status=passed`, `promotion.replay_evidence` is present, `validated_cases` and `regression_cases` are non-empty, every referenced regression case has `status=pass`, and `promotion.human_review=true`; P0 invariants still require the same human gate. `registry/rules.json` is an index of canonical cards, not a second copy of their text. Run the read-only audit before a review:
+Use `assets/rule_candidate.json` as the rule-card shape and `assets/rule_regression_case.json` as the replay-case shape. A candidate must link existing reviewed source `EXP-*` cases, keep held-out `admission_cases` disjoint from post-promotion `regression_cases`, and preserve regression lineage that does not reuse source evidence. A card becomes canonical only when `scripts/run_rule_replay.py` has produced an existing manifest whose command, case-bundle digest, harness revision, machine-readable outcome, result digest, and attestation match the card; its paired intervention clears the utility lower-bound and scientific gates; its Beta posterior satisfies `P(p > p_min) > 1 - delta`; every referenced regression case has `status=pass`; and `promotion.human_review`, `review_commit`, `reviewer`, `reviewed_at`, and `review_diff_hash` are present. `registry/rules.json` is an index of canonical cards, not a second copy of their text. Run the read-only audit before a review:
 
 ```powershell
 python scripts/validate_evolution.py .
 ```
 
 The audit does not promote, retire, merge, or rewrite anything. Those are explicit maintenance edits reviewed as normal Git changes. Failed replay or conflict checks leave the card under `evolution/candidates/` or move it to `evolution/conflicts/`; retirement requires a reason and remains visible under `evolution/retired/`.
+
+## Three measurable extensions
+
+1. **Counterfactual Rule Utility (CRU):** `run_rule_replay.py` compares paired `do(rule=on)` and `do(rule=off)` outcomes on the same held-out contexts, reports the paired effect and lower confidence bound, and refuses admission when quality/scientific gates fail. This is causal attribution, not usage correlation.
+2. **Bayesian admission:** the same replay counts successes/failures under a Beta prior and records `P(p > p_min)`. `collector_confidence` remains an observation label; canonical confidence is computed from replay evidence.
+3. **Evidence rate-distortion maintenance:** `score_rule_library.py` scores active-rule description length, measured utility distortion, and conflict cost. It emits merge/retire/specialize recommendations but never mutates the library; a maintainer reviews the resulting Git diff.
+
+Usage telemetry is a separate record (`retrieved_rule_ids`, `triggered_rule_ids`, `followed_rule_ids`, `overridden_rule_ids`, and outcome). It closes the retrieval/use/utility loop without treating retrieval frequency as evidence of benefit.
+
+### Runnable maintenance commands
+
+Prepare a paired replay bundle (the same held-out context measured with the rule on and off):
+
+```json
+{"rule_id":"PERF-SYNC-004","epsilon":0.05,"p_min":0.8,"delta":0.05,
+ "cases":[{"case_id":"REG-HELDOUT-001","utility_on":1.17,"utility_off":1.00,
+            "scientific_ok":true,"quality_ok":true}]}
+```
+
+Then run `python scripts/run_rule_replay.py replay_input.json replay_manifest.json`. Point a candidate's `promotion.replay_manifest` at that manifest; `validate_evolution.py` recomputes the result and manifest digests. Capture usage with `python scripts/capture_rule_usage.py usage_record.json`. For maintenance review, pass a JSON list of cards and a reference/library utility mapping to `python scripts/score_rule_library.py cards.json --utility utility.json --output maintenance.json`.
 
 ## Repository boundary
 

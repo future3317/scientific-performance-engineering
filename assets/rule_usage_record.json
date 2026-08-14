@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "usage_id": "USE-2026-08-0001",
+  "created_at": "2026-08-14",
+  "task_id": "replace-with-task-or-benchmark-id",
+  "retrieved_rule_ids": [],
+  "triggered_rule_ids": [],
+  "followed_rule_ids": [],
+  "overridden_rule_ids": [],
+  "outcome": {
+    "status": "inconclusive",
+    "utility": 0.0,
+    "scientific_gates_passed": false
+  }
+}

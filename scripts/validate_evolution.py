@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Audit experience cases, candidate rule cards, and canonical registry references."""
+"""Audit experience provenance, replay-gated rule cards, and rule-graph integrity."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -11,6 +12,10 @@ from typing import Any
 
 SEVERITIES = {"P0", "P1", "P2", "P3", "P4"}
 STATUSES = {"candidate", "canonical", "retired"}
+
+
+def canonical_json(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
 def load_schema(path: Path) -> dict[str, Any]:
@@ -22,6 +27,10 @@ def load_schema(path: Path) -> dict[str, Any]:
 
 def _missing(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}
+
+
+def _is_digest(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdefABCDEF" for char in value)
 
 
 def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
@@ -50,10 +59,10 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
         errors.append("do_not_apply_when must be a list")
     if card.get("risk") not in {"low", "medium", "high"}:
         errors.append("risk must be low, medium, or high")
-    for key, prefix in (("source_cases", "EXP-"), ("validated_cases", "REG-"), ("regression_cases", "REG-")):
+    for key, prefix in (("source_cases", "EXP-"), ("admission_cases", "REG-"), ("regression_cases", "REG-")):
         values = card.get(key)
-        if not isinstance(values, list) or any(not isinstance(item, str) or not item.startswith(prefix) for item in values):
-            errors.append(f"{key} must contain {prefix} identifiers")
+        if not isinstance(values, list) or (key != "regression_cases" and not values) or any(not isinstance(item, str) or not item.startswith(prefix) for item in values):
+            errors.append(f"{key} must contain non-empty {prefix} identifiers")
     if not isinstance(card.get("conflicts_with"), list) or not isinstance(card.get("supersedes"), list):
         errors.append("conflicts_with and supersedes must be lists")
     verified = card.get("last_verified")
@@ -61,6 +70,18 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
         errors.append("last_verified needs pytorch and date")
     if not isinstance(card.get("owner"), str) or not card["owner"]:
         errors.append("owner must be non-empty")
+    if card.get("collector_confidence") not in {"low", "medium", "high"}:
+        errors.append("collector_confidence must be low, medium, or high")
+    confidence = card.get("confidence")
+    if not isinstance(confidence, dict) or confidence.get("method") != "beta-binomial":
+        errors.append("confidence.method must be beta-binomial")
+    else:
+        for key in ("prior_alpha", "prior_beta", "successes", "failures"):
+            if not isinstance(confidence.get(key), int) or confidence[key] < 0:
+                errors.append(f"confidence.{key} must be a non-negative integer")
+        for key in ("p_min", "delta", "posterior_probability", "effective_samples"):
+            if not isinstance(confidence.get(key), (int, float)):
+                errors.append(f"confidence.{key} must be numeric")
     promotion = card.get("promotion")
     if not isinstance(promotion, dict) or promotion.get("replay_status") not in {"pending", "passed", "failed"} or not isinstance(promotion.get("human_review"), bool):
         errors.append("promotion needs replay_status pending/passed/failed and boolean human_review")
@@ -69,10 +90,26 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
             errors.append("canonical rule requires replay_status=passed")
         if not promotion["human_review"]:
             errors.append("canonical rule requires human_review=true")
-        if not card.get("validated_cases") or not card.get("regression_cases"):
-            errors.append("canonical rule requires validated_cases and regression_cases")
-        if _missing(promotion.get("replay_evidence")):
-            errors.append("canonical rule requires replay_evidence")
+        if _missing(promotion.get("replay_manifest")):
+            errors.append("canonical rule requires replay_manifest")
+        for key in ("review_commit", "reviewer", "reviewed_at", "review_diff_hash"):
+            if _missing(promotion.get(key)):
+                errors.append(f"canonical rule requires promotion.{key}")
+        if promotion.get("review_commit") and (not isinstance(promotion["review_commit"], str) or not 7 <= len(promotion["review_commit"]) <= 64 or any(char not in "0123456789abcdefABCDEF" for char in promotion["review_commit"])):
+            errors.append("promotion.review_commit must be a Git revision")
+        if promotion.get("review_diff_hash") and not _is_digest(promotion["review_diff_hash"]):
+            errors.append("promotion.review_diff_hash must be a SHA-256 digest")
+        if not card.get("admission_cases") or not card.get("regression_cases"):
+            errors.append("canonical rule requires admission_cases and regression_cases")
+        if not isinstance(promotion.get("replay_manifest"), dict):
+            errors.append("canonical replay_manifest must be an object")
+        else:
+            manifest = promotion["replay_manifest"]
+            for key in ("path", "command", "case_bundle_sha256", "harness_revision", "result_digest", "outcome"):
+                if _missing(manifest.get(key)):
+                    errors.append(f"canonical replay_manifest requires {key}")
+            if not _is_digest(manifest.get("case_bundle_sha256")) or not _is_digest(manifest.get("result_digest")):
+                errors.append("canonical replay_manifest requires 64-character digests")
     elif card.get("status") == "retired" and _missing(card.get("retirement_reason")):
         errors.append("retired rule requires retirement_reason")
     return errors
@@ -88,8 +125,8 @@ def validate_regression_case(case: Any, schema: dict[str, Any]) -> list[str]:
         errors.append("regression case case_id must start with REG-")
     if not isinstance(case.get("rule_id"), str) or not case["rule_id"]:
         errors.append("regression case rule_id must be non-empty")
-    if case.get("kind") not in {"positive", "counterexample"}:
-        errors.append("regression case kind must be positive or counterexample")
+    if case.get("kind") not in {"admission", "positive", "counterexample"}:
+        errors.append("regression case kind must be admission, positive, or counterexample")
     if case.get("status") not in {"pending", "pass", "fail"}:
         errors.append("regression case status must be pending, pass, or fail")
     scope = case.get("scope")
@@ -98,6 +135,136 @@ def validate_regression_case(case: Any, schema: dict[str, Any]) -> list[str]:
     for key in ("expected", "observed", "evidence"):
         if _missing(case.get(key)):
             errors.append(f"regression case {key} must be non-empty")
+    lineage = case.get("lineage")
+    if not isinstance(lineage, dict) or not isinstance(lineage.get("derived_from_experience_ids"), list) or _missing(lineage.get("repository_revision")) or _missing(lineage.get("task_family")):
+        errors.append("regression case lineage needs derived_from_experience_ids, repository_revision, and task_family")
+    return errors
+
+
+def validate_card_links(card: dict[str, Any], experiences: dict[str, dict[str, Any]], regression_cases: dict[str, dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    source_ids = set(card.get("source_cases", []))
+    admission_ids = set(card.get("admission_cases", []))
+    regression_ids = set(card.get("regression_cases", []))
+    for case_id in source_ids:
+        if case_id not in experiences or experiences[case_id].get("status") != "case":
+            errors.append(f"source case is missing or not reviewed: {case_id}")
+    for case_id in admission_ids | regression_ids:
+        if case_id not in regression_cases:
+            errors.append(f"referenced regression case is missing: {case_id}")
+    overlap = admission_ids & regression_ids
+    if overlap:
+        errors.append(f"admission and regression cases must be disjoint: {sorted(overlap)}")
+    for case_id in admission_ids | regression_ids:
+        case = regression_cases.get(case_id)
+        if not case:
+            continue
+        if case_id in admission_ids and case.get("kind") != "admission":
+            errors.append(f"admission case must have kind=admission: {case_id}")
+        if case_id in regression_ids and case.get("kind") == "admission":
+            errors.append(f"regression case cannot have kind=admission: {case_id}")
+        derived = set(case.get("lineage", {}).get("derived_from_experience_ids", []))
+        if source_ids & derived:
+            errors.append(f"evidence leakage: {case_id} lineage overlaps source cases")
+    return errors
+
+
+def validate_rule_graph(cards: dict[str, dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    for rule_id, card in cards.items():
+        for field in ("conflicts_with", "supersedes"):
+            for target in card.get(field, []):
+                if target not in cards:
+                    errors.append(f"{rule_id} has dangling {field} edge to {target}")
+                if target == rule_id:
+                    errors.append(f"{rule_id} has self {field} edge")
+        for target in card.get("conflicts_with", []):
+            if target in cards and cards[target].get("status") == "canonical" and card.get("status") == "canonical":
+                errors.append(f"canonical rules conflict: {rule_id} and {target}")
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(rule_id: str) -> None:
+        if rule_id in visiting:
+            errors.append(f"supersedes cycle detected at {rule_id}")
+            return
+        if rule_id in visited:
+            return
+        visiting.add(rule_id)
+        for target in cards.get(rule_id, {}).get("supersedes", []):
+            if target in cards:
+                visit(target)
+        visiting.remove(rule_id)
+        visited.add(rule_id)
+
+    for rule_id in cards:
+        visit(rule_id)
+    return errors
+
+
+def validate_replay_manifest(card: dict[str, Any], root: Path) -> list[str]:
+    if card.get("status") != "canonical":
+        return []
+    manifest_ref = card.get("promotion", {}).get("replay_manifest", {})
+    if not isinstance(manifest_ref, dict):
+        return [f"{card.get('rule_id')}: replay_manifest must be an object"]
+    path = (root / str(manifest_ref.get("path", ""))).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError:
+        return [f"{card.get('rule_id')}: replay manifest escapes repository root"]
+    if not path.is_file():
+        return [f"{card.get('rule_id')}: replay manifest does not exist: {manifest_ref.get('path')}" ]
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"{path}: invalid replay manifest: {exc}"]
+    errors: list[str] = []
+    if manifest.get("rule_id") != card.get("rule_id") or manifest.get("outcome") != "passed":
+        errors.append(f"{path}: replay manifest rule_id/outcome does not prove the card")
+    result = manifest.get("result")
+    if not isinstance(result, dict):
+        errors.append(f"{path}: replay manifest needs a machine-readable result")
+    else:
+        digest = hashlib.sha256(canonical_json(result)).hexdigest()
+        if digest != manifest.get("result_digest") or digest != manifest_ref.get("result_digest"):
+            errors.append(f"{path}: result_digest mismatch")
+        confidence = card.get("confidence", {})
+        for key in ("successes", "failures", "prior_alpha", "prior_beta"):
+            if result.get(key) != confidence.get(key):
+                errors.append(f"{path}: replay result differs from card confidence: {key}")
+        for key in ("p_min", "delta", "posterior_probability"):
+            if not isinstance(result.get(key), (int, float)) or abs(float(result[key]) - float(confidence.get(key, -1))) > 1e-12:
+                errors.append(f"{path}: replay result differs from card confidence: {key}")
+        if result.get("lower_confidence_bound", float("-inf")) <= result.get("epsilon", float("inf")) or not result.get("scientific_gates_passed", False):
+            errors.append(f"{path}: replay result does not clear utility/scientific gates")
+    attestation = manifest.get("attestation")
+    body = {key: value for key, value in manifest.items() if key != "attestation"}
+    if not isinstance(attestation, dict) or attestation.get("algorithm") != "sha256" or attestation.get("manifest_digest") != hashlib.sha256(canonical_json(body)).hexdigest():
+        errors.append(f"{path}: manifest attestation mismatch")
+    for key in ("command", "case_bundle_sha256", "harness_revision", "result_digest", "outcome"):
+        if manifest.get(key) != manifest_ref.get(key):
+            errors.append(f"{path}: replay manifest field differs from card: {key}")
+    return errors
+
+
+def validate_experience_provenance(record: dict[str, Any], root: Path) -> list[str]:
+    errors: list[str] = []
+    for name, artifact in (record.get("artifacts") or {}).items():
+        if not isinstance(artifact, dict) or not isinstance(artifact.get("path"), str):
+            errors.append(f"artifact provenance is malformed: {name}")
+            continue
+        path = (root / artifact["path"]).resolve()
+        try:
+            path.relative_to(root.resolve())
+        except ValueError:
+            errors.append(f"artifact path escapes repository root: {name}")
+            continue
+        if not path.is_file():
+            errors.append(f"artifact path does not exist: {artifact['path']}")
+            continue
+        if hashlib.sha256(path.read_bytes()).hexdigest().lower() != str(artifact.get("sha256", "")).lower():
+            errors.append(f"artifact digest mismatch: {artifact['path']}")
     return errors
 
 
@@ -128,6 +295,20 @@ def audit(root: Path) -> list[str]:
     errors: list[str] = []
     cards: dict[str, dict[str, Any]] = {}
     regression_cases: dict[str, dict[str, Any]] = {}
+    experiences: dict[str, dict[str, Any]] = {}
+    for path in sorted((root / "experience" / "cases").glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"{path}: {exc}")
+            continue
+        case_id = record.get("case_id") if isinstance(record, dict) else None
+        if isinstance(case_id, str):
+            if case_id in experiences:
+                errors.append(f"duplicate experience case_id: {case_id}")
+            experiences[case_id] = record
+            if record.get("status") == "case":
+                errors.extend(f"{path}: {error}" for error in validate_experience_provenance(record, root))
     for path in sorted((root / "tests" / "rule_cases").glob("*.json")):
         try:
             case = json.loads(path.read_text(encoding="utf-8"))
@@ -139,11 +320,7 @@ def audit(root: Path) -> list[str]:
             if case["case_id"] in regression_cases:
                 errors.append(f"duplicate regression case_id: {case['case_id']}")
             regression_cases[case["case_id"]] = case
-    for directory, expected_status in (
-        (root / "evolution" / "candidates", "candidate"),
-        (root / "rules", "canonical"),
-        (root / "evolution" / "retired", "retired"),
-    ):
+    for directory, expected_status in ((root / "evolution" / "candidates", "candidate"), (root / "rules", "canonical"), (root / "evolution" / "retired", "retired")):
         for path in sorted(directory.glob("*.json")):
             try:
                 card = json.loads(path.read_text(encoding="utf-8"))
@@ -157,11 +334,9 @@ def audit(root: Path) -> list[str]:
                 if card["rule_id"] in cards:
                     errors.append(f"duplicate rule_id across card directories: {card['rule_id']}")
                 cards[card["rule_id"]] = card
-                if expected_status == "canonical":
-                    for case_id in card.get("regression_cases", []):
-                        case = regression_cases.get(case_id)
-                        if case is None or case.get("status") != "pass":
-                            errors.append(f"{path}: canonical rule regression case is not passing: {case_id}")
+                errors.extend(f"{path}: {error}" for error in validate_card_links(card, experiences, regression_cases))
+                errors.extend(f"{path}: {error}" for error in validate_replay_manifest(card, root))
+    errors.extend(validate_rule_graph(cards))
     registry_path = root / "registry" / "rules.json"
     if registry_path.exists():
         try:

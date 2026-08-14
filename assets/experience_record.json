@@ -25,9 +25,21 @@
     "requires": ["measured prerequisite"],
     "excludes": ["known counterexample"]
   },
-  "confidence": "medium",
+  "collector_confidence": "medium",
   "artifacts": {
-    "benchmark_record": "relative/path/to/benchmark_record.json",
-    "trace": "relative/path/to/trace"
+    "benchmark_record": {
+      "path": "relative/path/to/benchmark_record.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "artifact_type": "benchmark_record",
+      "producer": "compare_benchmarks.py",
+      "benchmark_id": "replace-with-benchmark-id"
+    },
+    "trace": {
+      "path": "relative/path/to/trace",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "artifact_type": "nsys_trace",
+      "producer": "nsys",
+      "benchmark_id": "replace-with-benchmark-id"
+    }
   }
 }

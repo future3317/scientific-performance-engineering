@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -76,20 +77,53 @@ def validate_record(record: Any, schema: dict[str, Any]) -> list[str]:
     scope = record.get("scope")
     if not isinstance(scope, dict) or not isinstance(scope.get("requires"), list) or not isinstance(scope.get("excludes"), list):
         errors.append("scope requires and excludes must be lists")
-    if record.get("confidence") not in {"low", "medium", "high"}:
-        errors.append("confidence must be low, medium, or high")
+    if record.get("collector_confidence") not in {"low", "medium", "high"}:
+        errors.append("collector_confidence must be low, medium, or high")
     artifacts = record.get("artifacts")
-    if not isinstance(artifacts, dict) or any(not isinstance(value, str) or not value for value in artifacts.values()):
-        errors.append("artifacts must be an object of non-empty strings")
+    if not isinstance(artifacts, dict):
+        errors.append("artifacts must be an object")
+    else:
+        for name, value in artifacts.items():
+            if not isinstance(value, dict) or any(_missing(value.get(key)) for key in ("path", "sha256", "artifact_type", "producer", "benchmark_id")):
+                errors.append(f"artifacts.{name} needs path, sha256, artifact_type, producer, and benchmark_id")
+                continue
+            if Path(value["path"]).is_absolute():
+                errors.append(f"artifacts.{name}.path must be repository-relative")
+            if not isinstance(value["sha256"], str) or len(value["sha256"]) != 64:
+                errors.append(f"artifacts.{name}.sha256 must be a 64-character digest")
     return errors
 
 
-def validate_file(path: Path, schema: dict[str, Any]) -> list[str]:
+def validate_artifact_files(record: Any, root: Path) -> list[str]:
+    """Verify provenance digests when a record is being audited in a repository."""
+    errors: list[str] = []
+    for name, artifact in (record.get("artifacts") or {}).items():
+        if not isinstance(artifact, dict) or not isinstance(artifact.get("path"), str):
+            continue
+        path = (root / artifact["path"]).resolve()
+        try:
+            path.relative_to(root.resolve())
+        except ValueError:
+            errors.append(f"artifacts.{name}.path escapes repository root")
+            continue
+        if not path.is_file():
+            errors.append(f"artifacts.{name}.path does not exist: {artifact['path']}")
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest.lower() != str(artifact.get("sha256", "")).lower():
+            errors.append(f"artifacts.{name}.sha256 does not match {artifact['path']}")
+    return errors
+
+
+def validate_file(path: Path, schema: dict[str, Any], root: Path | None = None) -> list[str]:
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"{path}: {exc}"]
-    return [f"{path}: {error}" for error in validate_record(record, schema)]
+    errors = validate_record(record, schema)
+    if root is not None and not errors and record.get("status") != "inbox":
+        errors.extend(validate_artifact_files(record, root))
+    return [f"{path}: {error}" for error in errors]
 
 
 def main() -> None:
@@ -98,7 +132,7 @@ def main() -> None:
     schema = load_schema(root / "assets" / "experience_record.schema.json")
     files = sorted(target.rglob("*.json")) if target.is_dir() else [target]
     files = [path for path in files if path.name != "experience_record.schema.json"]
-    errors = [error for path in files for error in validate_file(path, schema)]
+    errors = [error for path in files for error in validate_file(path, schema, root)]
     if errors:
         for error in errors:
             print(error, file=sys.stderr)

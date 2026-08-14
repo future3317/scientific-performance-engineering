@@ -30,6 +30,7 @@ def main() -> None:
     schema = validator.load_schema(ROOT / "assets" / "experience_record.schema.json")
     record = json.loads(source.read_text(encoding="utf-8"))
     errors = validator.validate_record(record, schema)
+    errors.extend(validator.validate_artifact_files(record, ROOT))
     if errors:
         raise SystemExit("invalid experience: " + "; ".join(errors))
     if record.get("status") != "inbox":

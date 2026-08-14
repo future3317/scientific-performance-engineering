@@ -10,11 +10,23 @@
   "do_not_apply_when": ["loader_wait_is_material", "cpu_preprocessing_dominates"],
   "risk": "low",
   "source_cases": ["EXP-2026-08-0017"],
-  "validated_cases": [],
+  "admission_cases": ["REG-SYNC-ADMISSION-001"],
   "regression_cases": [],
   "conflicts_with": [],
   "supersedes": [],
   "last_verified": {"pytorch": "2.7.1", "date": "2026-08-14"},
   "owner": "runtime",
+  "collector_confidence": "medium",
+  "confidence": {
+    "method": "beta-binomial",
+    "prior_alpha": 1,
+    "prior_beta": 1,
+    "successes": 0,
+    "failures": 0,
+    "p_min": 0.8,
+    "delta": 0.05,
+    "posterior_probability": 0.0,
+    "effective_samples": 0.0
+  },
   "promotion": {"replay_status": "pending", "human_review": false}
 }

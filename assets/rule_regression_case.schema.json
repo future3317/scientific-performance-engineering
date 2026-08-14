@@ -3,16 +3,25 @@
   "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/rule_regression_case.schema.json",
   "title": "Scientific optimizer rule regression case",
   "type": "object",
-  "required": ["schema_version", "case_id", "rule_id", "kind", "status", "scope", "expected", "observed", "evidence"],
+  "required": ["schema_version", "case_id", "rule_id", "kind", "status", "scope", "expected", "observed", "evidence", "lineage"],
   "properties": {
     "schema_version": {"const": 1},
     "case_id": {"type": "string", "pattern": "^REG-[A-Z0-9-]+$"},
     "rule_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
-    "kind": {"enum": ["positive", "counterexample"]},
+    "kind": {"enum": ["admission", "positive", "counterexample"]},
     "status": {"enum": ["pending", "pass", "fail"]},
     "scope": {"type": "object", "required": ["requires", "excludes"]},
     "expected": {"type": "string", "minLength": 1},
     "observed": {"type": "string", "minLength": 1},
-    "evidence": {"type": "string", "minLength": 1}
+    "evidence": {"type": "string", "minLength": 1},
+    "lineage": {
+      "type": "object",
+      "required": ["derived_from_experience_ids", "repository_revision", "task_family"],
+      "properties": {
+        "derived_from_experience_ids": {"type": "array", "items": {"type": "string", "pattern": "^EXP-"}},
+        "repository_revision": {"type": "string", "minLength": 7},
+        "task_family": {"type": "string", "minLength": 1}
+      }
+    }
   }
 }

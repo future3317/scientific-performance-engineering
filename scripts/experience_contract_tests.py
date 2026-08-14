@@ -40,8 +40,11 @@ def valid_record() -> dict:
             "text": "Audit scalar synchronization before sweeping input-pipeline workers when loader wait is small.",
         },
         "scope": {"requires": ["low_data_wait", "scalar_sync_evidence"], "excludes": ["cpu_preprocessing_dominates"]},
-        "confidence": "medium",
-        "artifacts": {"benchmark_record": "records/benchmark_record.json", "trace": "traces/step.nsys-rep"},
+        "collector_confidence": "medium",
+        "artifacts": {
+            "benchmark_record": {"path": "records/benchmark_record.json", "sha256": "a" * 64, "artifact_type": "benchmark_record", "producer": "compare_benchmarks.py", "benchmark_id": "BENCH-1"},
+            "trace": {"path": "traces/step.nsys-rep", "sha256": "b" * 64, "artifact_type": "nsys_trace", "producer": "nsys", "benchmark_id": "BENCH-1"},
+        },
     }
 
 

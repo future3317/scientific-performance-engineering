@@ -33,7 +33,9 @@ jobs:
         run: |
           python scripts/experience_contract_tests.py
           python scripts/evolution_contract_tests.py
+          python scripts/evolution_utility_tests.py
           python scripts/validate_evolution.py .
+          python scripts/validate_rule_usage.py assets/rule_usage_record.json
       - name: Compile Python tools
         run: python -m compileall -q scripts assets
 
