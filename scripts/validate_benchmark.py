@@ -42,6 +42,15 @@ def missing(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}
 
 
+def validate_experience_case_ids(record: dict[str, Any], errors: list[str]) -> None:
+    candidate = record.get("candidate")
+    if not isinstance(candidate, dict) or "experience_case_ids" not in candidate:
+        return
+    values = candidate["experience_case_ids"]
+    if not isinstance(values, list) or any(not isinstance(item, str) or not item.startswith("EXP-") for item in values):
+        errors.append("candidate.experience_case_ids must contain EXP-* identifiers")
+
+
 def require_object(record: dict[str, Any], path: str, errors: list[str]) -> dict[str, Any] | None:
     value = get_path(record, path)
     if not isinstance(value, dict):
@@ -52,6 +61,7 @@ def require_object(record: dict[str, Any], path: str, errors: list[str]) -> dict
 
 def validate_record(record: dict[str, Any], schema: dict[str, Any]) -> list[str]:
     errors: list[str] = []
+    validate_experience_case_ids(record, errors)
     if record.get("schema_version") != schema["properties"]["schema_version"]["const"]:
         errors.append("schema_version must be 4")
 

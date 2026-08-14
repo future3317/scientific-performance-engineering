@@ -42,7 +42,7 @@ The record is the executable contract. Compare frozen contract fields exactly; d
 
 ## Experience boundary
 
-Treat self-evolution as a separate, auditable maintenance workflow. During a task, the practitioner may record a reusable surprise, falsified hypothesis, negative result, rule boundary, or hidden synchronization in `experience/inbox/` using `assets/experience_record.json`; an experience is evidence, not a rule. Do not let runtime work edit `SKILL.md`, canonical references, rule status, or acceptance semantics. A maintainer may consolidate cases into a candidate only after checking scope and counterexamples; replay/regression evidence and human review are required before a candidate becomes canonical. Read [EXPERIENCE_EVOLUTION.md](references/EXPERIENCE_EVOLUTION.md) when capturing or maintaining experience.
+Treat self-evolution as a separate, auditable maintenance workflow. During a task, the practitioner may record a reusable surprise, falsified hypothesis, negative result, rule boundary, or hidden synchronization in `experience/inbox/` using `assets/experience_record.json`; an experience is evidence, not a rule. Use `scripts/capture_experience.py` to validate and store it without overwriting an existing case. Do not let runtime work edit `SKILL.md`, canonical references, rule status, or acceptance semantics. A maintainer may consolidate cases into a candidate rule card, but `scripts/validate_evolution.py` must show replay passed, regression cases, and human review before a candidate becomes canonical. Read [EXPERIENCE_EVOLUTION.md](references/EXPERIENCE_EVOLUTION.md) when capturing or maintaining experience.
 
 ## Required records and tools
 
@@ -50,6 +50,7 @@ Treat self-evolution as a separate, auditable maintenance workflow. During a tas
 - Run `scripts/collect_env.py` (privacy-safe by default; use `--include-sensitive-host-metadata` only when needed).
 - Run `scripts/run_with_gpu_monitor.py --gpu <index-or-UUID> ...`; it records GPU mapping and trainer/worker/process-tree memory, not just monitor RSS.
 - Run `scripts/validate_benchmark.py` for the lifecycle/schema contract.
+- Run `scripts/validate_experience.py` and `scripts/validate_evolution.py` for the experience and rule-promotion contracts.
 - Run `scripts/compare_benchmarks.py`; inspect its separate `comparison_class`, `evidence_level`, `comparability`, and `decision` fields. `assessment` is retained as a compatibility/debug classification; the decision is `accepted`, `rejected`, or `inconclusive`.
 - Run `scripts/validate_skill.py`, `scripts/behavioral_contract_tests.py`, and the material/GNN self-test before publishing.
 

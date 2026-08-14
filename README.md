@@ -133,6 +133,11 @@ Benchmark records declare comparison class and evidence level. Micro/module evid
 - [`scripts/validate_skill.py`](scripts/validate_skill.py): validates structure, links, assets, and Python syntax.
 - [`scripts/validate_benchmark.py`](scripts/validate_benchmark.py): validates the schema-driven lifecycle and evidence contract.
 - [`scripts/validate_experience.py`](scripts/validate_experience.py): validates experience records without promoting them to rules.
+- [`scripts/capture_experience.py`](scripts/capture_experience.py): validates and copies one inbox record without overwriting existing cases.
+- [`scripts/validate_evolution.py`](scripts/validate_evolution.py): audits candidate/retired cards and canonical registry promotion gates.
+- `experience/` and `evolution/`: audited inbox, cases, candidates, conflicts, maintenance reports, and retired cards.
+- `rules/`: reviewed canonical rule cards only; it is intentionally separate from the reference prose.
+- [`registry/rules.json`](registry/rules.json): canonical-rule index; it does not duplicate reference prose.
 
 ### Open-source use and contributions
 

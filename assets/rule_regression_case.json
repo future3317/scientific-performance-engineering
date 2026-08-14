@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "case_id": "REG-SYNC-001",
+  "rule_id": "PERF-SYNC-004",
+  "kind": "positive",
+  "status": "pending",
+  "scope": {"requires": ["low_data_wait", "scalar_sync_evidence"], "excludes": ["cpu_preprocessing_dominates"]},
+  "expected": "Scalar synchronization is audited before increasing loader workers.",
+  "observed": "Pending a replay against a real benchmark record.",
+  "evidence": "relative/path/to/replay-artifact"
+}

@@ -75,7 +75,11 @@
     },
     "acceptance": {"type": "object", "required": ["primary_metric", "required_quality_gates", "minimum_runs"]},
     "measurements": {"type": "object", "required": ["run_order", "runs"]},
-    "candidate": {"type": "object", "required": ["changed_levers", "active_path_evidence", "reference_output", "falsification_test"]},
+    "candidate": {
+      "type": "object",
+      "required": ["changed_levers", "active_path_evidence", "reference_output", "falsification_test"],
+      "properties": {"experience_case_ids": {"type": "array", "items": {"type": "string", "pattern": "^EXP-[0-9]{4}-[0-9]{2}-[0-9]{4,}$"}}}
+    },
     "quality": {"type": "object"}
   },
   "$defs": {

@@ -100,6 +100,7 @@
   },
   "candidate": {
     "hypothesis": "",
+    "experience_case_ids": [],
     "measured_bottleneck_share": null,
     "changed_levers": [],
     "expected_metric_movement": "",

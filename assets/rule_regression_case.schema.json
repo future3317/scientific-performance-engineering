@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/rule_regression_case.schema.json",
+  "title": "Scientific optimizer rule regression case",
+  "type": "object",
+  "required": ["schema_version", "case_id", "rule_id", "kind", "status", "scope", "expected", "observed", "evidence"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "case_id": {"type": "string", "pattern": "^REG-[A-Z0-9-]+$"},
+    "rule_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
+    "kind": {"enum": ["positive", "counterexample"]},
+    "status": {"enum": ["pending", "pass", "fail"]},
+    "scope": {"type": "object", "required": ["requires", "excludes"]},
+    "expected": {"type": "string", "minLength": 1},
+    "observed": {"type": "string", "minLength": 1},
+    "evidence": {"type": "string", "minLength": 1}
+  }
+}

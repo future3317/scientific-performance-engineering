@@ -16,9 +16,12 @@ FRONTMATTER_KEYS = {"name", "description"}
 REQUIRED_SCRIPTS = {
     "collect_env.py",
     "compare_benchmarks.py",
+    "capture_experience.py",
     "experience_contract_tests.py",
+    "evolution_contract_tests.py",
     "run_with_gpu_monitor.py",
     "validate_benchmark.py",
+    "validate_evolution.py",
     "validate_experience.py",
     "validate_skill.py",
 }
@@ -42,9 +45,14 @@ REQUIRED_ASSETS = {
     "benchmark_record.schema.json",
     "experience_record.json",
     "experience_record.schema.json",
+    "rule_candidate.json",
+    "rule_candidate.schema.json",
+    "rule_regression_case.json",
+    "rule_regression_case.schema.json",
     "materials_gnn_checks.py",
     "performance_report.md",
 }
+REQUIRED_REGISTRY = {"rules.json"}
 REQUIRED_MAIN_ROUTES = {
     "CODE_AND_RUNTIME_AUDIT.md",
     "DATA_AND_TRAINING_LIFECYCLE.md",
@@ -135,12 +143,22 @@ def validate_benchmark_asset(root: Path) -> None:
 def validate_resources(root: Path) -> None:
     references = root / "references"
     assets = root / "assets"
+    registry = root / "registry"
+    rules = root / "rules"
+    regression_cases = root / "tests" / "rule_cases"
     missing_references = sorted(name for name in REQUIRED_REFERENCES if not (references / name).is_file())
     if missing_references:
         raise ValueError(f"missing required references: {', '.join(missing_references)}")
     missing_assets = sorted(name for name in REQUIRED_ASSETS if not (assets / name).is_file())
     if missing_assets:
         raise ValueError(f"missing required assets: {', '.join(missing_assets)}")
+    missing_registry = sorted(name for name in REQUIRED_REGISTRY if not (registry / name).is_file())
+    if missing_registry:
+        raise ValueError(f"missing required registry files: {', '.join(missing_registry)}")
+    if not rules.is_dir():
+        raise ValueError("missing rules directory for canonical rule cards")
+    if not regression_cases.is_dir():
+        raise ValueError("missing tests/rule_cases directory for replay evidence")
     compile((assets / "materials_gnn_checks.py").read_text(encoding="utf-8"), "materials_gnn_checks.py", "exec")
 
 
@@ -200,6 +218,25 @@ def validate_experience_with_tool(root: Path) -> None:
         raise ValueError(f"experience_record.json failed validation: {'; '.join(errors)}")
 
 
+def validate_evolution_with_tool(root: Path) -> None:
+    source = (root / "scripts" / "validate_evolution.py").read_text(encoding="utf-8")
+    namespace: dict[str, Any] = {"__name__": "validate_evolution", "__file__": str(root / "scripts" / "validate_evolution.py")}
+    exec(compile(source, "validate_evolution.py", "exec"), namespace)
+    schema = namespace["load_schema"](root / "assets" / "rule_candidate.schema.json")
+    card = json.loads((root / "assets" / "rule_candidate.json").read_text(encoding="utf-8"))
+    errors = namespace["validate_rule"](card, schema)
+    if errors:
+        raise ValueError(f"rule_candidate.json failed validation: {'; '.join(errors)}")
+    regression_schema = namespace["load_schema"](root / "assets" / "rule_regression_case.schema.json")
+    regression = json.loads((root / "assets" / "rule_regression_case.json").read_text(encoding="utf-8"))
+    errors = namespace["validate_regression_case"](regression, regression_schema)
+    if errors:
+        raise ValueError(f"rule_regression_case.json failed validation: {'; '.join(errors)}")
+    errors = namespace["audit"](root)
+    if errors:
+        raise ValueError(f"evolution audit failed: {'; '.join(errors)}")
+
+
 def main() -> None:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
     skill_path = root / "SKILL.md"
@@ -226,6 +263,7 @@ def main() -> None:
     validate_python(root)
     validate_benchmark_with_tool(root)
     validate_experience_with_tool(root)
+    validate_evolution_with_tool(root)
     print(f"valid: {name}")
 
 

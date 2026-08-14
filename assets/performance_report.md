@@ -92,6 +92,7 @@ Task census: structures/graphs/atoms/edges per rank and globally; mechanism/prop
 - Scientific risk and mitigation:
 - Rollback/disable setting:
 - Explicitly authorized algorithmic differences, if any:
+- Experience case IDs linked to rejected hypotheses or reusable findings:
 - Stochastic-thinning policy, selection probability, loss reweighting, and seed/rank semantics (if applicable):
 - DDP thinning contract: global/rank-local mask, used-parameter set, `find_unused_parameters`/`static_graph`, zero-selected windows, normalization, clip fraction:
 - Activation-checkpoint contract: `use_reentrant`, `preserve_rng_state`, `autograd.grad`/higher-order support, `no_sync()` support, resume boundary and restored state:

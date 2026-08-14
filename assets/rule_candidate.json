@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "rule_id": "PERF-SYNC-004",
+  "status": "candidate",
+  "severity": "P2",
+  "domain": "runtime",
+  "trigger": {"all": ["low_gpu_duty_cycle", "scalar_sync_evidence"]},
+  "requires_evidence": ["profiler_or_nsys", "synchronization_census"],
+  "rule": {"text": "Audit scalar synchronization before increasing input-pipeline parallelism when loader wait is small."},
+  "do_not_apply_when": ["loader_wait_is_material", "cpu_preprocessing_dominates"],
+  "risk": "low",
+  "source_cases": ["EXP-2026-08-0017"],
+  "validated_cases": [],
+  "regression_cases": [],
+  "conflicts_with": [],
+  "supersedes": [],
+  "last_verified": {"pytorch": "2.7.1", "date": "2026-08-14"},
+  "owner": "runtime",
+  "promotion": {"replay_status": "pending", "human_review": false}
+}

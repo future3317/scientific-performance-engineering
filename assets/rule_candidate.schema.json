@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/rule_candidate.schema.json",
+  "title": "Scientific optimizer rule card",
+  "type": "object",
+  "required": [
+    "schema_version", "rule_id", "status", "severity", "domain", "trigger", "requires_evidence", "rule",
+    "do_not_apply_when", "risk", "source_cases", "validated_cases", "regression_cases", "conflicts_with",
+    "supersedes", "last_verified", "owner", "promotion"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "rule_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
+    "status": {"enum": ["candidate", "canonical", "retired"]},
+    "severity": {"enum": ["P0", "P1", "P2", "P3", "P4"]},
+    "domain": {"type": "string", "minLength": 1},
+    "trigger": {"type": "object", "required": ["all"]},
+    "requires_evidence": {"type": "array", "items": {"type": "string"}},
+    "rule": {"type": "object", "required": ["text"]},
+    "do_not_apply_when": {"type": "array", "items": {"type": "string"}},
+    "risk": {"enum": ["low", "medium", "high"]},
+    "source_cases": {"type": "array", "items": {"type": "string", "pattern": "^EXP-[0-9]{4}-[0-9]{2}-[0-9]{4,}$"}},
+    "validated_cases": {"type": "array", "items": {"type": "string", "pattern": "^REG-[A-Z0-9-]+$"}},
+    "regression_cases": {"type": "array", "items": {"type": "string", "pattern": "^REG-[A-Z0-9-]+$"}},
+    "conflicts_with": {"type": "array", "items": {"type": "string"}},
+    "supersedes": {"type": "array", "items": {"type": "string"}},
+    "last_verified": {"type": "object", "required": ["pytorch", "date"]},
+    "owner": {"type": "string", "minLength": 1},
+    "promotion": {"type": "object", "required": ["replay_status", "human_review"]}
+  }
+}

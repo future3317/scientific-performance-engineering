@@ -51,6 +51,9 @@ def main() -> None:
     assert "ema_swa_scheduler" in resume, "resume contract must include optimizer-adjacent state"
     schema = json.loads((ROOT / "assets" / "benchmark_record.schema.json").read_text(encoding="utf-8"))
     assert benchmark_validator.validate_record(template, schema) == []
+    broken_experience = json.loads(json.dumps(template))
+    broken_experience["candidate"]["experience_case_ids"] = ["not-an-experience-id"]
+    assert any("experience_case_ids" in error for error in benchmark_validator.validate_record(broken_experience, schema))
     broken = json.loads(json.dumps(template))
     broken["work"]["h2d_proof"].pop("overlap_evidence")
     assert any("h2d_proof" in error for error in benchmark_validator.validate_record(broken, schema))
