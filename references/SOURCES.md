@@ -4,6 +4,16 @@ Last reviewed: 2026-08-04.
 
 This list is an audit map, not a package lock. Release numbers are a point-in-time snapshot checked against official release pages. Always record the installed versions and feature probes from `scripts/collect_env.py`; do not upgrade a project just because a newer release exists.
 
+## Contents
+
+- [2026 release snapshot](#2026-release-snapshot)
+- [PyTorch runtime, CPU, compiler, and precision](#pytorch-runtime-cpu-compiler-and-precision)
+- [Distributed and checkpointing](#distributed-and-checkpointing)
+- [PyTorch Geometric and scientific kernels](#pytorch-geometric-and-scientific-kernels)
+- [Materials tensors and crystal generation](#materials-tensors-and-crystal-generation)
+- [NVIDIA profiling and kernels](#nvidia-profiling-and-kernels)
+- [Project sources](#project-sources)
+
 ## 2026 release snapshot
 
 - PyTorch 2.13.0: https://github.com/pytorch/pytorch/releases/tag/v2.13.0
@@ -34,6 +44,15 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 - Compiler CUDA Graph Trees: https://docs.pytorch.org/docs/stable/torch.compiler_cudagraph_trees.html
 - Optimizer implementations: https://docs.pytorch.org/docs/stable/optim.html
 - torchao documentation: https://docs.pytorch.org/ao/stable/
+- Custom operators, FakeTensor, and `opcheck`: https://docs.pytorch.org/tutorials/advanced/python_custom_ops.html
+- DebugMode numerical localization: https://docs.pytorch.org/tutorials/recipes/debug_mode_tutorial.html
+- Data loading optimization and batched `__getitems__`: https://docs.pytorch.org/docs/stable/data.html
+- `pin_memory()` and non-blocking transfers: https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html
+- Compile cache configuration: https://docs.pytorch.org/tutorials/recipes/torch_compile_caching_configuration_tutorial.html
+- CUDA memory snapshot and allocator analysis: https://docs.pytorch.org/docs/stable/torch_cuda_memory.html
+- CUDA environment variables (`PYTORCH_ALLOC_CONF`): https://docs.pytorch.org/docs/stable/cuda_environment_variables.html
+- Optimizer-in-backward: https://docs.pytorch.org/tutorials/intermediate/optimizer_step_in_backward_tutorial.html
+- Activation checkpointing: https://docs.pytorch.org/docs/stable/checkpoint
 
 ## Distributed and checkpointing
 
@@ -42,6 +61,11 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 - FSDP2 `fully_shard`: https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html
 - Distributed checkpoint: https://docs.pytorch.org/docs/stable/distributed.checkpoint.html
 - Distributed overview: https://docs.pytorch.org/docs/stable/distributed.html
+- ProcessGroupNCCL flight recorder and desync diagnostics: https://docs.pytorch.org/docs/stable/torch_nccl_environment_variables.html
+- Asynchronous DCP checkpointing: https://docs.pytorch.org/tutorials/recipes/distributed_async_checkpoint_recipe.html
+- TorchTitan training system: https://github.com/pytorch/torchtitan
+- MACE training implementation: https://github.com/ACEsuit/mace
+- TorchBench machine validation: https://github.com/pytorch/benchmark
 
 ## PyTorch Geometric and scientific kernels
 
@@ -56,6 +80,7 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 - cuEquivariance documentation: https://docs.nvidia.com/cuda/cuequivariance/
 - cuEquivariance MACE/layout tutorial: https://docs.nvidia.com/cuda/cuequivariance/tutorials/pytorch/MACE.html
 - OpenEquivariance acceleration in NequIP: https://nequip.readthedocs.io/en/latest/guide/accelerations/openequivariance.html
+- cuEquivariance segmented polynomial kernels: https://docs.nvidia.com/cuda/cuequivariance/tutorials/poly.html
 
 ## Materials tensors and crystal generation
 

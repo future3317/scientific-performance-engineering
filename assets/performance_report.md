@@ -4,6 +4,7 @@
 
 - [Decision](#decision)
 - [Reproducible baseline](#reproducible-baseline)
+- [Runtime preflight and lifecycle](#runtime-preflight-and-lifecycle)
 - [Timing bucket audit](#timing-bucket-audit)
 - [Acceptance contract](#acceptance-contract)
 - [Correctness and scientific gates](#correctness-and-scientific-gates)
@@ -38,6 +39,18 @@
 - Benchmark levels: micro / module / end-to-end
 - Logical update and accumulation definition:
 - Task composition and work counts per logical update:
+
+## Runtime preflight and lifecycle
+
+- Compatibility status and unsupported combinations:
+- Runtime topology (construction order, rank/device, NUMA/affinity, PCIe/NVLink/NIC, shared memory, threads, allocator):
+- Logical-update DAG (fetch → preprocessing → H2D → forward → derivatives → backward → transforms → communication → update → lifecycle):
+- Synchronization census (event/count/disposition/evidence):
+- Cache contract, key components, cold/warm/disabled state, and hit/miss evidence:
+- H2D proof (pinned state, non-blocking, copy stream, source lifetime, consumer dependency, overlap timeline):
+- Optimizer/EMA/SWA/scheduler/clipping/metrics/validation/checkpoint cadence and cost:
+- Steady-state train-step versus amortized throughput and time-to-quality:
+- Resume cursor and state contract (dataloader/shard/order/augmentation RNG/EMA/SWA/compiler rebuild):
 
 ## Evidence
 
@@ -104,6 +117,8 @@ Task census: structures/graphs/atoms/edges per rank and globally; mechanism/prop
 | Optimizer | | | |
 | Communication/overlap | | | |
 | Scaling efficiency | | | |
+| Amortized training throughput | | | |
+| Time to quality | | | |
 
 ## Compiler and kernel evidence
 

@@ -42,6 +42,7 @@ SAFE_ENV_KEYS = (
     "TORCHINDUCTOR_CPP_WRAPPER",
     "TORCHINDUCTOR_FREEZING",
     "PYTORCH_CUDA_ALLOC_CONF",
+    "PYTORCH_ALLOC_CONF",
     "CUBLAS_WORKSPACE_CONFIG",
 )
 PATH_ENV_KEYS = frozenset({"TORCHINDUCTOR_CACHE_DIR"})
@@ -241,6 +242,11 @@ def build_record(repo: Path, include_sensitive: bool = False) -> dict[str, Any]:
         },
         "cpu": cpu_info(),
         "environment": sanitized_environment(include_sensitive),
+        "allocator": {
+            "requested_config": os.environ.get("PYTORCH_ALLOC_CONF") or os.environ.get("PYTORCH_CUDA_ALLOC_CONF"),
+            "legacy_alias_present": "PYTORCH_CUDA_ALLOC_CONF" in os.environ,
+            "current_name_present": "PYTORCH_ALLOC_CONF" in os.environ,
+        },
         "torch": torch_info(include_sensitive),
         "packages": optional_package_versions(),
         "git": git_record(repo, include_sensitive),

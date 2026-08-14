@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/benchmark_record.schema.json",
+  "title": "Scientific GPU benchmark record",
+  "type": "object",
+  "required": [
+    "schema_version", "identity", "hardware", "software", "contract", "work",
+    "metrics", "candidate", "acceptance", "measurements", "quality", "preflight"
+  ],
+  "properties": {
+    "schema_version": {"const": 3},
+    "identity": {
+      "type": "object",
+      "required": ["repository", "base_revision", "benchmark_harness_hash", "candidate_patch_hash", "declared_change_set"]
+    },
+    "hardware": {"type": "object", "required": ["gpu_uuid", "device_index", "world_size"]},
+    "software": {"type": "object", "required": ["python", "pytorch", "compile_backend", "compile_mode"]},
+    "compiler": {"type": "object", "required": ["compile_cache_state", "cache_fingerprint", "cache_hit_miss_evidence", "fallback"]},
+    "contract": {
+      "type": "object",
+      "required": ["scientific_contract_id", "data_manifest_or_hash", "seeds", "effective_batch", "world_size", "checkpoint_state_contract"],
+      "properties": {
+        "checkpoint_state_contract": {
+          "type": "object",
+          "required": ["boundary", "dataloader_cursor", "ema_swa_scheduler", "preserve_rng"]
+        }
+      }
+    },
+    "work": {
+      "type": "object",
+      "required": ["unit", "logical_update_definition", "logical_update_dag", "sync_census", "cache_contract", "h2d_proof", "timing_buckets", "cuda_timing_proof"]
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["throughput_units_per_s", "step_ms_p50", "amortized_training_throughput", "time_to_quality_seconds"]
+    },
+    "preflight": {
+      "type": "object",
+      "required": ["compatibility_status", "runtime_topology", "unsupported_combinations"]
+    },
+    "acceptance": {"type": "object", "required": ["primary_metric", "required_quality_gates", "minimum_runs"]},
+    "measurements": {"type": "object", "required": ["run_order", "runs"]},
+    "candidate": {"type": "object", "required": ["changed_levers", "active_path_evidence", "reference_output", "falsification_test"]},
+    "quality": {"type": "object"}
+  }
+}

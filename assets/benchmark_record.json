@@ -21,7 +21,14 @@
     "gpu_uuid": "",
     "device_index": null,
     "world_size": 1,
-    "storage": ""
+    "storage": "",
+    "host_contention": {
+      "load_average_1m": null,
+      "available_memory_mb": null,
+      "swap_percent": null,
+      "trainer_worker_rss_mb": null,
+      "cpu_governor": ""
+    }
   },
   "software": {
     "python": "",
@@ -62,7 +69,9 @@
     "checkpoint_state_contract": {
       "boundary": "optimizer",
       "preserve_rng": false,
-      "supports_mid_accumulation": false
+      "supports_mid_accumulation": false,
+      "dataloader_cursor": "",
+      "ema_swa_scheduler": ""
     },
     "gradient_clipping_contract": {
       "enabled": false,
@@ -108,6 +117,51 @@
     },
     "timing_buckets": {},
     "unaccounted_ratio": null,
+    "logical_update_dag": [
+      {"stage": "fetch", "boundary": "loader"},
+      {"stage": "cpu_preprocess", "boundary": "data_ready"},
+      {"stage": "h2d", "boundary": "device_ready"},
+      {"stage": "gpu_preprocess", "boundary": "model_input"},
+      {"stage": "forward", "boundary": "backbone_and_heads"},
+      {"stage": "loss", "boundary": "loss_ready"},
+      {"stage": "autograd_aux", "boundary": "physical_derivatives"},
+      {"stage": "backward", "boundary": "grad_ready"},
+      {"stage": "grad_transform", "boundary": "unscale_and_normalize"},
+      {"stage": "clipping", "boundary": "clip"},
+      {"stage": "communication", "boundary": "ddp_or_fsdp"},
+      {"stage": "optimizer", "boundary": "optimizer_step"},
+      {"stage": "scheduler", "boundary": "schedule_step"},
+      {"stage": "ema_swa", "boundary": "post_update"},
+      {"stage": "metrics", "boundary": "device_aggregate_then_log"},
+      {"stage": "checkpoint", "boundary": "optional_staging"},
+      {"stage": "validation", "boundary": "cadence_trigger"}
+    ],
+    "sync_census": [
+      {"event": "loss.item", "count": 0, "disposition": "removable"},
+      {"event": "metric_allreduce", "count": 0, "disposition": "amortizable"},
+      {"event": "checkpoint_staging", "count": 0, "disposition": "overlappable"},
+      {"event": "explicit_cuda_synchronize", "count": 0, "disposition": "required"}
+    ],
+    "cache_contract": {
+      "cache_state": "disabled",
+      "dataset_identity": "",
+      "sample_identity": "",
+      "cutoff": "",
+      "pbc_convention": "",
+      "augmentation": "",
+      "species_mapping": "",
+      "graph_builder_version": "",
+      "dtype_layout": "",
+      "basis_version": ""
+    },
+    "h2d_proof": {
+      "is_pinned": false,
+      "non_blocking": false,
+      "copy_stream": "",
+      "source_lifetime": "",
+      "consumer_dependency": "",
+      "overlap_evidence": ""
+    },
     "includes_data_loading": true,
     "includes_h2d": true,
     "includes_optimizer": true,
@@ -134,7 +188,9 @@
     "gpu_utilization_percent": null,
     "communication_ms_p50": null,
     "communication_overlap_percent": null,
-    "scaling_efficiency_percent": null
+    "scaling_efficiency_percent": null,
+    "amortized_training_throughput": null,
+    "time_to_quality_seconds": null
   },
   "step_audit": {
     "auxiliary_forward_calls": null,
@@ -151,7 +207,23 @@
     "compiled_region_coverage_percent": null,
     "graph_breaks": null,
     "recompiles": null,
+    "compile_cache_state": "disabled",
+    "cache_fingerprint": "",
+    "cache_hit_miss_evidence": "",
     "fallback": false
+  },
+  "preflight": {
+    "compatibility_status": "inconclusive",
+    "runtime_topology": {
+      "model_build_order": "",
+      "device_rank_mapping": "",
+      "numa_cpu_affinity": "",
+      "pcie_nvlink_nic": "",
+      "container_shared_memory": "",
+      "threads_environment": "",
+      "compile_activation_checkpoint_ddp_cuda_graphs": ""
+    },
+    "unsupported_combinations": []
   },
   "acceptance": {
     "primary_metric": "throughput_units_per_s",

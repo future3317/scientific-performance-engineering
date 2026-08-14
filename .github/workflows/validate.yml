@@ -1,0 +1,46 @@
+name: validate-skill
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      gpu_validation:
+        description: "Run contract checks on an explicitly configured self-hosted GPU runner"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate skill structure and benchmark contract
+        run: python scripts/validate_skill.py .
+      - name: Run behavioral and comparator fixtures
+        run: |
+          python scripts/behavioral_contract_tests.py
+          python scripts/validate_benchmark.py assets/benchmark_record.json
+          python scripts/compare_benchmarks.py --self-test
+          python assets/materials_gnn_checks.py --self-test
+      - name: Compile Python tools
+        run: python -m compileall -q scripts assets
+
+  gpu-contract:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.gpu_validation == true }}
+    runs-on: [self-hosted, linux, gpu]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run contract checks on the selected runner
+        run: |
+          python scripts/validate_skill.py .
+          python scripts/behavioral_contract_tests.py
+          python scripts/validate_benchmark.py assets/benchmark_record.json
+          python assets/materials_gnn_checks.py --self-test
+          nvidia-smi --query-gpu=index,uuid,name,temperature.gpu,power.draw,clocks.sm --format=csv
+      - name: Explain performance-gate boundary
+        run: echo "GPU performance acceptance requires a project benchmark record; this CI job does not impose a shared-runner 5% gate."

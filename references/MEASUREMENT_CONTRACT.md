@@ -14,6 +14,11 @@ Fill this before modifying performance-sensitive code.
 - Host contention snapshot: load average / available memory / swap / worker RSS:
 - Environment privacy mode: redacted by default; sensitive host metadata explicitly enabled?
 
+## Runtime preflight
+
+- Compatibility status and rejected combinations (compile/checkpoint/DDP/FSDP/CUDA Graphs/custom op/higher-order autograd):
+- Runtime topology: model construction order, rank/device mapping, NUMA/affinity, PCIe/NVLink/NIC, shared memory, threads, allocator:
+
 ## Fixed scientific contract
 
 - Model/output family:
@@ -43,6 +48,10 @@ Fill this before modifying performance-sensitive code.
 - Timing bucket definition and unaccounted step time:
 - CUDA timing proof: paired events/explicit synchronization and stream:
 - Timing buckets: each bucket clock/stream/completion proof/p50_ms; bucket sum versus end-to-end step; unaccounted ratio:
+- Logical-update DAG: fetch → preprocessing → transfer → forward → derivatives → backward → transforms → communication → update → lifecycle work:
+- Synchronization census: event / count / required-removable-amortizable-overlappable / evidence:
+- Cache contract and state: key components, cold/warm/disabled, hit/miss evidence:
+- H2D proof: pinned state, non-blocking flag, copy stream, source lifetime, consumer dependency, overlap timeline:
 
 ## Baseline metrics
 
@@ -52,6 +61,8 @@ Fill this before modifying performance-sensitive code.
 - Step time p50 / p95:
 - Peak allocated / reserved / external memory:
 - Data wait / H2D / forward / loss / backward / optimizer:
+- Optimizer/EMA/SWA/scheduler/clipping/metrics/validation/checkpoint time and temporary/state/pinned memory:
+- Steady-state train-step versus cadence-amortized throughput and time-to-quality:
 - Mechanism / property / structural / physical / `autograd.grad` bucket times:
 - Auxiliary forward calls / `autograd.grad` calls / skipped-task calls:
 - GPU busy/SM/memory indicators (supporting evidence only):
@@ -75,4 +86,6 @@ Fill this before modifying performance-sensitive code.
 - Candidate levers changed in this entry:
 - Cold/compile/autotune versus steady-state result:
 - Correctness order: shape/finite → numerical → gradient → physics/equivariance → task quality:
+- Numerical divergence localization: eager/reference versus candidate dispatched op, first divergent op, dtype/layout/backend, focused reproduction:
+- Resume cursor: sampler/dataloader/shard/order/augmentation RNG and EMA/SWA/compiler rebuild semantics:
 - Rejected reason or retry evidence:

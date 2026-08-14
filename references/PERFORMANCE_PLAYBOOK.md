@@ -147,7 +147,15 @@ Measure per-rank data wait, forward, backward, optimizer, NCCL communication, ov
 - Use FSDP2 `fully_shard`/device mesh when model or optimizer memory requires sharding; include resharding and communication in the measurement. Use `torch.distributed.checkpoint` for scalable save/load only when its state-dict and resume semantics are verified.
 - Consider tensor/pipeline parallelism only when the model and workload have a stable partitioning plan. Do not trade away scientific batch semantics to obtain a scaling graph.
 
-## 10. Scientific acceptance
+Complete the runtime compatibility preflight and logical-update DAG before a long run. Route detailed checks to `CODE_AND_RUNTIME_AUDIT.md`, `DATA_AND_TRAINING_LIFECYCLE.md`, and `MEMORY_COMPILER_DISTRIBUTED.md`.
+
+## 10. Amortized training lifecycle
+
+Measure steady-state train-step time separately from cadence-amortized training throughput. Include the actual logging, metric reduction, validation, checkpoint staging/write, EMA/SWA, scheduler, and sampling cadence used by the campaign. Report time-to-quality when a fixed validation target exists. A faster isolated step that increases lifecycle cost is not an accepted job-level optimization.
+
+Record optimizer state dtype/temporary memory, foreach/fused dispatch, gradient-transform and clipping time, EMA/SWA update time, checkpoint bytes/rank and queue depth, dataloader cursor, and augmentation/order state. Do not assume validation can use `inference_mode()` when force/stress/response derivatives are part of the scientific quantity.
+
+## 11. Scientific acceptance
 
 Store required quality gates in `acceptance.required_quality_gates`; CLI flags may add gates but cannot replace or omit the recorded policy. Missing quality results are inconclusive, never accepted. Require the repository's existing gates. Typical gates include unit/regression tests; rotation/reflection/permutation/translation/periodic/gauge covariance; positive-volume, SPD, conservation, exact-count, and finite-gradient constraints; FP32/candidate output and gradient comparisons; calibration/coverage; rollout or sampler non-inferiority; deterministic resume/data-order; and checkpoint compatibility.
 

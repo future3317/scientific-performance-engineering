@@ -17,6 +17,7 @@ REQUIRED_SCRIPTS = {
     "collect_env.py",
     "compare_benchmarks.py",
     "run_with_gpu_monitor.py",
+    "validate_benchmark.py",
     "validate_skill.py",
 }
 REQUIRED_REFERENCES = {
@@ -24,6 +25,9 @@ REQUIRED_REFERENCES = {
     "EQUIVARIANT_OPERATOR_DESIGN.md",
     "GNN_PREDICTION_WORKLOADS.md",
     "MEASUREMENT_CONTRACT.md",
+    "CODE_AND_RUNTIME_AUDIT.md",
+    "DATA_AND_TRAINING_LIFECYCLE.md",
+    "MEMORY_COMPILER_DISTRIBUTED.md",
     "PATCH_PATTERNS.md",
     "PERFORMANCE_PLAYBOOK.md",
     "REPOSITORY_NOTES.md",
@@ -32,32 +36,35 @@ REQUIRED_REFERENCES = {
 }
 REQUIRED_ASSETS = {
     "benchmark_record.json",
+    "benchmark_record.schema.json",
     "materials_gnn_checks.py",
     "performance_report.md",
 }
 REQUIRED_MAIN_ROUTES = {
+    "CODE_AND_RUNTIME_AUDIT.md",
+    "DATA_AND_TRAINING_LIFECYCLE.md",
+    "MEMORY_COMPILER_DISTRIBUTED.md",
     "PERFORMANCE_PLAYBOOK.md",
     "GNN_PREDICTION_WORKLOADS.md",
     "CRYSTAL_GENERATION.md",
     "EQUIVARIANT_OPERATOR_DESIGN.md",
 }
 REQUIRED_CORE_MARKERS = {
-    "five explicit phases",
-    "hypothesis card",
-    "three levels",
+    "Preflight",
+    "Contract Freeze",
+    "Lifecycle Census",
+    "Amortized Job",
     "Amdahl ceiling",
-    "forward and gradient agreement",
-    "experiment",
-    "unsupported hypothetical cases are non-blocking",
-    "timing bucket audit",
-    "data_ready",
-    "task census",
-    "Stochastic thinning",
-    "logical update",
-    "host contention",
-    "Do not use for CUDA/runtime correctness bugs",
-    "one independently attributable intervention",
-    "Reachable correctness, deadlock, OOM, fallback, reproducibility, API, or scientific-quality risks",
+    "Statistical Gate",
+    "active-path",
+    "logical-update DAG",
+    "synchronization census",
+    "cache/H2D",
+    "record is the executable contract",
+    "inconclusive",
+    "opcheck",
+    "Do not use this skill for CUDA/runtime correctness bugs",
+    "Unsupported hypothetical cases remain non-blocking",
 }
 
 
@@ -193,6 +200,9 @@ def validate_benchmark_asset(root: Path) -> None:
     for key in ("run_order", "runs"):
         if key not in measurements:
             raise ValueError(f"benchmark_record.json.measurements.{key} is required")
+    schema = require_mapping(json.loads((root / "assets" / "benchmark_record.schema.json").read_text(encoding="utf-8")), "benchmark_record.schema.json")
+    if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+        raise ValueError("benchmark_record.schema.json must declare draft 2020-12")
 
 
 def validate_resources(root: Path) -> None:
@@ -241,6 +251,17 @@ def validate_python(root: Path) -> None:
         compile(script.read_text(encoding="utf-8"), str(script), "exec")
 
 
+def validate_benchmark_with_tool(root: Path) -> None:
+    source = (root / "scripts" / "validate_benchmark.py").read_text(encoding="utf-8")
+    namespace: dict[str, Any] = {"__name__": "validate_benchmark", "__file__": str(root / "scripts" / "validate_benchmark.py")}
+    exec(compile(source, "validate_benchmark.py", "exec"), namespace)
+    record = json.loads((root / "assets" / "benchmark_record.json").read_text(encoding="utf-8"))
+    schema = json.loads((root / "assets" / "benchmark_record.schema.json").read_text(encoding="utf-8"))
+    errors = namespace["validate_record"](record, schema)
+    if errors:
+        raise ValueError(f"benchmark_record.json failed lifecycle validation: {'; '.join(errors)}")
+
+
 def main() -> None:
     root = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[1]
     skill_path = root / "SKILL.md"
@@ -265,6 +286,7 @@ def main() -> None:
     validate_resources(root)
     validate_links(root)
     validate_python(root)
+    validate_benchmark_with_tool(root)
     print(f"valid: {name}")
 
 

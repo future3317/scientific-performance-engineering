@@ -25,6 +25,7 @@ COMPARABILITY_PATHS = (
     "hardware.device_index",
     "hardware.world_size",
     "hardware.storage",
+    "hardware.host_contention",
     "software.python",
     "software.pytorch",
     "software.cuda_or_rocm",
@@ -51,6 +52,8 @@ COMPARABILITY_PATHS = (
     "contract.checkpoint_resume",
     "contract.stochastic_thinning",
     "contract.checkpoint_state_contract",
+    "contract.checkpoint_state_contract.dataloader_cursor",
+    "contract.checkpoint_state_contract.ema_swa_scheduler",
     "contract.gradient_clipping_contract",
     "contract.quality_gates",
     "contract.numerical_tolerances",
@@ -73,6 +76,10 @@ COMPARABILITY_PATHS = (
     "work.benchmark_levels",
     "work.logical_update_definition",
     "work.task_composition",
+    "work.logical_update_dag",
+    "work.sync_census",
+    "work.cache_contract",
+    "work.h2d_proof",
     "work.timing_bucket_definition",
     "work.cuda_timing_proof",
     "acceptance.primary_metric",
@@ -130,6 +137,7 @@ REQUIRED_PATHS = (
     "software.driver",
     "software.compile_backend",
     "software.compile_mode",
+    "compiler.compile_cache_state",
     "contract.scientific_contract_id",
     "contract.data_manifest_or_hash",
     "contract.seeds",
@@ -153,6 +161,10 @@ REQUIRED_PATHS = (
     "metrics.throughput_units_per_s",
     "metrics.step_ms_p50",
     "metrics.step_ms_p95",
+    "metrics.amortized_training_throughput",
+    "metrics.time_to_quality_seconds",
+    "preflight.compatibility_status",
+    "preflight.runtime_topology",
 )
 
 REQUIRED_CANDIDATE_PATHS = (
@@ -385,6 +397,8 @@ def compare_records(
                 inconclusive_reasons.append(f"{label}: missing acceptance field {path}")
         if not required_quality_gates(record):
             inconclusive_reasons.append(f"{label}: acceptance.required_quality_gates must be non-empty")
+        if get_path(record, "preflight.compatibility_status") != "pass":
+            inconclusive_reasons.append(f"{label}: runtime compatibility preflight is not proven pass")
     for path in REQUIRED_CANDIDATE_PATHS:
         if missing(get_path(candidate, path)):
             inconclusive_reasons.append(f"candidate missing evidence: {path}")
@@ -594,7 +608,11 @@ def self_test() -> None:
             "world_size": 1,
             "checkpoint_resume": "fixed",
             "stochastic_thinning": {"enabled": False},
-            "checkpoint_state_contract": {"boundary": "optimizer"},
+            "checkpoint_state_contract": {
+                "boundary": "optimizer",
+                "dataloader_cursor": "fixed",
+                "ema_swa_scheduler": "fixed",
+            },
             "gradient_clipping_contract": {"enabled": False},
             "quality_gates": {"ok": True},
             "numerical_tolerances": {"rtol": 1e-5},
@@ -619,6 +637,32 @@ def self_test() -> None:
             "benchmark_levels": ["end-to-end"],
             "logical_update_definition": "one optimizer update",
             "task_composition": {"main": 1},
+            "logical_update_dag": [{"stage": stage} for stage in (
+                "fetch", "cpu_preprocess", "h2d", "gpu_preprocess", "forward", "loss",
+                "autograd_aux", "backward", "grad_transform", "clipping", "communication",
+                "optimizer", "scheduler", "ema_swa", "metrics", "checkpoint", "validation"
+            )],
+            "sync_census": [{"event": "loss.item", "disposition": "removable"}],
+            "cache_contract": {
+                "cache_state": "warm",
+                "dataset_identity": "dataset",
+                "sample_identity": "sample",
+                "cutoff": "cutoff",
+                "pbc_convention": "pbc",
+                "augmentation": "fixed",
+                "species_mapping": "species",
+                "graph_builder_version": "graph-v1",
+                "dtype_layout": "fp32-contiguous",
+                "basis_version": "basis-v1",
+            },
+            "h2d_proof": {
+                "is_pinned": True,
+                "non_blocking": True,
+                "copy_stream": "copy",
+                "source_lifetime": "until-consume",
+                "consumer_dependency": "event",
+                "overlap_evidence": "timeline",
+            },
             "timing_bucket_definition": {"step": "synchronized"},
             "cuda_timing_proof": {
                 "clock": "cuda_event",
@@ -646,8 +690,15 @@ def self_test() -> None:
             "step_ms_p50": 10.0,
             "step_ms_p95": 12.0,
             "peak_allocated_mb": 1000.0,
+            "amortized_training_throughput": 90.0,
+            "time_to_quality_seconds": 1000.0,
         },
-        "compiler": {"fallback": False},
+        "compiler": {
+            "fallback": False,
+            "compile_cache_state": "disabled",
+            "cache_fingerprint": "none",
+            "cache_hit_miss_evidence": "disabled",
+        },
         "candidate": {
             "hypothesis": "vectorize measured loop",
             "measured_bottleneck_share": 0.6,
@@ -680,6 +731,11 @@ def self_test() -> None:
             ],
         },
         "quality": {"numerics_passed": True},
+        "preflight": {
+            "compatibility_status": "pass",
+            "runtime_topology": {"device_rank_mapping": "fixed"},
+            "unsupported_combinations": [],
+        },
     }
     candidate = copy.deepcopy(record)
     candidate["metrics"]["throughput_units_per_s"] = 110.0
@@ -718,6 +774,12 @@ def self_test() -> None:
     bucket_gap = copy.deepcopy(candidate)
     bucket_gap["work"]["unaccounted_ratio"] = 0.2
     assert compare_records(record, bucket_gap, set())["assessment"] == "inconclusive"
+    preflight_gap = copy.deepcopy(candidate)
+    preflight_gap["preflight"]["compatibility_status"] = "inconclusive"
+    assert compare_records(record, preflight_gap, set())["assessment"] == "inconclusive"
+    host_drift = copy.deepcopy(candidate)
+    host_drift["hardware"]["host_contention"] = {"load_average_1m": 99.0}
+    assert compare_records(record, host_drift, set())["assessment"] == "incomparable"
     candidate["contract"]["seeds"] = [2]
     result = compare_records(record, candidate, set())
     assert result["assessment"] == "algorithmic_experiment", result

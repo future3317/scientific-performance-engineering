@@ -183,3 +183,23 @@ with record_function("physical_features_autograd"):
 ```
 
 Do not name the whole interval before `data_ready` as `data` when it contains model or `autograd.grad` work. Reconcile these ranges with the synchronized wall-clock step and report any unaccounted interval.
+
+## 11. Batched data and transfer proof
+
+```python
+def __getitems__(self, indices):
+    return [self._parse_one(index) for index in indices]
+
+batch = batch.pin_memory()  # custom batch must implement this method
+device_batch = batch.to(device, non_blocking=True)
+```
+
+Benchmark batched fetch against per-sample fetch, then prove pinned state, copy stream, source lifetime, consumer dependency, and actual overlap. Preserve ordering, augmentation RNG, and cache-key provenance.
+
+## 12. Custom operator contract
+
+Keep a reference implementation and exact signature. Register schema/mutation/aliasing and FakeTensor/meta behavior; run `torch.library.opcheck`, `assert_close`, `gradcheck`, and `gradgradcheck` where required. Add empty/non-contiguous/edge-shape/compile/forward-backward cases. `opcheck` is a dispatch contract, not a numerical proof.
+
+## 13. Sync budget and amortized lifecycle
+
+Record `.item()`, `.cpu()`, metric all-reduce, progress/logging, validation, checkpoint staging, barriers, and explicit synchronizations in the record's `sync_census`. Classify each event as required, removable, amortizable, or overlappable. Measure EMA/SWA/scheduler/clipping and checkpoint/logging/validation cadence in a separate amortized job metric.

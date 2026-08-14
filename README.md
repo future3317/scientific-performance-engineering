@@ -55,6 +55,7 @@ $skill = 'C:\path\to\scientific-gpu-training-optimizer'
 $env:PYTHONDONTWRITEBYTECODE = '1'
 
 & $python "$skill\scripts\validate_skill.py" $skill
+& $python "$skill\scripts\validate_benchmark.py" "$skill\assets\benchmark_record.json"
 & $python "$skill\assets\materials_gnn_checks.py" --self-test
 & $python "$skill\scripts\compare_benchmarks.py" --self-test
 ```
@@ -62,6 +63,8 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 监控时显式选择 GPU，例如：`python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python train.py`。`collect_env.py` 默认会脱敏 hostname、绝对路径和 GPU UUID；只有明确需要时才使用 `--include-sensitive-host-metadata`。
 
 不要把 GPU utilization、单次 timing window 或 peak memory 单独当作 speedup 证明；比较必须冻结代码、硬件、软件、数据、任务组成、logical update 和计时边界。
+
+仓库自带 GitHub Actions 会在普通 runner 上执行结构、schema、行为和 Python 自测；它不会在共享 runner 上强制 5% GPU 性能门槛。若配置了带 `gpu` 标签的 self-hosted runner，可通过 workflow dispatch 显式运行 GPU contract checks。
 
 ## English
 
@@ -107,6 +110,7 @@ $skill = 'C:\path\to\scientific-gpu-training-optimizer'
 $env:PYTHONDONTWRITEBYTECODE = '1'
 
 & $python "$skill\scripts\validate_skill.py" $skill
+& $python "$skill\scripts\validate_benchmark.py" "$skill\assets\benchmark_record.json"
 & $python "$skill\assets\materials_gnn_checks.py" --self-test
 & $python "$skill\scripts\compare_benchmarks.py" --self-test
 ```
@@ -114,3 +118,5 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 Select GPUs explicitly when monitoring, for example: `python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python train.py`. `collect_env.py` redacts hostnames, absolute paths, and GPU UUIDs by default; use `--include-sensitive-host-metadata` only when needed.
 
 GPU utilization, a single timing window, or peak memory alone is not proof of a speedup. Comparisons must freeze code, hardware, software, data, task composition, logical update definition, and timing boundaries.
+
+GitHub Actions runs structure, schema, behavioral, and Python checks on a standard runner; it never imposes a 5% GPU gate there. If a self-hosted runner labeled `gpu` is configured, the workflow can be dispatched explicitly for GPU contract checks.
