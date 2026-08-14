@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install CPU PyTorch for tensor self-tests
+        run: python -m pip install --disable-pip-version-check --no-cache-dir torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
       - name: Validate skill structure and benchmark contract
         run: python scripts/validate_skill.py .
       - name: Run behavioral and comparator fixtures
