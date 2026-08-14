@@ -1,0 +1,153 @@
+{
+  "schema_version": 3,
+  "identity": {
+    "repository": "",
+    "commit": "",
+    "dirty": false,
+    "command": [],
+    "config": "",
+    "timestamp_utc": ""
+  },
+  "environment_file": "environment.json",
+  "hardware": {
+    "cpu": "",
+    "cpu_affinity": [],
+    "numa_nodes": null,
+    "gpu": "",
+    "device_index": null,
+    "world_size": 1,
+    "storage": ""
+  },
+  "software": {
+    "python": "",
+    "pytorch": "",
+    "cuda_or_rocm": "",
+    "driver": "",
+    "torch_geometric": "",
+    "e3nn": "",
+    "cuequivariance": "",
+    "triton": "",
+    "torchao": "",
+    "transformer_engine": "",
+    "nccl": "",
+    "compile_backend": "eager",
+    "compile_mode": "none"
+  },
+  "contract": {
+    "scientific_contract_id": "",
+    "model_outputs": "",
+    "loss_objective": "",
+    "invariance_equivariance_physical_constraints": "",
+    "probability_or_sampler": "",
+    "data_manifest_or_hash": "",
+    "data_order_augmentation": "",
+    "seeds": [],
+    "precision_policy": "",
+    "effective_batch": null,
+    "optimizer_lr_scheduler_clipping": "",
+    "world_size": 1,
+    "checkpoint_resume": "",
+    "stochastic_thinning": {
+      "enabled": false,
+      "selection_probability": null,
+      "seed_semantics": "",
+      "rank_semantics": "",
+      "loss_reweighting": ""
+    },
+    "checkpoint_state_contract": {
+      "boundary": "optimizer",
+      "preserve_rng": false,
+      "supports_mid_accumulation": false
+    },
+    "gradient_clipping_contract": {
+      "enabled": false,
+      "location": "",
+      "global_norm": false,
+      "clip_fraction": null
+    },
+    "quality_gates": {},
+    "numerical_tolerances": {}
+  },
+  "candidate": {
+    "hypothesis": "",
+    "measured_bottleneck_share": null,
+    "changed_levers": [],
+    "expected_metric_movement": "",
+    "semantic_risk": "",
+    "falsification_test": "",
+    "reference_output": "",
+    "amdahl_ceiling": null,
+    "explicitly_authorized_algorithmic_changes": [],
+    "active_path_evidence": ""
+  },
+  "work": {
+    "optimization_objective": "",
+    "unit": "graphs",
+    "benchmark_levels": [],
+    "logical_update_definition": "",
+    "task_composition": {},
+    "timing_bucket_definition": {},
+    "total_units": null,
+    "microbatch": null,
+    "effective_batch": null,
+    "accumulation_steps": null,
+    "warmup_steps": null,
+    "compile_warmup_steps": null,
+    "measured_steps": null,
+    "repetitions": null,
+    "timing_boundaries": "",
+    "includes_data_loading": true,
+    "includes_h2d": true,
+    "includes_optimizer": true,
+    "includes_logging": false,
+    "includes_checkpoint": false,
+    "includes_validation": false
+  },
+  "metrics": {
+    "throughput_units_per_s": null,
+    "throughput_secondary_units_per_s": {},
+    "step_ms_p50": null,
+    "step_ms_p95": null,
+    "peak_allocated_mb": null,
+    "peak_reserved_mb": null,
+    "external_memory_mb": null,
+    "host_rss_mb": null,
+    "data_wait_ms_p50": null,
+    "h2d_ms_p50": null,
+    "forward_ms_p50": null,
+    "loss_ms_p50": null,
+    "backward_ms_p50": null,
+    "optimizer_ms_p50": null,
+    "cpu_utilization_percent": null,
+    "gpu_utilization_percent": null,
+    "communication_ms_p50": null,
+    "communication_overlap_percent": null,
+    "scaling_efficiency_percent": null
+  },
+  "step_audit": {
+    "auxiliary_forward_calls": null,
+    "autograd_grad_calls": null,
+    "skipped_task_calls": null,
+    "unaccounted_step_ms_p50": null,
+    "host_load_average": null,
+    "host_available_memory_mb": null,
+    "host_swap_percent": null,
+    "worker_rss_mb": null
+  },
+  "compiler": {
+    "cold_compile_seconds": null,
+    "compiled_region_coverage_percent": null,
+    "graph_breaks": null,
+    "recompiles": null,
+    "fallback": false
+  },
+  "quality": {},
+  "artifacts": {
+    "environment": "environment.json",
+    "torch_profiler_trace": "",
+    "nsys_report": "",
+    "ncu_report": "",
+    "training_log": "",
+    "quality_report": ""
+  }
+}
