@@ -1,0 +1,17 @@
+{
+  "rule_id": "PERF-SYNC-004",
+  "version": 1,
+  "parent": null,
+  "applicability": {"all": [{"compare": {"hardware.gpu.duty_cycle": {"lt": 0.45}}}, {"compare": {"evidence.scalar_sync_count": {"gt": 0}}}]},
+  "intervention": {"action": "audit_scalar_sync_before_increasing_workers"},
+  "expected_mechanism": "Frequent host-device scalar synchronization creates CPU launch gaps.",
+  "evidence_requirements": ["profiler_or_nsys", "synchronization_census"],
+  "scientific_invariants": ["model_data_objective_and_logical_update_unchanged"],
+  "abstain_conditions": {"any": [{"compare": {"workload.loader_wait_fraction": {"gte": 0.1}}}, {"equals": {"evidence.cpu_preprocessing_dominates": true}}]},
+  "relations": {"requires": [], "conflicts": [], "supersedes": []},
+  "runtime_cost": {"tokens": 80, "expected_utility": 0.8},
+  "provenance_policy": {"required": true, "min_independence_groups": 2},
+  "severity": "P2",
+  "domain": "runtime",
+  "text": "Audit scalar synchronization before increasing input-pipeline parallelism when loader wait is small."
+}

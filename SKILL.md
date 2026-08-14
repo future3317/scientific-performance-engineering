@@ -7,6 +7,15 @@ description: Use when a PyTorch scientific training or inference decision is pri
 
 Act as an end-to-end scientific training systems workflow, not a list of GPU tricks. Preserve the scientific contract and accept a candidate only when the record and validators prove compatibility, lifecycle coverage, comparability, active-path use, statistics, timing completion, and correctness.
 
+## Contents
+
+- [Route and select mode](#route-and-select-mode)
+- [Policy and evidence lifecycle](#policy-and-evidence-lifecycle)
+- [Experience boundary](#experience-boundary)
+- [Rule OS architecture](#rule-os-architecture)
+- [Required records and tools](#required-records-and-tools)
+- [Claim boundaries](#claim-boundaries)
+
 ## Route and select mode
 
 - **Review/diagnose:** explain evidence; do not edit without an explicit fix request.
@@ -45,6 +54,38 @@ The record is the executable contract. Compare frozen contract fields exactly; d
 Treat self-evolution as a separate, auditable maintenance workflow. During a task, the practitioner may record a reusable surprise, falsified hypothesis, negative result, rule boundary, or hidden synchronization in `experience/inbox/` using `assets/experience_record.json`; an experience is evidence, not a rule. Use `scripts/capture_experience.py` to validate and store it without overwriting an existing case. Do not let runtime work edit `SKILL.md`, canonical references, rule status, or acceptance semantics. A maintainer may consolidate cases into a candidate rule card, but `scripts/run_rule_replay.py` must produce a paired-intervention, digest-attested manifest and `scripts/validate_evolution.py` must verify held-out separation, Bayesian admission evidence, regression cases, graph integrity, and human review provenance before a candidate becomes canonical. Record retrieval/use/override/outcome telemetry with `scripts/capture_rule_usage.py`; retrieval is not utility. Read [EXPERIENCE_EVOLUTION.md](references/EXPERIENCE_EVOLUTION.md) when capturing or maintaining experience.
 
 Library maintenance uses evidence rate-distortion: score utility loss against rule description length and conflict cost before proposing merge, specialization, or retirement.
+
+## Rule OS architecture
+
+Treat the evolution store as three projections of one typed contract, not as a
+second prose rule format:
+
+- `core.models.RuleSpec` is the immutable rule meaning. Its applicability is a
+  typed predicate (`all/any/not`, numeric comparisons, version, hardware,
+  software, or workload fields), never an opaque string trigger.
+- `core.models.EvidenceEvent` is append-only evidence. A replay records both
+  `on` and `off` assignments with the same context, revision, seed family,
+  propensity, outcome vector, scientific gates, artifacts, versions, source,
+  and independence group.
+- `core.models.RuleState` is materialized state: confidence sequence,
+  applicability calibration, retrieval utility, override rate, and drift state.
+  Never edit a canonical spec in place; create a new version with `parent`.
+
+Use `core.retriever.retrieve_candidates` and `select_rules` for progressive
+retrieval. The greedy selector maximizes coverage and expected utility minus
+redundancy under a token budget while rejecting hard conflicts. Embeddings may
+retrieve candidates, but exact typed predicates and conflict resolution decide
+the final set.
+
+Promotion is bounded autonomous evolution: P0/P1 scientific, correctness,
+authorization, and safety rules always require human review. P2/P3 diagnostic
+or retrieval heuristics may use `mode=bounded-auto` only after paired replay,
+an anytime-valid confidence sequence, held-out regression cases, independent
+provenance groups, and the poisoning gate. A user-controlled literal trigger
+is not promotion evidence; quarantine it. Drift changes state to
+`suspected_drift`/`revalidating` and starts a new replay; it does not delete a
+rule. `score_rule_library.py` uses counterfactual leave-one-rule-out utility;
+zero distortion means “preserve utility,” not “retire automatically.”
 
 ## Required records and tools
 

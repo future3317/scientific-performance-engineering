@@ -22,6 +22,11 @@ REQUIRED_SCRIPTS = {
     "evolution_contract_tests.py",
     "run_with_gpu_monitor.py",
     "run_rule_replay.py",
+    "generate_rule_schemas.py",
+    "rule_engine_tests.py",
+    "evolution_statistics_tests.py",
+    "assess_rule_drift.py",
+    "validate_rule_os.py",
     "score_rule_library.py",
     "validate_benchmark.py",
     "validate_evolution.py",
@@ -57,6 +62,14 @@ REQUIRED_ASSETS = {
     "rule_usage_record.schema.json",
     "materials_gnn_checks.py",
     "performance_report.md",
+    "rule_spec.schema.json",
+    "evidence_event.schema.json",
+    "rule_state.schema.json",
+    "rule_spec.json",
+    "evidence_event.json",
+    "rule_state.json",
+    "rule_card.json",
+    "rule_card.schema.json",
 }
 REQUIRED_REGISTRY = {"rules.json"}
 REQUIRED_MAIN_ROUTES = {
@@ -203,6 +216,8 @@ def validate_python(root: Path) -> None:
         raise ValueError(f"missing required scripts: {', '.join(missing)}")
     for script in scripts.glob("*.py"):
         compile(script.read_text(encoding="utf-8"), str(script), "exec")
+    for module in (root / "core").glob("*.py"):
+        compile(module.read_text(encoding="utf-8"), str(module), "exec")
 
 
 def validate_benchmark_with_tool(root: Path) -> None:
@@ -214,6 +229,31 @@ def validate_benchmark_with_tool(root: Path) -> None:
     errors = namespace["validate_record"](record, schema)
     if errors:
         raise ValueError(f"benchmark_record.json failed lifecycle validation: {'; '.join(errors)}")
+
+
+def validate_canonical_model_schemas(root: Path) -> None:
+    namespace: dict[str, Any] = {"__name__": "schema", "__file__": str(root / "core" / "schema.py")}
+    exec(compile((root / "core" / "schema.py").read_text(encoding="utf-8"), "core/schema.py", "exec"), namespace)
+    for name, expected in namespace["schemas"]().items():
+        actual = json.loads((root / "assets" / name).read_text(encoding="utf-8"))
+        if actual != expected:
+            raise ValueError(f"{name} is stale; run scripts/generate_rule_schemas.py")
+
+
+def validate_canonical_model_assets(root: Path) -> None:
+    import importlib
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    models = importlib.import_module("core.models")
+    for name, cls in (("rule_spec.json", models.RuleSpec), ("evidence_event.json", models.EvidenceEvent), ("rule_state.json", models.RuleState)):
+        value = json.loads((root / "assets" / name).read_text(encoding="utf-8"))
+        cls.from_dict(value)
+    validator_source = (root / "scripts" / "validate_rule_os.py").read_text(encoding="utf-8")
+    namespace: dict[str, Any] = {"__name__": "validate_rule_os", "__file__": str(root / "scripts" / "validate_rule_os.py")}
+    exec(compile(validator_source, "validate_rule_os.py", "exec"), namespace)
+    errors = namespace["validate"](json.loads((root / "assets" / "rule_card.json").read_text(encoding="utf-8")))
+    if errors:
+        raise ValueError("rule_card.json failed typed validation: " + "; ".join(errors))
 
 
 def validate_experience_with_tool(root: Path) -> None:
@@ -269,6 +309,8 @@ def main() -> None:
     validate_links(root)
     validate_python(root)
     validate_benchmark_with_tool(root)
+    validate_canonical_model_schemas(root)
+    validate_canonical_model_assets(root)
     validate_experience_with_tool(root)
     validate_evolution_with_tool(root)
     print(f"valid: {name}")

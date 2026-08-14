@@ -29,6 +29,20 @@ def beta_tail_probability(alpha: int, beta: int, threshold: float) -> float:
     return min(1.0, max(0.0, tail))
 
 
+def anytime_lower_bound(successes: int, trials: int, delta: float) -> float:
+    """A time-uniform Hoeffding bound via a summable alpha schedule.
+
+    Using alpha_n = delta/(n(n+1)) makes the bound valid at every inspected
+    sample count by a union bound; it avoids optional-stopping claims based on
+    a fixed-n normal interval.
+    """
+    if trials < 1 or not 0 < delta < 1:
+        raise ValueError("trials must be positive and delta must be in (0, 1)")
+    alpha_n = delta / (trials * (trials + 1))
+    radius = math.sqrt(math.log(2.0 / alpha_n) / (2.0 * trials))
+    return max(0.0, successes / trials - radius)
+
+
 def evaluate_cases(cases: list[dict[str, Any]], epsilon: float, p_min: float, delta: float) -> dict[str, Any]:
     if not cases:
         raise ValueError("replay requires at least one paired case")
@@ -45,8 +59,15 @@ def evaluate_cases(cases: list[dict[str, Any]], epsilon: float, p_min: float, de
         standard_error = math.sqrt(variance / len(effects))
     else:
         standard_error = 0.0
-    lower_confidence_bound = mean_effect - 1.645 * standard_error
-    outcome = "passed" if scientific_ok and lower_confidence_bound > epsilon and posterior_probability > 1.0 - delta else "failed"
+    # This bound is deliberately conservative and remains valid when the
+    # maintainer checks the stream after any number of replay cases.
+    effect_radius = math.sqrt(math.log(2.0 * len(effects) * (len(effects) + 1) / delta) / (2.0 * len(effects)))
+    lower_confidence_bound = mean_effect - effect_radius
+    promotion_probability_lower_bound = anytime_lower_bound(successes, len(effects), delta)
+    # Utility magnitude is workload-specific and may be unbounded; the
+    # anytime-valid gate is therefore applied to the bounded success event,
+    # while the paired mean must still clear the practical effect threshold.
+    outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
     return {
         "n": len(effects),
         "mean_effect": mean_effect,
@@ -59,9 +80,30 @@ def evaluate_cases(cases: list[dict[str, Any]], epsilon: float, p_min: float, de
         "p_min": p_min,
         "delta": delta,
         "posterior_probability": posterior_probability,
+        "promotion_probability_lower_bound": promotion_probability_lower_bound,
+        "confidence_method": "anytime-hoeffding-union-bound",
         "scientific_gates_passed": scientific_ok,
         "outcome": outcome,
     }
+
+
+def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Materialize the paired replay as auditable on/off EvidenceEvents."""
+    events: list[dict[str, Any]] = []
+    for index, case in enumerate(payload["cases"]):
+        common = {"revision": case.get("revision", payload.get("revision", "unknown")), "seed_family": case.get("seed_family", payload.get("seed_family", "replay"))}
+        for arm in ("on", "off"):
+            events.append({
+                "event_id": f"{case.get('case_id', index)}-{arm}", "context": case.get("context", common),
+                "rule_id": payload["rule_id"], "rule_version": int(payload.get("rule_version", 1)),
+                "assignment": {"arm": arm, "propensity": float(case.get("propensity", 0.5))},
+                "outcome_vector": {"utility": float(case["utility_on"] if arm == "on" else case["utility_off"])},
+                "scientific_gates": {"scientific_ok": bool(case.get("scientific_ok", False)), "quality_ok": bool(case.get("quality_ok", True))},
+                "artifacts": case.get("artifacts", {}), "versions": case.get("versions", {}),
+                "source_id": case.get("source_id", f"replay-{index}"), "independence_group": case.get("independence_group", "replay"),
+                "timestamp": case.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            })
+    return events
 
 
 def git_revision(root: Path) -> str:
@@ -82,6 +124,7 @@ def build_manifest(payload: dict[str, Any], input_path: Path, output_path: Path,
         "case_bundle_sha256": hashlib.sha256(canonical_json(payload)).hexdigest(),
         "harness_revision": harness_revision,
         "result": result,
+        "evidence_events": build_evidence_events(payload),
         "result_digest": hashlib.sha256(canonical_json(result)).hexdigest(),
         "outcome": result["outcome"],
     }
@@ -101,7 +144,7 @@ def main() -> None:
     manifest = build_manifest(payload, args.input, args.output, args.harness_revision or git_revision(Path(__file__).resolve().parents[1]))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(json.dumps({"output": str(args.output), "outcome": result["outcome"], "result_digest": manifest["result_digest"]}))
+    print(json.dumps({"output": str(args.output), "outcome": manifest["result"]["outcome"], "result_digest": manifest["result_digest"]}))
 
 
 if __name__ == "__main__":

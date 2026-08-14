@@ -17,6 +17,8 @@ def validate_record(record: Any) -> list[str]:
         errors.append("schema_version=1 and usage_id=USE-* are required")
     if not isinstance(record.get("task_id"), str) or not record["task_id"]:
         errors.append("task_id must be non-empty")
+    if not isinstance(record.get("context_features"), dict):
+        errors.append("context_features must be an object")
     for key in ("retrieved_rule_ids", "triggered_rule_ids", "followed_rule_ids", "overridden_rule_ids"):
         values = record.get(key)
         if not isinstance(values, list) or any(not isinstance(item, str) or not item for item in values):

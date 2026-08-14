@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/evidence_event.schema.json",
+  "title": "EvidenceEvent",
+  "type": "object",
+  "required": [
+    "event_id",
+    "context",
+    "rule_id",
+    "rule_version",
+    "assignment",
+    "outcome_vector",
+    "scientific_gates",
+    "artifacts",
+    "versions",
+    "source_id",
+    "independence_group",
+    "timestamp"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "type": "object"
+    },
+    "rule_id": {
+      "type": "string"
+    },
+    "rule_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "assignment": {
+      "type": "object",
+      "required": [
+        "arm"
+      ],
+      "properties": {
+        "arm": {
+          "enum": [
+            "on",
+            "off"
+          ]
+        }
+      }
+    },
+    "outcome_vector": {
+      "type": "object"
+    },
+    "scientific_gates": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "object"
+    },
+    "versions": {
+      "type": "object"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "independence_group": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "trust_zone": {
+      "type": "string"
+    },
+    "attacker_controlled_fields": {
+      "type": "array"
+    }
+  }
+}

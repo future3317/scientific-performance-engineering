@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import hashlib
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -27,15 +30,15 @@ def main() -> None:
     assert replay.beta_tail_probability(20, 1, 0.8) > 0.8
     assert replay.beta_tail_probability(2, 10, 0.8) < 0.01
     result = replay.evaluate_cases(
-        [{"case_id": f"REG-{index}", "utility_on": 1.2, "utility_off": 1.0, "scientific_ok": True} for index in range(20)],
+        [{"case_id": f"REG-{index}", "utility_on": 1.2, "utility_off": 1.0, "scientific_ok": True} for index in range(200)],
         epsilon=0.05,
         p_min=0.8,
         delta=0.05,
     )
     assert result["outcome"] == "passed"
     assert result["mean_effect"] > 0.05
-    assert result["successes"] == 20 and result["failures"] == 0
-    payload = {"rule_id": "PERF-SYNC-004", "epsilon": 0.05, "p_min": 0.8, "delta": 0.05, "cases": [{"case_id": f"REG-{index}", "utility_on": 1.2, "utility_off": 1.0, "scientific_ok": True} for index in range(20)]}
+    assert result["successes"] == 200 and result["failures"] == 0
+    payload = {"rule_id": "PERF-SYNC-004", "epsilon": 0.05, "p_min": 0.8, "delta": 0.05, "cases": [{"case_id": f"REG-{index}", "utility_on": 1.2, "utility_off": 1.0, "scientific_ok": True} for index in range(200)]}
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "input.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -49,6 +52,14 @@ def main() -> None:
             "harness_revision": manifest["harness_revision"], "result_digest": manifest["result_digest"], "outcome": "passed",
         }}}
         assert validator.validate_replay_manifest(card, root) == []
+        # Exercise the real CLI, not only imported functions: this catches
+        # undefined variables and missing output artifacts in packaging/CI.
+        output = root / "cli-replay.json"
+        completed = subprocess.run([sys.executable, str(ROOT / "scripts" / "run_rule_replay.py"), str(root / "input.json"), str(output)], capture_output=True, text=True)
+        assert completed.returncode == 0, completed.stderr
+        assert output.is_file() and json.loads(output.read_text(encoding="utf-8"))["result"]["outcome"] == "passed"
+        cli_manifest = json.loads(output.read_text(encoding="utf-8"))
+        assert hashlib.sha256(replay.canonical_json(cli_manifest["result"])).hexdigest() == cli_manifest["result_digest"]
 
     scorer = load("score_rule_library.py")
     metrics = scorer.score_library(

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "spec": {
+    "rule_id": "PERF-SYNC-004",
+    "version": 1,
+    "parent": null,
+    "applicability": {"compare": {"evidence.scalar_sync_count": {"gt": 0}}},
+    "intervention": {"action": "audit_scalar_sync"},
+    "expected_mechanism": "Scalar host-device synchronization creates launch gaps.",
+    "evidence_requirements": ["profiler_or_nsys"],
+    "scientific_invariants": ["objective_unchanged"],
+    "abstain_conditions": {},
+    "relations": {"requires": [], "conflicts": [], "supersedes": []},
+    "runtime_cost": {"tokens": 80, "expected_utility": 0.8},
+    "provenance_policy": {"required": true}
+  },
+  "state": {
+    "rule_id": "PERF-SYNC-004",
+    "version": 1,
+    "status": "candidate",
+    "drift_state": "stable",
+    "effect": {},
+    "confidence_sequence": {},
+    "applicability_calibration": {},
+    "retrieval_utility": 0.0,
+    "override_rate": 0.0,
+    "provenance_diversity": 0,
+    "last_updated": "2026-08-15T00:00:00Z"
+  },
+  "provenance": {"source_cases": ["EXP-2026-08-0001"], "independence_groups": ["local-runner"]}
+}

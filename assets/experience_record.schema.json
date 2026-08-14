@@ -20,6 +20,11 @@
     "lesson": {"type": "object", "required": ["type", "text"]},
     "scope": {"type": "object", "required": ["requires", "excludes"]},
     "collector_confidence": {"enum": ["low", "medium", "high"]},
+    "source_id": {"type": "string", "minLength": 1},
+    "independence_group": {"type": "string", "minLength": 1},
+    "trust_zone": {"enum": ["local", "reviewed", "external", "quarantine"]},
+    "attacker_controlled_fields": {"type": "array", "items": {"type": "string"}},
+    "source_diversity": {"type": "integer", "minimum": 0},
     "artifacts": {
       "type": "object",
       "additionalProperties": {

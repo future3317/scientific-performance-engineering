@@ -22,7 +22,9 @@ jobs:
       - name: Install minimum CPU PyTorch compatibility for tensor self-tests
         run: python -m pip install --disable-pip-version-check --no-cache-dir torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
       - name: Validate skill structure and benchmark contract
-        run: python scripts/validate_skill.py .
+        run: |
+          python scripts/generate_rule_schemas.py
+          python scripts/validate_skill.py .
       - name: Run behavioral and comparator fixtures
         run: |
           python scripts/behavioral_contract_tests.py
@@ -34,6 +36,9 @@ jobs:
           python scripts/experience_contract_tests.py
           python scripts/evolution_contract_tests.py
           python scripts/evolution_utility_tests.py
+          python scripts/rule_engine_tests.py
+          python scripts/evolution_statistics_tests.py
+          python scripts/validate_rule_os.py
           python scripts/validate_evolution.py .
           python scripts/validate_rule_usage.py assets/rule_usage_record.json
       - name: Compile Python tools

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/rule_spec.schema.json",
+  "title": "RuleSpec",
+  "type": "object",
+  "required": [
+    "rule_id",
+    "version",
+    "applicability",
+    "intervention",
+    "expected_mechanism",
+    "evidence_requirements",
+    "scientific_invariants",
+    "abstain_conditions",
+    "relations",
+    "runtime_cost",
+    "provenance_policy"
+  ],
+  "properties": {
+    "rule_id": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]+$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "applicability": {
+      "type": "object"
+    },
+    "intervention": {
+      "type": "object"
+    },
+    "expected_mechanism": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "scientific_invariants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "abstain_conditions": {
+      "type": "object"
+    },
+    "relations": {
+      "type": "object"
+    },
+    "runtime_cost": {
+      "type": "object"
+    },
+    "provenance_policy": {
+      "type": "object"
+    },
+    "severity": {
+      "enum": [
+        "P0",
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ]
+    },
+    "domain": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    }
+  }
+}

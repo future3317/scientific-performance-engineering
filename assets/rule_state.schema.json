@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/rule_state.schema.json",
+  "title": "RuleState",
+  "type": "object",
+  "required": [
+    "rule_id",
+    "version",
+    "status",
+    "drift_state",
+    "effect",
+    "confidence_sequence",
+    "applicability_calibration",
+    "retrieval_utility",
+    "override_rate",
+    "provenance_diversity",
+    "last_updated"
+  ],
+  "properties": {
+    "rule_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "enum": [
+        "candidate",
+        "canonical",
+        "retired"
+      ]
+    },
+    "drift_state": {
+      "enum": [
+        "stable",
+        "suspected_drift",
+        "stale",
+        "revalidating"
+      ]
+    },
+    "effect": {
+      "type": "object"
+    },
+    "confidence_sequence": {
+      "type": "object"
+    },
+    "applicability_calibration": {
+      "type": "object"
+    },
+    "retrieval_utility": {
+      "type": "number"
+    },
+    "override_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "provenance_diversity": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_updated": {
+      "type": "string"
+    }
+  }
+}

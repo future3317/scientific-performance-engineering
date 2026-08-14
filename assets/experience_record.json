@@ -26,6 +26,11 @@
     "excludes": ["known counterexample"]
   },
   "collector_confidence": "medium",
+  "source_id": "local-benchmark",
+  "independence_group": "local-runner",
+  "trust_zone": "local",
+  "attacker_controlled_fields": [],
+  "source_diversity": 1,
   "artifacts": {
     "benchmark_record": {
       "path": "relative/path/to/benchmark_record.json",

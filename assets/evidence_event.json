@@ -1,0 +1,16 @@
+{
+  "event_id": "EV-2026-08-0001",
+  "context": {"domain": "runtime", "hardware": {"gpu": {"duty_cycle": 0.2}}},
+  "rule_id": "PERF-SYNC-004",
+  "rule_version": 1,
+  "assignment": {"arm": "on", "propensity": 0.5},
+  "outcome_vector": {"utility": 0.17, "step_seconds": 51.2},
+  "scientific_gates": {"numerical": true, "quality": true, "resume": true},
+  "artifacts": {"benchmark": "artifacts/benchmark.json"},
+  "versions": {"pytorch": "2.7.1", "cuda": "unknown"},
+  "source_id": "local-benchmark",
+  "independence_group": "local-runner",
+  "timestamp": "2026-08-15T00:00:00Z",
+  "trust_zone": "local",
+  "attacker_controlled_fields": []
+}

@@ -9,6 +9,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from core.models import RuleSpec, RuleState
+
 
 SEVERITIES = {"P0", "P1", "P2", "P3", "P4"}
 STATUSES = {"candidate", "canonical", "retired"}
@@ -37,6 +42,15 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(card, dict):
         return ["rule card must be a JSON object"]
+    try:
+        RuleSpec.from_dict(card)
+    except (TypeError, ValueError, KeyError) as exc:
+        errors.append(f"canonical RuleSpec invalid: {exc}")
+    if isinstance(card.get("state"), dict):
+        try:
+            RuleState.from_dict(card["state"])
+        except (TypeError, ValueError, KeyError) as exc:
+            errors.append(f"canonical RuleState invalid: {exc}")
     if card.get("schema_version") != schema.get("properties", {}).get("schema_version", {}).get("const"):
         errors.append("schema_version must be 1")
     if not isinstance(card.get("rule_id"), str) or not card["rule_id"]:
@@ -73,8 +87,8 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
     if card.get("collector_confidence") not in {"low", "medium", "high"}:
         errors.append("collector_confidence must be low, medium, or high")
     confidence = card.get("confidence")
-    if not isinstance(confidence, dict) or confidence.get("method") != "beta-binomial":
-        errors.append("confidence.method must be beta-binomial")
+    if not isinstance(confidence, dict) or confidence.get("method") not in {"anytime-hoeffding-union-bound", "beta-binomial"}:
+        errors.append("confidence.method must be anytime-hoeffding-union-bound")
     else:
         for key in ("prior_alpha", "prior_beta", "successes", "failures"):
             if not isinstance(confidence.get(key), int) or confidence[key] < 0:
@@ -82,6 +96,8 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
         for key in ("p_min", "delta", "posterior_probability", "effective_samples"):
             if not isinstance(confidence.get(key), (int, float)):
                 errors.append(f"confidence.{key} must be numeric")
+        if confidence.get("method") == "anytime-hoeffding-union-bound" and not isinstance(confidence.get("promotion_probability_lower_bound"), (int, float)):
+            errors.append("anytime confidence requires promotion_probability_lower_bound")
     promotion = card.get("promotion")
     if not isinstance(promotion, dict) or promotion.get("replay_status") not in {"pending", "passed", "failed"} or not isinstance(promotion.get("human_review"), bool):
         errors.append("promotion needs replay_status pending/passed/failed and boolean human_review")
@@ -169,6 +185,21 @@ def validate_card_links(card: dict[str, Any], experiences: dict[str, dict[str, A
     return errors
 
 
+def validate_provenance_diversity(card: dict[str, Any], experiences: dict[str, dict[str, Any]]) -> list[str]:
+    """Gate bounded auto-promotion on independent evidence groups."""
+    if card.get("status") != "canonical":
+        return []
+    promotion = card.get("promotion", {})
+    if card.get("severity") in {"P0", "P1"} and promotion.get("human_review") is not True:
+        return [f"{card.get('rule_id')}: P0/P1 rules require human review"]
+    if promotion.get("mode") != "bounded-auto":
+        return []
+    groups = {experiences[item].get("independence_group") for item in card.get("source_cases", []) if item in experiences}
+    if len(groups) < 2:
+        return [f"{card.get('rule_id')}: bounded-auto promotion requires two independent provenance groups"]
+    return []
+
+
 def validate_rule_graph(cards: dict[str, dict[str, Any]]) -> list[str]:
     errors: list[str] = []
     for rule_id, card in cards.items():
@@ -251,8 +282,10 @@ def validate_replay_manifest(card: dict[str, Any], root: Path) -> list[str]:
         for key in ("p_min", "delta", "posterior_probability"):
             if not isinstance(result.get(key), (int, float)) or abs(float(result[key]) - float(confidence.get(key, -1))) > 1e-12:
                 errors.append(f"{path}: replay result differs from card confidence: {key}")
-        if result.get("lower_confidence_bound", float("-inf")) <= result.get("epsilon", float("inf")) or not result.get("scientific_gates_passed", False):
-            errors.append(f"{path}: replay result does not clear utility/scientific gates")
+        if result.get("mean_effect", float("-inf")) <= result.get("epsilon", float("inf")) or not result.get("scientific_gates_passed", False):
+            errors.append(f"{path}: replay result does not clear paired utility/scientific gates")
+        if result.get("confidence_method") == "anytime-hoeffding-union-bound" and result.get("promotion_probability_lower_bound", 0.0) < result.get("p_min", 1.0):
+            errors.append(f"{path}: replay result does not clear the anytime-valid promotion gate")
     attestation = manifest.get("attestation")
     body = {key: value for key, value in manifest.items() if key != "attestation"}
     if not isinstance(attestation, dict) or attestation.get("algorithm") != "sha256" or attestation.get("manifest_digest") != hashlib.sha256(canonical_json(body)).hexdigest():
@@ -350,6 +383,7 @@ def audit(root: Path) -> list[str]:
                     errors.append(f"duplicate rule_id across card directories: {card['rule_id']}")
                 cards[card["rule_id"]] = card
                 errors.extend(f"{path}: {error}" for error in validate_card_links(card, experiences, regression_cases))
+                errors.extend(f"{path}: {error}" for error in validate_provenance_diversity(card, experiences))
                 errors.extend(f"{path}: {error}" for error in validate_replay_manifest(card, root))
     errors.extend(validate_rule_graph(cards))
     registry_path = root / "registry" / "rules.json"

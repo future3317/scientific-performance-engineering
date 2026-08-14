@@ -1,0 +1,13 @@
+{
+  "rule_id": "PERF-SYNC-004",
+  "version": 1,
+  "status": "candidate",
+  "drift_state": "stable",
+  "effect": {"mean": 0.17},
+  "confidence_sequence": {"lower": 0.08, "delta": 0.05},
+  "applicability_calibration": {"precision": 0.9},
+  "retrieval_utility": 0.8,
+  "override_rate": 0.0,
+  "provenance_diversity": 1,
+  "last_updated": "2026-08-15T00:00:00Z"
+}

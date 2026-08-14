@@ -3,12 +3,20 @@
   "$id": "https://github.com/future3317/scientific-performance-engineering/rule_usage_record.schema.json",
   "title": "Scientific optimizer rule usage record",
   "type": "object",
-  "required": ["schema_version", "usage_id", "created_at", "task_id", "retrieved_rule_ids", "triggered_rule_ids", "followed_rule_ids", "overridden_rule_ids", "outcome"],
+  "required": ["schema_version", "usage_id", "created_at", "task_id", "context_features", "retrieved_rule_ids", "triggered_rule_ids", "followed_rule_ids", "overridden_rule_ids", "outcome"],
   "properties": {
     "schema_version": {"const": 1},
     "usage_id": {"type": "string", "pattern": "^USE-[0-9]{4}-[0-9]{2}-[0-9]{4,}$"},
     "created_at": {"type": "string", "minLength": 10},
     "task_id": {"type": "string", "minLength": 1},
+    "context_features": {"type": "object"},
+    "rule_version": {"type": "integer", "minimum": 1},
+    "retrieval_score": {"type": "number"},
+    "selection_propensity": {"type": "number", "minimum": 0, "maximum": 1},
+    "policy_version": {"type": "string"},
+    "baseline": {"type": "string"},
+    "token_cost": {"type": "integer", "minimum": 0},
+    "override_reason": {"type": "string"},
     "retrieved_rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z0-9-]+$"}},
     "triggered_rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z0-9-]+$"}},
     "followed_rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^[A-Z0-9-]+$"}},
@@ -19,7 +27,9 @@
       "properties": {
         "status": {"enum": ["accepted", "rejected", "inconclusive"]},
         "utility": {"type": "number"},
-        "scientific_gates_passed": {"type": "boolean"}
+        "scientific_gates_passed": {"type": "boolean"},
+        "outcome_vector": {"type": "object"},
+        "time_to_quality": {"type": "number"}
       }
     }
   }

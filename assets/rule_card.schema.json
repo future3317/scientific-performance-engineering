@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/rule_card.schema.json",
+  "title": "Typed Rule Card envelope",
+  "type": "object",
+  "required": ["schema_version", "spec", "state", "provenance"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "spec": {"$ref": "rule_spec.schema.json"},
+    "state": {"$ref": "rule_state.schema.json"},
+    "provenance": {"type": "object", "required": ["source_cases", "independence_groups"]}
+  }
+}
