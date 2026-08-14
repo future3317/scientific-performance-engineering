@@ -1,0 +1,44 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+htmlcov/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+environment.json
+
+# Generated traces, logs, reports, and experiment outputs
+*.log
+*.jsonl
+*.trace
+*.nsys-rep
+*.qdrep
+outputs/
+results/
+runs/
+wandb/
+tensorboard/
+
+# Checkpoints and large local model artifacts
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+checkpoints/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

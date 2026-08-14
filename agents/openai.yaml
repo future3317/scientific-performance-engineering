@@ -1,0 +1,4 @@
+interface:
+  display_name: "Scientific GPU Training Optimizer"
+  short_description: "Profile and optimize scientific PyTorch workloads"
+  default_prompt: "Use $scientific-gpu-training-optimizer to diagnose and optimize this scientific PyTorch workload with reproducible before-and-after evidence."
