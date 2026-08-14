@@ -28,7 +28,22 @@
     },
     "work": {
       "type": "object",
-      "required": ["unit", "logical_update_definition", "logical_update_dag", "campaign_lifecycle", "sync_census", "cache_contract", "h2d_proof", "timing_buckets", "cuda_timing_proof"]
+      "required": ["unit", "logical_update_definition", "logical_update_dag", "campaign_lifecycle", "sync_census", "cache_contract", "h2d_proof", "timing_buckets", "cuda_timing_proof"],
+      "properties": {
+        "campaign_lifecycle": {
+          "type": "object",
+          "required": ["startup", "precompute", "logical_update", "evaluation_sampling", "checkpoint_resume", "teardown", "failure_retry"],
+          "properties": {
+            "startup": {"$ref": "#/$defs/campaign_lifecycle_stage"},
+            "precompute": {"$ref": "#/$defs/campaign_lifecycle_stage"},
+            "logical_update": {"$ref": "#/$defs/campaign_lifecycle_stage"},
+            "evaluation_sampling": {"$ref": "#/$defs/campaign_lifecycle_stage"},
+            "checkpoint_resume": {"$ref": "#/$defs/campaign_lifecycle_stage"},
+            "teardown": {"$ref": "#/$defs/campaign_lifecycle_stage"},
+            "failure_retry": {"$ref": "#/$defs/campaign_lifecycle_stage"}
+          }
+        }
+      }
     },
     "metrics": {
       "type": "object",
@@ -42,5 +57,16 @@
     "measurements": {"type": "object", "required": ["run_order", "runs"]},
     "candidate": {"type": "object", "required": ["changed_levers", "active_path_evidence", "reference_output", "falsification_test"]},
     "quality": {"type": "object"}
+  },
+  "$defs": {
+    "campaign_lifecycle_stage": {
+      "type": "object",
+      "required": ["included", "seconds", "evidence"],
+      "properties": {
+        "included": {"type": "boolean"},
+        "seconds": {"type": ["number", "null"], "minimum": 0},
+        "evidence": {"type": "string"}
+      }
+    }
   }
 }

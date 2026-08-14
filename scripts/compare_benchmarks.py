@@ -362,7 +362,8 @@ def lifecycle_status(record: dict[str, Any]) -> list[str]:
         if not isinstance(included, bool):
             reasons.append(f"work.campaign_lifecycle.{stage}.included must be boolean")
             continue
-        if missing(entry.get("evidence")):
+        evidence = entry.get("evidence")
+        if not isinstance(evidence, str) or not evidence.strip():
             reasons.append(f"work.campaign_lifecycle.{stage} lacks evidence or an explicit exclusion reason")
         if included:
             seconds = finite_number(entry.get("seconds"))
@@ -832,6 +833,12 @@ def self_test() -> None:
     lifecycle_evidence_gap = copy.deepcopy(candidate)
     lifecycle_evidence_gap["work"]["campaign_lifecycle"]["startup"]["evidence"] = ""
     assert compare_records(record, lifecycle_evidence_gap, set())["assessment"] == "inconclusive"
+    lifecycle_evidence_type_gap = copy.deepcopy(candidate)
+    lifecycle_evidence_type_gap["work"]["campaign_lifecycle"]["startup"]["evidence"] = []
+    assert compare_records(record, lifecycle_evidence_type_gap, set())["assessment"] == "inconclusive"
+    lifecycle_seconds_gap = copy.deepcopy(candidate)
+    lifecycle_seconds_gap["work"]["campaign_lifecycle"]["logical_update"]["seconds"] = -1.0
+    assert compare_records(record, lifecycle_seconds_gap, set())["assessment"] == "inconclusive"
     lifecycle_measurement_delta = copy.deepcopy(candidate)
     lifecycle_measurement_delta["work"]["campaign_lifecycle"]["logical_update"]["seconds"] = 2.0
     assert compare_records(record, lifecycle_measurement_delta, set())["assessment"] == "gates_passed"

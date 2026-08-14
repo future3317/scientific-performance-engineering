@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,15 @@ def validate_record(record: dict[str, Any], schema: dict[str, Any]) -> list[str]
                     errors.append(f"work.campaign_lifecycle.{stage} must include included, seconds, and evidence")
                 elif not isinstance(entry["included"], bool):
                     errors.append(f"work.campaign_lifecycle.{stage}.included must be boolean")
+                elif not isinstance(entry["evidence"], str):
+                    errors.append(f"work.campaign_lifecycle.{stage}.evidence must be a string")
+                elif entry["seconds"] is not None and (
+                    isinstance(entry["seconds"], bool)
+                    or not isinstance(entry["seconds"], (int, float))
+                    or not math.isfinite(float(entry["seconds"]))
+                    or entry["seconds"] < 0
+                ):
+                    errors.append(f"work.campaign_lifecycle.{stage}.seconds must be null or a non-negative finite number")
 
         census = work.get("sync_census")
         if not isinstance(census, list) or any(

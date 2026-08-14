@@ -57,6 +57,9 @@ def main() -> None:
     broken_lifecycle = json.loads(json.dumps(template))
     broken_lifecycle["work"]["campaign_lifecycle"].pop("precompute")
     assert any("campaign_lifecycle" in error for error in benchmark_validator.validate_record(broken_lifecycle, schema))
+    broken_lifecycle_evidence = json.loads(json.dumps(template))
+    broken_lifecycle_evidence["work"]["campaign_lifecycle"]["startup"]["evidence"] = []
+    assert any("evidence" in error for error in benchmark_validator.validate_record(broken_lifecycle_evidence, schema))
     print("behavioral contract fixtures: ok")
 
 
