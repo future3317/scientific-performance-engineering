@@ -57,6 +57,7 @@ Fill this before modifying performance-sensitive code.
 - CUDA timing proof: paired events/explicit synchronization and stream:
 - Timing buckets: each bucket clock/stream/completion proof/p50_ms; bucket sum versus end-to-end step; unaccounted ratio:
 - Logical-update DAG: fetch → preprocessing → transfer → forward → derivatives → backward → transforms → communication → update → lifecycle work:
+- Campaign lifecycle record: declare `startup`, `precompute`, `logical_update`, `evaluation_sampling`, `checkpoint_resume`, `teardown`, and `failure_retry`; each stage is explicitly included or excluded. Included stages require measured seconds and evidence; excluded stages require an explicit reason. Do not silently omit a stage.
 - Synchronization census: event / count / required-removable-amortizable-overlappable / evidence:
 - Cache contract and state: key components, cold/warm/disabled, hit/miss evidence:
 - H2D proof: pinned state, non-blocking flag, copy stream, source lifetime, consumer dependency, overlap timeline:

@@ -136,6 +136,15 @@
       {"stage": "checkpoint", "boundary": "optional_staging"},
       {"stage": "validation", "boundary": "cadence_trigger"}
     ],
+    "campaign_lifecycle": {
+      "startup": {"included": false, "seconds": null, "evidence": ""},
+      "precompute": {"included": false, "seconds": null, "evidence": ""},
+      "logical_update": {"included": true, "seconds": null, "evidence": ""},
+      "evaluation_sampling": {"included": false, "seconds": null, "evidence": ""},
+      "checkpoint_resume": {"included": false, "seconds": null, "evidence": ""},
+      "teardown": {"included": false, "seconds": null, "evidence": ""},
+      "failure_retry": {"included": false, "seconds": null, "evidence": ""}
+    },
     "sync_census": [
       {"event": "loss.item", "count": 0, "disposition": "removable"},
       {"event": "metric_allreduce", "count": 0, "disposition": "amortizable"},

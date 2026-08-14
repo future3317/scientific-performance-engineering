@@ -45,6 +45,7 @@
 - Compatibility status and unsupported combinations:
 - Runtime topology (construction order, rank/device, NUMA/affinity, PCIe/NVLink/NIC, shared memory, threads, allocator):
 - Logical-update DAG (fetch → preprocessing → H2D → forward → derivatives → backward → transforms → communication → update → lifecycle):
+- Campaign lifecycle coverage (startup / precompute / logical update / evaluation-sampling / checkpoint-resume / teardown / failure-retry), with measured seconds and evidence for included stages or an explicit exclusion reason:
 - Synchronization census (event/count/disposition/evidence):
 - Cache contract, key components, cold/warm/disabled state, and hit/miss evidence:
 - H2D proof (pinned state, non-blocking, copy stream, source lifetime, consumer dependency, overlap timeline):

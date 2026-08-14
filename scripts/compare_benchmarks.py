@@ -13,6 +13,17 @@ from pathlib import Path
 from typing import Any
 
 
+CAMPAIGN_LIFECYCLE_STAGES = (
+    "startup",
+    "precompute",
+    "logical_update",
+    "evaluation_sampling",
+    "checkpoint_resume",
+    "teardown",
+    "failure_retry",
+)
+
+
 COMPARABILITY_PATHS = (
     "identity.repository",
     "identity.base_revision",
@@ -75,6 +86,13 @@ COMPARABILITY_PATHS = (
     "work.optimization_objective",
     "work.benchmark_levels",
     "work.logical_update_definition",
+    "work.campaign_lifecycle.startup.included",
+    "work.campaign_lifecycle.precompute.included",
+    "work.campaign_lifecycle.logical_update.included",
+    "work.campaign_lifecycle.evaluation_sampling.included",
+    "work.campaign_lifecycle.checkpoint_resume.included",
+    "work.campaign_lifecycle.teardown.included",
+    "work.campaign_lifecycle.failure_retry.included",
     "work.task_composition",
     "work.logical_update_dag",
     "work.sync_census",
@@ -155,6 +173,7 @@ REQUIRED_PATHS = (
     "work.optimization_objective",
     "work.benchmark_levels",
     "work.logical_update_definition",
+    "work.campaign_lifecycle",
     "work.task_composition",
     "work.timing_bucket_definition",
     "work.cuda_timing_proof",
@@ -328,6 +347,30 @@ def timing_status(record: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
     }
 
 
+def lifecycle_status(record: dict[str, Any]) -> list[str]:
+    """Require an explicit, evidenced entry for every campaign lifecycle stage."""
+    lifecycle = get_path(record, "work.campaign_lifecycle")
+    if not isinstance(lifecycle, dict):
+        return ["missing work.campaign_lifecycle"]
+    reasons: list[str] = []
+    for stage in CAMPAIGN_LIFECYCLE_STAGES:
+        entry = lifecycle.get(stage)
+        if not isinstance(entry, dict):
+            reasons.append(f"work.campaign_lifecycle.{stage} is missing")
+            continue
+        included = entry.get("included")
+        if not isinstance(included, bool):
+            reasons.append(f"work.campaign_lifecycle.{stage}.included must be boolean")
+            continue
+        if missing(entry.get("evidence")):
+            reasons.append(f"work.campaign_lifecycle.{stage} lacks evidence or an explicit exclusion reason")
+        if included:
+            seconds = finite_number(entry.get("seconds"))
+            if seconds is None or seconds < 0:
+                reasons.append(f"work.campaign_lifecycle.{stage}.seconds must be a non-negative number when included")
+    return reasons
+
+
 def required_quality_gates(record: dict[str, Any]) -> list[str]:
     value = get_path(record, "acceptance.required_quality_gates")
     return value if isinstance(value, list) and all(isinstance(item, str) for item in value) else []
@@ -408,6 +451,8 @@ def compare_records(
     candidate_timing_reasons, candidate_timing = timing_status(candidate)
     inconclusive_reasons.extend(f"baseline: {reason}" for reason in baseline_timing_reasons)
     inconclusive_reasons.extend(f"candidate: {reason}" for reason in candidate_timing_reasons)
+    inconclusive_reasons.extend(f"baseline: {reason}" for reason in lifecycle_status(baseline))
+    inconclusive_reasons.extend(f"candidate: {reason}" for reason in lifecycle_status(candidate))
     acceptance = get_path(baseline, "acceptance")
     candidate_acceptance = get_path(candidate, "acceptance")
     if acceptance != candidate_acceptance:
@@ -642,6 +687,13 @@ def self_test() -> None:
                 "autograd_aux", "backward", "grad_transform", "clipping", "communication",
                 "optimizer", "scheduler", "ema_swa", "metrics", "checkpoint", "validation"
             )],
+            "campaign_lifecycle": {
+                stage: {"included": stage == "logical_update", "seconds": 1.0 if stage == "logical_update" else None, "evidence": "fixture"}
+                for stage in (
+                    "startup", "precompute", "logical_update", "evaluation_sampling",
+                    "checkpoint_resume", "teardown", "failure_retry"
+                )
+            },
             "sync_census": [{"event": "loss.item", "disposition": "removable"}],
             "cache_contract": {
                 "cache_state": "warm",
@@ -774,6 +826,15 @@ def self_test() -> None:
     bucket_gap = copy.deepcopy(candidate)
     bucket_gap["work"]["unaccounted_ratio"] = 0.2
     assert compare_records(record, bucket_gap, set())["assessment"] == "inconclusive"
+    lifecycle_gap = copy.deepcopy(candidate)
+    lifecycle_gap["work"]["campaign_lifecycle"].pop("precompute")
+    assert compare_records(record, lifecycle_gap, set())["assessment"] == "incomparable"
+    lifecycle_evidence_gap = copy.deepcopy(candidate)
+    lifecycle_evidence_gap["work"]["campaign_lifecycle"]["startup"]["evidence"] = ""
+    assert compare_records(record, lifecycle_evidence_gap, set())["assessment"] == "inconclusive"
+    lifecycle_measurement_delta = copy.deepcopy(candidate)
+    lifecycle_measurement_delta["work"]["campaign_lifecycle"]["logical_update"]["seconds"] = 2.0
+    assert compare_records(record, lifecycle_measurement_delta, set())["assessment"] == "gates_passed"
     preflight_gap = copy.deepcopy(candidate)
     preflight_gap["preflight"]["compatibility_status"] = "inconclusive"
     assert compare_records(record, preflight_gap, set())["assessment"] == "inconclusive"

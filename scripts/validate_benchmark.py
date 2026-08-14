@@ -80,6 +80,21 @@ def validate_record(record: dict[str, Any], schema: dict[str, Any]) -> list[str]
         if not isinstance(dag, list) or not required_stages.issubset({item.get("stage") for item in dag if isinstance(item, dict)}):
             errors.append("work.logical_update_dag must enumerate the required logical-update stages")
 
+        lifecycle = work.get("campaign_lifecycle")
+        lifecycle_stages = {
+            "startup", "precompute", "logical_update", "evaluation_sampling",
+            "checkpoint_resume", "teardown", "failure_retry",
+        }
+        if not isinstance(lifecycle, dict) or not lifecycle_stages.issubset(lifecycle):
+            errors.append("work.campaign_lifecycle must declare startup, precompute, logical_update, evaluation_sampling, checkpoint_resume, teardown, and failure_retry")
+        else:
+            for stage in lifecycle_stages:
+                entry = lifecycle[stage]
+                if not isinstance(entry, dict) or not {"included", "seconds", "evidence"}.issubset(entry):
+                    errors.append(f"work.campaign_lifecycle.{stage} must include included, seconds, and evidence")
+                elif not isinstance(entry["included"], bool):
+                    errors.append(f"work.campaign_lifecycle.{stage}.included must be boolean")
+
         census = work.get("sync_census")
         if not isinstance(census, list) or any(
             not isinstance(item, dict) or item.get("disposition") not in {"required", "removable", "amortizable", "overlappable"}

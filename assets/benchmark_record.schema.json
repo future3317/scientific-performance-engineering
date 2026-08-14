@@ -28,7 +28,7 @@
     },
     "work": {
       "type": "object",
-      "required": ["unit", "logical_update_definition", "logical_update_dag", "sync_census", "cache_contract", "h2d_proof", "timing_buckets", "cuda_timing_proof"]
+      "required": ["unit", "logical_update_definition", "logical_update_dag", "campaign_lifecycle", "sync_census", "cache_contract", "h2d_proof", "timing_buckets", "cuda_timing_proof"]
     },
     "metrics": {
       "type": "object",

@@ -41,6 +41,7 @@ def main() -> None:
     assert "preflight" in template, "benchmark record needs runtime compatibility preflight"
     assert "sync_census" in template["work"], "benchmark record needs a synchronization census"
     assert "logical_update_dag" in template["work"], "benchmark record needs a logical-update DAG"
+    assert "campaign_lifecycle" in template["work"], "benchmark record needs the full campaign lifecycle"
     assert "cache_contract" in template["work"], "benchmark record needs cache correctness evidence"
     assert "h2d_proof" in template["work"], "benchmark record needs H2D overlap proof"
     assert "amortized_training_throughput" in template["metrics"]
@@ -53,6 +54,9 @@ def main() -> None:
     broken = json.loads(json.dumps(template))
     broken["work"]["h2d_proof"].pop("overlap_evidence")
     assert any("h2d_proof" in error for error in benchmark_validator.validate_record(broken, schema))
+    broken_lifecycle = json.loads(json.dumps(template))
+    broken_lifecycle["work"]["campaign_lifecycle"].pop("precompute")
+    assert any("campaign_lifecycle" in error for error in benchmark_validator.validate_record(broken_lifecycle, schema))
     print("behavioral contract fixtures: ok")
 
 
