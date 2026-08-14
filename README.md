@@ -6,6 +6,11 @@
   <a href="#english">🇬🇧 English</a>
 </p>
 
+## Contents
+
+- [中文](#中文)
+- [English](#english)
+
 ## 中文
 
 这是一个面向 PyTorch 科学计算训练与推理的 Codex skill，重点处理“GPU 利用率低但训练很慢”这类端到端性能问题。它覆盖 PyG/e3nn 等材料图网络、等变算子、压电/物性多任务、晶体 diffusion/flow matching、CUDA kernel、torch.compile/CUDA Graphs、DDP/FSDP、checkpoint 和混合精度。
@@ -35,6 +40,10 @@
 - [`scripts/run_with_gpu_monitor.py`](scripts/run_with_gpu_monitor.py)：采集 NVIDIA GPU 和可选主机时间线；仅作 supporting telemetry。
 - [`scripts/compare_benchmarks.py`](scripts/compare_benchmarks.py)：拒绝不可比 benchmark，并计算 before/after delta。
 - [`scripts/validate_skill.py`](scripts/validate_skill.py)：校验 skill 结构、链接、资产和 Python 语法。
+
+### 开源使用与贡献
+
+本项目采用 [MIT License](LICENSE)。欢迎提交 issue、改进参考资料或补充可复现的验证脚本；请不要提交数据集、checkpoint、运行日志、环境快照或任何凭据。仓库中的 `.gitignore` 已覆盖常见 Python 缓存、实验输出、模型文件和本地配置。
 
 ### 使用与验证
 
@@ -81,6 +90,10 @@ Every candidate requires a comparable baseline, hypothesis card, Amdahl ceiling,
 - [`scripts/run_with_gpu_monitor.py`](scripts/run_with_gpu_monitor.py): captures NVIDIA GPU and optional host timelines; supporting telemetry only.
 - [`scripts/compare_benchmarks.py`](scripts/compare_benchmarks.py): rejects incomparable benchmark records and computes deltas.
 - [`scripts/validate_skill.py`](scripts/validate_skill.py): validates structure, links, assets, and Python syntax.
+
+### Open-source use and contributions
+
+This project is released under the [MIT License](LICENSE). Issues, documentation improvements, and reproducible validation scripts are welcome. Do not commit datasets, checkpoints, runtime logs, environment snapshots, or credentials; `.gitignore` covers common Python caches, experiment outputs, model artifacts, and local configuration.
 
 ### Use and validate
 
