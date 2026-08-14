@@ -4,12 +4,15 @@ Fill this before modifying performance-sensitive code.
 
 ## Identity
 
-- Repository / commit / dirty state:
+- Repository / base revision / dirty state:
+- Benchmark harness hash / candidate patch hash / declared change set:
 - Entry command and config:
 - Hardware and device index:
+- Selected GPU index/UUID and logical-to-physical mapping:
 - Driver / CUDA / PyTorch / dependent kernel libraries:
 - Data path, storage type, split, manifest/hash:
 - Host contention snapshot: load average / available memory / swap / worker RSS:
+- Environment privacy mode: redacted by default; sensitive host metadata explicitly enabled?
 
 ## Fixed scientific contract
 
@@ -39,10 +42,13 @@ Fill this before modifying performance-sensitive code.
 - Benchmark levels completed: micro / module / end-to-end:
 - Timing bucket definition and unaccounted step time:
 - CUDA timing proof: paired events/explicit synchronization and stream:
+- Timing buckets: each bucket clock/stream/completion proof/p50_ms; bucket sum versus end-to-end step; unaccounted ratio:
 
 ## Baseline metrics
 
 - Throughput:
+- Raw independent run/window metrics and randomized/A-B run order:
+- Median / IQR / MAD / bootstrap confidence interval / noise floor:
 - Step time p50 / p95:
 - Peak allocated / reserved / external memory:
 - Data wait / H2D / forward / loss / backward / optimizer:
@@ -57,6 +63,7 @@ Fill this before modifying performance-sensitive code.
 - Hypothesis card: measured bottleneck, one changed lever, expected movement, risk, falsification test:
 - Reference implementation/output retained at:
 - Primary objective metric and threshold (objective-specific):
+- Required quality gates (recorded in `acceptance.required_quality_gates`, never CLI-only):
 - Guardrails: p95 latency / memory / host contention / quality:
 - Quality/non-inferiority gate:
 - Required tests:
@@ -64,7 +71,7 @@ Fill this before modifying performance-sensitive code.
 
 ## Experiment ledger
 
-- Status: accepted / rejected / inconclusive
+- Status: accepted / rejected / inconclusive / algorithmic_experiment
 - Candidate levers changed in this entry:
 - Cold/compile/autotune versus steady-state result:
 - Correctness order: shape/finite → numerical → gradient → physics/equivariance → task quality:

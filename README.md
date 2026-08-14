@@ -59,6 +59,8 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & $python "$skill\scripts\compare_benchmarks.py" --self-test
 ```
 
+监控时显式选择 GPU，例如：`python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python train.py`。`collect_env.py` 默认会脱敏 hostname、绝对路径和 GPU UUID；只有明确需要时才使用 `--include-sensitive-host-metadata`。
+
 不要把 GPU utilization、单次 timing window 或 peak memory 单独当作 speedup 证明；比较必须冻结代码、硬件、软件、数据、任务组成、logical update 和计时边界。
 
 ## English
@@ -108,5 +110,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 & $python "$skill\assets\materials_gnn_checks.py" --self-test
 & $python "$skill\scripts\compare_benchmarks.py" --self-test
 ```
+
+Select GPUs explicitly when monitoring, for example: `python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python train.py`. `collect_env.py` redacts hostnames, absolute paths, and GPU UUIDs by default; use `--include-sensitive-host-metadata` only when needed.
 
 GPU utilization, a single timing window, or peak memory alone is not proof of a speedup. Comparisons must freeze code, hardware, software, data, task composition, logical update definition, and timing boundaries.

@@ -6,6 +6,10 @@
     "dirty": false,
     "command": [],
     "config": "",
+    "base_revision": "",
+    "benchmark_harness_hash": "",
+    "candidate_patch_hash": "",
+    "declared_change_set": [],
     "timestamp_utc": ""
   },
   "environment_file": "environment.json",
@@ -14,6 +18,7 @@
     "cpu_affinity": [],
     "numa_nodes": null,
     "gpu": "",
+    "gpu_uuid": "",
     "device_index": null,
     "world_size": 1,
     "storage": ""
@@ -96,6 +101,13 @@
     "measured_steps": null,
     "repetitions": null,
     "timing_boundaries": "",
+    "cuda_timing_proof": {
+      "clock": "",
+      "stream": "",
+      "completion_proof": ""
+    },
+    "timing_buckets": {},
+    "unaccounted_ratio": null,
     "includes_data_loading": true,
     "includes_h2d": true,
     "includes_optimizer": true,
@@ -140,6 +152,21 @@
     "graph_breaks": null,
     "recompiles": null,
     "fallback": false
+  },
+  "acceptance": {
+    "primary_metric": "throughput_units_per_s",
+    "higher_is_better": true,
+    "minimum_improvement_percent": null,
+    "noise_floor_percent": null,
+    "confidence_level": 0.95,
+    "bootstrap_samples": 2000,
+    "minimum_runs": 3,
+    "required_quality_gates": [],
+    "max_unaccounted_ratio": null
+  },
+  "measurements": {
+    "run_order": "",
+    "runs": []
   },
   "quality": {},
   "artifacts": {

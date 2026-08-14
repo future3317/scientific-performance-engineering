@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a fixed command while sampling nvidia-smi; pair with project throughput metrics."""
+"""Run a command while sampling selected NVIDIA GPUs and the command process tree."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import os
 import shutil
 import statistics
 import subprocess
-import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -24,7 +23,7 @@ except ImportError:  # Host telemetry is optional; GPU monitoring remains usable
     psutil = None
 
 QUERY_FIELDS = (
-    "timestamp,index,name,utilization.gpu,utilization.memory,memory.used,"
+    "timestamp,index,uuid,name,utilization.gpu,utilization.memory,memory.used,"
     "power.draw,clocks.sm,temperature.gpu"
 )
 
@@ -52,10 +51,75 @@ def percentile(values: list[float], fraction: float) -> float | None:
     return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
-def host_sample() -> dict[str, Any]:
-    """Capture host contention at the same cadence as GPU telemetry."""
+def visible_devices() -> list[str]:
+    value = os.environ.get("CUDA_VISIBLE_DEVICES")
+    return [] if value is None else [item.strip() for item in value.split(",") if item.strip()]
+
+
+def logical_index_for(physical_index: int, uuid: str, visible: list[str]) -> int | None:
+    if not visible:
+        return physical_index
+    for logical, token in enumerate(visible):
+        if token == str(physical_index) or token == uuid:
+            return logical
+    return None
+
+
+def process_tree_memory(target_pid: int | None) -> dict[str, Any]:
+    """Report trainer, descendants (usually DataLoader workers), and total RSS/PSS."""
+    result: dict[str, Any] = {
+        "target_pid": target_pid,
+        "process_count": 0,
+        "trainer_rss_mb": None,
+        "worker_rss_mb": None,
+        "process_tree_rss_mb": None,
+        "trainer_pss_mb": None,
+        "worker_pss_mb": None,
+        "process_tree_pss_mb": None,
+    }
+    if psutil is None or target_pid is None:
+        return result
+    try:
+        root = psutil.Process(target_pid)
+        descendants = root.children(recursive=True)
+        processes = [root, *descendants]
+        rss_values = [float(process.memory_info().rss) / (1024.0 * 1024.0) for process in processes]
+        result.update(
+            {
+                "process_count": len(processes),
+                "trainer_rss_mb": rss_values[0],
+                "worker_rss_mb": sum(rss_values[1:]),
+                "process_tree_rss_mb": sum(rss_values),
+            }
+        )
+        pss_values: list[float] = []
+        for process in processes:
+            try:
+                pss_values.append(float(process.memory_full_info().pss) / (1024.0 * 1024.0))
+            except (AttributeError, psutil.Error):
+                pss_values = []
+                break
+        if pss_values:
+            result.update(
+                {
+                    "trainer_pss_mb": pss_values[0],
+                    "worker_pss_mb": sum(pss_values[1:]),
+                    "process_tree_pss_mb": sum(pss_values),
+                }
+            )
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        pass
+    return result
+
+
+def host_sample(target_pid: int | None = None) -> dict[str, Any]:
+    """Capture host contention and the monitored command's process tree."""
     captured = datetime.now(timezone.utc).isoformat()
-    sample: dict[str, Any] = {"captured_utc": captured, "available": psutil is not None}
+    sample: dict[str, Any] = {
+        "captured_utc": captured,
+        "available": psutil is not None,
+        "process_tree": process_tree_memory(target_pid),
+    }
     if psutil is None:
         return sample
 
@@ -75,7 +139,7 @@ def host_sample() -> dict[str, Any]:
             "load_average": load_average,
             "available_memory_mb": float(memory.available) / (1024.0 * 1024.0),
             "swap_percent": float(swap.percent),
-            "process_rss_mb": float(psutil.Process().memory_info().rss) / (1024.0 * 1024.0),
+            "monitor_rss_mb": float(psutil.Process().memory_info().rss) / (1024.0 * 1024.0),
         }
     )
     return sample
@@ -86,12 +150,20 @@ def sample_gpu(
     host_samples: list[dict[str, Any]],
     stop: threading.Event,
     interval: float,
+    gpu_specs: tuple[str, ...],
+    target_pid: int,
+    visible: list[str],
 ) -> None:
     while not stop.is_set():
         start = time.monotonic()
-        host_samples.append(host_sample())
+        host_samples.append(host_sample(target_pid))
         result = subprocess.run(
-            ["nvidia-smi", f"--query-gpu={QUERY_FIELDS}", "--format=csv,noheader,nounits"],
+            [
+                "nvidia-smi",
+                f"--id={','.join(gpu_specs)}",
+                f"--query-gpu={QUERY_FIELDS}",
+                "--format=csv,noheader,nounits",
+            ],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -100,20 +172,24 @@ def sample_gpu(
         captured = datetime.now(timezone.utc).isoformat()
         if result.returncode == 0:
             for row in csv.reader(result.stdout.splitlines(), skipinitialspace=True):
-                if len(row) != 9:
+                if len(row) != 10:
                     continue
+                physical_index = int(row[1])
+                uuid = row[2].strip()
                 samples.append(
                     {
                         "captured_utc": captured,
                         "nvidia_timestamp": row[0].strip(),
-                        "index": int(row[1]),
-                        "name": row[2].strip(),
-                        "gpu_util_percent": parse_number(row[3]),
-                        "memory_util_percent": parse_number(row[4]),
-                        "memory_used_mb": parse_number(row[5]),
-                        "power_w": parse_number(row[6]),
-                        "sm_clock_mhz": parse_number(row[7]),
-                        "temperature_c": parse_number(row[8]),
+                        "physical_index": physical_index,
+                        "logical_index": logical_index_for(physical_index, uuid, visible),
+                        "uuid": uuid,
+                        "name": row[3].strip(),
+                        "gpu_util_percent": parse_number(row[4]),
+                        "memory_util_percent": parse_number(row[5]),
+                        "memory_used_mb": parse_number(row[6]),
+                        "power_w": parse_number(row[7]),
+                        "sm_clock_mhz": parse_number(row[8]),
+                        "temperature_c": parse_number(row[9]),
                     }
                 )
         elapsed = time.monotonic() - start
@@ -121,13 +197,32 @@ def sample_gpu(
 
 
 def summarize_host(samples: list[dict[str, Any]]) -> dict[str, Any]:
-    fields = ("cpu_percent", "available_memory_mb", "swap_percent", "process_rss_mb")
+    fields = (
+        "cpu_percent",
+        "available_memory_mb",
+        "swap_percent",
+        "monitor_rss_mb",
+    )
     summary: dict[str, Any] = {
         "samples": len(samples),
         "telemetry_available": any(sample.get("available") for sample in samples),
     }
     for field in fields:
         values = [float(sample[field]) for sample in samples if sample.get(field) is not None]
+        if values:
+            summary[field] = {
+                "mean": statistics.fmean(values),
+                "p50": percentile(values, 0.50),
+                "p95": percentile(values, 0.95),
+                "max": max(values),
+            }
+    tree_fields = ("trainer_rss_mb", "worker_rss_mb", "process_tree_rss_mb", "process_tree_pss_mb")
+    for field in tree_fields:
+        values = [
+            float(sample["process_tree"][field])
+            for sample in samples
+            if sample.get("process_tree", {}).get(field) is not None
+        ]
         if values:
             summary[field] = {
                 "mean": statistics.fmean(values),
@@ -152,9 +247,9 @@ def summarize_host(samples: list[dict[str, Any]]) -> dict[str, Any]:
 
 def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
-    indices = sorted({int(sample["index"]) for sample in samples})
+    indices = sorted({int(sample["physical_index"]) for sample in samples})
     for index in indices:
-        current = [sample for sample in samples if int(sample["index"]) == index]
+        current = [sample for sample in samples if int(sample["physical_index"]) == index]
         fields = (
             "gpu_util_percent",
             "memory_util_percent",
@@ -163,7 +258,12 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
             "sm_clock_mhz",
             "temperature_c",
         )
-        stats: dict[str, Any] = {"samples": len(current), "name": current[0]["name"]}
+        stats: dict[str, Any] = {
+            "samples": len(current),
+            "name": current[0]["name"],
+            "uuid": current[0]["uuid"],
+            "logical_indices": sorted({sample["logical_index"] for sample in current}),
+        }
         for field in fields:
             values = [float(sample[field]) for sample in current if sample[field] is not None]
             if values:
@@ -181,6 +281,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--interval", type=float, default=0.5)
+    parser.add_argument("--gpu", action="append", required=True, help="NVIDIA index or UUID; repeat for multiple GPUs")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command and args.command[0] == "--" else args.command
@@ -193,18 +294,19 @@ def main() -> None:
 
     samples: list[dict[str, Any]] = []
     host_samples: list[dict[str, Any]] = []
+    visible = visible_devices()
     stop = threading.Event()
-    monitor = threading.Thread(
-        target=sample_gpu,
-        args=(samples, host_samples, stop, args.interval),
-        daemon=True,
-    )
     start_utc = datetime.now(timezone.utc).isoformat()
     start = time.monotonic()
+    completed = subprocess.Popen(command)
+    monitor = threading.Thread(
+        target=sample_gpu,
+        args=(samples, host_samples, stop, args.interval, tuple(args.gpu), completed.pid, visible),
+        daemon=True,
+    )
     monitor.start()
     try:
-        completed = subprocess.run(command, check=False)
-        returncode = completed.returncode
+        returncode = completed.wait()
     finally:
         stop.set()
         monitor.join(timeout=max(2.0, args.interval * 3))
@@ -216,6 +318,15 @@ def main() -> None:
         "end_utc": datetime.now(timezone.utc).isoformat(),
         "duration_seconds": duration,
         "returncode": returncode,
+        "gpu_selection": {
+            "requested": args.gpu,
+            "cuda_visible_devices": visible,
+            "logical_to_physical_uuid": {
+                str(sample["logical_index"]): sample["uuid"]
+                for sample in samples
+                if sample["logical_index"] is not None
+            },
+        },
         "warning": "GPU utilization is supporting evidence, not a throughput or optimization claim.",
         "summary": summarize(samples),
         "host_summary": summarize_host(host_samples),

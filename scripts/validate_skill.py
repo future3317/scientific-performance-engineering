@@ -47,14 +47,17 @@ REQUIRED_CORE_MARKERS = {
     "three levels",
     "Amdahl ceiling",
     "forward and gradient agreement",
-    "experiment ledger",
-    "Style preferences and speculative edge cases are non-blocking",
+    "experiment",
+    "unsupported hypothetical cases are non-blocking",
     "timing bucket audit",
     "data_ready",
     "task census",
     "Stochastic thinning",
     "logical update",
     "host contention",
+    "Do not use for CUDA/runtime correctness bugs",
+    "one independently attributable intervention",
+    "Reachable correctness, deadlock, OOM, fallback, reproducibility, API, or scientific-quality risks",
 }
 
 
@@ -123,6 +126,13 @@ def validate_benchmark_asset(root: Path) -> None:
     ):
         if key not in contract:
             raise ValueError(f"benchmark_record.json.contract.{key} is required")
+    identity = record["identity"]
+    for key in ("base_revision", "benchmark_harness_hash", "candidate_patch_hash", "declared_change_set"):
+        if key not in identity:
+            raise ValueError(f"benchmark_record.json.identity.{key} is required")
+    hardware = record["hardware"]
+    if "gpu_uuid" not in hardware:
+        raise ValueError("benchmark_record.json.hardware.gpu_uuid is required")
     candidate = record["candidate"]
     for key in (
         "hypothesis",
@@ -148,6 +158,9 @@ def validate_benchmark_asset(root: Path) -> None:
     ):
         if key not in work:
             raise ValueError(f"benchmark_record.json.work.{key} is required")
+    for key in ("cuda_timing_proof", "timing_buckets", "unaccounted_ratio"):
+        if key not in work:
+            raise ValueError(f"benchmark_record.json.work.{key} is required")
     step_audit = record.get("step_audit")
     require_mapping(step_audit, "benchmark_record.json.step_audit")
     for key in (
@@ -162,6 +175,24 @@ def validate_benchmark_asset(root: Path) -> None:
     ):
         if key not in step_audit:
             raise ValueError(f"benchmark_record.json.step_audit.{key} is required")
+    acceptance = require_mapping(record.get("acceptance"), "benchmark_record.json.acceptance")
+    for key in (
+        "primary_metric",
+        "higher_is_better",
+        "minimum_improvement_percent",
+        "noise_floor_percent",
+        "confidence_level",
+        "bootstrap_samples",
+        "minimum_runs",
+        "required_quality_gates",
+        "max_unaccounted_ratio",
+    ):
+        if key not in acceptance:
+            raise ValueError(f"benchmark_record.json.acceptance.{key} is required")
+    measurements = require_mapping(record.get("measurements"), "benchmark_record.json.measurements")
+    for key in ("run_order", "runs"):
+        if key not in measurements:
+            raise ValueError(f"benchmark_record.json.measurements.{key} is required")
 
 
 def validate_resources(root: Path) -> None:
@@ -180,7 +211,8 @@ def validate_main_routes(body: str) -> None:
     missing = sorted(name for name in REQUIRED_MAIN_ROUTES if name not in body)
     if missing:
         raise ValueError(f"SKILL.md must route required modules: {', '.join(missing)}")
-    missing_markers = sorted(marker for marker in REQUIRED_CORE_MARKERS if marker not in body)
+    folded_body = body.casefold()
+    missing_markers = sorted(marker for marker in REQUIRED_CORE_MARKERS if marker.casefold() not in folded_body)
     if missing_markers:
         raise ValueError(f"SKILL.md missing core workflow markers: {', '.join(missing_markers)}")
 

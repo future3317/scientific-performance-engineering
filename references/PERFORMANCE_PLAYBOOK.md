@@ -30,11 +30,11 @@ For variable-size graphs, report graphs/s together with atoms/s or edges/s. A la
 
 ## 2. Establish a reproducible baseline
 
-Use the same commit, dirty state, hardware, device selection, driver, CUDA/ROCm, PyTorch, PyG, e3nn, cuEquivariance, Triton, Transformer Engine/torchao, NCCL, CPU affinity, storage path, data panel, seed, worker configuration, and batch composition.
+Use the same base revision, benchmark harness, hardware, driver, CUDA/ROCm, PyTorch, PyG, e3nn, cuEquivariance, Triton, Transformer Engine/torchao, NCCL, CPU affinity, storage path, data panel, seed, worker configuration, and batch composition. Represent the candidate as a declared patch/change set; a changed commit is not by itself an incomparability.
 
-Warm up CUDA libraries, allocator pools, compiled kernels, autotuning, and caches. Reset peak memory after warmup. Measure enough steps for initialization to be immaterial and use at least three independent runs or repeated windows where feasible. Report median and p10/p90 or p50/p95, not just a mean.
+Warm up CUDA libraries, allocator pools, compiled kernels, autotuning, and caches. Reset peak memory after warmup. Store every independent run/window and its randomized or A/B order. Report median, IQR/MAD, and a bootstrap confidence interval; a point estimate clearing 5% is inconclusive when its improvement interval does not clear the objective threshold and noise floor.
 
-Use paired CUDA events on the relevant stream for CUDA component timing, or synchronize at the phase boundary. `record_function`/NVTX ranges are attribution labels only; a CPU timestamp around asynchronous launches is not a GPU completion time. Include compile, checkpoint, validation, and data startup costs when they recur in the actual workflow; otherwise label them separately.
+Use paired CUDA events on the relevant stream for CUDA component timing, or synchronize at the phase boundary. `record_function`/NVTX ranges are attribution labels only; a CPU timestamp around asynchronous launches is not a GPU completion time. Record clock/stream/completion proof for every bucket and reconcile the bucket sum with end-to-end step time; an unaccounted ratio above the acceptance policy is inconclusive. Include compile, checkpoint, validation, and data startup costs when they recur in the actual workflow; otherwise label them separately.
 
 ## 3. Profile in layers
 
@@ -138,7 +138,7 @@ Start from eager evidence. Compile a stable repeated block before a ragged end-t
 
 ## 9. Distributed and checkpointing
 
-Measure per-rank data wait, forward, backward, optimizer, NCCL communication, overlap, total time, graph/atom/edge counts, and max/min rank latency. Report aggregate throughput and scaling efficiency against the same single-GPU per-device work.
+Measure per-rank data wait, forward, backward, optimizer, NCCL communication, overlap, total time, graph/atom/edge counts, and max/min rank latency. Select GPUs explicitly by index/UUID and record logical-to-physical UUID mapping. Report aggregate throughput and scaling efficiency against the same single-GPU per-device work.
 
 - Keep gradient accumulation and DDP `no_sync()` boundaries mathematically correct, including short final windows and graph-count weighting.
 - Use `find_unused_parameters=True` only when needed. If used-parameter sets and control flow are invariant, inspect DDP logging and test `static_graph=True`; a wrong assumption can hang or produce incorrect gradients.
@@ -149,6 +149,6 @@ Measure per-rank data wait, forward, backward, optimizer, NCCL communication, ov
 
 ## 10. Scientific acceptance
 
-Require the repository's existing gates. Typical gates include unit/regression tests; rotation/reflection/permutation/translation/periodic/gauge covariance; positive-volume, SPD, conservation, exact-count, and finite-gradient constraints; FP32/candidate output and gradient comparisons; calibration/coverage; rollout or sampler non-inferiority; deterministic resume/data-order; and checkpoint compatibility.
+Store required quality gates in `acceptance.required_quality_gates`; CLI flags may add gates but cannot replace or omit the recorded policy. Missing quality results are inconclusive, never accepted. Require the repository's existing gates. Typical gates include unit/regression tests; rotation/reflection/permutation/translation/periodic/gauge covariance; positive-volume, SPD, conservation, exact-count, and finite-gradient constraints; FP32/candidate output and gradient comparisons; calibration/coverage; rollout or sampler non-inferiority; deterministic resume/data-order; and checkpoint compatibility.
 
 A faster sampler with degraded distributional quality is a failed optimization unless an explicit algorithmic tradeoff was authorized. If no repository gate exists, select the primary acceptance metric from the recorded optimization objective and define guardrails before measurement; apply the familiar 5% work-normalized throughput threshold only for a throughput objective.

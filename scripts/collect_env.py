@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect a non-secret, reproducible GPU/PyTorch performance environment record."""
+"""Collect a privacy-safe GPU/PyTorch performance environment record by default."""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ SAFE_ENV_KEYS = (
     "PYTORCH_CUDA_ALLOC_CONF",
     "CUBLAS_WORKSPACE_CONFIG",
 )
+PATH_ENV_KEYS = frozenset({"TORCHINDUCTOR_CACHE_DIR"})
 
 
 def cpu_info() -> dict[str, Any]:
@@ -105,7 +106,7 @@ def run(command: list[str], cwd: Path | None = None) -> dict[str, Any]:
         return {"command": command, "error": str(exc)}
 
 
-def torch_info() -> dict[str, Any]:
+def torch_info(include_sensitive: bool = False) -> dict[str, Any]:
     try:
         import torch
     except Exception as exc:  # pragma: no cover - environment dependent
@@ -126,10 +127,13 @@ def torch_info() -> dict[str, Any]:
             "export": hasattr(torch, "export"),
         },
     }
-    try:
-        info["build_config"] = torch.__config__.show()
-    except Exception as exc:
-        info["build_config_error"] = repr(exc)
+    if include_sensitive:
+        try:
+            info["build_config"] = torch.__config__.show()
+        except Exception as exc:
+            info["build_config_error"] = repr(exc)
+    else:
+        info["build_config_present"] = True
     try:
         info["cudnn_version"] = torch.backends.cudnn.version()
         info["cudnn_benchmark"] = torch.backends.cudnn.benchmark
@@ -174,6 +178,76 @@ def torch_info() -> dict[str, Any]:
     return info
 
 
+def sanitized_environment(include_sensitive: bool) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key in SAFE_ENV_KEYS:
+        if key not in os.environ:
+            continue
+        result[key] = os.environ[key] if include_sensitive or key not in PATH_ENV_KEYS else "<redacted>"
+    return result
+
+
+def git_record(repo: Path, include_sensitive: bool) -> dict[str, Any]:
+    root = run(["git", "rev-parse", "--show-toplevel"], repo)
+    commit = run(["git", "rev-parse", "HEAD"], repo)
+    status = run(["git", "status", "--short"], repo)
+    if include_sensitive:
+        return {"root": root, "commit": commit, "status": status}
+    return {
+        "root_present": root.get("returncode") == 0,
+        "commit": commit,
+        "status": {"dirty": bool(status.get("stdout")), "entry_count": len(status.get("stdout", "").splitlines())},
+    }
+
+
+def nvidia_record(include_sensitive: bool) -> dict[str, Any]:
+    if not shutil.which("nvidia-smi"):
+        return {"available": False}
+    fields = "index,name,driver_version,memory.total,power.limit,compute_cap"
+    if include_sensitive:
+        fields = "index,name,uuid,driver_version,memory.total,power.limit,compute_cap"
+    return run(
+        [
+            "nvidia-smi",
+            f"--query-gpu={fields}",
+            "--format=csv,noheader,nounits",
+        ]
+    )
+
+
+def build_record(repo: Path, include_sensitive: bool = False) -> dict[str, Any]:
+    executable = sys.executable if include_sensitive else Path(sys.executable).name
+    hostname = platform.node() if include_sensitive else "<redacted>"
+    processor = platform.processor() if include_sensitive else "<redacted>"
+    return {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "privacy": {
+            "sensitive_host_metadata_included": include_sensitive,
+            "redacted_fields": [] if include_sensitive else ["hostname", "processor", "absolute_paths", "gpu_uuid"],
+        },
+        "python": {
+            "version": sys.version,
+            "executable": executable,
+            "implementation": platform.python_implementation(),
+        },
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "processor": processor,
+            "hostname": hostname,
+            "cpu_count": os.cpu_count(),
+        },
+        "cpu": cpu_info(),
+        "environment": sanitized_environment(include_sensitive),
+        "torch": torch_info(include_sensitive),
+        "packages": optional_package_versions(),
+        "git": git_record(repo, include_sensitive),
+        "nvidia_smi": nvidia_record(include_sensitive),
+    }
+
+
 def optional_package_versions() -> dict[str, str]:
     from importlib.metadata import PackageNotFoundError, version
 
@@ -204,45 +278,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("environment.json"))
     parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--include-sensitive-host-metadata",
+        action="store_true",
+        help="include hostname, absolute paths, build details, and GPU UUIDs",
+    )
     args = parser.parse_args()
 
     repo = args.repo.resolve()
-    record: dict[str, Any] = {
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "python": {
-            "version": sys.version,
-            "executable": sys.executable,
-            "implementation": platform.python_implementation(),
-        },
-        "platform": {
-            "system": platform.system(),
-            "release": platform.release(),
-            "version": platform.version(),
-            "machine": platform.machine(),
-            "processor": platform.processor(),
-            "hostname": platform.node(),
-            "cpu_count": os.cpu_count(),
-        },
-        "cpu": cpu_info(),
-        "environment": {key: os.environ[key] for key in SAFE_ENV_KEYS if key in os.environ},
-        "torch": torch_info(),
-        "packages": optional_package_versions(),
-        "git": {
-            "root": run(["git", "rev-parse", "--show-toplevel"], repo),
-            "commit": run(["git", "rev-parse", "HEAD"], repo),
-            "status": run(["git", "status", "--short"], repo),
-        },
-    }
-    if shutil.which("nvidia-smi"):
-        record["nvidia_smi"] = run(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,name,uuid,driver_version,memory.total,power.limit,compute_cap",
-                "--format=csv,noheader,nounits",
-            ]
-        )
-    else:
-        record["nvidia_smi"] = {"available": False}
+    record = build_record(repo, args.include_sensitive_host_metadata)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")

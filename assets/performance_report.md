@@ -11,7 +11,7 @@
 
 ## Decision
 
-- Status: accepted / rejected / inconclusive
+- Status: accepted / rejected / inconclusive / algorithmic_experiment
 - Evidence level: static-only / microbenchmark / end-to-end / scientific gate
 - Primary bottleneck:
 - Material result:
@@ -21,14 +21,19 @@
 ## Reproducible baseline
 
 - Commit and dirty state:
+- Base revision, benchmark harness hash, candidate patch hash, and declared change set:
 - Hardware, CPU affinity/NUMA, and storage:
 - Driver/CUDA or ROCm/PyTorch/kernel-library versions:
 - Command/config and relevant environment variables:
 - Host load/available memory/swap/worker RSS during the run:
+- GPU selection and logical-to-physical UUID mapping:
+- Environment privacy mode and whether sensitive host metadata was enabled:
 - Data panel, seed, sampler/order, and batch composition:
 - Scientific contract ID and intentionally allowed differences:
 - Work unit and timing boundaries:
 - CUDA timing proof (paired events or synchronized boundary, stream):
+- Per-bucket clock/stream/completion proof, bucket sum, end-to-end step, and unaccounted ratio:
+- Raw run/window metrics, randomized run order, median/IQR/MAD, bootstrap CI, and noise floor:
 - Warmup, compile warmup, measured steps, repetitions:
 - Benchmark levels: micro / module / end-to-end
 - Logical update and accumulation definition:
@@ -77,6 +82,7 @@ Task census: structures/graphs/atoms/edges per rank and globally; mechanism/prop
 ## Acceptance contract
 
 - Primary objective metric and threshold:
+- Required quality gates from `acceptance.required_quality_gates`:
 - Guardrails (p95 latency / memory / host contention):
 - Quality/non-inferiority gate:
 
