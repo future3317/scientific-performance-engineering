@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/experience_record.schema.json",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/experience_record.schema.json",
   "title": "Scientific GPU optimizer experience record",
   "type": "object",
   "required": [

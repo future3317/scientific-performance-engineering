@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/rule_usage_record.schema.json",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/rule_usage_record.schema.json",
   "title": "Scientific optimizer rule usage record",
   "type": "object",
   "required": ["schema_version", "usage_id", "created_at", "task_id", "retrieved_rule_ids", "triggered_rule_ids", "followed_rule_ids", "overridden_rule_ids", "outcome"],

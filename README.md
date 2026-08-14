@@ -1,4 +1,4 @@
-<h1 align="center">Scientific GPU Training Optimizer</h1>
+<h1 align="center">Scientific Performance Engineering</h1>
 
 <hr />
 
@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/future3317/scientific-gpu-training-optimizer/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=for-the-badge" alt="MIT license" /></a>
-  <a href="https://github.com/future3317/scientific-gpu-training-optimizer/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/future3317/scientific-gpu-training-optimizer/validate.yml?branch=main&label=checks&style=for-the-badge" alt="Validation checks" /></a>
+  <a href="https://github.com/future3317/scientific-performance-engineering/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=for-the-badge" alt="MIT license" /></a>
+  <a href="https://github.com/future3317/scientific-performance-engineering/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/future3317/scientific-performance-engineering/validate.yml?branch=main&label=checks&style=for-the-badge" alt="Validation checks" /></a>
   <img src="https://img.shields.io/badge/benchmark-contract-v4-2563eb?style=for-the-badge" alt="Benchmark contract v4" />
   <img src="https://img.shields.io/badge/languages-English%20%7C%20中文-7c3aed?style=for-the-badge" alt="English and Chinese" />
 </p>
@@ -74,11 +74,11 @@
 
 ### 安装与使用
 
-将此目录放入 Codex 的 skills 目录后，在需要 GPU 性能诊断或优化时使用 `scientific-gpu-training-optimizer`。项目专用环境示例：
+将此目录放入 Codex 的 skills 目录后，在需要科学计算性能诊断、优化或证据治理时使用 `scientific-performance-engineering`。项目专用环境示例：
 
 ```powershell
 $python = 'D:\Anaconda\envs\EGNN\python.exe'
-$skill = 'C:\path\to\scientific-gpu-training-optimizer'
+$skill = 'C:\path\to\scientific-performance-engineering'
 $env:PYTHONDONTWRITEBYTECODE = '1'
 
 & $python "$skill\scripts\validate_skill.py" $skill
@@ -97,7 +97,7 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 
 ## English
 
-This Codex skill targets end-to-end performance problems in PyTorch scientific training and inference, especially cases where training is slow despite low GPU utilization. It covers PyG/e3nn material GNNs, equivariant operators, piezoelectric/property multitask workloads, crystal diffusion/flow matching, CUDA kernels, `torch.compile`/CUDA Graphs, DDP/FSDP, checkpointing, and mixed precision.
+This Codex skill targets evidence-governed, end-to-end performance engineering for PyTorch scientific training and inference, especially cases where training is slow despite low GPU utilization. It covers PyG/e3nn material GNNs, equivariant operators, piezoelectric/property multitask workloads, crystal diffusion/flow matching, CUDA kernels, `torch.compile`/CUDA Graphs, DDP/FSDP, checkpointing, mixed precision, and auditable rule evolution.
 
 ### What it addresses
 
@@ -148,11 +148,11 @@ This project is released under the [MIT License](LICENSE). Issues, documentation
 
 ### Use and validate
 
-Place this directory in the Codex skills directory and use `scientific-gpu-training-optimizer` for GPU performance diagnosis or optimization. Example with a project-specific environment:
+Place this directory in the Codex skills directory and use `scientific-performance-engineering` for scientific performance diagnosis, optimization, and evidence-governed rule maintenance. Example with a project-specific environment:
 
 ```powershell
 $python = 'D:\Anaconda\envs\EGNN\python.exe'
-$skill = 'C:\path\to\scientific-gpu-training-optimizer'
+$skill = 'C:\path\to\scientific-performance-engineering'
 $env:PYTHONDONTWRITEBYTECODE = '1'
 
 & $python "$skill\scripts\validate_skill.py" $skill

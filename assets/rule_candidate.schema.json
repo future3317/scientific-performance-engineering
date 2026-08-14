@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/rule_candidate.schema.json",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/rule_candidate.schema.json",
   "title": "Scientific optimizer rule card",
   "type": "object",
   "required": [

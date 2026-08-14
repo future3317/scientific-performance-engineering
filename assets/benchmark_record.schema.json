@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/future3317/scientific-gpu-training-optimizer/benchmark_record.schema.json",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/benchmark_record.schema.json",
   "title": "Scientific GPU benchmark record",
   "type": "object",
   "required": [

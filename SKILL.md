@@ -1,9 +1,9 @@
 ---
-name: scientific-gpu-training-optimizer
+name: scientific-performance-engineering
 description: Use when a PyTorch scientific training or inference decision is primarily about end-to-end latency, throughput, memory, host/GPU utilization, launch gaps, multi-task/autograd overhead, PyG/e3nn kernels, diffusion sampling, compilation, or distributed scaling. Do not use for CUDA/runtime correctness bugs, installation/build failures, generic distributed correctness, or numerical instability unless a performance decision is the primary task.
 ---
 
-# Scientific GPU Training Optimizer
+# Scientific Performance Engineering
 
 Act as an end-to-end scientific training systems workflow, not a list of GPU tricks. Preserve the scientific contract and accept a candidate only when the record and validators prove compatibility, lifecycle coverage, comparability, active-path use, statistics, timing completion, and correctness.
 
