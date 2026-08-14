@@ -105,7 +105,7 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
             errors.append("canonical replay_manifest must be an object")
         else:
             manifest = promotion["replay_manifest"]
-            for key in ("path", "command", "case_bundle_sha256", "harness_revision", "result_digest", "outcome"):
+            for key in ("path", "command", "case_bundle_path", "case_bundle_sha256", "harness_revision", "result_digest", "outcome"):
                 if _missing(manifest.get(key)):
                     errors.append(f"canonical replay_manifest requires {key}")
             if not _is_digest(manifest.get("case_bundle_sha256")) or not _is_digest(manifest.get("result_digest")):
@@ -220,6 +220,21 @@ def validate_replay_manifest(card: dict[str, Any], root: Path) -> list[str]:
     except (OSError, json.JSONDecodeError) as exc:
         return [f"{path}: invalid replay manifest: {exc}"]
     errors: list[str] = []
+    case_bundle_path = (root / str(manifest.get("case_bundle_path", ""))).resolve()
+    try:
+        case_bundle_path.relative_to(root.resolve())
+    except ValueError:
+        errors.append(f"{path}: case bundle escapes repository root")
+    if not case_bundle_path.is_file():
+        errors.append(f"{path}: case bundle does not exist: {manifest.get('case_bundle_path')}")
+    elif case_bundle_path.is_file():
+        try:
+            case_bundle = json.loads(case_bundle_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"{path}: invalid case bundle: {exc}")
+        else:
+            if hashlib.sha256(canonical_json(case_bundle)).hexdigest() != manifest.get("case_bundle_sha256"):
+                errors.append(f"{path}: case_bundle_sha256 mismatch")
     if manifest.get("rule_id") != card.get("rule_id") or manifest.get("outcome") != "passed":
         errors.append(f"{path}: replay manifest rule_id/outcome does not prove the card")
     result = manifest.get("result")
@@ -242,7 +257,7 @@ def validate_replay_manifest(card: dict[str, Any], root: Path) -> list[str]:
     body = {key: value for key, value in manifest.items() if key != "attestation"}
     if not isinstance(attestation, dict) or attestation.get("algorithm") != "sha256" or attestation.get("manifest_digest") != hashlib.sha256(canonical_json(body)).hexdigest():
         errors.append(f"{path}: manifest attestation mismatch")
-    for key in ("command", "case_bundle_sha256", "harness_revision", "result_digest", "outcome"):
+    for key in ("command", "case_bundle_path", "case_bundle_sha256", "harness_revision", "result_digest", "outcome"):
         if manifest.get(key) != manifest_ref.get(key):
             errors.append(f"{path}: replay manifest field differs from card: {key}")
     return errors

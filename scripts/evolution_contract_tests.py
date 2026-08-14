@@ -88,6 +88,7 @@ def main() -> None:
     canonical["promotion"]["replay_manifest"] = {
         "path": "replay.json",
         "command": "python scripts/run_rule_replay.py input.json replay.json",
+        "case_bundle_path": "input.json",
         "case_bundle_sha256": "c" * 64,
         "harness_revision": "d" * 40,
         "result_digest": "e" * 64,

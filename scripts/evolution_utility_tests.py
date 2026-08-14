@@ -38,13 +38,14 @@ def main() -> None:
     payload = {"rule_id": "PERF-SYNC-004", "epsilon": 0.05, "p_min": 0.8, "delta": 0.05, "cases": [{"case_id": f"REG-{index}", "utility_on": 1.2, "utility_off": 1.0, "scientific_ok": True} for index in range(20)]}
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        (root / "input.json").write_text(json.dumps(payload), encoding="utf-8")
         manifest = replay.build_manifest(payload, Path("input.json"), Path("replay.json"), "a" * 40)
         (root / "replay.json").write_text(json.dumps(manifest), encoding="utf-8")
         validator = load("validate_evolution.py")
         card = {"rule_id": "PERF-SYNC-004", "status": "canonical", "confidence": {
             key: manifest["result"][key] for key in ("prior_alpha", "prior_beta", "successes", "failures", "p_min", "delta", "posterior_probability")
         }, "promotion": {"replay_manifest": {
-            "path": "replay.json", "command": manifest["command"], "case_bundle_sha256": manifest["case_bundle_sha256"],
+            "path": "replay.json", "command": manifest["command"], "case_bundle_path": "input.json", "case_bundle_sha256": manifest["case_bundle_sha256"],
             "harness_revision": manifest["harness_revision"], "result_digest": manifest["result_digest"], "outcome": "passed",
         }}}
         assert validator.validate_replay_manifest(card, root) == []
