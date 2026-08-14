@@ -12,6 +12,21 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "assets" / "benchmark_record.schema.json"
+EVIDENCE_LEVELS = ("static", "micro", "module", "logical_update", "amortized_job", "time_to_quality")
+EVIDENCE_RANK = {name: index for index, name in enumerate(EVIDENCE_LEVELS)}
+FEATURE_KEYS = {
+    "data_loader", "h2d", "backward", "higher_order_autograd", "optimizer", "cache",
+    "compiler", "custom_op", "distributed", "checkpoint", "auxiliary_tasks", "sampling",
+}
+LOGICAL_UPDATE_STAGES = {
+    "fetch", "cpu_preprocess", "h2d", "gpu_preprocess", "forward", "loss",
+    "autograd_aux", "backward", "grad_transform", "clipping", "communication",
+    "optimizer", "scheduler", "ema_swa", "metrics", "checkpoint", "validation",
+}
+LIFECYCLE_STAGES = {
+    "startup", "precompute", "logical_update", "evaluation_sampling",
+    "checkpoint_resume", "teardown", "failure_retry",
+}
 
 
 def get_path(value: dict[str, Any], dotted: str) -> Any:
@@ -38,7 +53,23 @@ def require_object(record: dict[str, Any], path: str, errors: list[str]) -> dict
 def validate_record(record: dict[str, Any], schema: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if record.get("schema_version") != schema["properties"]["schema_version"]["const"]:
-        errors.append("schema_version must be 3")
+        errors.append("schema_version must be 4")
+
+    comparison_class = record.get("comparison_class")
+    if comparison_class not in {"systems", "scaling", "algorithmic"}:
+        errors.append("comparison_class must be systems, scaling, or algorithmic")
+    evidence_level = record.get("evidence_level")
+    if evidence_level not in EVIDENCE_RANK:
+        errors.append("evidence_level must be static, micro, module, logical_update, amortized_job, or time_to_quality")
+    features = record.get("features")
+    if not isinstance(features, dict) or set(features) != FEATURE_KEYS or any(not isinstance(features[key], bool) for key in FEATURE_KEYS):
+        errors.append("features must declare every supported feature as a boolean")
+        features = {}
+
+    level_rank = EVIDENCE_RANK.get(evidence_level, 0)
+    requires_logical_update = level_rank >= EVIDENCE_RANK["logical_update"]
+    requires_lifecycle = evidence_level in {"amortized_job", "time_to_quality"}
+    requires_preflight = requires_lifecycle or features.get("compiler", False) or features.get("distributed", False) or features.get("checkpoint", False)
 
     for path in schema["required"]:
         if path not in record:
@@ -59,7 +90,11 @@ def validate_record(record: dict[str, Any], schema: dict[str, Any]) -> list[str]
             if key not in value:
                 errors.append(f"missing field {section}.{key}")
 
-    preflight = require_object(record, "preflight", errors)
+    preflight_value = get_path(record, "preflight")
+    if requires_preflight or preflight_value is not None:
+        preflight = require_object(record, "preflight", errors)
+    else:
+        preflight = None
     if preflight is not None:
         if preflight.get("compatibility_status") not in {"pass", "fail", "inconclusive"}:
             errors.append("preflight.compatibility_status must be pass, fail, or inconclusive")
@@ -73,72 +108,74 @@ def validate_record(record: dict[str, Any], schema: dict[str, Any]) -> list[str]
     work = require_object(record, "work", errors)
     if work is not None:
         dag = work.get("logical_update_dag")
-        required_stages = {
-            "fetch", "cpu_preprocess", "h2d", "gpu_preprocess", "forward", "loss",
-            "autograd_aux", "backward", "grad_transform", "clipping", "communication",
-            "optimizer", "scheduler", "ema_swa", "metrics", "checkpoint", "validation",
-        }
-        if not isinstance(dag, list) or not required_stages.issubset({item.get("stage") for item in dag if isinstance(item, dict)}):
-            errors.append("work.logical_update_dag must enumerate the required logical-update stages")
+        if requires_logical_update or dag is not None:
+            if not isinstance(dag, list) or not LOGICAL_UPDATE_STAGES.issubset({item.get("stage") for item in dag if isinstance(item, dict)}):
+                errors.append("work.logical_update_dag must enumerate the required logical-update stages for logical-update evidence")
 
         lifecycle = work.get("campaign_lifecycle")
-        lifecycle_stages = {
-            "startup", "precompute", "logical_update", "evaluation_sampling",
-            "checkpoint_resume", "teardown", "failure_retry",
-        }
-        if not isinstance(lifecycle, dict) or not lifecycle_stages.issubset(lifecycle):
-            errors.append("work.campaign_lifecycle must declare startup, precompute, logical_update, evaluation_sampling, checkpoint_resume, teardown, and failure_retry")
-        else:
-            for stage in lifecycle_stages:
-                entry = lifecycle[stage]
-                if not isinstance(entry, dict) or not {"included", "seconds", "evidence"}.issubset(entry):
-                    errors.append(f"work.campaign_lifecycle.{stage} must include included, seconds, and evidence")
-                elif not isinstance(entry["included"], bool):
-                    errors.append(f"work.campaign_lifecycle.{stage}.included must be boolean")
-                elif not isinstance(entry["evidence"], str):
-                    errors.append(f"work.campaign_lifecycle.{stage}.evidence must be a string")
-                elif entry["seconds"] is not None and (
-                    isinstance(entry["seconds"], bool)
-                    or not isinstance(entry["seconds"], (int, float))
-                    or not math.isfinite(float(entry["seconds"]))
-                    or entry["seconds"] < 0
-                ):
-                    errors.append(f"work.campaign_lifecycle.{stage}.seconds must be null or a non-negative finite number")
+        if requires_lifecycle or lifecycle is not None:
+            if not isinstance(lifecycle, dict) or not LIFECYCLE_STAGES.issubset(lifecycle):
+                errors.append("work.campaign_lifecycle must declare all stages for amortized-job evidence")
+            else:
+                lifecycle_stages = LIFECYCLE_STAGES
+                for stage in lifecycle_stages:
+                    entry = lifecycle[stage]
+                    if not isinstance(entry, dict) or not {"included", "seconds", "evidence"}.issubset(entry):
+                        errors.append(f"work.campaign_lifecycle.{stage} must include included, seconds, and evidence")
+                    elif not isinstance(entry["included"], bool):
+                        errors.append(f"work.campaign_lifecycle.{stage}.included must be boolean")
+                    elif not isinstance(entry["evidence"], str):
+                        errors.append(f"work.campaign_lifecycle.{stage}.evidence must be a string")
+                    elif entry["seconds"] is not None and (
+                        isinstance(entry["seconds"], bool)
+                        or not isinstance(entry["seconds"], (int, float))
+                        or not math.isfinite(float(entry["seconds"]))
+                        or entry["seconds"] < 0
+                    ):
+                        errors.append(f"work.campaign_lifecycle.{stage}.seconds must be null or a non-negative finite number")
 
         census = work.get("sync_census")
-        if not isinstance(census, list) or any(
-            not isinstance(item, dict) or item.get("disposition") not in {"required", "removable", "amortizable", "overlappable"}
-            for item in census
-        ):
-            errors.append("work.sync_census entries need a valid disposition")
+        if requires_logical_update or features.get("backward", False) or features.get("optimizer", False) or census is not None:
+            if not isinstance(census, list) or any(
+                not isinstance(item, dict) or item.get("disposition") not in {"required", "removable", "amortizable", "overlappable"}
+                for item in census
+            ):
+                errors.append("work.sync_census entries need a valid disposition for update evidence")
 
         cache = work.get("cache_contract")
         cache_keys = {"dataset_identity", "sample_identity", "cutoff", "pbc_convention", "augmentation", "species_mapping", "graph_builder_version", "dtype_layout", "basis_version"}
-        if not isinstance(cache, dict) or not cache_keys.issubset(cache):
-            errors.append("work.cache_contract must declare all cache-key components")
-        elif cache.get("cache_state") not in {"cold", "warm", "disabled", "mixed"}:
-            errors.append("work.cache_contract.cache_state must be cold, warm, disabled, or mixed")
+        if features.get("cache", False) or cache is not None:
+            if not isinstance(cache, dict) or not cache_keys.issubset(cache):
+                errors.append("work.cache_contract must declare all cache-key components when cache is in scope")
+            elif cache.get("cache_state") not in {"cold", "warm", "disabled", "mixed"}:
+                errors.append("work.cache_contract.cache_state must be cold, warm, disabled, or mixed")
 
         h2d = work.get("h2d_proof")
         h2d_keys = {"is_pinned", "non_blocking", "copy_stream", "source_lifetime", "consumer_dependency", "overlap_evidence"}
-        if not isinstance(h2d, dict) or not h2d_keys.issubset(h2d):
-            errors.append("work.h2d_proof must include pinned/non-blocking/stream/lifetime/dependency/overlap evidence")
+        if features.get("h2d", False) or h2d is not None:
+            if not isinstance(h2d, dict) or not h2d_keys.issubset(h2d):
+                errors.append("work.h2d_proof must include pinned/non-blocking/stream/lifetime/dependency/overlap evidence when H2D is in scope")
 
     metrics = require_object(record, "metrics", errors)
     if metrics is not None:
-        for key in ("amortized_training_throughput", "time_to_quality_seconds"):
-            if key not in metrics:
-                errors.append(f"missing metrics.{key}")
+        if evidence_level in {"amortized_job", "time_to_quality"}:
+            for key in ("amortized_training_throughput", "time_to_quality_seconds"):
+                if key not in metrics:
+                    errors.append(f"missing metrics.{key} for {evidence_level} evidence")
 
-    compiler = require_object(record, "compiler", errors)
-    if compiler is not None and compiler.get("compile_cache_state") not in {"cold", "warm", "disabled", "mixed"}:
-        errors.append("compiler.compile_cache_state must be cold, warm, disabled, or mixed")
+    compiler = record.get("compiler")
+    if features.get("compiler", False) or compiler is not None:
+        compiler = require_object(record, "compiler", errors)
+        if compiler is not None and compiler.get("compile_cache_state") not in {"cold", "warm", "disabled", "mixed"}:
+            errors.append("compiler.compile_cache_state must be cold, warm, disabled, or mixed")
 
-    resume = require_object(record, "contract.checkpoint_state_contract", errors)
-    if resume is not None:
-        for key in ("dataloader_cursor", "ema_swa_scheduler", "preserve_rng"):
-            if key not in resume:
-                errors.append(f"missing contract.checkpoint_state_contract.{key}")
+    resume = record.get("contract", {}).get("checkpoint_state_contract") if isinstance(record.get("contract"), dict) else None
+    if features.get("checkpoint", False) or resume is not None:
+        resume = require_object(record, "contract.checkpoint_state_contract", errors)
+        if resume is not None:
+            for key in ("dataloader_cursor", "ema_swa_scheduler", "preserve_rng"):
+                if key not in resume:
+                    errors.append(f"missing contract.checkpoint_state_contract.{key}")
 
     return errors
 

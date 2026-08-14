@@ -17,6 +17,7 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 ## 2026 release snapshot
 
 - PyTorch 2.13.0: https://github.com/pytorch/pytorch/releases/tag/v2.13.0
+- CI compatibility floor: CPU PyTorch 2.7.1 is used for contract/self-tests; it is not the runtime recommendation or a replacement for the 2.13.0 reference snapshot.
 - torchao 0.18.0: https://github.com/pytorch/ao/releases/tag/v0.18.0
 - PyTorch Geometric 2.8.0: https://github.com/pyg-team/pytorch_geometric/releases/tag/2.8.0
 - cuEquivariance 0.10.0: https://github.com/NVIDIA/cuEquivariance/releases/tag/v0.10.0

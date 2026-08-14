@@ -2,8 +2,19 @@
 
 Fill this before modifying performance-sensitive code.
 
+## Contents
+
+- [Identity](#identity)
+- [Runtime preflight](#runtime-preflight)
+- [Fixed scientific contract](#fixed-scientific-contract)
+- [Work definition](#work-definition)
+- [Baseline metrics](#baseline-metrics)
+- [Candidate acceptance](#candidate-acceptance)
+- [Experiment ledger](#experiment-ledger)
+
 ## Identity
 
+- Comparison class (`systems` / `scaling` / `algorithmic`), evidence level (`static` / `micro` / `module` / `logical_update` / `amortized_job` / `time_to_quality`), and active feature scope:
 - Repository / base revision / dirty state:
 - Benchmark harness hash / candidate patch hash / declared change set:
 - Entry command and config:
@@ -80,6 +91,7 @@ Fill this before modifying performance-sensitive code.
 
 ## Candidate acceptance
 
+- Comparison class / evidence level / comparability / decision:
 - Hypothesis card: measured bottleneck, one changed lever, expected movement, risk, falsification test:
 - Reference implementation/output retained at:
 - Primary objective metric and threshold (objective-specific):
@@ -91,7 +103,8 @@ Fill this before modifying performance-sensitive code.
 
 ## Experiment ledger
 
-- Status: accepted / rejected / inconclusive / algorithmic_experiment
+- Assessment (legacy comparator classification):
+- Decision: accepted / rejected / inconclusive
 - Candidate levers changed in this entry:
 - Cold/compile/autotune versus steady-state result:
 - Correctness order: shape/finite → numerical → gradient → physics/equivariance → task quality:

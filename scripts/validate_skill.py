@@ -62,14 +62,8 @@ REQUIRED_CORE_MARKERS = {
     "cache/H2D",
     "precompute",
     "campaign resource",
-    "anchor provenance",
     "algorithmic_experiment",
     "shortest useful horizon",
-    "supervision coverage",
-    "route/realization probability",
-    "kernel-launch density",
-    "optimizer-aware thinning",
-    "gradient ownership",
     "record is the executable contract",
     "inconclusive",
     "opcheck",
@@ -125,94 +119,11 @@ def validate_openai_yaml(root: Path, name: str) -> None:
 def validate_benchmark_asset(root: Path) -> None:
     path = root / "assets" / "benchmark_record.json"
     record = require_mapping(json.loads(path.read_text(encoding="utf-8")), str(path))
-    if record.get("schema_version") != 3:
-        raise ValueError("benchmark_record.json schema_version must be 3")
-    for key in ("identity", "hardware", "software", "contract", "candidate", "work", "metrics", "quality"):
-        require_mapping(record.get(key), f"benchmark_record.json.{key}")
-    contract = record["contract"]
-    for key in (
-        "scientific_contract_id",
-        "data_manifest_or_hash",
-        "seeds",
-        "precision_policy",
-        "stochastic_thinning",
-        "checkpoint_state_contract",
-        "gradient_clipping_contract",
-        "quality_gates",
-        "numerical_tolerances",
-    ):
-        if key not in contract:
-            raise ValueError(f"benchmark_record.json.contract.{key} is required")
-    identity = record["identity"]
-    for key in ("base_revision", "benchmark_harness_hash", "candidate_patch_hash", "declared_change_set"):
-        if key not in identity:
-            raise ValueError(f"benchmark_record.json.identity.{key} is required")
-    hardware = record["hardware"]
-    if "gpu_uuid" not in hardware:
-        raise ValueError("benchmark_record.json.hardware.gpu_uuid is required")
-    candidate = record["candidate"]
-    for key in (
-        "hypothesis",
-        "measured_bottleneck_share",
-        "changed_levers",
-        "expected_metric_movement",
-        "semantic_risk",
-        "falsification_test",
-        "reference_output",
-        "amdahl_ceiling",
-        "explicitly_authorized_algorithmic_changes",
-        "active_path_evidence",
-    ):
-        if key not in candidate:
-            raise ValueError(f"benchmark_record.json.candidate.{key} is required")
-    work = record["work"]
-    for key in (
-        "optimization_objective",
-        "benchmark_levels",
-        "logical_update_definition",
-        "task_composition",
-        "timing_bucket_definition",
-    ):
-        if key not in work:
-            raise ValueError(f"benchmark_record.json.work.{key} is required")
-    for key in ("cuda_timing_proof", "timing_buckets", "unaccounted_ratio"):
-        if key not in work:
-            raise ValueError(f"benchmark_record.json.work.{key} is required")
-    step_audit = record.get("step_audit")
-    require_mapping(step_audit, "benchmark_record.json.step_audit")
-    for key in (
-        "auxiliary_forward_calls",
-        "autograd_grad_calls",
-        "skipped_task_calls",
-        "unaccounted_step_ms_p50",
-        "host_load_average",
-        "host_available_memory_mb",
-        "host_swap_percent",
-        "worker_rss_mb",
-    ):
-        if key not in step_audit:
-            raise ValueError(f"benchmark_record.json.step_audit.{key} is required")
-    acceptance = require_mapping(record.get("acceptance"), "benchmark_record.json.acceptance")
-    for key in (
-        "primary_metric",
-        "higher_is_better",
-        "minimum_improvement_percent",
-        "noise_floor_percent",
-        "confidence_level",
-        "bootstrap_samples",
-        "minimum_runs",
-        "required_quality_gates",
-        "max_unaccounted_ratio",
-    ):
-        if key not in acceptance:
-            raise ValueError(f"benchmark_record.json.acceptance.{key} is required")
-    measurements = require_mapping(record.get("measurements"), "benchmark_record.json.measurements")
-    for key in ("run_order", "runs"):
-        if key not in measurements:
-            raise ValueError(f"benchmark_record.json.measurements.{key} is required")
     schema = require_mapping(json.loads((root / "assets" / "benchmark_record.schema.json").read_text(encoding="utf-8")), "benchmark_record.schema.json")
     if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         raise ValueError("benchmark_record.schema.json must declare draft 2020-12")
+    if record.get("schema_version") != schema.get("properties", {}).get("schema_version", {}).get("const"):
+        raise ValueError("benchmark_record.json schema version does not match benchmark_record.schema.json")
 
 
 def validate_resources(root: Path) -> None:

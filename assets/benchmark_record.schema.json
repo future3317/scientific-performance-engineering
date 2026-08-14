@@ -4,11 +4,31 @@
   "title": "Scientific GPU benchmark record",
   "type": "object",
   "required": [
-    "schema_version", "identity", "hardware", "software", "contract", "work",
-    "metrics", "candidate", "acceptance", "measurements", "quality", "preflight"
+    "schema_version", "comparison_class", "evidence_level", "features", "identity", "hardware", "software", "contract", "work",
+    "metrics", "candidate", "acceptance", "measurements", "quality"
   ],
   "properties": {
-    "schema_version": {"const": 3},
+    "schema_version": {"const": 4},
+    "comparison_class": {"enum": ["systems", "scaling", "algorithmic"]},
+    "evidence_level": {"enum": ["static", "micro", "module", "logical_update", "amortized_job", "time_to_quality"]},
+    "features": {
+      "type": "object",
+      "required": ["data_loader", "h2d", "backward", "higher_order_autograd", "optimizer", "cache", "compiler", "custom_op", "distributed", "checkpoint", "auxiliary_tasks", "sampling"],
+      "properties": {
+        "data_loader": {"type": "boolean"},
+        "h2d": {"type": "boolean"},
+        "backward": {"type": "boolean"},
+        "higher_order_autograd": {"type": "boolean"},
+        "optimizer": {"type": "boolean"},
+        "cache": {"type": "boolean"},
+        "compiler": {"type": "boolean"},
+        "custom_op": {"type": "boolean"},
+        "distributed": {"type": "boolean"},
+        "checkpoint": {"type": "boolean"},
+        "auxiliary_tasks": {"type": "boolean"},
+        "sampling": {"type": "boolean"}
+      }
+    },
     "identity": {
       "type": "object",
       "required": ["repository", "base_revision", "benchmark_harness_hash", "candidate_patch_hash", "declared_change_set"]
@@ -18,7 +38,7 @@
     "compiler": {"type": "object", "required": ["compile_cache_state", "cache_fingerprint", "cache_hit_miss_evidence", "fallback"]},
     "contract": {
       "type": "object",
-      "required": ["scientific_contract_id", "data_manifest_or_hash", "seeds", "effective_batch", "world_size", "checkpoint_state_contract"],
+      "required": ["scientific_contract_id", "data_manifest_or_hash", "seeds", "effective_batch", "world_size"],
       "properties": {
         "checkpoint_state_contract": {
           "type": "object",
@@ -28,7 +48,7 @@
     },
     "work": {
       "type": "object",
-      "required": ["unit", "logical_update_definition", "logical_update_dag", "campaign_lifecycle", "sync_census", "cache_contract", "h2d_proof", "timing_buckets", "cuda_timing_proof"],
+      "required": ["unit", "logical_update_definition", "timing_buckets", "cuda_timing_proof"],
       "properties": {
         "campaign_lifecycle": {
           "type": "object",
@@ -47,7 +67,7 @@
     },
     "metrics": {
       "type": "object",
-      "required": ["throughput_units_per_s", "step_ms_p50", "amortized_training_throughput", "time_to_quality_seconds"]
+      "required": ["throughput_units_per_s", "step_ms_p50"]
     },
     "preflight": {
       "type": "object",

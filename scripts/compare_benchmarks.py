@@ -22,6 +22,12 @@ CAMPAIGN_LIFECYCLE_STAGES = (
     "teardown",
     "failure_retry",
 )
+EVIDENCE_LEVELS = ("static", "micro", "module", "logical_update", "amortized_job", "time_to_quality")
+EVIDENCE_RANK = {name: index for index, name in enumerate(EVIDENCE_LEVELS)}
+FEATURE_KEYS = {
+    "data_loader", "h2d", "backward", "higher_order_autograd", "optimizer", "cache",
+    "compiler", "custom_op", "distributed", "checkpoint", "auxiliary_tasks", "sampling",
+}
 
 
 COMPARABILITY_PATHS = (
@@ -36,7 +42,6 @@ COMPARABILITY_PATHS = (
     "hardware.device_index",
     "hardware.world_size",
     "hardware.storage",
-    "hardware.host_contention",
     "software.python",
     "software.pytorch",
     "software.cuda_or_rocm",
@@ -86,6 +91,9 @@ COMPARABILITY_PATHS = (
     "work.optimization_objective",
     "work.benchmark_levels",
     "work.logical_update_definition",
+    "comparison_class",
+    "evidence_level",
+    "features",
     "work.campaign_lifecycle.startup.included",
     "work.campaign_lifecycle.precompute.included",
     "work.campaign_lifecycle.logical_update.included",
@@ -93,11 +101,6 @@ COMPARABILITY_PATHS = (
     "work.campaign_lifecycle.checkpoint_resume.included",
     "work.campaign_lifecycle.teardown.included",
     "work.campaign_lifecycle.failure_retry.included",
-    "work.task_composition",
-    "work.logical_update_dag",
-    "work.sync_census",
-    "work.cache_contract",
-    "work.h2d_proof",
     "work.timing_bucket_definition",
     "work.cuda_timing_proof",
     "acceptance.primary_metric",
@@ -121,6 +124,23 @@ SYSTEMS_CANDIDATE_PATHS = frozenset(
         "software.compile_backend",
         "software.compile_mode",
         "compiler.fallback",
+        "work.sync_census",
+        "work.cache_contract",
+        "work.h2d_proof",
+        "work.logical_update_dag",
+    }
+)
+
+INTERVENTION_PATHS = frozenset(
+    {
+        "work.sync_census",
+        "work.cache_contract",
+        "work.h2d_proof",
+        "work.logical_update_dag",
+        "compiler.compile_cache_state",
+        "compiler.cache_fingerprint",
+        "compiler.cache_hit_miss_evidence",
+        "compiler.fallback",
     }
 )
 
@@ -132,7 +152,6 @@ ALGORITHMIC_PATHS = frozenset(
         "contract.data_order_augmentation",
         "contract.seeds",
         "contract.effective_batch",
-        "contract.world_size",
         "work.effective_batch",
         "work.task_composition",
         "work.logical_update_definition",
@@ -140,6 +159,9 @@ ALGORITHMIC_PATHS = frozenset(
 )
 
 REQUIRED_PATHS = (
+    "comparison_class",
+    "evidence_level",
+    "features",
     "identity.repository",
     "identity.base_revision",
     "identity.benchmark_harness_hash",
@@ -155,35 +177,18 @@ REQUIRED_PATHS = (
     "software.driver",
     "software.compile_backend",
     "software.compile_mode",
-    "compiler.compile_cache_state",
     "contract.scientific_contract_id",
     "contract.data_manifest_or_hash",
     "contract.seeds",
-    "contract.effective_batch",
-    "contract.world_size",
-    "contract.stochastic_thinning",
-    "contract.checkpoint_state_contract",
-    "contract.gradient_clipping_contract",
     "work.unit",
-    "work.total_units",
-    "work.effective_batch",
-    "work.measured_steps",
-    "work.repetitions",
     "work.timing_boundaries",
     "work.optimization_objective",
     "work.benchmark_levels",
     "work.logical_update_definition",
-    "work.campaign_lifecycle",
-    "work.task_composition",
     "work.timing_bucket_definition",
     "work.cuda_timing_proof",
     "metrics.throughput_units_per_s",
     "metrics.step_ms_p50",
-    "metrics.step_ms_p95",
-    "metrics.amortized_training_throughput",
-    "metrics.time_to_quality_seconds",
-    "preflight.compatibility_status",
-    "preflight.runtime_topology",
 )
 
 REQUIRED_CANDIDATE_PATHS = (
@@ -233,6 +238,62 @@ def get_path(record: dict[str, Any], dotted: str) -> Any:
             return None
         value = value[part]
     return value
+
+
+def scope_required_paths(record: dict[str, Any]) -> tuple[str, ...]:
+    level = get_path(record, "evidence_level")
+    features = get_path(record, "features")
+    if not isinstance(features, dict):
+        features = {}
+    required: list[str] = []
+    if level in {"module", "logical_update", "amortized_job", "time_to_quality"}:
+        required.extend(("work.measured_steps", "work.repetitions", "metrics.step_ms_p95"))
+    if level in {"logical_update", "amortized_job", "time_to_quality"}:
+        required.extend(
+            (
+                "contract.effective_batch",
+                "contract.stochastic_thinning",
+                "contract.gradient_clipping_contract",
+                "work.total_units",
+                "work.effective_batch",
+                "work.task_composition",
+                "work.logical_update_dag",
+                "work.sync_census",
+            )
+        )
+    if features.get("h2d"):
+        required.append("work.h2d_proof")
+    if features.get("cache"):
+        required.append("work.cache_contract")
+    if features.get("checkpoint"):
+        required.extend(("contract.checkpoint_state_contract", "preflight.compatibility_status"))
+    if features.get("compiler"):
+        required.extend(("compiler.compile_cache_state", "compiler.cache_fingerprint", "compiler.cache_hit_miss_evidence", "compiler.fallback"))
+    if features.get("distributed"):
+        required.append("preflight.runtime_topology")
+    if level in {"amortized_job", "time_to_quality"}:
+        required.extend(
+            (
+                "work.campaign_lifecycle",
+                "metrics.amortized_training_throughput",
+                "metrics.time_to_quality_seconds",
+                "preflight.compatibility_status",
+                "preflight.runtime_topology",
+            )
+        )
+    return tuple(dict.fromkeys(required))
+
+
+def scope_status(record: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if get_path(record, "comparison_class") not in {"systems", "scaling", "algorithmic"}:
+        reasons.append("comparison_class is invalid")
+    if get_path(record, "evidence_level") not in EVIDENCE_RANK:
+        reasons.append("evidence_level is invalid")
+    features = get_path(record, "features")
+    if not isinstance(features, dict) or set(features) != FEATURE_KEYS or any(not isinstance(features[key], bool) for key in FEATURE_KEYS):
+        reasons.append("features do not match the declared feature scope")
+    return reasons
 
 
 def missing(value: Any) -> bool:
@@ -372,6 +433,42 @@ def lifecycle_status(record: dict[str, Any]) -> list[str]:
     return reasons
 
 
+def host_contention_status(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
+    """Treat host contention as a materiality confounder, not an exact contract field."""
+    before = get_path(baseline, "hardware.host_contention")
+    after = get_path(candidate, "hardware.host_contention")
+    if before is None and after is None:
+        return []
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return ["host contention state is missing on one side"]
+    reasons: list[str] = []
+    thresholds = {
+        "load_average_1m": ("relative", 0.25, 1.0),
+        "available_memory_mb": ("relative", 0.10, 0.0),
+        "swap_percent": ("absolute", 5.0, 0.0),
+        "trainer_worker_rss_mb": ("relative", 0.25, 0.0),
+    }
+    for key, (kind, threshold, floor) in thresholds.items():
+        left = finite_number(before.get(key))
+        right = finite_number(after.get(key))
+        if left is None or right is None:
+            continue
+        if kind == "absolute":
+            materially_different = abs(left - right) > threshold
+        else:
+            materially_different = abs(left - right) > max(floor, threshold * max(abs(left), abs(right), 1.0))
+        if materially_different:
+            reasons.append(f"host contention materially differs for {key}")
+    return reasons
+
+
+def declared_intervention_paths(record: dict[str, Any]) -> set[str]:
+    values = get_path(record, "identity.declared_change_set")
+    if not isinstance(values, list):
+        return set()
+    return {value for value in values if isinstance(value, str) and value in INTERVENTION_PATHS}
+
+
 def required_quality_gates(record: dict[str, Any]) -> list[str]:
     value = get_path(record, "acceptance.required_quality_gates")
     return value if isinstance(value, list) and all(isinstance(item, str) for item in value) else []
@@ -388,14 +485,16 @@ def compare_records(
 ) -> dict[str, Any]:
     errors: list[str] = []
     for path in sorted(allowed_differences - SYSTEMS_CANDIDATE_PATHS):
-        if path in ALGORITHMIC_PATHS:
+        if path in ALGORITHMIC_PATHS and not (
+            get_path(baseline, "comparison_class") == get_path(candidate, "comparison_class") == "algorithmic"
+        ):
             errors.append(f"algorithmic path cannot be allowed as a systems difference: {path}")
-        else:
+        elif path not in ALGORITHMIC_PATHS:
             errors.append(f"unknown or immutable --allow-difference path: {path}")
     for label, record in (("baseline", baseline), ("candidate", candidate)):
-        if record.get("schema_version") != 3:
-            errors.append(f"{label}: schema_version must be 3")
-        for path in REQUIRED_PATHS:
+        if record.get("schema_version") != 4:
+            errors.append(f"{label}: schema_version must be 4")
+        for path in REQUIRED_PATHS + scope_required_paths(record):
             if missing(get_path(record, path)):
                 errors.append(f"{label}: missing required field {path}")
 
@@ -419,6 +518,24 @@ def compare_records(
             allowed.append(item)
             mismatches = [item for item in mismatches if item["path"] != path]
 
+    declared_paths = declared_intervention_paths(candidate)
+    for path in sorted(INTERVENTION_PATHS):
+        before = get_path(baseline, path)
+        after = get_path(candidate, path)
+        if before == after:
+            continue
+        item = {"path": path, "baseline": before, "candidate": after}
+        if path in allowed_differences or path in declared_paths:
+            allowed.append(item)
+        else:
+            mismatches.append({**item, "reason": "intervention path changed without declared scope"})
+
+    if get_path(baseline, "comparison_class") == get_path(candidate, "comparison_class") == "scaling":
+        mismatches = [
+            item for item in mismatches
+            if item["path"] not in {"hardware.world_size", "contract.world_size"}
+        ]
+
     deltas: dict[str, Any] = {}
     for metric, higher_is_better in DELTA_METRICS.items():
         before = finite_number(get_path(baseline, f"metrics.{metric}"))
@@ -436,12 +553,16 @@ def compare_records(
     gates: list[dict[str, Any]] = []
     inconclusive_reasons: list[str] = []
     for label, record in (("baseline", baseline), ("candidate", candidate)):
+        inconclusive_reasons.extend(f"{label}: {reason}" for reason in scope_status(record))
         for path in REQUIRED_ACCEPTANCE_PATHS:
             if missing(get_path(record, path)):
                 inconclusive_reasons.append(f"{label}: missing acceptance field {path}")
         if not required_quality_gates(record):
             inconclusive_reasons.append(f"{label}: acceptance.required_quality_gates must be non-empty")
-        if get_path(record, "preflight.compatibility_status") != "pass":
+        needs_preflight = get_path(record, "evidence_level") in {"amortized_job", "time_to_quality"} or any(
+            bool(get_path(record, f"features.{feature}")) for feature in ("compiler", "distributed", "checkpoint")
+        )
+        if needs_preflight and get_path(record, "preflight.compatibility_status") != "pass":
             inconclusive_reasons.append(f"{label}: runtime compatibility preflight is not proven pass")
     for path in REQUIRED_CANDIDATE_PATHS:
         if missing(get_path(candidate, path)):
@@ -452,8 +573,10 @@ def compare_records(
     candidate_timing_reasons, candidate_timing = timing_status(candidate)
     inconclusive_reasons.extend(f"baseline: {reason}" for reason in baseline_timing_reasons)
     inconclusive_reasons.extend(f"candidate: {reason}" for reason in candidate_timing_reasons)
-    inconclusive_reasons.extend(f"baseline: {reason}" for reason in lifecycle_status(baseline))
-    inconclusive_reasons.extend(f"candidate: {reason}" for reason in lifecycle_status(candidate))
+    for label, record in (("baseline", baseline), ("candidate", candidate)):
+        if get_path(record, "evidence_level") in {"amortized_job", "time_to_quality"}:
+            inconclusive_reasons.extend(f"{label}: {reason}" for reason in lifecycle_status(record))
+    inconclusive_reasons.extend(f"host: {reason}" for reason in host_contention_status(baseline, candidate))
     acceptance = get_path(baseline, "acceptance")
     candidate_acceptance = get_path(candidate, "acceptance")
     if acceptance != candidate_acceptance:
@@ -462,7 +585,7 @@ def compare_records(
         for path in REQUIRED_CANDIDATE_PATHS:
             if record_label == "candidate" and missing(get_path(record, path)):
                 inconclusive_reasons.append(f"candidate missing evidence: {path}")
-    if get_path(candidate, "compiler.fallback") is not False:
+    if get_path(candidate, "features.compiler") and get_path(candidate, "compiler.fallback") is not False:
         inconclusive_reasons.append("candidate compiler fallback is not proven false")
     if get_path(candidate, "software.compile_backend") not in (None, "", "eager") and not get_path(candidate, "candidate.active_path_evidence"):
         inconclusive_reasons.append("compiled candidate lacks active-path evidence")
@@ -572,8 +695,33 @@ def compare_records(
     else:
         assessment = "gates_failed"
 
+    algorithmic_only = (
+        get_path(candidate, "comparison_class") == "algorithmic"
+        and bool(algorithmic_mismatches)
+        and not errors
+        and not mismatches
+    )
+    if not comparable and not algorithmic_only:
+        comparability = "incomparable"
+    elif algorithmic_only or inconclusive_reasons:
+        comparability = "conditional"
+    else:
+        comparability = "comparable"
+    if inconclusive_reasons or (not comparable and not algorithmic_only):
+        decision = "inconclusive"
+    elif not gates:
+        decision = "inconclusive"
+    elif all(gate["passed"] for gate in gates):
+        decision = "accepted"
+    else:
+        decision = "rejected"
+
     return {
         "assessment": assessment,
+        "comparison_class": get_path(candidate, "comparison_class"),
+        "evidence_level": get_path(candidate, "evidence_level"),
+        "comparability": comparability,
+        "decision": decision,
         "comparable": comparable,
         "errors": errors,
         "mismatches": mismatches,
@@ -609,7 +757,23 @@ def exit_code_for_assessment(assessment: str) -> int:
 
 def self_test() -> None:
     record: dict[str, Any] = {
-        "schema_version": 3,
+        "schema_version": 4,
+        "comparison_class": "systems",
+        "evidence_level": "logical_update",
+        "features": {
+            "data_loader": True,
+            "h2d": True,
+            "backward": True,
+            "higher_order_autograd": True,
+            "optimizer": True,
+            "cache": True,
+            "compiler": False,
+            "custom_op": False,
+            "distributed": False,
+            "checkpoint": False,
+            "auxiliary_tasks": True,
+            "sampling": False,
+        },
         "identity": {
             "repository": "demo",
             "commit": "abc",
@@ -802,12 +966,19 @@ def self_test() -> None:
     ]
     result = compare_records(record, candidate, set(), 5.0, 0.0, 5.0, ("numerics_passed",))
     assert result["assessment"] == "gates_passed", result
+    assert result["comparability"] == "comparable"
+    assert result["decision"] == "accepted"
     no_quality = copy.deepcopy(candidate)
     no_quality["quality"] = {}
     assert compare_records(record, no_quality, set())["assessment"] == "inconclusive"
     algorithmic = copy.deepcopy(candidate)
+    algorithmic["comparison_class"] = "algorithmic"
     algorithmic["contract"]["data_manifest_or_hash"] = "sha256:changed"
-    assert compare_records(record, algorithmic, {"contract.data_manifest_or_hash"})["assessment"] == "algorithmic_experiment"
+    algorithmic_baseline = copy.deepcopy(record)
+    algorithmic_baseline["comparison_class"] = "algorithmic"
+    algorithmic_result = compare_records(algorithmic_baseline, algorithmic, {"contract.data_manifest_or_hash"})
+    assert algorithmic_result["assessment"] == "algorithmic_experiment"
+    assert algorithmic_result["decision"] == "accepted"
     code_only = copy.deepcopy(candidate)
     code_only["identity"]["commit"] = "different-commit"
     assert compare_records(record, code_only, set())["assessment"] == "gates_passed"
@@ -830,24 +1001,49 @@ def self_test() -> None:
     lifecycle_gap = copy.deepcopy(candidate)
     lifecycle_gap["work"]["campaign_lifecycle"].pop("precompute")
     assert compare_records(record, lifecycle_gap, set())["assessment"] == "incomparable"
+    amortized_record = copy.deepcopy(record)
+    amortized_record["evidence_level"] = "amortized_job"
     lifecycle_evidence_gap = copy.deepcopy(candidate)
+    lifecycle_evidence_gap["evidence_level"] = "amortized_job"
     lifecycle_evidence_gap["work"]["campaign_lifecycle"]["startup"]["evidence"] = ""
-    assert compare_records(record, lifecycle_evidence_gap, set())["assessment"] == "inconclusive"
+    assert compare_records(amortized_record, lifecycle_evidence_gap, set())["assessment"] == "inconclusive"
     lifecycle_evidence_type_gap = copy.deepcopy(candidate)
+    lifecycle_evidence_type_gap["evidence_level"] = "amortized_job"
     lifecycle_evidence_type_gap["work"]["campaign_lifecycle"]["startup"]["evidence"] = []
-    assert compare_records(record, lifecycle_evidence_type_gap, set())["assessment"] == "inconclusive"
+    assert compare_records(amortized_record, lifecycle_evidence_type_gap, set())["assessment"] == "inconclusive"
     lifecycle_seconds_gap = copy.deepcopy(candidate)
+    lifecycle_seconds_gap["evidence_level"] = "amortized_job"
     lifecycle_seconds_gap["work"]["campaign_lifecycle"]["logical_update"]["seconds"] = -1.0
-    assert compare_records(record, lifecycle_seconds_gap, set())["assessment"] == "inconclusive"
+    assert compare_records(amortized_record, lifecycle_seconds_gap, set())["assessment"] == "inconclusive"
     lifecycle_measurement_delta = copy.deepcopy(candidate)
+    lifecycle_measurement_delta["evidence_level"] = "amortized_job"
     lifecycle_measurement_delta["work"]["campaign_lifecycle"]["logical_update"]["seconds"] = 2.0
-    assert compare_records(record, lifecycle_measurement_delta, set())["assessment"] == "gates_passed"
+    assert compare_records(amortized_record, lifecycle_measurement_delta, set())["assessment"] == "gates_passed"
+    sync_change = copy.deepcopy(candidate)
+    sync_change["work"]["sync_census"][0]["count"] = 1
+    assert compare_records(record, sync_change, set())["assessment"] == "incomparable"
+    declared_sync_change = copy.deepcopy(sync_change)
+    declared_sync_change["identity"]["declared_change_set"] = ["work.sync_census"]
+    assert compare_records(record, declared_sync_change, set())["assessment"] == "gates_passed"
     preflight_gap = copy.deepcopy(candidate)
+    preflight_gap["evidence_level"] = "amortized_job"
     preflight_gap["preflight"]["compatibility_status"] = "inconclusive"
-    assert compare_records(record, preflight_gap, set())["assessment"] == "inconclusive"
+    assert compare_records(amortized_record, preflight_gap, set())["assessment"] == "inconclusive"
+    host_baseline = copy.deepcopy(record)
+    host_baseline["hardware"]["host_contention"] = {"load_average_1m": 1.0}
     host_drift = copy.deepcopy(candidate)
     host_drift["hardware"]["host_contention"] = {"load_average_1m": 99.0}
-    assert compare_records(record, host_drift, set())["assessment"] == "incomparable"
+    assert compare_records(host_baseline, host_drift, set())["assessment"] == "inconclusive"
+    host_small_drift = copy.deepcopy(candidate)
+    host_small_drift["hardware"]["host_contention"] = {"load_average_1m": 1.1}
+    assert compare_records(host_baseline, host_small_drift, set())["assessment"] == "gates_passed"
+    scaling_baseline = copy.deepcopy(record)
+    scaling_baseline["comparison_class"] = "scaling"
+    scaling = copy.deepcopy(candidate)
+    scaling["comparison_class"] = "scaling"
+    scaling["hardware"]["world_size"] = 2
+    scaling["contract"]["world_size"] = 2
+    assert compare_records(scaling_baseline, scaling, set())["assessment"] == "gates_passed"
     candidate["contract"]["seeds"] = [2]
     result = compare_records(record, candidate, set())
     assert result["assessment"] == "algorithmic_experiment", result

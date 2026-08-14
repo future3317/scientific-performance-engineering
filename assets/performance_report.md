@@ -12,8 +12,11 @@
 
 ## Decision
 
-- Status: accepted / rejected / inconclusive / algorithmic_experiment
-- Evidence level: static-only / microbenchmark / end-to-end / scientific gate
+- Comparison class: systems / scaling / algorithmic
+- Evidence level: static / micro / module / logical_update / amortized_job / time_to_quality
+- Comparability: comparable / conditional / incomparable
+- Decision: accepted / rejected / inconclusive
+- Legacy assessment (if produced by comparator):
 - Primary bottleneck:
 - Material result:
 - Active fast path and fallback status:

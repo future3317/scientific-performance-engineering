@@ -60,6 +60,19 @@ def main() -> None:
     broken_lifecycle_evidence = json.loads(json.dumps(template))
     broken_lifecycle_evidence["work"]["campaign_lifecycle"]["startup"]["evidence"] = []
     assert any("evidence" in error for error in benchmark_validator.validate_record(broken_lifecycle_evidence, schema))
+    micro = json.loads(json.dumps(template))
+    micro["evidence_level"] = "micro"
+    micro["features"] = {key: False for key in micro["features"]}
+    for key in ("logical_update_dag", "campaign_lifecycle", "sync_census", "cache_contract", "h2d_proof"):
+        micro["work"].pop(key, None)
+    micro["contract"].pop("checkpoint_state_contract", None)
+    micro.pop("preflight", None)
+    micro["metrics"].pop("amortized_training_throughput", None)
+    micro["metrics"].pop("time_to_quality_seconds", None)
+    assert benchmark_validator.validate_record(micro, schema) == []
+    amortized = json.loads(json.dumps(micro))
+    amortized["evidence_level"] = "amortized_job"
+    assert any("campaign_lifecycle" in error for error in benchmark_validator.validate_record(amortized, schema))
     print("behavioral contract fixtures: ok")
 
 

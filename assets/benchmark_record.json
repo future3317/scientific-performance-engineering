@@ -1,5 +1,21 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
+  "comparison_class": "systems",
+  "evidence_level": "logical_update",
+  "features": {
+    "data_loader": true,
+    "h2d": true,
+    "backward": true,
+    "higher_order_autograd": true,
+    "optimizer": true,
+    "cache": true,
+    "compiler": false,
+    "custom_op": false,
+    "distributed": false,
+    "checkpoint": false,
+    "auxiliary_tasks": true,
+    "sampling": false
+  },
   "identity": {
     "repository": "",
     "commit": "",

@@ -15,9 +15,7 @@ These are review patterns, not blind recipes. Adapt them to the project's scient
 9. Add NVTX ranges for Nsight Systems
 10. Audit misleading timing buckets
 11. Batched data and transfer proof
-12. Custom operator contract
-13. Sync budget and amortized lifecycle
-14. Periodic-geometry kernel boundary
+12. Route specialized contracts
 
 ## 1. Prove autocast is on the real path
 
@@ -200,14 +198,6 @@ device_batch = batch.to(device, non_blocking=True)
 
 Benchmark batched fetch against per-sample fetch, then prove pinned state, copy stream, source lifetime, consumer dependency, and actual overlap. Preserve ordering, augmentation RNG, and cache-key provenance.
 
-## 12. Custom operator contract
+## 12. Route specialized contracts
 
-Keep a reference implementation and exact signature. Register schema/mutation/aliasing and FakeTensor/meta behavior; run `torch.library.opcheck`, `assert_close`, `gradcheck`, and `gradgradcheck` where required. Add empty/non-contiguous/edge-shape/compile/forward-backward cases. `opcheck` is a dispatch contract, not a numerical proof.
-
-## 13. Sync budget and amortized lifecycle
-
-Record `.item()`, `.cpu()`, metric all-reduce, progress/logging, validation, checkpoint staging, barriers, and explicit synchronizations in the record's `sync_census`. Classify each event as required, removable, amortizable, or overlappable. Measure EMA/SWA/scheduler/clipping and checkpoint/logging/validation cadence in a separate amortized job metric.
-
-## 14. Periodic-geometry kernel boundary
-
-If profiling attributes material time to minimum-image, Cartesian/fractional transforms, radial basis, or scatter/reduction, first prove the same short-kernel pattern on representative cells and edge counts. Then compare one fused `torch.library.triton_op`/CUDA op (or the smallest compatible group) against the eager reference. Keep FP32 behavior and existing periodic, cell-basis, O(3), empty, edge-shape, forward/backward, and compile tests. Do not optimize AdamW or rewrite the scientific architecture while forward geometry still dominates; a kernel win is accepted only when the logical-update measurement moves.
+Use [CODE_AND_RUNTIME_AUDIT.md](CODE_AND_RUNTIME_AUDIT.md) for custom-operator and synchronization contracts, [DATA_AND_TRAINING_LIFECYCLE.md](DATA_AND_TRAINING_LIFECYCLE.md) for amortized lifecycle and cache/H2D evidence, and [MEMORY_COMPILER_DISTRIBUTED.md](MEMORY_COMPILER_DISTRIBUTED.md) for compiler, CUDA Graphs, distributed, memory, and checkpoint mechanics. Keep this file limited to reusable patch shapes; the routed references are the canonical policy owners.

@@ -65,7 +65,7 @@ For global crystal-tensor tasks without force, stress, or other coordinate/latti
 
 For static property graphs, precompute only topology and metadata invariant under the supported data contract: edge index/order, PBC shifts, CSR/CSC pointers, species indices, and compatible basis metadata. Dynamic generation coordinates/cells invalidate distances, edge vectors, and spherical harmonics; cache only timestep-independent values.
 
-For ragged training, first test regional `torch.compile(..., dynamic=True)` and move data-dependent shape changes out of the compiled region. For generation, repeated denoiser calls under one shape bucket can justify `torch.compile`, `reduce-overhead`, and CUDA Graph candidates because the compile cost amortizes over actual NFE. Treat changed NFE, solver, flow matching, distillation, and one/few-step methods as separate algorithmic experiments.
+For ragged training, route compiler mode and dynamic-shape selection to [MEMORY_COMPILER_DISTRIBUTED.md](MEMORY_COMPILER_DISTRIBUTED.md); benchmark exact irreps, path, layout, and shape signatures while preserving equivariance, backward, and higher-order gates. For generation, repeated denoiser calls under one shape bucket can justify `torch.compile`, `reduce-overhead`, and CUDA Graph candidates because the compile cost amortizes over actual NFE. Treat changed NFE, solver, flow matching, distillation, and one/few-step methods as separate algorithmic experiments.
 
 Increase generation batch size only through a measured memory/latency sweep. Disable complete denoising-trajectory recording when it is not an output requirement; it can dominate host serialization and I/O. Cache conditioning, masks, batch indices, and species metadata only when they are invariant across NFE.
 

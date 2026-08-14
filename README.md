@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/future3317/scientific-gpu-training-optimizer/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f?style=for-the-badge" alt="MIT license" /></a>
   <a href="https://github.com/future3317/scientific-gpu-training-optimizer/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/future3317/scientific-gpu-training-optimizer/validate.yml?branch=main&label=checks&style=for-the-badge" alt="Validation checks" /></a>
-  <img src="https://img.shields.io/badge/benchmark-contract-v3-2563eb?style=for-the-badge" alt="Benchmark contract v3" />
+  <img src="https://img.shields.io/badge/benchmark-contract-v4-2563eb?style=for-the-badge" alt="Benchmark contract v4" />
   <img src="https://img.shields.io/badge/languages-English%20%7C%20中文-7c3aed?style=for-the-badge" alt="English and Chinese" />
 </p>
 
@@ -112,6 +112,8 @@ This Codex skill targets end-to-end performance problems in PyTorch scientific t
 `Preflight → Contract Freeze → Lifecycle Census → Profile → Activation Proof → Logical Update → Amortized Job → Gates`
 
 Every candidate requires a comparable baseline, hypothesis card, Amdahl ceiling, Micro → Module → End-to-end evidence, numerical/gradient/equivariance/physical/quality gates, and an explicit accepted, rejected, or inconclusive decision.
+
+Benchmark records declare comparison class and evidence level. Micro/module evidence does not require campaign-level lifecycle fields; amortized-job and time-to-quality evidence does.
 
 ### Layout
 

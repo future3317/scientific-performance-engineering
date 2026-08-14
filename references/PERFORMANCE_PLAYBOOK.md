@@ -9,11 +9,8 @@ Use this profiling-led decision tree for scientific PyTorch, PyG, e3nn, cuEquiva
 3. Profile in layers
 4. Diagnose CPU and input pipeline
 5. Diagnose hot paths, kernels, and ragged data
-6. Validate precision, math modes, and quantization
-7. Diagnose optimizer and memory
-8. Validate compilation and CUDA Graphs
-9. Validate distributed execution and checkpointing
-10. Apply scientific acceptance gates
+6. Route scope-specific mechanics
+7. Apply scientific acceptance gates
 
 ## 1. Define the work and contract
 
@@ -105,65 +102,18 @@ Keep metadata such as graph sizes and offsets on CPU when it is immutable and tr
 
 For attention, begin with PyTorch SDPA backend dispatch. Try FlashAttention or a custom backend only when the exact mask, sequence length, head dimension, layout, dtype, and backward path select the intended kernel. For GNN/equivariant code, benchmark exact irreps, edge counts, layouts, multiplicities, precision, and forward/backward. Layout transposes and silent fallbacks can erase a kernel gain.
 
-## 6. Precision, math modes, and quantization
+## 6. Route scope-specific mechanics
 
-Use autocast around the real forward and loss region and exit before backward. Keep sensitive algebra outside autocast:
+Keep this playbook as the common decision tree. Route detailed policy to one canonical owner:
 
-```python
-with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=use_bf16):
-    prediction = model(batch)
-    fast_terms = compute_fast_terms(prediction, batch)
+- `DATA_AND_TRAINING_LIFECYCLE.md`: storage/dataset/collation/transfer, cache keys, worker topology, optimizer-adjacent work, logging, validation, checkpoint cadence, resume, and time-to-quality.
+- `CODE_AND_RUNTIME_AUDIT.md`: synchronization census, custom operators, higher-order autograd, active dispatch, and numerical localization.
+- `MEMORY_COMPILER_DISTRIBUTED.md`: memory forensics, precision/allocator interactions, compiler/CUDA Graphs, DDP/FSDP, collectives, and checkpoint mechanics.
+- `GNN_PREDICTION_WORKLOADS.md`, `CRYSTAL_GENERATION.md`, and `EQUIVARIANT_OPERATOR_DESIGN.md`: workload-specific scientific and representation contracts.
 
-with torch.autocast(device_type="cuda", enabled=False):
-    stable_term = stable_linear_algebra(prediction["matrix"].float(), target.float())
+Do not repeat a route's detailed compatibility or acceptance policy here; link the owner and apply only the scope declared in the benchmark record.
 
-loss = fast_terms.float() + stable_term
-loss.backward()
-```
-
-Validate FP32 versus BF16/FP16/FP8 with output max/mean error and cosine, component/total loss error, finite checks, gradient norm ratio/cosine, short trajectory, and downstream quality. For FP16, unscale before clipping. For BF16, do not assume a scaler is needed. Record `torch.set_float32_matmul_precision`, TF32, deterministic settings, and backend selection.
-
-Treat torchao Float8/quantization and Transformer Engine FP8 as opt-in recipes, not global switches. Check GPU architecture, supported shapes/layouts, scaling and calibration, optimizer state, overflow handling, checkpoint compatibility, and whether the scientific contract permits quantization. Reject a faster candidate when quality, stability, or reproducibility fails.
-
-## 7. Optimizer and memory
-
-- Keep `zero_grad(set_to_none=True)` unless material zero gradients are part of the contract.
-- Benchmark optimizer `foreach` and `fused` modes on the target parameter structure, dtype/device mix, sparse/None gradients, and capture path. Do not assume fused is faster.
-- Group gradient transforms with foreach only after checking sparse gradients, bucket views, higher-order autograd, and numerical equivalence. Prefer public APIs when available; pin versions when an underscored API is unavoidable.
-- Measure activation checkpointing as a throughput/compute tradeoff, not only a memory win. Before combining it with `autograd.grad`, higher-order gradients, DDP accumulation, or `no_sync()`, test `use_reentrant` and `preserve_rng_state` explicitly; reentrant checkpointing is not a drop-in path for every autograd API. Record whether checkpoints resume only at optimizer boundaries or also mid-accumulation. A mid-window contract must restore pending gradients, optimizer/scheduler/GradScaler, sampler cursor, and Python/CUDA RNG; otherwise state the boundary-only limitation. Preserve validation gradients when the scientific quantity requires them.
-- Distinguish allocated, reserved, active, and external-library memory. Inspect `memory_stats`, memory snapshots, allocator configuration, and host RSS. Tune `cudaMallocAsync` or allocator split/rounding only after fragmentation evidence.
-- Never call `empty_cache()` per step and never accumulate validation outputs on GPU without a bounded plan.
-
-## 8. Compilation and CUDA Graphs
-
-Start from eager evidence. Compile a stable repeated block before a ragged end-to-end trainer.
-
-- Compare supported `torch.compile` modes and backends on identical work. `max-autotune` can trade compile time and memory for steady-state speed; `reduce-overhead` may use CUDA Graphs. Measure both separately and use only modes present in the installed version.
-- Enable `TORCH_LOGS=graph_breaks,recompiles,dynamic` for diagnosis. Record graph breaks, recompiles, guards, compiled-region coverage, cold compile time, cache behavior, and steady-state time.
-- Treat Python metadata, dynamic lists, custom ops, tensor-to-Python conversion, ragged shapes, and stage-dependent branches as likely breakpoints. Use bucketing, dynamic shapes, regional compilation, or explicit graph boundaries only when the contract permits.
-- Do not claim a compiled path when errors are suppressed or the hot function is not entered. `torch.export` and AOTInductor are primarily graph/export/deployment tools; do not use their existence as training evidence.
-- CUDA Graphs and compiler CUDA Graph Trees require stable shapes/control flow, addresses, allocations, streams, and dependencies. Ragged PyG batches and changing stage branches need a proven capture design.
-
-## 9. Distributed and checkpointing
-
-Measure per-rank data wait, forward, backward, optimizer, NCCL communication, overlap, total time, graph/atom/edge counts, and max/min rank latency. Select GPUs explicitly by index/UUID and record logical-to-physical UUID mapping. Report aggregate throughput and scaling efficiency against the same single-GPU per-device work.
-
-- Keep gradient accumulation and DDP `no_sync()` boundaries mathematically correct, including short final windows and graph-count weighting.
-- Use `find_unused_parameters=True` only when needed. If used-parameter sets and control flow are invariant, inspect DDP logging and test `static_graph=True`; a wrong assumption can hang or produce incorrect gradients.
-- With stochastic thinning, rank-local masks can change the used-parameter set from step to step. Do not enable `static_graph=True` until the mask schedule proves that set is invariant; otherwise keep the needed unused-parameter detection and test reducer completion on zero-selected windows.
-- Test `gradient_as_bucket_view=True` and bucket tuning only when the trace shows copy or overlap issues. Do not set NCCL tuning variables without a measured reason.
-- Use FSDP2 `fully_shard`/device mesh when model or optimizer memory requires sharding; include resharding and communication in the measurement. Use `torch.distributed.checkpoint` for scalable save/load only when its state-dict and resume semantics are verified.
-- Consider tensor/pipeline parallelism only when the model and workload have a stable partitioning plan. Do not trade away scientific batch semantics to obtain a scaling graph.
-
-Complete the runtime compatibility preflight and logical-update DAG before a long run. Route detailed checks to `CODE_AND_RUNTIME_AUDIT.md`, `DATA_AND_TRAINING_LIFECYCLE.md`, and `MEMORY_COMPILER_DISTRIBUTED.md`.
-
-## 10. Amortized training lifecycle
-
-Measure steady-state train-step time separately from cadence-amortized training throughput. Include the actual logging, metric reduction, validation, checkpoint staging/write, EMA/SWA, scheduler, and sampling cadence used by the campaign. Report time-to-quality when a fixed validation target exists. A faster isolated step that increases lifecycle cost is not an accepted job-level optimization.
-
-Record optimizer state dtype/temporary memory, foreach/fused dispatch, gradient-transform and clipping time, EMA/SWA update time, checkpoint bytes/rank and queue depth, dataloader cursor, and augmentation/order state. Do not assume validation can use `inference_mode()` when force/stress/response derivatives are part of the scientific quantity.
-
-## 11. Scientific acceptance
+## 7. Scientific acceptance
 
 Store required quality gates in `acceptance.required_quality_gates`; CLI flags may add gates but cannot replace or omit the recorded policy. Missing quality results are inconclusive, never accepted. Require the repository's existing gates. Typical gates include unit/regression tests; rotation/reflection/permutation/translation/periodic/gauge covariance; positive-volume, SPD, conservation, exact-count, and finite-gradient constraints; FP32/candidate output and gradient comparisons; calibration/coverage; rollout or sampler non-inferiority; deterministic resume/data-order; and checkpoint compatibility.
 

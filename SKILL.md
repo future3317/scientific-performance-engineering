@@ -14,6 +14,7 @@ Act as an end-to-end scientific training systems workflow, not a list of GPU tri
 - **Architecture/algorithm experiment:** require explicit authorization; label it `algorithmic_experiment`, separate from systems optimization.
 - **Static-only:** when representative runtime/data is unavailable, report hypotheses and runnable commands, never a measured speedup.
 - **Long-run gate:** do not launch the full campaign horizon until precompute cost, campaign resource topology, and a short staged horizon have passed the contract, quality, and time-to-quality gates.
+- **Evidence scope:** declare `comparison_class` (`systems`, `scaling`, or `algorithmic`) and `evidence_level` (`static`, `micro`, `module`, `logical_update`, `amortized_job`, or `time_to_quality`). Only the fields applicable to that scope are gates; a micro/module result is not required to pretend it is a full campaign.
 
 Do not use this skill for CUDA/runtime correctness bugs, installation/build failures, generic distributed correctness, or numerical instability unless performance is the primary decision.
 
@@ -37,7 +38,7 @@ Use this sequence:
 10. **Gates:** run numerical/gradient/physics/quality, resume, distributed, OOM, and failure diagnostics before statistics. For conditional or multitask work, include supervision coverage, fixed-condition/composition controls, route/realization probability checks, task-level gradient ownership, optimizer-aware thinning controls, and non-inferiority of auxiliary objectives.
 11. **Statistical Gate:** require raw runs, median/IQR/MAD, bootstrap confidence, noise floor, and complete timing accounting.
 
-The record is the executable contract. Missing preflight, lifecycle, precompute, synchronization, cache/H2D, campaign-resource, anchor provenance, or resume evidence is `inconclusive`, never an accepted speedup. A training-contract mismatch or an unbudgeted CPU/process fan-out outranks a performance gain; stop at the shortest useful horizon and run a matched ablation before spending the full campaign budget. Unsupported hypothetical cases remain non-blocking.
+The record is the executable contract. Compare frozen contract fields exactly; declare intervention fields such as cache/H2D/synchronization/compiler changes; treat measured evidence such as sync counts, cache hits, overlap, launch count, memory, and latency as expected-to-change observations. Missing evidence required by the declared scope is `inconclusive`, never an accepted speedup. Host contention is a materiality confounder, not a byte-for-byte identity field. A training-contract mismatch or an unbudgeted CPU/process fan-out outranks a performance gain; stop at the shortest useful horizon and run a matched ablation before spending the full campaign budget. Unsupported hypothetical cases remain non-blocking.
 
 ## Required records and tools
 
@@ -45,7 +46,7 @@ The record is the executable contract. Missing preflight, lifecycle, precompute,
 - Run `scripts/collect_env.py` (privacy-safe by default; use `--include-sensitive-host-metadata` only when needed).
 - Run `scripts/run_with_gpu_monitor.py --gpu <index-or-UUID> ...`; it records GPU mapping and trainer/worker/process-tree memory, not just monitor RSS.
 - Run `scripts/validate_benchmark.py` for the lifecycle/schema contract.
-- Run `scripts/compare_benchmarks.py`; `gates_passed` is reserved for a complete accepted record. `inconclusive`, `algorithmic_experiment`, `incomparable`, and `gates_failed` are non-accepting states.
+- Run `scripts/compare_benchmarks.py`; inspect its separate `comparison_class`, `evidence_level`, `comparability`, and `decision` fields. `assessment` is retained as a compatibility/debug classification; the decision is `accepted`, `rejected`, or `inconclusive`.
 - Run `scripts/validate_skill.py`, `scripts/behavioral_contract_tests.py`, and the material/GNN self-test before publishing.
 
 ## Claim boundaries
@@ -54,7 +55,7 @@ The record is the executable contract. Missing preflight, lifecycle, precompute,
 - Do not call a candidate faster when code/data/work/timing/host state differs outside its declared change set.
 - A configured compiler/kernel/precision feature is not active until runtime evidence proves it and proves no silent fallback.
 - `opcheck`/FakeTensor prove operator contracts, not mathematics; use output/gradient/physics gates separately.
-- Keep the result `accepted`, `rejected`, `inconclusive`, `algorithmic_experiment`, or `static-only`; include commands, records, evidence, gates, rejected hypotheses, rollback, and limitations.
+- Keep comparison class, evidence level, comparability, and decision separate; include commands, records, evidence, gates, rejected hypotheses, rollback, and limitations.
 
 ## Detailed references
 
