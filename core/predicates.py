@@ -7,6 +7,10 @@ from typing import Any
 
 
 def _lookup(context: Mapping[str, Any], path: str) -> Any:
+    if "." not in path and isinstance(context.get(path), Mapping) and path in context[path]:
+        # Preserve the legacy ``TaskContext(workload={"workload": ...})``
+        # spelling while the canonical root remains the full TaskContext.
+        return context[path][path]
     value: Any = context
     for part in path.split("."):
         if not isinstance(value, Mapping) or part not in value:
@@ -56,4 +60,3 @@ def match_predicate(predicate: Any, context: Mapping[str, Any]) -> bool:
         if path not in reserved and _lookup(context, path) != expected:
             return False
     return True
-

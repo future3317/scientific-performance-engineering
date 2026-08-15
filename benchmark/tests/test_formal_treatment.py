@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 from benchmark.formal.condition_adapter import FormalConditionAdapter
-from benchmark.formal.run_campaign import _read_agent_extensions, materialize_agent_task
+from benchmark.formal.run_campaign import _read_agent_extensions, _read_executor_receipt, materialize_agent_task
 from benchmark.harness import conditions
 from core.acre.engine import AcreEngine
 from core.models import RelationSpec, RelationState, RuleSpec, RuleState
+from core.models import validate_identifier
 
 
 def _rule(rule_id: str = "R1") -> RuleSpec:
@@ -114,9 +115,60 @@ def test_worker_extensions_cannot_override_scored_result(tmp_path: Path) -> None
         "verdict": "pass",
         "score": 999,
         "lesson": {"type": "boundary"},
-        "causal_evidence_events": [],
-        "acre_candidates": [],
+        "causal_evidence_events": [{"event_id": "forged"}],
+        "acre_candidates": [{"rule_id": "forged", "cases": [{"utility_on": 1.0}]}],
+        "acre_proposals": [{"rule_id": "R1", "applicability": {"all": []}}],
     }), encoding="utf-8")
     extensions = _read_agent_extensions(result)
-    assert set(extensions) == {"lesson", "causal_evidence_events", "acre_candidates"}
+    assert set(extensions) == {"lesson", "acre_proposals"}
+    assert extensions["acre_proposals"][0]["rule_id"] == "R1"
     assert "verdict" not in extensions and "score" not in extensions
+
+
+def test_external_ids_reject_path_traversal() -> None:
+    with pytest.raises(ValueError):
+        validate_identifier("../../rules/escape", "rule_id")
+    with pytest.raises(ValueError):
+        RuleState("../../rules/escape", 1)
+    with pytest.raises(ValueError):
+        RelationState("..\\relations\\escape", 1, 0.0)
+
+
+def test_public_routing_context_is_explicit_and_hidden_labels_are_not_projected(tmp_path: Path) -> None:
+    task = tmp_path / "task"
+    (task / "workspace").mkdir(parents=True)
+    (task / "public_tests").mkdir()
+    (task / "task.yaml").write_text(
+        "task_id: T\ntitle: public\nmechanism: hidden\nfamily_id: hidden-family\npublic_context:\n  workload:\n    device: cpu\nworkspace:\n  entrypoint: solution.py\n",
+        encoding="utf-8",
+    )
+    (task / "workspace" / "solution.py").write_text("x = 1\n", encoding="utf-8")
+    public = tmp_path / "public"
+    materialize_agent_task(task, public)
+    payload = json.loads((public / "public_task.json").read_text(encoding="utf-8"))
+    assert payload["routing_context"] == {"workload": {"device": "cpu"}}
+    assert payload["routing_context"].get("mechanism") is None
+
+
+def test_b_c_d_share_the_same_rendered_skill_snapshot(tmp_path: Path) -> None:
+    from scripts.render_skill_view import render_skill_view
+
+    source = tmp_path / "skill"
+    source.mkdir()
+    (source / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+    render_skill_view(source, bundle)
+    manifests = {}
+    for condition in ("B", "C", "D"):
+        store = tmp_path / condition
+        manifests[condition] = conditions.materialize_condition(condition, bundle, store)
+        assert (store / "SKILL.md").read_text(encoding="utf-8") == (bundle / "SKILL.md").read_text(encoding="utf-8")
+    assert manifests["B"]["files"]["SKILL.md"] == manifests["C"]["files"]["SKILL.md"] == manifests["D"]["files"]["SKILL.md"]
+
+
+def test_executor_receipt_requires_network_and_mount_attestation(tmp_path: Path) -> None:
+    receipt = tmp_path / "executor_receipt.json"
+    receipt.write_text(json.dumps({"mode": "external_namespace_executor", "network_mode": "bridge"}), encoding="utf-8")
+    _, errors = _read_executor_receipt(receipt, "a" * 64)
+    assert "external executor must declare network_mode=none" in errors
+    assert any("mount_allowlist" in error for error in errors)

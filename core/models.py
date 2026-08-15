@@ -11,7 +11,24 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from copy import deepcopy
 import math
+import hashlib
+import re
 from typing import Any
+
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+
+
+def validate_identifier(value: Any, name: str = "identifier") -> str:
+    """Validate IDs before they cross a filesystem or governance boundary."""
+    if not isinstance(value, str) or not _IDENTIFIER_RE.fullmatch(value):
+        raise ValueError(f"{name} must match [A-Za-z0-9][A-Za-z0-9._:-]*")
+    return value
+
+
+def identifier_digest(value: str) -> str:
+    validate_identifier(value)
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _nonempty(value: Any, name: str) -> None:
@@ -38,7 +55,9 @@ class RuleSpec:
     text: str = ""
 
     def __post_init__(self) -> None:
-        _nonempty(self.rule_id, "rule_id")
+        validate_identifier(self.rule_id, "rule_id")
+        if self.parent is not None:
+            validate_identifier(self.parent, "parent")
         if self.version < 1:
             raise ValueError("version must be >= 1")
         if self.severity not in {"P0", "P1", "P2", "P3", "P4"}:
@@ -143,22 +162,24 @@ class EvidenceEvent:
     def __post_init__(self) -> None:
         if self.schema_version != 2:
             raise ValueError("EvidenceEvent schema_version must be 2")
-        _nonempty(self.event_id, "event_id")
+        validate_identifier(self.event_id, "event_id")
         _nonempty(self.context, "context")
         interventions = self.assignment.get("interventions")
         if not isinstance(interventions, dict) or not interventions:
             raise ValueError("assignment.interventions must be non-empty")
-        if any(not isinstance(rule_id, str) or not rule_id or isinstance(value, bool) or value not in {0, 1} for rule_id, value in interventions.items()):
-            raise ValueError("assignment.interventions values must be 0 or 1")
+        for rule_id, value in interventions.items():
+            validate_identifier(rule_id, "intervention rule_id")
+            if isinstance(value, bool) or value not in {0, 1}:
+                raise ValueError("assignment.interventions values must be 0 or 1")
         propensity = self.assignment.get("propensity")
         if isinstance(propensity, bool) or not isinstance(propensity, (int, float)) or not 0.0 < float(propensity) <= 1.0:
             raise ValueError("assignment.propensity must be in (0, 1]")
         _nonempty(self.assignment.get("design_id"), "assignment.design_id")
         if self.evidence_stream not in {"representative", "adversarial"}:
             raise ValueError("evidence_stream must be representative or adversarial")
-        _nonempty(self.query_id, "query_id")
-        _nonempty(self.source_id, "source_id")
-        _nonempty(self.independence_group, "independence_group")
+        validate_identifier(self.query_id, "query_id")
+        validate_identifier(self.source_id, "source_id")
+        validate_identifier(self.independence_group, "independence_group")
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "EvidenceEvent":
@@ -183,11 +204,13 @@ class RelationSpec:
     provenance_policy: dict[str, Any]
 
     def __post_init__(self) -> None:
-        _nonempty(self.relation_id, "relation_id")
+        validate_identifier(self.relation_id, "relation_id")
         if self.version < 1:
             raise ValueError("version must be >= 1")
         if set(self.endpoints) != {"left", "right"} or any(not isinstance(value, str) or not value for value in self.endpoints.values()):
             raise ValueError("endpoints must contain non-empty left and right rule ids")
+        validate_identifier(self.endpoints["left"], "relation endpoint")
+        validate_identifier(self.endpoints["right"], "relation endpoint")
         if self.endpoints["left"] == self.endpoints["right"]:
             raise ValueError("relation endpoints must be distinct")
         if self.orientation not in {"symmetric", "left_to_right", "right_to_left"}:
@@ -233,7 +256,7 @@ class RelationState:
     last_confirmed: str | None = None
 
     def __post_init__(self) -> None:
-        _nonempty(self.relation_id, "relation_id")
+        validate_identifier(self.relation_id, "relation_id")
         if self.version < 1:
             raise ValueError("version must be >= 1")
         if not math.isfinite(self.estimate):
@@ -268,6 +291,7 @@ class RuleState:
     last_updated: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def __post_init__(self) -> None:
+        validate_identifier(self.rule_id, "rule_id")
         if self.status not in {"candidate", "canonical", "retired"}:
             raise ValueError("invalid rule state status")
         if self.drift_state not in {"stable", "suspected_drift", "stale", "revalidating"}:

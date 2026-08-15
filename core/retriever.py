@@ -51,6 +51,7 @@ def select_rules(
         feasible = [
             spec for spec in remaining
             if used + int(spec.runtime_cost.get("tokens", 0)) <= context.token_budget
+            and (not state_map or (state_map.get(spec.rule_id) is not None and state_map[spec.rule_id].status == "canonical"))
             and not any(spec.rule_id in conflicts.get(item.rule_id, set()) or item.rule_id in conflicts.get(spec.rule_id, set()) for item in selected)
             and not (state_map.get(spec.rule_id) and state_map[spec.rule_id].drift_state in {"stale", "revalidating"})
         ]
@@ -62,7 +63,7 @@ def select_rules(
             utility = float(spec.runtime_cost.get("expected_utility", 0.0))
             state = state_map.get(spec.rule_id)
             if state is not None:
-                utility = float(state.confidence_sequence.get("lcb", state.retrieval_utility))
+                utility = float(state.confidence_sequence.get("utility_effect_lcb", state.retrieval_utility))
                 utility *= max(0.0, 1.0 - state.override_rate)
                 if state.drift_state == "suspected_drift":
                     utility *= 0.5

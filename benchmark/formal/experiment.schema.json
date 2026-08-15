@@ -23,8 +23,13 @@
     "worker_isolation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode"],
-      "properties": {"mode": {"const": "external_namespace_executor"}}
+      "required": ["mode", "network_mode", "mount_allowlist", "executor_receipt"],
+      "properties": {
+        "mode": {"const": "external_namespace_executor"},
+        "network_mode": {"const": "none"},
+        "mount_allowlist": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "executor_receipt": {"type": ["object", "null"]}
+      }
     },
     "task_order": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     "outer_trial_id": {"type": "string", "minLength": 1},

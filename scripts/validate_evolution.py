@@ -12,7 +12,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from core.models import RuleSpec, RuleState
+from core.models import RelationSpec, RelationState, RuleSpec, RuleState, identifier_digest
 
 
 SEVERITIES = {"P0", "P1", "P2", "P3", "P4"}
@@ -42,6 +42,12 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(card, dict):
         return ["rule card must be a JSON object"]
+    if "applicability" in card and "trigger" not in card:
+        try:
+            RuleSpec.from_dict(card)
+        except (TypeError, ValueError, KeyError) as exc:
+            errors.append(f"canonical RuleSpec invalid: {exc}")
+        return errors
     try:
         RuleSpec.from_dict(card)
     except (TypeError, ValueError, KeyError) as exc:
@@ -341,6 +347,23 @@ def validate_registry(registry: Any, cards: dict[str, dict[str, Any]]) -> list[s
     return errors
 
 
+def validate_relation_artifact(card: Any, state: Any, expected_status: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        spec = RelationSpec.from_dict(card)
+        relation_state = RelationState.from_dict(state)
+    except (TypeError, ValueError, KeyError) as exc:
+        return [f"relation spec/state invalid: {exc}"]
+    if spec.relation_id != relation_state.relation_id or spec.version != relation_state.version:
+        errors.append(f"relation spec/state version mismatch: {spec.relation_id}")
+    if relation_state.status != expected_status:
+        errors.append(f"relation state expected {expected_status}")
+    promotion_lcb = relation_state.confidence_sequence.get("promotion_probability_lcb")
+    if expected_status == "canonical" and not isinstance(promotion_lcb, (int, float)):
+        errors.append("canonical relation requires promotion_probability_lcb")
+    return errors
+
+
 def audit(root: Path, schema_root: Path | None = None) -> list[str]:
     schema_root = schema_root or root
     schema = load_schema(schema_root / "assets" / "rule_candidate.schema.json")
@@ -383,15 +406,31 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                 errors.append(f"{path}: {exc}")
                 continue
             errors.extend(f"{path}: {error}" for error in validate_rule(card, schema))
-            if isinstance(card, dict) and card.get("status") != expected_status:
+            card_status = card.get("status") if isinstance(card, dict) else None
+            if card_status is None and isinstance(card, dict):
+                state_path = path.with_name(f"{path.stem}.state.json")
+                try:
+                    state_value = json.loads(state_path.read_text(encoding="utf-8"))
+                    card_status = state_value.get("status")
+                except (OSError, json.JSONDecodeError):
+                    card_status = None
+            if card_status != expected_status:
                 errors.append(f"{path}: expected status {expected_status}")
+            if isinstance(card, dict) and "status" not in card and card_status is not None:
+                card = dict(card)
+                card["status"] = card_status
             if isinstance(card, dict) and isinstance(card.get("rule_id"), str):
                 if card["rule_id"] in cards:
                     errors.append(f"duplicate rule_id across card directories: {card['rule_id']}")
                 cards[card["rule_id"]] = card
-                errors.extend(f"{path}: {error}" for error in validate_card_links(card, experiences, regression_cases))
-                errors.extend(f"{path}: {error}" for error in validate_provenance_diversity(card, experiences))
-                errors.extend(f"{path}: {error}" for error in validate_replay_manifest(card, root))
+                if "trigger" in card:
+                    errors.extend(f"{path}: {error}" for error in validate_card_links(card, experiences, regression_cases))
+                    errors.extend(f"{path}: {error}" for error in validate_provenance_diversity(card, experiences))
+                    errors.extend(f"{path}: {error}" for error in validate_replay_manifest(card, root))
+                else:
+                    promotion_path = root / "evolution" / "promotions" / f"{identifier_digest(card['rule_id'])}.json"
+                    if card_status == "canonical" and not promotion_path.is_file():
+                        errors.append(f"{path}: canonical RuleSpec missing promotion record")
     errors.extend(validate_rule_graph(cards))
     registry_path = root / "registry" / "rules.json"
     if registry_path.exists():
@@ -403,6 +442,42 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                     errors.append(f"registry path does not exist: {entry['path']}")
         except (OSError, json.JSONDecodeError) as exc:
             errors.append(f"{registry_path}: {exc}")
+    relation_registry_path = root / "registry" / "relations.json"
+    relation_dir = root / "relations"
+    relation_cards: dict[str, dict[str, Any]] = {}
+    for path in sorted(relation_dir.glob("*.json")) if relation_dir.is_dir() else []:
+        if path.name.endswith(".state.json"):
+            continue
+        try:
+            card = json.loads(path.read_text(encoding="utf-8"))
+            state_path = path.with_name(f"{path.stem}.state.json")
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"{path}: {exc}")
+            continue
+        errors.extend(f"{path}: {error}" for error in validate_relation_artifact(card, state, "canonical"))
+        try:
+            relation_id = str(card.get("relation_id"))
+            if not (root / "evolution" / "promotions" / f"{identifier_digest(relation_id)}.json").is_file():
+                errors.append(f"{path}: canonical RelationSpec missing promotion record")
+        except (TypeError, ValueError):
+            pass
+        if isinstance(card, dict) and isinstance(card.get("relation_id"), str):
+            relation_cards[card["relation_id"]] = card
+    if relation_registry_path.exists():
+        try:
+            relation_registry = json.loads(relation_registry_path.read_text(encoding="utf-8"))
+            entries = relation_registry.get("relations", []) if isinstance(relation_registry, dict) else []
+            if not isinstance(entries, list):
+                errors.append("relation registry needs a relations list")
+            else:
+                for entry in entries:
+                    if not isinstance(entry, dict) or entry.get("relation_id") not in relation_cards:
+                        errors.append(f"registry relation has no card: {entry}")
+                    elif entry.get("status") != "canonical":
+                        errors.append(f"registry relation must be canonical: {entry.get('relation_id')}")
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"{relation_registry_path}: {exc}")
     return errors
 
 

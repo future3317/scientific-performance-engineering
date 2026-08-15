@@ -73,12 +73,12 @@ class ConservativeCausalRouter:
     @staticmethod
     def _context(value: TaskContext | Mapping[str, Any]) -> Mapping[str, Any]:
         if isinstance(value, TaskContext):
-            return value.workload
+            return value.to_dict()
         return value
 
     @staticmethod
     def _utility(state: RuleState) -> float:
-        value = state.confidence_sequence.get("lcb")
+        value = state.confidence_sequence.get("utility_effect_lcb")
         if value is None:
             value = state.effect.get("lower_utility", state.effect.get("utility", state.retrieval_utility))
         if not math.isfinite(float(value)):
@@ -132,7 +132,7 @@ class ConservativeCausalRouter:
     def _lower_bound(spec: RelationSpec, state: RelationState | None) -> float:
         if spec.kind == "independence" or state is None:
             return 0.0
-        return float(state.confidence_sequence.get("lcb", state.estimate))
+        return float(state.confidence_sequence.get("utility_effect_lcb", state.estimate))
 
     def _invalid_reasons(
         self,
@@ -140,11 +140,18 @@ class ConservativeCausalRouter:
         relation_map: Mapping[frozenset[str], tuple[RelationSpec, ...]],
         relation_states: Mapping[str, RelationState],
         context: Mapping[str, Any],
+        higher_order_certificates: Mapping[str, Any] | None = None,
+        require_higher_order_certificate: bool = False,
     ) -> tuple[str, ...]:
         ids = {spec.rule_id for spec in bundle}
         reasons: set[str] = set()
         if sum(self._tokens(spec) for spec in bundle) > self.token_budget:
             reasons.add("token_budget")
+        if len(bundle) >= 3 and require_higher_order_certificate:
+            key = ":".join(sorted(spec.rule_id for spec in bundle))
+            certificate = (higher_order_certificates or {}).get(key)
+            if not isinstance(certificate, Mapping) or certificate.get("status") != "pairwise_certified":
+                reasons.add("higher_order_certificate_required")
         # A directed prerequisite is a closure constraint, not merely a
         # pairwise bonus.  Reject a dependent rule when its prerequisite is
         # absent from the candidate bundle, even if the pair is not selected.
@@ -196,6 +203,8 @@ class ConservativeCausalRouter:
         relation_states: Mapping[str, RelationState],
         context: TaskContext | Mapping[str, Any],
         higher_order_evidence: Mapping[str, float] | None = None,
+        higher_order_certificates: Mapping[str, Any] | None = None,
+        require_higher_order_certificate: bool = False,
     ) -> RoutingDecision:
         by_id = {spec.rule_id: spec for spec in rule_specs}
         if len(by_id) != len(rule_specs):
@@ -204,13 +213,25 @@ class ConservativeCausalRouter:
             raise ValueError("rule states must cover every rule spec")
         relation_map = self._relation_map(relation_specs)
         context_map = self._context(context)
-        applicable = [spec for spec in rule_specs if match_predicate(spec.applicability, context_map)]
+        applicable = [
+            spec for spec in rule_specs
+            if (state := rule_states[spec.rule_id]).status == "canonical"
+            and state.drift_state == "stable"
+            and match_predicate(spec.applicability, context_map)
+        ]
         rejected: dict[str, set[str]] = {spec.rule_id: set() for spec in rule_specs}
+        for spec in rule_specs:
+            state = rule_states[spec.rule_id]
+            if state.status != "canonical" or state.drift_state != "stable":
+                rejected[spec.rule_id].add("rule_state_ineligible")
         valid: list[tuple[tuple[RuleSpec, ...], float]] = []
         for width in range(0, len(applicable) + 1):
             for selected in itertools.combinations(applicable, width):
                 bundle = tuple(sorted(selected, key=lambda spec: spec.rule_id))
-                reasons = self._invalid_reasons(bundle, relation_map, relation_states, context_map)
+                reasons = self._invalid_reasons(
+                    bundle, relation_map, relation_states, context_map,
+                    higher_order_certificates, require_higher_order_certificate,
+                )
                 if reasons:
                     for spec in bundle:
                         rejected[spec.rule_id].update(reasons)
@@ -226,6 +247,13 @@ class ConservativeCausalRouter:
         evidence = dict(higher_order_evidence or {})
         if len(bundle) < 3:
             certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, 0.0, 0.0, "not_applicable")
+        elif (stored := (higher_order_certificates or {}).get(":".join(sorted(spec.rule_id for spec in bundle)))) is not None:
+            certificate = BundleCertificate(
+                tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)},
+                float(stored.get("residual_lcb", stored.get("lcb", -1.0))),
+                float(stored.get("residual_ucb", stored.get("ucb", 1.0))),
+                str(stored.get("status", "higher_order_suspected")),
+            )
         elif "lcb" in evidence and "ucb" in evidence:
             lcb, ucb = float(evidence["lcb"]), float(evidence["ucb"])
             eta = float(evidence.get("practical_margin", 0.05))

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import RelationSpec, RelationState, RuleSpec, RuleState
+from .models import RelationSpec, RelationState, RuleSpec, RuleState, identifier_digest, validate_identifier
 
 
 @dataclass(frozen=True)
@@ -45,11 +45,17 @@ def evaluate_candidate(candidate: dict[str, Any], replay_manifest: dict[str, Any
     if not subject_id:
         return EvolutionDecision(subject_type, "", "PROMOTE", "rejected", "none", "candidate has no subject id")
     try:
+        validate_identifier(subject_id, "subject_id")
+    except ValueError as exc:
+        return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", str(exc))
+    try:
         if subject_type == "relation":
+            if replay_manifest.get("evidence_type") != "factorial_contrast":
+                return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", "relations require factorial contrast evidence")
             relation_fields = RelationSpec.__dataclass_fields__
             RelationSpec.from_dict({key: candidate[key] for key in relation_fields if key in candidate})
         else:
-            RuleSpec.from_dict(candidate)
+            RuleSpec.from_dict({key: value for key, value in candidate.items() if key in RuleSpec.__dataclass_fields__ or key in {"trigger", "requires_evidence", "do_not_apply_when", "conflicts_with", "supersedes", "rule"}})
     except (TypeError, ValueError, KeyError) as exc:
         return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", f"typed {subject_type} invalid: {exc}")
     if replay_manifest.get("outcome") != "passed":
@@ -75,28 +81,16 @@ def apply_promotion(
     if not decision.allowed:
         return decision
     store = Path(store)
-    card = dict(candidate)
-    card.pop("cases", None)
-    card.pop("epsilon", None)
-    card.pop("p_min", None)
-    card.pop("delta", None)
     if decision.subject_type == "relation":
-        card["relation_id"] = decision.subject_id
+        spec = RelationSpec.from_dict({key: value for key, value in candidate.items() if key in RelationSpec.__dataclass_fields__})
+        card = spec.to_dict()
     else:
-        card["rule_id"] = decision.subject_id
-    card["status"] = "canonical"
+        spec = RuleSpec.from_dict({key: value for key, value in candidate.items() if key in RuleSpec.__dataclass_fields__ or key in {"trigger", "requires_evidence", "do_not_apply_when", "conflicts_with", "supersedes", "rule"}})
+        card = spec.to_dict()
     replay_result = replay_manifest.get("result", {})
-    confidence = dict(card.get("confidence") or {})
-    for key in (
-        "method", "prior_alpha", "prior_beta", "successes", "failures", "p_min",
-        "delta", "posterior_probability", "effective_samples", "promotion_probability_lower_bound",
-    ):
-        source_key = "confidence_method" if key == "method" else key
-        if source_key in replay_result:
-            confidence[key] = replay_result[source_key]
-    card["confidence"] = confidence
-    promotion = dict(card.get("promotion") or {})
-    promotion.update({
+    promotion = {
+        "subject_type": decision.subject_type,
+        "subject_id": decision.subject_id,
         "mode": decision.mode,
         "replay_status": "passed",
         "human_review": False,
@@ -105,52 +99,58 @@ def apply_promotion(
         "reviewer": "bounded-auto",
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
         "review_diff_hash": hashlib.sha256(json.dumps(card, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest(),
-    })
-    card["promotion"] = promotion
+    }
+    promotion_path = store / "evolution" / "promotions" / f"{identifier_digest(decision.subject_id)}.json"
     if decision.subject_type == "relation":
-        target = store / "relations" / f"{decision.subject_id}.json"
+        target = store / "relations" / f"{identifier_digest(decision.subject_id)}.json"
         state = RelationState(
             relation_id=decision.subject_id,
             version=int(card.get("version", 1)),
             estimate=float(replay_result.get("mean_effect", 0.0)),
             confidence_sequence={
-                "lcb": max(-1.0, min(1.0, float(replay_result.get("lower_confidence_bound", replay_result.get("mean_effect", 0.0))))),
-                "ucb": max(-1.0, min(1.0, float(replay_result.get("upper_confidence_bound", replay_result.get("mean_effect", 0.0))))),
+                "utility_effect_lcb": max(-1.0, min(1.0, float(replay_result.get("utility_effect_lcb", replay_result.get("mean_effect", 0.0))))),
+                "utility_effect_ucb": max(-1.0, min(1.0, float(replay_result.get("utility_effect_ucb", replay_result.get("mean_effect", 0.0))))),
+                "promotion_probability_lcb": max(0.0, min(1.0, float(replay_result.get("promotion_probability_lower_bound", 0.0)))),
             },
             status="canonical",
         )
     else:
-        target = store / "rules" / f"{decision.subject_id}.json"
+        target = store / "rules" / f"{identifier_digest(decision.subject_id)}.json"
         mean_effect = float(replay_result.get("mean_effect", 0.0))
+        utility_lcb = float(replay_result.get("utility_effect_lcb", mean_effect))
         state = RuleState(
             rule_id=decision.subject_id,
             version=int(card.get("version", 1)),
             status="canonical",
-            effect={"utility": mean_effect, "lower_utility": mean_effect},
+            effect={"utility": mean_effect, "lower_utility": utility_lcb},
             confidence_sequence={
-                "lcb": max(-1.0, min(1.0, float(replay_result.get("lower_confidence_bound", mean_effect)))),
-                "ucb": max(-1.0, min(1.0, float(replay_result.get("upper_confidence_bound", mean_effect)))),
+                "utility_effect_lcb": max(-1.0, min(1.0, utility_lcb)),
+                "utility_effect_ucb": max(-1.0, min(1.0, float(replay_result.get("utility_effect_ucb", mean_effect)))),
+                "promotion_probability_lcb": max(0.0, min(1.0, float(replay_result.get("promotion_probability_lower_bound", 0.0)))),
             },
             retrieval_utility=mean_effect,
-            provenance_diversity=len(set(str(item) for item in card.get("source_cases", []))),
+            provenance_diversity=0,
         )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(card, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     state_path = target.with_name(f"{target.stem}.state.json")
     state_path.write_text(json.dumps(state.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     # Promotion is a state transition, not a second copy of the candidate.
-    candidate_path = store / "evolution" / "candidates" / f"{decision.subject_id}.json"
+    promotion_path.parent.mkdir(parents=True, exist_ok=True)
+    promotion_path.write_text(json.dumps(promotion, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    candidate_path = store / "evolution" / "candidates" / f"{identifier_digest(decision.subject_id)}.json"
     if candidate_path.is_file():
         candidate_path.unlink()
 
     registry_name = "relations.json" if decision.subject_type == "relation" else "rules.json"
     registry_path = store / "registry" / registry_name
-    registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.is_file() else {"schema_version": 1, "rules": []}
+    default_key = "relations" if decision.subject_type == "relation" else "rules"
+    registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.is_file() else {"schema_version": 1, default_key: []}
     key = "relations" if decision.subject_type == "relation" else "rules"
     id_key = "relation_id" if decision.subject_type == "relation" else "rule_id"
     directory = "relations" if decision.subject_type == "relation" else "rules"
     entries = [entry for entry in registry.get(key, []) if entry.get(id_key) != decision.subject_id]
-    entries.append({id_key: decision.subject_id, "path": f"{directory}/{decision.subject_id}.json", "status": "canonical"})
+    entries.append({id_key: decision.subject_id, "path": f"{directory}/{identifier_digest(decision.subject_id)}.json", "status": "canonical"})
     registry[key] = entries
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

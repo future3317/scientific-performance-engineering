@@ -17,7 +17,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from core.sequential_stats import mixture_lower_bound
+from core.sequential_stats import bounded_mean_interval, mixture_lower_bound
+from core.models import validate_identifier
 from core.utility import UTILITY_POLICY_ID, normalized_delta, validate_policy
 
 
@@ -82,6 +83,7 @@ def evaluate_cases(
     # time-uniform Bernoulli boundary below.
     lower_confidence_bound = mean_effect - 1.96 * standard_error
     upper_confidence_bound = mean_effect + 1.96 * standard_error
+    utility_effect_lcb, utility_effect_ucb = bounded_mean_interval(effects, delta)
     promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), delta)
     outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
     return {
@@ -91,6 +93,8 @@ def evaluate_cases(
         "utility_scale": utility_scale,
         "lower_confidence_bound": lower_confidence_bound,
         "upper_confidence_bound": upper_confidence_bound,
+        "utility_effect_lcb": utility_effect_lcb,
+        "utility_effect_ucb": utility_effect_ucb,
         "epsilon": epsilon,
         "successes": successes,
         "failures": failures,
@@ -140,6 +144,7 @@ def git_revision(root: Path) -> str:
 
 
 def build_manifest(payload: dict[str, Any], input_path: Path, output_path: Path, harness_revision: str) -> dict[str, Any]:
+    validate_identifier(payload.get("rule_id"), "rule_id")
     result = evaluate_cases(
         payload["cases"],
         float(payload.get("epsilon", 0.0)),

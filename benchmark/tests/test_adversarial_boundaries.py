@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmark.harness import conditions, evolution
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
+from core.models import identifier_digest
 from scripts.render_skill_view import render_skill_view
 
 
@@ -67,7 +68,7 @@ def main() -> None:
             "C",
             {"index": 1, "inject_experiences": [{"id": "nested", "metadata": {"poisoned": True}}]},
         )
-        stored = json.loads((poison_store / "experience" / "inbox" / "nested.json").read_text(encoding="utf-8"))
+        stored = json.loads((poison_store / "experience" / "inbox" / f"{identifier_digest('nested')}.json").read_text(encoding="utf-8"))
         assert "poisoned" not in json.dumps(stored), stored
 
         ledger = EvolutionDecisionLedger()

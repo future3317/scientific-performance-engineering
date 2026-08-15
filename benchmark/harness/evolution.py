@@ -38,6 +38,7 @@ from core import governance
 from benchmark.families import poisoning_transformation, transformation
 from benchmark.formal.aggregate import RegretStep, evolution_regret
 from core.models import TaskContext
+from core.models import identifier_digest, validate_identifier
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 
@@ -91,9 +92,10 @@ def _import_core_replay_build_manifest(core_repo: Path):
 def _write_record(store: Path, rel_dir: str, record: dict[str, Any], fallback_id: str) -> str:
     record = dict(record)
     record_id = str(record.setdefault("id", fallback_id))
+    validate_identifier(record_id, "record_id")
     target = store / rel_dir
     target.mkdir(parents=True, exist_ok=True)
-    (target / f"{record_id}.json").write_text(
+    (target / f"{identifier_digest(record_id)}.json").write_text(
         json.dumps(record, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8"
     )
     return record_id
@@ -149,7 +151,7 @@ def _environment_result(
     produced here after routing, so C and D cannot share pre-written outcomes.
     """
     mechanism = "compile" if "COMPILE" in str(raw.get("task_id", "")) else "runtime"
-    context = TaskContext(domain="runtime", workload={"workload": {"mechanism": mechanism}}, hardware={}, software={}, evidence={}, token_budget=4096)
+    context = TaskContext(domain="runtime", workload={"mechanism": mechanism}, hardware={}, software={}, evidence={}, token_budget=4096)
     environment = FamilyEnvironment(str(phase.get("family_id", "compile")))
     deployed_ids = FormalConditionAdapter(condition, store, token_budget=context.token_budget).propose_interventions(context)
     state = environment_state or EpisodeEnvironmentState()
@@ -207,11 +209,15 @@ def promote_via_replay(
     build_manifest = _import_core_replay_build_manifest(core_repo)
     promoted: list[str] = []
     for index, candidate in enumerate(candidate_results):
+        if candidate.get("relation_id"):
+            # Relation promotion requires a factorial contrast certificate; a
+            # node replay cannot establish a pairwise causal relation.
+            continue
         cases = candidate.get("cases") or []
         if not cases:
             continue
         payload = {
-            "rule_id": candidate.get("id", f"rule-{index}"),
+            "rule_id": candidate.get("rule_id") or candidate.get("id", f"rule-{index}"),
             "cases": cases,
             "epsilon": float(candidate.get("epsilon", 0.0)),
             "p_min": float(candidate.get("p_min", 0.8)),
@@ -219,8 +225,10 @@ def promote_via_replay(
         }
         replay_dir = store / "evolution" / "maintenance_reports"
         replay_dir.mkdir(parents=True, exist_ok=True)
-        case_path = replay_dir / f"{payload['rule_id']}.cases.json"
-        manifest_path = replay_dir / f"{payload['rule_id']}.replay.json"
+        validate_identifier(str(payload["rule_id"]), "rule_id")
+        digest = identifier_digest(str(payload["rule_id"]))
+        case_path = replay_dir / f"{digest}.cases.json"
+        manifest_path = replay_dir / f"{digest}.replay.json"
         case_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         manifest = build_manifest(payload, case_path, manifest_path, "benchmark-harness")
         # Store-relative paths are required by the independent evolution
@@ -472,6 +480,7 @@ def run_episode(
     canonical_rules = [
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted(rules_dir.glob("*.json"))
+        if not path.name.endswith(".state.json")
     ] if rules_dir.is_dir() else []
     canonical_ids = [str(rule.get("rule_id")) for rule in canonical_rules]
     n = len(canonical_rules)

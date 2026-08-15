@@ -47,7 +47,7 @@ def relation_candidate() -> dict:
 
 
 def main() -> None:
-    passed = {"outcome": "passed", "result_digest": "d" * 64}
+    passed = {"outcome": "passed", "result_digest": "d" * 64, "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3, "promotion_probability_lower_bound": 0.9}}
     assert evaluate_candidate(candidate("P1"), passed).status == "review_required"
     assert evaluate_candidate(candidate("P2"), passed).allowed
     assert not evaluate_candidate(candidate("P2"), {"outcome": "failed"}).allowed
@@ -70,13 +70,19 @@ def main() -> None:
         (root / "registry" / "rules.json").write_text(json.dumps({"schema_version": 1, "rules": []}), encoding="utf-8")
         decision = apply_promotion(root, candidate("P2"), passed, replay_path="evolution/replay.json")
         assert decision.allowed
-        card = json.loads((root / "rules" / "PERF-TEST-001.json").read_text(encoding="utf-8"))
-        assert card["status"] == "canonical" and card["promotion"]["mode"] == "bounded-auto"
-        relation_decision = apply_promotion(root, relation_candidate(), passed, replay_path="evolution/relation.json")
+        import hashlib
+        rule_digest = hashlib.sha256(b"PERF-TEST-001").hexdigest()
+        card = json.loads((root / "rules" / f"{rule_digest}.json").read_text(encoding="utf-8"))
+        promotion = json.loads((root / "evolution" / "promotions" / f"{rule_digest}.json").read_text(encoding="utf-8"))
+        assert card["rule_id"] == "PERF-TEST-001" and promotion["mode"] == "bounded-auto"
+        relation_passed = dict(passed, evidence_type="factorial_contrast")
+        relation_decision = apply_promotion(root, relation_candidate(), relation_passed, replay_path="evolution/relation.json")
         assert relation_decision.allowed and relation_decision.subject_type == "relation"
-        relation_card = json.loads((root / "relations" / "REL-TEST-001.json").read_text(encoding="utf-8"))
+        import hashlib
+        relation_digest = hashlib.sha256(b"REL-TEST-001").hexdigest()
+        relation_card = json.loads((root / "relations" / f"{relation_digest}.json").read_text(encoding="utf-8"))
         relation_registry = json.loads((root / "registry" / "relations.json").read_text(encoding="utf-8"))
-        assert relation_card["relation_id"] == "REL-TEST-001" and relation_card["status"] == "canonical"
+        assert relation_card["relation_id"] == "REL-TEST-001"
         assert relation_registry["relations"][0]["relation_id"] == "REL-TEST-001"
 
     print("governance tests: ok")

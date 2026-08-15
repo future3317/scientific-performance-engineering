@@ -63,18 +63,21 @@ same FamilyEnvironment. Evolution rows must contain a canonical-rule transfer
 phase before drift/poison metrics are interpreted. Evolution Regret and the vector Performance Profile are aggregated
 only by `benchmark.formal.aggregate`.
 
-Agent-backed trials must write `agent_usage.json` at the path supplied by
-`SPE_AGENT_USAGE_PATH` with `input_tokens`, `output_tokens`, `tool_calls`, and
-`wall_time_s`. The driver treats a missing, malformed, or over-budget receipt as
-an invalid trial. After verification, each task records an explicit evidence,
+The external executor must write an `executor_receipt.json` at
+`SPE_EXECUTOR_RECEIPT_PATH` with `network_mode: none`, an explicit mount
+allowlist, executor digest, worker identity, skill-view digest (for B/C/D), and
+measured usage. The driver treats a missing, malformed, or over-budget receipt
+as an invalid trial; worker-authored usage is not authoritative. After verification, each task records an explicit evidence,
 maintenance, and store-attestation transition; C remains raw-experience-only,
 while D is the only condition allowed to promote governed rules.
 
 Formal worker treatment is namespace-based: an agent run must supply an external
-container or namespace executor with `--executor-command`. The executor mounts only
-the materialized `public_task.json`, writable solution workspace, public tests, and
-pre-task `retrieved_context.json`; the benchmark root, verifier, hidden task package,
-and condition store remain outside the worker namespace. `reset` is the default
+container or namespace executor with `--executor-command`. B/C/D receive the same
+read-only rendered skill view; A receives no skill. The executor mounts only the
+materialized public task, solution workspace, public tests, optional skill view,
+and pre-task `retrieved_context.json`; the benchmark root, verifier, hidden task
+package, and condition store remain outside the worker namespace. Retrieval and
+routing use only the task's explicit public context. `reset` is the default
 context mode and starts each task without prior trajectory context. The formal
 interaction report uses `wrong_relation_rate_among_resolved`, `unresolved_rate`,
 and `total_identification_failure_rate`; unresolved decisions are not counted as

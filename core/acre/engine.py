@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core.governance import EvolutionDecision
-from core.models import EvidenceEvent, RelationSpec, RelationState, RuleSpec, RuleState, TaskContext
+from core.models import EvidenceEvent, RelationSpec, RelationState, RuleSpec, RuleState, TaskContext, identifier_digest
 
 from .router import ConservativeCausalRouter, RoutingDecision
 from .controller import AcreController
@@ -52,6 +52,7 @@ class AcreEngine:
         def load_state(directory: Path, identifier: str) -> dict[str, Any]:
             candidates = (
                 directory / f"{identifier}.state.json",
+                directory / f"{identifier_digest(identifier)}.state.json",
                 root / "states" / directory.name / f"{identifier}.json",
                 root / "relation_states" / f"{identifier}.json",
                 root / f"{directory.name}_states" / f"{identifier}.json",
@@ -97,7 +98,10 @@ class AcreEngine:
         certificate_dir = root / "evolution" / "certificates"
         if certificate_dir.is_dir():
             for path in sorted(certificate_dir.glob("*.json")):
-                certificates[path.stem] = read(path)
+                certificate = read(path)
+                bundle_ids = certificate.get("bundle_ids") or certificate.get("rule_ids")
+                key = ":".join(sorted(str(item) for item in bundle_ids)) if isinstance(bundle_ids, list) else path.stem
+                certificates[key] = certificate
         return cls(
             rule_specs=rule_specs,
             rule_states=rule_states,
@@ -134,5 +138,6 @@ class AcreEngine:
     def route(self, context: TaskContext | Mapping[str, Any], token_budget: int | None = None, higher_order_evidence: Mapping[str, float] | None = None) -> RoutingDecision:
         budget = token_budget if token_budget is not None else (context.token_budget if isinstance(context, TaskContext) else 4096)
         return ConservativeCausalRouter(token_budget=budget).route(
-            self.rule_specs, self.rule_states, self.relation_specs, self.relation_states, context, higher_order_evidence
+            self.rule_specs, self.rule_states, self.relation_specs, self.relation_states, context,
+            higher_order_evidence, self.higher_order_certificates, True,
         )

@@ -67,6 +67,19 @@ def validate_experiment(manifest: dict[str, Any]) -> list[str]:
         errors.append("context_mode must be reset or carry")
     if not isinstance(manifest.get("task_order"), list) or not manifest.get("task_order"):
         errors.append("task_order must be a non-empty list")
+    isolation = manifest.get("worker_isolation")
+    if not isinstance(isolation, dict):
+        errors.append("worker_isolation must be an object")
+    else:
+        if isolation.get("mode") != "external_namespace_executor":
+            errors.append("worker_isolation.mode must be external_namespace_executor")
+        if isolation.get("network_mode") != "none":
+            errors.append("worker_isolation.network_mode must be none")
+        if not isinstance(isolation.get("mount_allowlist"), list) or not isolation.get("mount_allowlist"):
+            errors.append("worker_isolation.mount_allowlist must be non-empty")
+        receipt = isolation.get("executor_receipt")
+        if receipt is not None and (not isinstance(receipt, dict) or receipt.get("network_mode") != "none"):
+            errors.append("worker_isolation.executor_receipt must attest network_mode=none")
     return errors
 
 

@@ -5,6 +5,20 @@ from __future__ import annotations
 import math
 
 
+def bounded_mean_interval(values: list[float], delta: float) -> tuple[float, float]:
+    """Hoeffding interval for a bounded utility in [-1, 1].
+
+    Promotion probability is governed by the time-uniform mixture boundary;
+    this interval is the separate conservative effect estimate consumed by
+    routing.
+    """
+    if not values or not 0.0 < delta < 1.0 or any(not -1.0 <= float(value) <= 1.0 for value in values):
+        raise ValueError("bounded mean inputs must be non-empty, delta in (0,1), and values in [-1,1]")
+    mean = sum(float(value) for value in values) / len(values)
+    radius = math.sqrt(2.0 * math.log(2.0 / delta) / len(values))
+    return max(-1.0, mean - radius), min(1.0, mean + radius)
+
+
 def mixture_e_value(
     successes: int,
     trials: int,
