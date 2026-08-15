@@ -10,8 +10,7 @@ resulting store state.
 
 Replay grounding (promotion of candidate rules to canonical under condition D)
 uses the core skill's ``scripts/run_rule_replay.py`` :func:`build_manifest`
-imported by path. The core CLI has a NameError bug (INTEGRATION_REQUIREMENTS.md
-R2) so the CLI is never invoked; core files are never modified.
+imported by path and the single ``core.governance`` promotion API.
 
 Episode YAML format (miniyaml subset)::
 
@@ -33,13 +32,17 @@ from pathlib import Path
 from typing import Any
 
 from . import conditions, miniyaml
+from .evolution_ledger import EvolutionDecisionLedger
+from core import governance
 
 METRIC_NAMES = (
     "transfer_gain",
+    "rule_reuse_utility",
     "negative_transfer_rate",
     "rule_precision",
     "library_growth",
     "utility_per_rule",
+    "utility_per_token",
     "conflict_rate",
     "drift_recovery_latency",
     "poisoning_survival_rate",
@@ -97,11 +100,21 @@ def _apply_phase_injections(store: Path, condition: str, phase: dict[str, Any]) 
                      rules are promoted to canonical rules/ + registry.
     """
     written = {"experiences": [], "poisons": []}
-    rel = "experience/inbox" if condition == "C" else "evolution/candidates"
     for kind, key in (("experiences", "inject_experiences"), ("poisons", "inject_poisons")):
         for position, record in enumerate(phase.get(key) or []):
-            record = dict(record, poisoned=(kind == "poisons"))
-            record_id = _write_record(store, rel, record, f"{kind[:-1]}-{phase.get('index', 0)}-{position}")
+            # Poison truth is harness-only metadata.  It must never enter the
+            # candidate store or any replay payload visible to an agent.
+            visible_record = {
+                field: value for field, value in dict(record).items() if field != "poisoned"
+            }
+            rel = (
+                "evolution/candidates"
+                if condition == "D" and (visible_record.get("status") == "candidate" or visible_record.get("cases"))
+                else "experience/inbox"
+            )
+            record_id = _write_record(
+                store, rel, visible_record, f"{kind[:-1]}-{phase.get('index', 0)}-{position}"
+            )
             written[kind].append(record_id)
     return written
 
@@ -111,13 +124,12 @@ def _promote_via_replay(
     candidate_results: list[dict[str, Any]],
     core_repo: Path,
     out_dir: Path,
+    ledger: EvolutionDecisionLedger,
 ) -> list[str]:
     """Replay-grounded promotion (D): build case bundles from measured paired
     runs, attest via the core build_manifest, promote passing rules to canonical."""
     build_manifest = _import_core_replay_build_manifest(core_repo)
     promoted: list[str] = []
-    registry_path = store / "registry" / "rules.json"
-    registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.is_file() else {"schema_version": 1, "rules": []}
     for index, candidate in enumerate(candidate_results):
         cases = candidate.get("cases") or []
         if not cases:
@@ -129,16 +141,45 @@ def _promote_via_replay(
             "p_min": float(candidate.get("p_min", 0.8)),
             "delta": float(candidate.get("delta", 0.05)),
         }
-        manifest_path = out_dir / "replay_manifests" / f"{payload['rule_id']}.json"
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest = build_manifest(payload, manifest_path, manifest_path, "benchmark-harness")
+        replay_dir = store / "evolution" / "maintenance_reports"
+        replay_dir.mkdir(parents=True, exist_ok=True)
+        case_path = replay_dir / f"{payload['rule_id']}.cases.json"
+        manifest_path = replay_dir / f"{payload['rule_id']}.replay.json"
+        case_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        manifest = build_manifest(payload, case_path, manifest_path, "benchmark-harness")
+        # Store-relative paths are required by the independent evolution
+        # validator; absolute host paths are not portable evidence.
+        manifest["case_bundle_path"] = str(case_path.relative_to(store))
+        manifest["command"] = "python scripts/run_rule_replay.py " + str(case_path.relative_to(store)) + " " + str(manifest_path.relative_to(store))
+        import hashlib
+
+        body = {key: value for key, value in manifest.items() if key != "attestation"}
+        manifest["attestation"] = {
+            "algorithm": "sha256",
+            "manifest_digest": hashlib.sha256(
+                json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            ).hexdigest(),
+        }
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        if manifest["outcome"] == "passed" and not candidate.get("poisoned", False):
+        rule_id = payload["rule_id"]
+        version = int(candidate.get("version", 1))
+        replay_digest = str(manifest["result_digest"])
+        try:
+            ledger.record(rule_id, version, replay_digest, "candidate")
+            ledger.record(rule_id, version, replay_digest, "evaluated", float(manifest["result"].get("mean_effect", 0.0)))
+        except ValueError:
+            continue
+        decision = governance.apply_promotion(
+            store,
+            candidate,
+            manifest,
+            replay_path=str(manifest_path.relative_to(store)),
+        )
+        if decision.allowed:
+            ledger.record(rule_id, version, replay_digest, "promoted")
             promoted.append(payload["rule_id"])
-            _write_record(store, "rules", {"rule_id": payload["rule_id"], "status": "canonical"}, payload["rule_id"])
-            registry["rules"].append({"rule_id": payload["rule_id"], "status": "canonical"})
-    registry_path.parent.mkdir(parents=True, exist_ok=True)
-    registry_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        else:
+            ledger.record(rule_id, version, replay_digest, "rejected")
     return promoted
 
 
@@ -157,16 +198,23 @@ def transfer_gain(paired_results: list[dict[str, Any]]) -> float | None:
     return sum(deltas) / len(deltas) if deltas else None
 
 
-def negative_transfer_rate(applications: list[dict[str, Any]], noise_floor: float = 0.0) -> float | None:
+def negative_transfer_rate(applications: list[dict[str, Any]], noise_floor: float | None = None) -> float | None:
     """Fraction of rule applications regressing the paired control beyond the floor."""
     if not applications:
+        return None
+    if noise_floor is None and not any(app.get("noise_floor") is not None for app in applications):
         return None
     regressions = sum(
         1
         for app in applications
-        if float(app.get("delta", 0.0)) < -abs(noise_floor)
+        if float(app.get("delta", 0.0)) < -abs(float(app.get("noise_floor", noise_floor or 0.0)))
     )
     return regressions / len(applications)
+
+
+def rule_reuse_utility(applications: list[dict[str, Any]]) -> float | None:
+    reused = [float(app["delta"]) for app in applications if app.get("reused") and "delta" in app]
+    return sum(reused) / len(reused) if reused else None
 
 
 def rule_precision(admitted: int, survived: int) -> float | None:
@@ -189,6 +237,12 @@ def utility_per_rule(total_gain: float | None, rule_count: int) -> float | None:
     if total_gain is None or rule_count <= 0:
         return None
     return total_gain / rule_count
+
+
+def utility_per_token(total_gain: float | None, prompt_tokens: int) -> float | None:
+    if total_gain is None or prompt_tokens <= 0:
+        return None
+    return total_gain / prompt_tokens
 
 
 def conflict_rate(conflicting_pairs: int, canonical_pairs: int) -> float | None:
@@ -262,21 +316,23 @@ def run_episode(
     paired_results: list[dict[str, Any]] = []
     applications: list[dict[str, Any]] = []
     utility_series: list[float] = []
-    admitted = 0
     promoted_total: list[str] = []
+    ledger = EvolutionDecisionLedger()
     drift_start: int | None = None
 
     for phase in episode["phases"]:
         written = _apply_phase_injections(store, condition, phase)
         poison_ids.extend(written["poisons"])
         for record in phase.get("results") or []:
-            paired_results.append(record)
-            if "delta" in record:
-                applications.append(record)
+            visible = {field: value for field, value in record.items() if field != "poisoned"}
+            paired_results.append(visible)
+            if "delta" in visible:
+                applications.append(visible)
         phase_utilities = [
             float(r["utility_on"]) for r in (phase.get("results") or []) if "utility_on" in r
         ]
-        utility_series.append(sum(phase_utilities) / len(phase_utilities) if phase_utilities else 0.0)
+        if phase_utilities:
+            utility_series.append(sum(phase_utilities) / len(phase_utilities))
         if phase.get("name") == "drift":
             drift_start = len(utility_series) - 1
 
@@ -285,10 +341,9 @@ def run_episode(
             candidates_dir = store / "evolution" / "candidates"
             for path in sorted(candidates_dir.glob("*.json")):
                 record = json.loads(path.read_text(encoding="utf-8"))
-                if record.get("cases"):
+                if record.get("cases") and record.get("status") == "candidate":
                     candidates.append(record)
-                    admitted += 1
-            promoted_total.extend(_promote_via_replay(store, candidates, core_repo, out_dir))
+            promoted_total.extend(_promote_via_replay(store, candidates, core_repo, out_dir, ledger))
 
     rules_dir = store / "rules"
     canonical_rules = [
@@ -302,15 +357,23 @@ def run_episode(
 
     gain = transfer_gain(paired_results)
     growth = library_growth(canonical_rules)
+    token_count = sum(int(r.get("prompt_tokens", 0)) for r in paired_results)
+    # The input episode is harness-owned truth; only this local calculation may
+    # inspect its poison marker.  The marker is omitted from all persisted data.
     poison_regressions = sum(
-        1 for app in applications if app.get("poisoned") and float(app.get("delta", 0.0)) < 0.0
+        1
+        for phase in episode["phases"]
+        for app in phase.get("results") or []
+        if app.get("poisoned") and float(app.get("delta", 0.0)) < 0.0
     )
     metrics = {
         "transfer_gain": gain,
+        "rule_reuse_utility": rule_reuse_utility(applications),
         "negative_transfer_rate": negative_transfer_rate(applications),
-        "rule_precision": rule_precision(admitted, len(promoted_total)) if condition == "D" else None,
+        "rule_precision": ledger.precision() if condition == "D" else None,
         "library_growth": growth,
         "utility_per_rule": utility_per_rule(gain, n),
+        "utility_per_token": utility_per_token(gain, token_count),
         "conflict_rate": conflict_rate(conflicting_pairs, n * (n - 1) // 2),
         "drift_recovery_latency": (
             drift_recovery_latency(utility_series, drift_start) if drift_start is not None else None
@@ -323,6 +386,13 @@ def run_episode(
         ),
     }
 
+    if condition == "D":
+        from scripts.validate_evolution import audit
+
+        validation_errors = audit(store)
+        if validation_errors:
+            raise ValueError("D store failed independent evolution validation: " + "; ".join(validation_errors))
+
     result = {
         "schema_version": 1,
         "episode_id": episode["episode_id"],
@@ -334,6 +404,7 @@ def run_episode(
             "promoted_rules": promoted_total,
             "canonical_rule_ids": canonical_ids,
             "utility_series": utility_series,
+            "decision_ledger": ledger.decisions(),
         },
         "store_manifest": manifest,
     }

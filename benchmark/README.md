@@ -10,8 +10,11 @@ conditions A–D §9, sequential split §10, harness architecture §11).
 workarounds for core-skill gaps (no core file is ever modified).
 
 **Status:** 10 runnable prototype tasks implemented and individually verified;
+the formal target is frozen as SPE-EvoBench v1.0-50 (44 atomic tasks plus 6
+evolution episodes) and is not yet claimed complete. The current prototype
+must not be described as a finished 50-task benchmark.
 see [TASK_MATRIX.md](TASK_MATRIX.md) for the task list, verified speedups, and
-expansion plan to 60–100 tasks.
+the frozen 50-task matrix and formal public/sealed split plan.
 
 ## Layout
 
@@ -35,6 +38,7 @@ benchmark/
     scoring.py                 # per-task + track aggregates (§8.2–8.3)
     evolution.py               # episode runner + evolution metrics (§8.4)
     conditions.py              # A/B/C/D materialization + attestation
+    evolution_ledger.py        # monotonic replay/promotion decision ledger
     split.py                   # sequential split + leakage checker
     cli.py                     # the CLI below
   tasks/<task_id>/...          # task packages (§4)

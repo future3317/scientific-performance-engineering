@@ -3,7 +3,9 @@
 A paper-grade benchmark for **S**cientific **P**erformance **E**ngineering agents and for the
 **evolution** of the `scientific-performance-engineering` skill itself.
 
-Status: **10 runnable prototype tasks implemented and verified**; expansion matrix to 60–100 tasks is in `TASK_MATRIX.md`.
+Status: **10 runnable prototype tasks implemented and verified**; the formal
+target is frozen as SPE-EvoBench v1.0-50 (44 atomic tasks plus 6 evolution
+episodes), with the prototype not yet claiming completion.
 
 ## Contents
 
@@ -313,11 +315,18 @@ formal runs; the static scan is defense-in-depth, not a proof.
 
 - `pass_rate` = fraction of all tasks with all gates passed (denominator = ALL tasks,
   fast_p-style).
-- `verified_speedup_geomean` over passed, non-tripwired positive tasks.
+- `verified_optimization_rate` = verified positive optimizations / correctness-valid
+  positive tasks.
+- `geomean_speedup_all_valid` over every correctness-valid positive task with a
+  measured positive speedup, including unverified or sub-parity outcomes.
+- `semantic_failure_rate` = tasks failing correctness/scientific/anti-cheat gates /
+  all tasks.
+- `verified_speedup_geomean` remains a secondary diagnostic over verified positives;
+  it is never the sole headline because it is vulnerable to survivorship bias.
 - `mean_time_to_quality` ratio vs baseline (SciML generation tasks).
 - `diagnosis_accuracy`, `mean_cost`, `inconclusive_rate`.
-- Composite headline = `pass_rate × verified_speedup_geomean` reported *with* the raw
-  tuple; never alone.
+- Secondary composite = `pass_rate × verified_speedup_geomean`, reported with the raw
+  tuple and never used as the paper headline.
 
 ### 8.4 Evolution-track metrics
 
@@ -325,14 +334,14 @@ Measured per condition over the sequential stream (§10):
 
 - `transfer_gain`: Δ task score on held-out same-family/cross-family tasks vs the
   no-evolution control, computed on paired seeds.
-- `rule_reuse_utility`: Σ utility of reused rules (from replay-grounded measurements)
-  normalized by retrieval count.
+- `rule_reuse_utility`: mean bounded utility delta for applications explicitly
+  marked `reused`; missing reuse telemetry is reported as `null`, never zero.
 - `negative_transfer_rate`: fraction of rule applications that regress the paired
   control beyond the noise floor.
 - `rule_precision`: admitted rules that survive held-out regression ÷ admitted rules.
 - `library_growth`: canonical rule count + description-length over episodes
   (rate-distortion view, mirroring `score_rule_library.py`).
-- `utility_per_rule` and `utility_per_token`: transfer gain ÷ rules / ÷ prompt tokens.
+- `utility_per_rule` and `utility_per_token`: transfer gain / rules / prompt tokens.
 - `conflict_rate`: conflicting canonical pairs ÷ canonical pairs (should be 0 under
   governance; `validate_evidence.py` fails otherwise).
 - `drift_recovery_latency`: episodes between a version/runtime-drift break and the

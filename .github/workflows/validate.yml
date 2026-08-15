@@ -36,6 +36,7 @@ jobs:
           python scripts/experience_contract_tests.py
           python scripts/evolution_contract_tests.py
           python scripts/evolution_utility_tests.py
+          python scripts/governance_tests.py
           python scripts/rule_engine_tests.py
           python scripts/evolution_statistics_tests.py
           python scripts/validate_rule_os.py

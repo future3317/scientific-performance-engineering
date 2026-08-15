@@ -1,7 +1,7 @@
 # SPE-EvoBench Task Matrix
 
 This matrix documents the **10 runnable prototype tasks** and the planned
-expansion to 60–100 tasks. All prototypes run with zero external downloads;
+the frozen SPE-EvoBench v1.0-50 target. All prototypes run with zero external downloads;
 planned tasks keep the same data discipline (synthetic fixtures, bundled small
 data, or deterministic generators).
 
@@ -60,7 +60,7 @@ See `benchmark/split/sequential.yaml`.
 Leakage rule: no `(family, mechanism, source, mutation_template_id)` key
 appears in both phase 1 and any later phase. `check-leakage` enforces this.
 
-## Expansion plan to 60–100 tasks
+## Expansion plan to the frozen 50-task release
 
 The expansion keeps the same task-package structure and harness, varying only
 fixtures, model shapes, and mutation polarity.
@@ -116,4 +116,4 @@ fixtures, model shapes, and mutation polarity.
 4. Author the second evolution episode (compiler drift) once the task pool
    supports all 6 phases.
 5. Run a small population-validity pilot (20 tasks) to calibrate difficulty
-   before scaling to 60–100.
+   before scaling to the frozen 50-task release.

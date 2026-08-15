@@ -12,8 +12,9 @@ the result so a run can prove which skill bits were visible:
 - D (governed):        copy with the full pipeline dirs; injection policy =
                        only canonical rules in ``rules/`` + ``registry/rules.json``.
 
-The core skill has no runtime retrieval interface (INTEGRATION_REQUIREMENTS.md
-R1), so the harness assembles and attests the condition store itself.
+The core skill's ``scripts/render_skill_view.py`` is the allowlisted view
+boundary; the harness adds only condition-specific writable pipeline state and
+attests the resulting store.
 """
 
 from __future__ import annotations
@@ -26,6 +27,13 @@ from pathlib import Path
 from typing import Any
 
 from . import anticheat
+
+
+def _render_snapshot(snapshot_dir: Path, out_dir: Path) -> None:
+    """Render only the allowlisted skill view; never copy a repository root."""
+    from scripts.render_skill_view import render_skill_view
+
+    render_skill_view(snapshot_dir, out_dir)
 
 CONDITIONS = ("A", "B", "C", "D")
 
@@ -101,8 +109,7 @@ def materialize_condition(
     snapshot_dir = Path(snapshot_dir)
     if not snapshot_dir.is_dir():
         raise FileNotFoundError(f"snapshot directory not found: {snapshot_dir}")
-    anticheat.assert_no_vcs(snapshot_dir)
-    shutil.copytree(snapshot_dir, out_dir, dirs_exist_ok=True)
+    _render_snapshot(snapshot_dir, out_dir)
 
     if condition == "B":
         # Attest first (writes condition_manifest.json), then lock the tree read-only.

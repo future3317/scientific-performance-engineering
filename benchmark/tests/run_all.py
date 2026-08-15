@@ -13,11 +13,14 @@ from pathlib import Path
 TESTS = (
     "test_miniyaml.py",
     "test_stats.py",
+    "test_scoring.py",
     "test_anticheat.py",
     "test_split_conditions.py",
     "test_scientific_gates.py",
     "test_episode_split.py",
     "test_runner.py",
+    "test_poison_label_never_visible.py",
+    "test_skill_view.py",
 )
 
 

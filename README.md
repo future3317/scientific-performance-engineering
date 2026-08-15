@@ -24,7 +24,7 @@ multi-seed campaign topology.
 
 The evolution layer is deliberately bounded:
 
-`Experience → Candidate → Paired replay → Anytime-valid gate → Canonical/Retired`
+`Experience → Candidate → Paired replay → bounded utility + mixture-CS gate → Governance API → Canonical/Retired`
 
 Rules are represented by three typed objects:
 
@@ -57,7 +57,7 @@ autograd、扩散/流匹配采样、编译、多卡扩展、预计算/缓存成�
 
 经验演化严格遵循：
 
-`Experience → Candidate → 成对回放 → anytime-valid 统计门槛 → Canonical/Retired`
+`Experience → Candidate → 成对回放 → 有界 utility + mixture-CS 门槛 → Governance API → Canonical/Retired`
 
 规则语义、证据事件和可变状态分离；运行时只能记录证据和使用遥测，不能直接修改
 `SKILL.md`、canonical 规则或科学验收语义。

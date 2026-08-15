@@ -115,19 +115,26 @@ def aggregate_track(task_scores: list[dict[str, Any]]) -> dict[str, Any]:
             "num_tasks": 0,
             "pass_rate": 0.0,
             "verified_speedup_geomean": None,
+            "geomean_speedup_all_valid": None,
+            "verified_optimization_rate": 0.0,
+            "semantic_failure_rate": 0.0,
             "diagnosis_accuracy": None,
             "mean_cost_s": None,
             "inconclusive_rate": 0.0,
             "composite": None,
         }
     passed = [t for t in task_scores if t["gates_passed"]]
+    positive_valid = [
+        t for t in task_scores
+        if t["kind"] == "positive" and t["gates_passed"] and not t["tripwired"]
+        and isinstance(t.get("verified_speedup", {}).get("median_speedup"), (int, float))
+        and float(t["verified_speedup"]["median_speedup"]) > 0
+    ]
+    all_valid_speedups = [float(t["verified_speedup"]["median_speedup"]) for t in positive_valid]
     speedups = [
         t["verified_speedup"]["median_speedup"]
-        for t in passed
-        if t["kind"] == "positive"
-        and not t["tripwired"]
-        and t["verified_speedup"].get("verified")
-        and t["verified_speedup"].get("median_speedup")
+        for t in positive_valid
+        if t["verified_speedup"].get("verified")
     ]
     geomean = None
     if speedups:
@@ -144,10 +151,22 @@ def aggregate_track(task_scores: list[dict[str, Any]]) -> dict[str, Any]:
     inconclusive = sum(1 for t in task_scores if t["inconclusive"])
     pass_rate = len(passed) / total
     composite = pass_rate * geomean if geomean is not None else None
+    all_valid_geomean = (
+        math.exp(sum(math.log(value) for value in all_valid_speedups) / len(all_valid_speedups))
+        if all_valid_speedups else None
+    )
+    verified_rate = (
+        sum(1 for task in positive_valid if task["verified_speedup"].get("verified")) / len(positive_valid)
+        if positive_valid else None
+    )
+    semantic_failures = sum(1 for task in task_scores if not task["gates_passed"])
     return {
         "num_tasks": total,
         "pass_rate": round(pass_rate, 6),
         "verified_speedup_geomean": round(geomean, 6) if geomean is not None else None,
+        "geomean_speedup_all_valid": round(all_valid_geomean, 6) if all_valid_geomean is not None else None,
+        "verified_optimization_rate": round(verified_rate, 6) if verified_rate is not None else None,
+        "semantic_failure_rate": round(semantic_failures / total, 6),
         "diagnosis_accuracy": round(diagnosis_accuracy, 6) if diagnosis_accuracy is not None else None,
         "mean_cost_s": round(sum(costs) / len(costs), 3) if costs else None,
         "inconclusive_rate": round(inconclusive / total, 6),
@@ -156,6 +175,8 @@ def aggregate_track(task_scores: list[dict[str, Any]]) -> dict[str, Any]:
             "num_passed": len(passed),
             "num_inconclusive": inconclusive,
             "speedups_in_geomean": len(speedups),
+            "speedups_in_all_valid_geomean": len(all_valid_speedups),
+            "num_correctness_valid_positive": len(positive_valid),
         },
     }
 

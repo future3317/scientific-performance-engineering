@@ -8,10 +8,17 @@ import hashlib
 import json
 import math
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from core.sequential_stats import mixture_lower_bound
+from core.utility import UTILITY_POLICY_ID, normalized_delta, validate_policy
 
 
 def canonical_json(value: Any) -> bytes:
@@ -43,10 +50,26 @@ def anytime_lower_bound(successes: int, trials: int, delta: float) -> float:
     return max(0.0, successes / trials - radius)
 
 
-def evaluate_cases(cases: list[dict[str, Any]], epsilon: float, p_min: float, delta: float) -> dict[str, Any]:
+def betting_lower_bound(successes: int, trials: int, delta: float) -> float:
+    """Public replay gate using the beta-binomial mixture boundary."""
+    return mixture_lower_bound(successes, trials, delta)
+
+
+def evaluate_cases(
+    cases: list[dict[str, Any]],
+    epsilon: float,
+    p_min: float,
+    delta: float,
+    utility_policy_id: str = UTILITY_POLICY_ID,
+    utility_scale: float = 1.0,
+) -> dict[str, Any]:
     if not cases:
         raise ValueError("replay requires at least one paired case")
-    effects = [float(case["utility_on"]) - float(case["utility_off"]) for case in cases]
+    validate_policy(utility_policy_id)
+    effects = [
+        normalized_delta(float(case["utility_on"]), float(case["utility_off"]), scale=utility_scale)
+        for case in cases
+    ]
     scientific_ok = all(bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)) for case in cases)
     successes = sum(effect > epsilon for effect in effects)
     failures = len(effects) - successes
@@ -59,18 +82,17 @@ def evaluate_cases(cases: list[dict[str, Any]], epsilon: float, p_min: float, de
         standard_error = math.sqrt(variance / len(effects))
     else:
         standard_error = 0.0
-    # This bound is deliberately conservative and remains valid when the
-    # maintainer checks the stream after any number of replay cases.
+    # The mixture boundary is valid when the maintainer checks the stream after
+    # any number of replay cases and is tighter than the old union-bound gate.
     effect_radius = math.sqrt(math.log(2.0 * len(effects) * (len(effects) + 1) / delta) / (2.0 * len(effects)))
     lower_confidence_bound = mean_effect - effect_radius
-    promotion_probability_lower_bound = anytime_lower_bound(successes, len(effects), delta)
-    # Utility magnitude is workload-specific and may be unbounded; the
-    # anytime-valid gate is therefore applied to the bounded success event,
-    # while the paired mean must still clear the practical effect threshold.
+    promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), delta)
     outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
     return {
         "n": len(effects),
         "mean_effect": mean_effect,
+        "utility_policy_id": utility_policy_id,
+        "utility_scale": utility_scale,
         "lower_confidence_bound": lower_confidence_bound,
         "epsilon": epsilon,
         "successes": successes,
@@ -81,7 +103,7 @@ def evaluate_cases(cases: list[dict[str, Any]], epsilon: float, p_min: float, de
         "delta": delta,
         "posterior_probability": posterior_probability,
         "promotion_probability_lower_bound": promotion_probability_lower_bound,
-        "confidence_method": "anytime-hoeffding-union-bound",
+        "confidence_method": "beta-binomial-mixture-cs",
         "scientific_gates_passed": scientific_ok,
         "outcome": outcome,
     }
@@ -114,7 +136,14 @@ def git_revision(root: Path) -> str:
 
 
 def build_manifest(payload: dict[str, Any], input_path: Path, output_path: Path, harness_revision: str) -> dict[str, Any]:
-    result = evaluate_cases(payload["cases"], float(payload.get("epsilon", 0.0)), float(payload.get("p_min", 0.8)), float(payload.get("delta", 0.05)))
+    result = evaluate_cases(
+        payload["cases"],
+        float(payload.get("epsilon", 0.0)),
+        float(payload.get("p_min", 0.8)),
+        float(payload.get("delta", 0.05)),
+        str(payload.get("utility_policy_id", UTILITY_POLICY_ID)),
+        float(payload.get("utility_scale", 1.0)),
+    )
     manifest: dict[str, Any] = {
         "schema_version": 1,
         "rule_id": payload["rule_id"],

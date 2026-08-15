@@ -7,26 +7,21 @@ the benchmark works around every one of them locally and never edits core files.
 
 Priority: P0 blocks formal evaluation; P1 blocks clean scoring; P2 nice-to-have.
 
-## R1 (P0) — Runtime rule-injection interface
+## R1 (resolved) — Runtime rule-injection interface
 
-`references/EXPERIENCE_EVOLUTION.md` states canonical cards "do not automatically
-enter the runtime prompt"; there is no programmatic way to materialize "the skill as
-an agent sees it" for a given store state. The benchmark needs a core-supported way
-to render a *skill view* (SKILL.md + selected references + a chosen set of canonical
-rule cards) into a directory/prompt bundle.
+The runtime needs a reproducible way to materialize the skill an agent sees,
+without exposing benchmark or oracle files.
 
-- Workaround: `benchmark/harness/conditions.py` assembles views itself
-  (copy SKILL.md + references + rendered cards) and hash-attests the result.
-- Requested core interface: e.g. `scripts/render_skill_view.py --rules RULE_ID... --out DIR`.
+`scripts/render_skill_view.py` now provides the allowlisted skill-view boundary;
+`benchmark/harness/conditions.py` uses it and never copies the repository root.
 
-## R2 (P0) — `run_rule_replay.py` CLI crash
+## R2 (resolved) — `run_rule_replay.py` CLI crash
 
-`scripts/run_rule_replay.py: main()` prints `result["outcome"]` but `result` is only
-defined inside `build_manifest()` — the CLI writes the manifest then raises
-`NameError` (exit != 0), which breaks the evolution episode runner's subprocess calls.
+The historical CLI binding bug would make replay subprocesses fail; the current
+implementation binds the manifest result before printing.
 
-- Workaround: the benchmark imports `build_manifest()` directly.
-- Requested fix: bind the return value in `main()` before printing.
+The CLI now binds the built manifest before printing and the benchmark imports
+the same production `build_manifest()` path. This requirement is resolved.
 
 ## R3 (P1) — Bridge from telemetry scripts to `benchmark_record.json`
 
@@ -39,7 +34,7 @@ nothing merges them. Agents (and the benchmark harness) must hand-bridge.
 - Requested: `scripts/bridge_record.py environment.json monitor.json --record record.json`
   or a documented field mapping.
 
-## R4 (P1) — Grounded utility measurement for replay and library scoring
+## R4 (resolved) — Grounded utility measurement for replay and library scoring
 
 `run_rule_replay.py` takes `utility_on/utility_off` as *input* JSON, and
 `score_rule_library.py` takes an externally supplied utility mapping; nothing in core
@@ -48,8 +43,10 @@ measures utility. The benchmark supplies its own grounded measurements
 
 - Workaround: `benchmark/harness/evolution.py` generates replay case bundles from
   measured paired runs.
-- Requested: a documented contract for what "utility" means numerically (units,
-  noise handling) so external measurements are admissible.
+Replay now records `utility_policy_id=normalized_task_utility_v1` and uses the
+bounded paired delta `clamp((utility_on - utility_off) / utility_scale, -1, 1)`.
+External measurements must provide a positive versioned scale; promotion and
+validation reject other policy IDs or unbounded mean effects.
 
 ## R5 (P2) — Condition semantics (frozen / append-only) as core concepts
 
@@ -68,5 +65,5 @@ listing current schema versions (currently: benchmark_record=4, all others=1).
 ---
 
 Benchmark-local workarounds mean **no core file changes are required** to run the
-prototype. Items R1/R2 should land before formal evaluation campaigns are claimed in
-the paper.
+prototype. R1 remains the only core integration request that blocks a formal
+campaign claim; R2 and R4 are resolved in the current repository.
