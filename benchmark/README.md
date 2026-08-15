@@ -63,6 +63,8 @@ Run everything from the repository root (the directory containing `benchmark/`):
 ```bash
 # tests (standalone assert-scripts, repo convention)
 python benchmark/tests/run_all.py
+# pytest-compatible unit tests (task-package smoke fixtures are excluded by pytest.ini)
+python -m pytest -q
 python -m benchmark.taskgen.validate_population \
     --tasks-root benchmark/tasks --out benchmark/population_report.json
 
