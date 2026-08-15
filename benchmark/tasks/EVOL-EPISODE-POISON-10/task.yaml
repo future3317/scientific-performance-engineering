@@ -1,0 +1,40 @@
+schema_version: 1
+task_id: EVOL-EPISODE-POISON-10
+track: evolution
+family: episode
+mechanism:
+  - scalar_sync
+  - h2d_blocking
+  - repeated_compute
+  - launch_fragmentation
+  - graph_rebuild
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-EPISODE-POISON-V1
+  mutation_seed: 1010
+title: "Sequential evolution episode: rule acquisition, drift, and poisoned experience"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: episode_v1
+measurement:
+  primary_metric: episode_score
+  higher_is_better: true
+  warmup_iterations: 0
+  measured_iterations: 1
+  repetitions: 3
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 1
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-5, atol: 1.0e-6}
+scientific_gates: [episode_runnable, poison_survives_governance]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_break, memory_pressure]
+oracle:
+  expected_speedup_range: [1.2, 5.0]

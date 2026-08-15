@@ -1,0 +1,35 @@
+schema_version: 1
+task_id: SCIML-GNN-RAGGED-05
+track: sciml
+family: graph_energy_force
+mechanism: [ragged_loops, autograd_overhead]
+kind: positive
+lineage:
+  source: fairchem-shaped
+  mutation_template_id: MT-RAGGED-AUTOGRAD-V1
+  mutation_seed: 5005
+title: "Ragged per-graph Python loops and separate backward passes in a crystal GNN energy/force evaluator"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: energy_force_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 5
+  measured_iterations: 25
+  repetitions: 4
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-4, atol: 1.0e-5}
+scientific_gates: [energy_force_consistency, gradient_agreement, translation_invariance]
+diagnosis:
+  enabled: true
+  choices: [ragged_loops, autograd_overhead, repeated_compute, graph_rebuild, scalar_sync, launch_fragmentation, h2d_blocking]
+oracle:
+  expected_speedup_range: [3.0, 8.0]

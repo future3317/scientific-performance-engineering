@@ -1,0 +1,25 @@
+{
+  "task_id": "SCIML-GRAPH-REBUILD-08",
+  "title": "Langevin sampler where positions change every step — graph rebuild is required",
+  "track": "sciml",
+  "family": "crystal_sampling",
+  "mechanism": "graph_rebuild",
+  "kind": "do_not_apply",
+  "lineage": {
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-GRAPH-REBUILD-DO-NOT-APPLY-V1",
+    "mutation_seed": 8008
+  },
+  "split_group": {
+    "family": "crystal_sampling",
+    "mechanism": "graph_rebuild",
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-GRAPH-REBUILD-DO-NOT-APPLY-V1"
+  },
+  "episode_phase": 5,
+  "hidden": false,
+  "difficulty": "medium",
+  "authoring_note": "Do-not-apply adversarial anchor for the evolution episode. The baseline already does the correct thing: it rebuilds the radius neighbor graph every step because atom positions change every step. The tempting rule 'cache the neighbor list' is poisoned: oracle/tempting_patch.diff caches the graph and is rejected by the neighbor_consistency scientific gate (stale edges produce wrong forces/energy). The reference patch is an abstention that keeps the rebuild and documents why caching is unsafe.",
+  "author": "batch-C prototype agent",
+  "created_utc": "2026-08-14"
+}

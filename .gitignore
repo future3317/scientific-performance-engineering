@@ -30,6 +30,10 @@ runs/
 wandb/
 tensorboard/
 
+# Benchmark-local verification sandboxes and generated result directories
+benchmark/.verify_*/
+benchmark/.final_verify/
+
 # Checkpoints and large local model artifacts
 *.ckpt
 *.pt

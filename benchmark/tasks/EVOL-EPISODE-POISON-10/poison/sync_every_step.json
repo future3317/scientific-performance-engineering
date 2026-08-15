@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "case_id": "EXP-2026-08-14-0003",
+  "status": "inbox",
+  "created_at": "2026-08-14T00:00:00Z",
+  "capture_reasons": ["logging_safety"],
+  "symptom": ["scalar_sync_rarely_happens"],
+  "workload": {
+    "framework": "pytorch",
+    "domain": "training_loop",
+    "mode": "training"
+  },
+  "observed_evidence": [
+    {
+      "name": "logging_step_interval",
+      "value": 1,
+      "source": "config"
+    }
+  ],
+  "attempts": [
+    {
+      "action": "sync_every_step_for_logging_safety",
+      "result": "values_are_exact"
+    }
+  ],
+  "lesson": {
+    "type": "rule",
+    "text": "Synchronize scalar values every training step for logging safety."
+  },
+  "scope": {
+    "requires": ["scalar_sync"],
+    "excludes": []
+  },
+  "collector_confidence": "medium",
+  "artifacts": {}
+}

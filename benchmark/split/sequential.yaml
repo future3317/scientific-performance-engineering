@@ -1,0 +1,35 @@
+split_id: sequential-v1
+phases:
+  - index: 1
+    name: acquisition
+    tasks: ["CORE-SCALAR-SYNC-01", "CORE-H2D-PIPELINE-03"]
+    lineage_keys:
+      - ["training_loop_overhead", "scalar_sync", "synthetic", "MT-SCALAR-SYNC-V1"]
+      - ["data_pipeline", "h2d_blocking", "synthetic", "MT-H2D-BLOCKING-V1"]
+  - index: 2
+    name: same_family_transfer
+    tasks: ["CORE-REPEATED-BACKBONE-02", "CORE-COMPILE-RECOMPILE-04"]
+    lineage_keys:
+      - ["repeated_compute", "repeated_compute", "synthetic", "MT-REPEATED-BACKBONE-V1"]
+      - ["compiler", "compile_recompile", "synthetic", "MT-COMPILE-RECOMPILE-V1"]
+  - index: 3
+    name: cross_family_transfer
+    tasks: ["SCIML-CRYSTAL-DIFFUSION-07", "CORE-KERNEL-FUSION-09"]
+    lineage_keys:
+      - ["crystal_generation", "scalar_sync+launch_fragmentation", "cdvae-shaped", "MT-SCALAR-SYNC-LAUNCH-FRAG-V1"]
+      - ["compiler", "launch_fragmentation", "kernelbench-shaped", "MT-LAUNCH-FRAGMENTATION-V1"]
+  - index: 4
+    name: drift
+    tasks: []
+    lineage_keys:
+  - index: 5
+    name: poisoned_experience
+    tasks: ["SCIML-GRAPH-REBUILD-08"]
+    lineage_keys:
+      - ["crystal_sampling", "graph_rebuild", "fairchem-shaped", "MT-GRAPH-REBUILD-DO-NOT-APPLY-V1"]
+  - index: 6
+    name: recovery
+    tasks: ["SCIML-GNN-RAGGED-05", "SCIML-EQUIV-RECOMPUTE-06"]
+    lineage_keys:
+      - ["graph_energy_force", "ragged_loops+autograd_overhead", "fairchem-shaped", "MT-RAGGED-AUTOGRAD-V1"]
+      - ["equivariant_head", "repeated_compute", "fairchem-shaped", "MT-REPEATED-BASIS-V1"]

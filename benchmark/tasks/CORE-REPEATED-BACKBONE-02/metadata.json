@@ -1,0 +1,14 @@
+{
+  "task_id": "CORE-REPEATED-BACKBONE-02",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-REPEATED-BACKBONE-V1",
+    "mutation_seed": 2345
+  },
+  "split": {
+    "group": "repeated_compute-repeated_compute-synthetic-MT-REPEATED-BACKBONE-V1",
+    "phase": "acquisition"
+  },
+  "difficulty": "easy",
+  "authoring_note": "Prototype SPE-Core task. Baseline recomputes a shared backbone separately for each of K=4 heads and recomputes a fixed-input embedding projection every head/step. Oracle computes backbone once, shares it across heads, and caches the embedding projection keyed by an input-content hash. Includes a semantic-trap 'changing' regime where an unconditional cache must fail."
+}

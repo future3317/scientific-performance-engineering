@@ -232,6 +232,8 @@ def validate_benchmark_with_tool(root: Path) -> None:
 
 
 def validate_canonical_model_schemas(root: Path) -> None:
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
     namespace: dict[str, Any] = {"__name__": "schema", "__file__": str(root / "core" / "schema.py")}
     exec(compile((root / "core" / "schema.py").read_text(encoding="utf-8"), "core/schema.py", "exec"), namespace)
     for name, expected in namespace["schemas"]().items():

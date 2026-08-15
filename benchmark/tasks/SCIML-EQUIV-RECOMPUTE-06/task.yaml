@@ -1,0 +1,35 @@
+schema_version: 1
+task_id: SCIML-EQUIV-RECOMPUTE-06
+track: sciml
+family: equivariant_head
+mechanism: repeated_compute
+kind: counterexample
+lineage:
+  source: fairchem-shaped
+  mutation_template_id: MT-REPEATED-BASIS-V1
+  mutation_seed: 6006
+title: "Misleading rank-3 equivariant-basis caching across a structure-relaxation trajectory"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: energy_force_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 5
+  measured_iterations: 25
+  repetitions: 4
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-4, atol: 1.0e-5}
+scientific_gates: [equivariance_rank3, translation_invariance]
+diagnosis:
+  enabled: true
+  choices: [repeated_compute, ragged_loops, autograd_overhead, graph_rebuild, scalar_sync, launch_fragmentation, h2d_blocking]
+oracle:
+  expected_speedup_range: [0.9, 1.1]

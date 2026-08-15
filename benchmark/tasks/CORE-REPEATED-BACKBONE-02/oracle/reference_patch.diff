@@ -1,0 +1,61 @@
+--- benchmark/tasks/CORE-REPEATED-BACKBONE-02/workspace/solution.py	2026-08-15 07:25:47.820638500 +0800
++++ benchmark/tasks/CORE-REPEATED-BACKBONE-02/oracle/solution_oracle.py	2026-08-15 07:35:27.085495700 +0800
+@@ -1,14 +1,16 @@
+ #!/usr/bin/env python3
+-"""Baseline solution for CORE-REPEATED-BACKBONE-02.
++"""Oracle solution for CORE-REPEATED-BACKBONE-02.
+ 
+-A multi-head regression model with a shared backbone. The injected bottleneck
+-is repeated computation: the baseline recomputes the embedding projection of a
+-fixed input batch for every head and recomputes the backbone output separately
+-for every head each step.
++Computes the fixed-input embedding projection once and caches its detached value
++by a content hash; computes the shared backbone once per step and shares it
++across all heads. This removes the repeated-compute bottleneck while remaining
++correct when the fixed input changes per step.
+ """
+ 
+ from __future__ import annotations
+ 
++import hashlib
++
+ import torch
+ import torch.nn as nn
+ 
+@@ -42,6 +44,19 @@
+         return self.heads[head_idx](h)
+ 
+ 
++def _tensor_hash(t: torch.Tensor) -> str:
++    return hashlib.sha256(t.detach().cpu().contiguous().numpy().tobytes()).hexdigest()
++
++
++def _cached_project_fixed(model: MultiHeadModel, fixed_input: torch.Tensor) -> torch.Tensor:
++    key = _tensor_hash(fixed_input)
++    if getattr(model, "_cached_fixed_key", None) != key:
++        model._cached_fixed_key = key
++        # Detach so the cached value does not carry a stale autograd graph across steps.
++        model._cached_fixed_value = model.project_fixed(fixed_input).detach()
++    return model._cached_fixed_value
++
++
+ def build_model(fixtures: dict) -> nn.Module:
+     return MultiHeadModel(
+         fixtures["step_dim"],
+@@ -58,10 +73,14 @@
+     fixed_input = batch["fixed"]
+     targets = batch["targets"]
+ 
++    context = _cached_project_fixed(model, fixed_input)
++    ctx = context.unsqueeze(0).expand(step_input.size(0), -1)
++    x = torch.cat([step_input, ctx], dim=-1)
++    shared = model.backbone(x)
++
+     total_loss = torch.zeros(1, device=step_input.device)
+     for head_idx in range(model.num_heads):
+-        context = model.project_fixed(fixed_input)
+-        pred = model.forward_head(step_input, context, head_idx)
++        pred = model.heads[head_idx](shared)
+         total_loss += nn.functional.mse_loss(pred, targets[head_idx])
+ 
+     optimizer.zero_grad()

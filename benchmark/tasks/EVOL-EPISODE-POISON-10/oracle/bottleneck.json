@@ -1,0 +1,6 @@
+{
+  "task_id": "EVOL-EPISODE-POISON-10",
+  "mechanism": "episode",
+  "location": "workspace/solution.py:run_episode_task",
+  "why": "The baseline episode runner uses condition C (append-only), which admits poisoned experiences into the skill store without replay validation. The correct behavior is condition D (governed, replay-grounded), where candidate rules must pass paired replay before promotion and poisoned rules are filtered out, yielding a higher poisoning survival rate."
+}

@@ -3,9 +3,11 @@
   "$id": "https://github.com/future3317/scientific-performance-engineering/rule_spec.schema.json",
   "title": "RuleSpec",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "rule_id",
     "version",
+    "parent",
     "applicability",
     "intervention",
     "expected_mechanism",
@@ -32,10 +34,12 @@
       ]
     },
     "applicability": {
-      "type": "object"
+      "type": "object",
+      "minProperties": 1
     },
     "intervention": {
-      "type": "object"
+      "type": "object",
+      "minProperties": 1
     },
     "expected_mechanism": {
       "type": "string",

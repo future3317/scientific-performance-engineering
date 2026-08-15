@@ -15,6 +15,7 @@ def retrieve_candidates(specs: list[RuleSpec], context: TaskContext) -> list[Rul
 def select_rules(specs: list[RuleSpec], context: TaskContext) -> list[dict[str, Any]]:
     """Greedily maximize coverage + utility - redundancy under token budget."""
     selected: list[RuleSpec] = []
+    selected_gains: dict[tuple[str, int], float] = {}
     used = 0
     covered: set[str] = set()
     remaining = list(specs)
@@ -28,8 +29,10 @@ def select_rules(specs: list[RuleSpec], context: TaskContext) -> list[dict[str, 
             novelty = len(features - covered)
             return novelty + float(spec.runtime_cost.get("expected_utility", 0.0)) - 0.25 * len(features & covered)
         best = max(feasible, key=gain)
+        best_gain = gain(best)
         selected.append(best)
-        covered.update(best.evidence_requirements)
+        selected_gains[(best.rule_id, best.version)] = best_gain
+        covered.update(set(best.evidence_requirements) | set(best.relations.get("requires", [])))
         used += int(best.runtime_cost.get("tokens", 0))
         remaining.remove(best)
-    return [{"rule_id": spec.rule_id, "version": spec.version, "token_cost": int(spec.runtime_cost.get("tokens", 0)), "marginal_gain": round(float(spec.runtime_cost.get("expected_utility", 0.0)), 8)} for spec in selected]
+    return [{"rule_id": spec.rule_id, "version": spec.version, "token_cost": int(spec.runtime_cost.get("tokens", 0)), "marginal_gain": round(selected_gains[(spec.rule_id, spec.version)], 8)} for spec in selected]

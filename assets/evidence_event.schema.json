@@ -3,6 +3,7 @@
   "$id": "https://github.com/future3317/scientific-performance-engineering/evidence_event.schema.json",
   "title": "EvidenceEvent",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "event_id",
     "context",

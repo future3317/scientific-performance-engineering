@@ -1,0 +1,25 @@
+{
+  "task_id": "SCIML-CRYSTAL-DIFFUSION-07",
+  "title": "DDPM crystal sampler with per-step scalar sync and fragmented time embedding",
+  "track": "sciml",
+  "family": "crystal_generation",
+  "mechanism": ["scalar_sync", "launch_fragmentation"],
+  "kind": "positive",
+  "lineage": {
+    "source": "cdvae-shaped",
+    "mutation_template_id": "MT-SCALAR-SYNC-LAUNCH-FRAG-V1",
+    "mutation_seed": 7007
+  },
+  "split_group": {
+    "family": "crystal_generation",
+    "mechanism": "scalar_sync",
+    "source": "cdvae-shaped",
+    "mutation_template_id": "MT-SCALAR-SYNC-LAUNCH-FRAG-V1"
+  },
+  "episode_phase": 1,
+  "hidden": false,
+  "difficulty": "medium",
+  "authoring_note": "Positive SciML generation task. Baseline uses .item() schedule reads, per-step fragmented time embedding, and a one-crystal-at-a-time sampling loop. Reference fix precomputes schedules, fuses the embedding, and batches the loop. Time-to-quality is wall-clock to reach 0.9 validity on a seeded eval batch.",
+  "author": "batch-C prototype agent",
+  "created_utc": "2026-08-14"
+}

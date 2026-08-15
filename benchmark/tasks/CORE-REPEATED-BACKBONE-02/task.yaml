@@ -1,0 +1,35 @@
+schema_version: 1
+task_id: CORE-REPEATED-BACKBONE-02
+track: spe_core
+family: repeated_compute
+mechanism: repeated_compute
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-REPEATED-BACKBONE-V1
+  mutation_seed: 2345
+title: "Repeated backbone + fixed-embedding projection in a multi-head regression loop"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 20
+  measured_iterations: 100
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-2, atol: 1.0e-3}
+scientific_gates: []
+diagnosis:
+  enabled: true
+  choices: [repeated_compute, scalar_sync, h2d_blocking, compile_recompile]
+oracle:
+  expected_speedup_range: [1.8, 2.5]

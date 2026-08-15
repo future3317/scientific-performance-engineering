@@ -1,0 +1,35 @@
+schema_version: 1
+task_id: CORE-H2D-PIPELINE-03
+track: spe_core
+family: data_pipeline
+mechanism: h2d_blocking
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-H2D-BLOCKING-V1
+  mutation_seed: 3003
+title: "Blocking host-to-device copies and per-step synchronization in a training data pipeline"
+requires_cuda: true
+time_budget_s: 300
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 5
+  measured_iterations: 15
+  repetitions: 6
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-4, atol: 1.0e-5}
+scientific_gates: [finite_loss]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_recompile, memory_pressure, launch_fragmentation]
+oracle:
+  expected_speedup_range: [1.10, 1.5]

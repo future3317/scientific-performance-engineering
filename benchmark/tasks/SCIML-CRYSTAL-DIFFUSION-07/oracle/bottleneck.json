@@ -1,0 +1,5 @@
+{
+  "mechanism": ["scalar_sync", "launch_fragmentation"],
+  "location": "workspace/solution.py: sample_step() schedule reads + time embedding; sample() per-crystal loop",
+  "why": "The baseline reads noise-schedule scalars back to the host with .item() each step, rebuilds the sinusoidal time embedding from many tiny tensor operations each step, and samples the eval batch one crystal at a time. Pre-computing schedule tensors on device, vectorising/fusing the time embedding, and batching the loop removes most of the host/Python overhead without changing the sampler math."
+}

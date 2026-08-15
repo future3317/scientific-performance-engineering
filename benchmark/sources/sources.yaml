@@ -1,0 +1,120 @@
+# SPE-EvoBench external sources registry.
+# Every third-party artifact consulted or consumed by the benchmark is recorded here.
+# Rules: nothing in this list is committed to this repository; clones/caches live
+# under $SPE_BENCH_CACHE (authors' machines: E:/CODE/SPE-EvoBench). Download tooling
+# is dry-run by default; entries with large_download_required=true are represented
+# by instructions/manifests only and are NEVER fetched automatically.
+schema_version: 1
+cache_root_default: "E:/CODE/SPE-EvoBench"   # override with $SPE_BENCH_CACHE
+sources:
+  - id: perfopt-bench
+    name: "PERFOPT-Bench: Evaluating Coding Agents on Software Performance Optimization"
+    upstream_url: "https://anonymous.4open.science/r/Dataset-D3CC"
+    paper: "arXiv:2607.07744 (2026)"
+    pinned_version: null            # upstream repo is empty at review time
+    license: "unspecified (licensing appendix blank at review time)"
+    purpose: "performance-task construction via bottleneck injection; verified speedup; anti-cheat contract design"
+    expected_size: "n/a (empty repo)"
+    selected_subset: "paper only"
+    checksum: null
+    cache_location: "not cached"
+    large_download_required: false
+    notes: "E:/CODE/SPE-EvoBench/notes/perfopt-bench.md"
+
+  - id: torchbench
+    name: "TorchBench / pytorch userbenchmark"
+    upstream_url: "https://github.com/pytorch/benchmark"
+    paper: "arXiv:2304.14226"
+    pinned_version: "24755807fbfdd0e9b7426f1c69a96e77aa05137a"
+    license: "BSD-3-Clause"
+    purpose: "harness API design; fp64 live-recomputed reference; subprocess isolation; A/B noise methodology"
+    expected_size: "11 MB shallow working tree (full ~235 MB)"
+    selected_subset: "shallow clone (--depth 1), code only, no model data"
+    checksum: "git-commit:24755807fbfdd0e9b7426f1c69a96e77aa05137a"
+    cache_location: "$SPE_BENCH_CACHE/refs/pytorch-benchmark"
+    large_download_required: false
+    notes: "E:/CODE/SPE-EvoBench/notes/torchbench.md"
+
+  - id: skillsbench
+    name: "SkillsBench"
+    upstream_url: "https://github.com/benchflow-ai/skillsbench"
+    paper: "arXiv:2602.12670 (v4)"
+    pinned_version: null            # not cloned (~885 MB > clone budget)
+    license: "Apache-2.0"
+    purpose: "paired skill/no-skill arms; normalized gain; skill leakage gate; self-generated-skills control arm"
+    expected_size: "~885 MB repo"
+    selected_subset: "paper + README only"
+    checksum: null
+    cache_location: "not cached"
+    large_download_required: false
+    notes: "E:/CODE/SPE-EvoBench/notes/skillsbench.md"
+
+  - id: continualskillbench
+    name: "ContinualSkillBench: Can LLM Agents Truly Evolve Their Capabilities?"
+    upstream_url: "https://github.com/gtynnn060110-hash/continual-skill-bench-final"
+    paper: "arXiv:2608.03874"
+    pinned_version: "083f14de18227a1eed15758eb1a80632966525c0"
+    license: "Apache-2.0"
+    purpose: "sequential skill-evolution streams; independent-vs-sequential pairing; skill-library health metrics"
+    expected_size: "432 MB after pruning duplicated multi-GB trial dirs (clone was 4.6 GB checkout)"
+    selected_subset: "shallow clone, trial data dirs pruned post-clone (documented in notes)"
+    checksum: "git-commit:083f14de18227a1eed15758eb1a80632966525c0"
+    cache_location: "$SPE_BENCH_CACHE/refs/continual-skill-bench"
+    large_download_required: false
+    notes: "E:/CODE/SPE-EvoBench/notes/continualskillbench.md"
+
+  - id: kernelbench
+    name: "KernelBench"
+    upstream_url: "https://github.com/ScalingIntelligence/KernelBench"
+    paper: "arXiv:2502.10517 (ICML 2025)"
+    pinned_version: "423217d9fda91e0c2d67e4a43bf62f96f6d104f1"
+    license: "MIT"
+    purpose: "correctness-gated fast_p scoring; adversarial probes; excessive-speedup tripwire; static anti-hack scan"
+    expected_size: "5.6 MB shallow"
+    selected_subset: "shallow clone, code only"
+    checksum: "git-commit:423217d9fda91e0c2d67e4a43bf62f96f6d104f1"
+    cache_location: "$SPE_BENCH_CACHE/refs/kernelbench"
+    large_download_required: false
+    notes: "E:/CODE/SPE-EvoBench/notes/kernelbench.md"
+
+  - id: mlperf-hpc
+    name: "MLPerf Training: HPC (MLCommons; retired Jan 2025)"
+    upstream_url: "https://github.com/mlcommons/hpc"
+    paper: "arXiv:2110.11466"
+    pinned_version: "2c627d457004eff77a014205b3151ed48a6fa149"
+    license: "Apache-2.0"
+    purpose: "scientific quality targets; time-to-quality gating; repetition/trimmed-mean rules; hyperparameter equivalence tables"
+    expected_size: "10 MB shallow (code+rules only)"
+    selected_subset: "shallow clone; NO datasets (TB-scale) — datasets are instructions-only"
+    checksum: "git-commit:2c627d457004eff77a014205b3151ed48a6fa149"
+    cache_location: "$SPE_BENCH_CACHE/refs/mlcommons-hpc"
+    large_download_required: false   # datasets would be true; not used
+    notes: "E:/CODE/SPE-EvoBench/notes/mlperf-hpc.md"
+
+  - id: fairchem-oc20
+    name: "FAIRChem / Open Catalyst 20"
+    upstream_url: "https://github.com/facebookresearch/fairchem"
+    paper: "arXiv:2010.09990 (OC20, ACS Catalysis 2021)"
+    pinned_version: "bb0a062a9a08d8b3ad3995aca5b9765e07804990"
+    license: "MIT (code); CC-BY-4.0 (OC20 data — NOT downloaded)"
+    purpose: "energy/force GNN workload shapes; fake_dataset.py blueprint for tiny self-contained fixtures; fidelity gates"
+    expected_size: "31 MB shallow (code only)"
+    selected_subset: "shallow clone, code only; OC20/OC22 datasets and checkpoints explicitly excluded"
+    checksum: "git-commit:bb0a062a9a08d8b3ad3995aca5b9765e07804990"
+    cache_location: "$SPE_BENCH_CACHE/refs/fairchem"
+    large_download_required: false   # full OC20 would be true; represented by manifests only
+    notes: "E:/CODE/SPE-EvoBench/notes/oc20-fairchem.md"
+
+  - id: cdvae-mp20
+    name: "CDVAE / MP-20"
+    upstream_url: "https://github.com/txie-93/cdvae"
+    paper: "arXiv:2110.06197 (ICLR 2022)"
+    pinned_version: "f857f598d6f6cca5dc1ea0582d228f12dcc2c2ea"
+    license: "MIT"
+    purpose: "crystal generation/diffusion workload structure; hard validity gates; recall+precision metric pairing; bundled small data"
+    expected_size: "233 MB shallow (incl. 87 MB bundled datasets + 66 MB bundled oracle checkpoints)"
+    selected_subset: "shallow clone incl. bundled small data; MP-20 full download NOT required for prototypes"
+    checksum: "git-commit:f857f598d6f6cca5dc1ea0582d228f12dcc2c2ea"
+    cache_location: "$SPE_BENCH_CACHE/refs/cdvae"
+    large_download_required: false
+    notes: "E:/CODE/SPE-EvoBench/notes/cdvae.md"

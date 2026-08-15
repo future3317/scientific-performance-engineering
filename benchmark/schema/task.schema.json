@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spe-evobench/schema/task.schema.json",
+  "title": "SPE-EvoBench task.yaml contract",
+  "description": "Documentation schema for task.yaml (BENCHMARK_DESIGN.md section 4.1). Validation is performed in code by harness/cli.py validate-task and harness/miniyaml.py subset restrictions; no jsonschema dependency is used at runtime.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "track",
+    "family",
+    "mechanism",
+    "kind",
+    "lineage",
+    "title",
+    "requires_cuda",
+    "time_budget_s",
+    "workspace",
+    "measurement",
+    "correctness",
+    "scientific_gates",
+    "diagnosis",
+    "oracle"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "task_id": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]+$",
+      "description": "Unique task identifier, e.g. CORE-SCALAR-SYNC-01."
+    },
+    "track": {"type": "string", "enum": ["spe_core", "sciml", "evolution"]},
+    "family": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Workload family; part of the split key."
+    },
+    "mechanism": {
+      "type": ["string", "array"],
+      "description": "Bottleneck mechanism id(s) (section 5); string or list of strings. Part of the split key.",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["positive", "counterexample", "do_not_apply"],
+      "description": "Polarity of the injected bottleneck."
+    },
+    "lineage": {
+      "type": "object",
+      "required": ["source", "mutation_template_id"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["synthetic", "fairchem-shaped", "cdvae-shaped", "kernelbench-shaped"]
+        },
+        "mutation_template_id": {"type": "string", "pattern": "^MT-[A-Z0-9-]+$"},
+        "mutation_seed": {"type": "integer"}
+      }
+    },
+    "title": {"type": "string", "minLength": 1},
+    "requires_cuda": {"type": "boolean"},
+    "time_budget_s": {"type": "integer", "exclusiveMinimum": 0},
+    "workspace": {
+      "type": "object",
+      "required": ["entrypoint", "api"],
+      "additionalProperties": false,
+      "properties": {
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File the agent edits inside workspace/, e.g. solution.py."
+        },
+        "api": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Named API contract; must exist in harness/api.py registry."
+        }
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "required": [
+        "primary_metric",
+        "higher_is_better",
+        "warmup_iterations",
+        "measured_iterations",
+        "repetitions",
+        "min_improvement_percent",
+        "noise_floor_percent",
+        "speedup_tripwire"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "primary_metric": {
+          "type": "string",
+          "enum": ["step_ms_p50", "throughput_units_per_s", "time_to_quality_s"]
+        },
+        "higher_is_better": {"type": "boolean"},
+        "warmup_iterations": {"type": "integer", "minimum": 0},
+        "measured_iterations": {"type": "integer", "minimum": 1},
+        "repetitions": {"type": "integer", "minimum": 1},
+        "min_improvement_percent": {"type": "number", "minimum": 0},
+        "noise_floor_percent": {"type": "number", "minimum": 0},
+        "speedup_tripwire": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "correctness": {
+      "type": "object",
+      "required": ["num_fresh_inputs", "reference", "tolerance"],
+      "additionalProperties": false,
+      "properties": {
+        "num_fresh_inputs": {"type": "integer", "minimum": 1},
+        "reference": {
+          "type": "string",
+          "enum": ["fp64_recompute"],
+          "description": "fp64 live recompute; stored goldens are not permitted."
+        },
+        "tolerance": {
+          "type": "object",
+          "required": ["rtol", "atol"],
+          "additionalProperties": false,
+          "properties": {
+            "rtol": {"type": "number", "exclusiveMinimum": 0},
+            "atol": {"type": "number", "exclusiveMinimum": 0}
+          }
+        }
+      }
+    },
+    "scientific_gates": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "description": "Gate names implemented in the task's scientific_contract.py."
+    },
+    "diagnosis": {
+      "type": "object",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "choices": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "oracle": {
+      "type": "object",
+      "required": ["expected_speedup_range"],
+      "additionalProperties": false,
+      "properties": {
+        "expected_speedup_range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    }
+  }
+}

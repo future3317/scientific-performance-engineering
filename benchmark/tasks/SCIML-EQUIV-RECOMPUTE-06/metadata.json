@@ -1,0 +1,25 @@
+{
+  "task_id": "SCIML-EQUIV-RECOMPUTE-06",
+  "title": "Misleading rank-3 equivariant-basis caching across a structure-relaxation trajectory",
+  "track": "sciml",
+  "family": "equivariant_head",
+  "mechanism": "repeated_compute",
+  "kind": "counterexample",
+  "lineage": {
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-REPEATED-BASIS-V1",
+    "mutation_seed": 6006
+  },
+  "split_group": {
+    "family": "equivariant_head",
+    "mechanism": "repeated_compute",
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-REPEATED-BASIS-V1"
+  },
+  "episode_phase": 1,
+  "hidden": false,
+  "difficulty": "easy",
+  "authoring_note": "SciML equivariant-head counterexample. The fixture is a small structure-relaxation trajectory where positions change every step. A tempting cache of edge vectors / rank-3 basis violates rank-3 equivariance and produces stale results; the correct action is to recompute every step (do_not_apply semantics). Plain torch only. The reference abstention patch is a no-op plus an evidence comment.",
+  "author": "batch-SciML-A prototype agent",
+  "created_utc": "2026-08-14"
+}

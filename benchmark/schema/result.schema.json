@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spe-evobench/schema/result.schema.json",
+  "title": "SPE-EvoBench result.json contract",
+  "description": "Documentation schema for the per-task verdict record emitted by harness/verifier.py (BENCHMARK_DESIGN.md sections 6 S6 and 8.1). All raw dimensions are preserved alongside any aggregate.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "condition",
+    "verdict",
+    "correctness_pass",
+    "scientific_gates",
+    "verified_speedup",
+    "diagnosis",
+    "cost",
+    "anticheat",
+    "fingerprint",
+    "measurement",
+    "harness_hash"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "task_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
+    "condition": {"type": "string", "enum": ["A", "B", "C", "D", "standalone"]},
+    "verdict": {
+      "type": "string",
+      "enum": ["pass", "fail", "inconclusive", "error"],
+      "description": "pass = all gates + verified speedup; fail = any gate failed; inconclusive = gates passed but speedup CI below bar (or required hardware absent); error = harness/task exception."
+    },
+    "correctness_pass": {"type": "boolean"},
+    "correctness_details": {
+      "type": "object",
+      "description": "Per-fresh-input outcomes, tolerances used, max abs/rel errors."
+    },
+    "scientific_gates": {
+      "type": "object",
+      "additionalProperties": {"type": "boolean"},
+      "description": "Gate name -> pass boolean (section 8.1)."
+    },
+    "scientific_gate_details": {
+      "type": "object",
+      "description": "Gate name -> details dict returned by the gate."
+    },
+    "activation": {
+      "type": "object",
+      "description": "S4 evidence: compile counters, cache-hit evidence, sync counts. Absence is recorded as inconclusive evidence, not failure."
+    },
+    "verified_speedup": {
+      "type": "object",
+      "required": ["median_speedup", "ci_low", "ci_high", "verified", "inconclusive", "reason"],
+      "properties": {
+        "median_speedup": {"type": ["number", "null"]},
+        "ci_low": {"type": ["number", "null"]},
+        "ci_high": {"type": ["number", "null"]},
+        "verified": {"type": "boolean"},
+        "inconclusive": {"type": "boolean"},
+        "reason": {"type": "string"}
+      }
+    },
+    "time_to_quality_s": {"type": ["number", "null"]},
+    "time_to_quality_reached": {"type": ["boolean", "null"]},
+    "diagnosis": {
+      "type": "object",
+      "required": ["enabled", "predicted", "expected", "diagnosis_correct"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "predicted": {"type": ["array", "null"], "items": {"type": "string"}},
+        "expected": {"type": ["array", "null"], "items": {"type": "string"}},
+        "diagnosis_correct": {"type": ["boolean", "null"]}
+      }
+    },
+    "cost": {
+      "type": "object",
+      "required": ["wall_time_s"],
+      "properties": {
+        "wall_time_s": {"type": "number", "minimum": 0},
+        "tokens": {"type": ["integer", "null"], "description": "Filled by the outer agent driver."},
+        "tool_calls": {"type": ["integer", "null"], "description": "Filled by the outer agent driver."},
+        "retries": {"type": "integer", "minimum": 0}
+      }
+    },
+    "anticheat": {
+      "type": "object",
+      "required": ["hard_fail", "findings", "tripwired"],
+      "properties": {
+        "hard_fail": {"type": "boolean"},
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["severity", "rule", "message"],
+            "properties": {
+              "severity": {"type": "string", "enum": ["hard_fail", "warning"]},
+              "rule": {"type": "string"},
+              "message": {"type": "string"},
+              "location": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "tripwired": {"type": "boolean", "description": "Verified speedup exceeded measurement.speedup_tripwire; flagged for audit, excluded from headline aggregates."},
+        "canary_tripped": {"type": "boolean"}
+      }
+    },
+    "fingerprint": {
+      "type": "object",
+      "description": "Hardware/software fingerprint from harness/fingerprint.py; mismatched fingerprints are never compared."
+    },
+    "measurement": {
+      "type": "object",
+      "description": "Raw measurement record: run_order, per-run baseline/candidate primary metric values, work-unit counters, output checksums, fixture hashes, noise floor.",
+      "properties": {
+        "primary_metric": {"type": "string"},
+        "higher_is_better": {"type": "boolean"},
+        "run_order": {"type": "array", "items": {"type": "string", "enum": ["baseline", "candidate"]}},
+        "baseline_runs": {"type": "array", "items": {"type": "number"}},
+        "candidate_runs": {"type": "array", "items": {"type": "number"}},
+        "control_runs": {"type": "array", "items": {"type": "number"}},
+        "noise_floor_percent_observed": {"type": ["number", "null"]},
+        "work_units": {"type": "object"},
+        "output_checksums": {"type": "object"},
+        "fixture_hashes": {"type": "object"}
+      }
+    },
+    "harness_hash": {
+      "type": "object",
+      "description": "SHA-256 manifest of harness files captured at S0 and re-checked at verdict."
+    },
+    "errors": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Non-fatal pipeline errors (e.g. optional stage failures)."
+    }
+  }
+}

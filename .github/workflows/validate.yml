@@ -42,7 +42,14 @@ jobs:
           python scripts/validate_evolution.py .
           python scripts/validate_rule_usage.py assets/rule_usage_record.json
       - name: Compile Python tools
-        run: python -m compileall -q scripts assets
+        run: python -m compileall -q scripts assets core benchmark
+      - name: Run benchmark harness contracts
+        run: |
+          python benchmark/tests/run_all.py
+          python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml
+          for task in benchmark/tasks/*; do
+            python -m benchmark.harness.cli validate-task "$task"
+          done
 
   gpu-contract:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.gpu_validation == true }}

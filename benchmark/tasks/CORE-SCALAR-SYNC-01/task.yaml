@@ -1,0 +1,35 @@
+schema_version: 1
+task_id: CORE-SCALAR-SYNC-01
+track: spe_core
+family: training_loop_overhead
+mechanism: scalar_sync
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-SCALAR-SYNC-V1
+  mutation_seed: 1234
+title: "Per-step scalar synchronization in a tiny MLP training loop"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 50
+  measured_iterations: 1000
+  repetitions: 10
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-5, atol: 1.0e-6}
+scientific_gates: []
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, compile_recompile, repeated_compute]
+oracle:
+  expected_speedup_range: [1.2, 2.0]

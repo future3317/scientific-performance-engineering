@@ -1,0 +1,6 @@
+{
+  "task_id": "CORE-KERNEL-FUSION-09",
+  "mechanism": "launch_fragmentation",
+  "location": "workspace/solution.py:forward",
+  "why": "The pointwise chain z=a1*x+b1 -> SiLU -> +residual -> clamp -> a2*yc+b2 is executed as 8 separate eager kernels. Each kernel launch carries fixed CPU overhead and prevents fusion of the elementwise operations, so the workload is dominated by launch fragmentation rather than arithmetic."
+}

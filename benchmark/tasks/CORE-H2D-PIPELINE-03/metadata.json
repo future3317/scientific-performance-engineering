@@ -1,0 +1,25 @@
+{
+  "task_id": "CORE-H2D-PIPELINE-03",
+  "title": "Blocking host-to-device copies and per-step synchronization in a training data pipeline",
+  "track": "spe_core",
+  "family": "data_pipeline",
+  "mechanism": "h2d_blocking",
+  "kind": "positive",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-H2D-BLOCKING-V1",
+    "mutation_seed": 3003
+  },
+  "split_group": {
+    "family": "data_pipeline",
+    "mechanism": "h2d_blocking",
+    "source": "synthetic",
+    "mutation_template_id": "MT-H2D-BLOCKING-V1"
+  },
+  "episode_phase": 1,
+  "hidden": false,
+  "difficulty": "medium",
+  "authoring_note": "Baseline uses DataLoader(num_workers=0, pin_memory=False) and blocking .to()+synchronize per step. Oracle enables pinned memory, non_blocking copies, a small worker pool, and prefetch. Calibrated on a CUDA host: the speedup is modest but real for this memory-bound pipeline.",
+  "author": "batch-C prototype agent",
+  "created_utc": "2026-08-14"
+}

@@ -3,18 +3,10 @@
   "$id": "https://github.com/future3317/scientific-performance-engineering/rule_state.schema.json",
   "title": "RuleState",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "rule_id",
-    "version",
-    "status",
-    "drift_state",
-    "effect",
-    "confidence_sequence",
-    "applicability_calibration",
-    "retrieval_utility",
-    "override_rate",
-    "provenance_diversity",
-    "last_updated"
+    "version"
   ],
   "properties": {
     "rule_id": {

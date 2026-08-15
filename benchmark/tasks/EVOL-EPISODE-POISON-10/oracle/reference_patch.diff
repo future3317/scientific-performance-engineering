@@ -1,0 +1,11 @@
+--- solution.py
++++ solution.py
+@@ -29,7 +29,7 @@
+     """
+     # Baseline: always run under condition C (append-only). The oracle patch
+     # changes this to use condition D (governed/replay-grounded).
+-    condition = "C"
++    condition = "D"
+ 
+     # Import the harness episode runner. The repo root is on sys.path when the
+     # harness evaluates this module, so the top-level benchmark package is

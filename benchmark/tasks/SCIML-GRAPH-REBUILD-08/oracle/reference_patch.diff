@@ -1,0 +1,13 @@
+--- a/solution.py
++++ b/solution.py
+@@ -83,7 +83,9 @@
+ def sample_step(sampler: dict[str, Any], state: dict[str, torch.Tensor], step_index: int) -> dict[str, torch.Tensor]:
+     """One deterministic Langevin-ish step.  Positions change every step."""
+     positions = state["positions"]
+-    # Baseline: rebuild the neighbor graph every step (correct behavior).
++    # Abstention: keep rebuilding the graph every step.  Caching is unsafe here
++    # because positions change every step, so a cached neighbor list would be
++    # stale and produce incorrect forces.
+     _, forces = _energy_and_forces(sampler, positions, rebuild=True)
+     new_positions = positions + sampler["dt"] * forces
+     # Keep inside a cubic box with reflective-ish wrap (simple clamp for determinism).

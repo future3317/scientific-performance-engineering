@@ -60,6 +60,10 @@ Library maintenance uses evidence rate-distortion: score utility loss against ru
 Treat the evolution store as three projections of one typed contract, not as a
 second prose rule format:
 
+The repository currently ships the governed framework and benchmark; the
+canonical registry may still be empty. Do not present framework coverage as a
+library of already-promoted performance rules.
+
 - `core.models.RuleSpec` is the immutable rule meaning. Its applicability is a
   typed predicate (`all/any/not`, numeric comparisons, version, hardware,
   software, or workload fields), never an opaque string trigger.
@@ -96,6 +100,10 @@ zero distortion means “preserve utility,” not “retire automatically.”
 - Run `scripts/validate_experience.py` and `scripts/validate_evolution.py` for the experience and rule-promotion contracts.
 - Run `scripts/compare_benchmarks.py`; inspect its separate `comparison_class`, `evidence_level`, `comparability`, and `decision` fields. `assessment` is retained as a compatibility/debug classification; the decision is `accepted`, `rejected`, or `inconclusive`.
 - Run `scripts/validate_skill.py`, `scripts/behavioral_contract_tests.py`, and the material/GNN self-test before publishing.
+- When changing the benchmark or using it to evaluate the Skill, run
+  `benchmark/tests/run_all.py`, the sequential leakage check, and
+  `validate-task` for each task; benchmark results are evaluation evidence,
+  not proof of an end-to-end scientific speedup.
 
 ## Claim boundaries
 

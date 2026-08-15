@@ -1,0 +1,35 @@
+schema_version: 1
+task_id: SCIML-CRYSTAL-DIFFUSION-07
+track: sciml
+family: crystal_generation
+mechanism: [scalar_sync, launch_fragmentation]
+kind: positive
+lineage:
+  source: cdvae-shaped
+  mutation_template_id: MT-SCALAR-SYNC-LAUNCH-FRAG-V1
+  mutation_seed: 7007
+title: "DDPM crystal sampler with per-step scalar sync and fragmented time embedding"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: sampler_v1
+measurement:
+  primary_metric: time_to_quality_s
+  higher_is_better: false
+  warmup_iterations: 3
+  measured_iterations: 10
+  repetitions: 4
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 30.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-4, atol: 1.0e-4}
+scientific_gates: [crystal_validity, distribution_moment_check]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, launch_fragmentation, h2d_blocking, repeated_compute, graph_rebuild, compile_break, autograd_overhead, ragged_loops]
+oracle:
+  expected_speedup_range: [2.0, 25.0]

@@ -1,0 +1,35 @@
+schema_version: 1
+task_id: CORE-KERNEL-FUSION-09
+track: spe_core
+family: compiler
+mechanism: launch_fragmentation
+kind: positive
+lineage:
+  source: kernelbench-shaped
+  mutation_template_id: MT-LAUNCH-FRAGMENTATION-V1
+  mutation_seed: 9009
+title: "Launch-fragmented pointwise chain: affine -> SiLU -> residual -> clamp -> affine"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: kernel_module_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 5
+  measured_iterations: 25
+  repetitions: 4
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance: {rtol: 1.0e-4, atol: 1.0e-5}
+scientific_gates: [finite_output, output_moment_match]
+diagnosis:
+  enabled: true
+  choices: [launch_fragmentation, scalar_sync, h2d_blocking, repeated_compute, compile_break, memory_pressure]
+oracle:
+  expected_speedup_range: [1.3, 5.0]
