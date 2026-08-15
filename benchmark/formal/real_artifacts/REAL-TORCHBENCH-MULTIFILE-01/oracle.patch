@@ -1,0 +1,12 @@
+diff --git a/torchbenchmark/util/model.py b/torchbenchmark/util/model.py
+--- a/torchbenchmark/util/model.py
++++ b/torchbenchmark/util/model.py
+@@
+-        self.last_loss = loss.item()
++        self.last_loss = loss.detach()
+diff --git a/torchbenchmark/util/env_check.py b/torchbenchmark/util/env_check.py
+--- a/torchbenchmark/util/env_check.py
++++ b/torchbenchmark/util/env_check.py
+@@
+-        return float(value.item())
++        return value.detach()

@@ -4,8 +4,11 @@ A paper-grade benchmark for **S**cientific **P**erformance **E**ngineering agent
 **evolution** of the `scientific-performance-engineering` skill itself.
 
 Status: **v1.0-20 population-validity pilot implemented** (18 atomic tasks plus
-2 evolution episodes). The formal target is frozen as SPE-EvoBench v1.0-50
-(24 SPE-Core + 20 SciML + 6 Evolution), but no formal 50-task result is claimed.
+2 evolution episodes). The formal-eval driver supports a reproducible dry-run
+and explicit agent-command execution, but no formal A/B/C/D result is claimed
+by this repository. The formal target is frozen as SPE-EvoBench v1.0-50
+(24 SPE-Core + 20 SciML + 6 Evolution); the remaining 19 Core + 16 SciML + 5
+Evolution tasks are gated on empirical calibration.
 
 ## Contents
 
@@ -430,9 +433,22 @@ benchmark/
     evolution.py       # episode runner + evolution metrics (§8.4)
     conditions.py      # A/B/C/D materialization + attestation
     split.py           # sequential split + leakage checker
+  taskgen/             # v1.0-20 generator and population validator
+  formal/              # dry-run/agent campaign driver and lineage-aware aggregation
+  manifests/           # frozen v1.0-50 slot quotas (no sealed task contents)
   tasks/<task_id>/...
   tests/               # standalone assert-scripts (repo convention; no pytest dependency)
 ```
+
+The formal outer driver lives in `benchmark/formal/`. Its default plan is
+`A/B/C/D × reset × 3` independent outer trials over all 20 pilot tasks. A
+dry-run writes only `campaign.json` and `schedule.json` with
+`results_claimed=false`; an agent command is required before trial result
+files are produced. Each trial manifest records the benchmark revision,
+allowlisted skill-view and task-manifest digests, model/configuration,
+condition, `context_mode`, task order, outer-trial ID, budgets, and hardware /
+software fingerprints. Inner baseline/candidate repetitions remain verifier
+measurements and are not substituted for independent outer trials.
 
 CLI:
 
@@ -487,6 +503,13 @@ floor, and lineage identifiers. Each task ships with an oracle patch that
 `validate-task` proves passes all gates, and a baseline that `validate-task` proves does *not* meet the verified-speedup bar
 (positive tasks) or *would* regress if the tempting rule were applied (counterexample
 tasks, proven via an oracle "tempting-patch" that the verifier rejects).
+
+Pilot calibration is a release gate, not an automatic promotion: measured
+oracle confidence intervals, control noise, semantic gates, platform effects,
+and anti-cheat findings are recorded in `population_report.json`. Tasks that
+fail the calibration gate are retired or rewritten before any v1.0-50 task is
+generated. The frozen v1.0-50 slot manifest records only track quotas and
+public/sealed allocation; it intentionally contains no sealed task content.
 
 ## 13. Reproducibility and environment
 

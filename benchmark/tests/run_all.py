@@ -23,6 +23,9 @@ TESTS = (
     "test_skill_view.py",
     "test_context_mode.py",
     "test_c_control.py",
+    "test_adversarial_boundaries.py",
+    "test_formal.py",
+    "test_population.py",
 )
 
 

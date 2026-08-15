@@ -1,0 +1,6 @@
+{
+  "seed": 0,
+  "batch_sizes": [2, 4],
+  "steps": 3,
+  "expected_work_units": {"forward": 6, "samples": 18}
+}

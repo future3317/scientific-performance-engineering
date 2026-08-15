@@ -65,7 +65,7 @@ See `benchmark/split/sequential.yaml`.
 | 2 | same-family transfer | 02, 04 | Held-out tasks in related families (repeated compute, compiler). |
 | 3 | cross-family transfer | 07, 09 | Material generation and kernel tasks test generalization. |
 | 4 | drift | *(experience only)* | Injected experience: H2D async rule specialized to CPU-only regime. |
-| 5 | poisoned experience | 08 | Misleading “cache neighbor lists” + “sync every step” rules; must be rejected. |
+| 5 | poisoned experience | 10, 08 | Misleading cache/synchronization rules and recovery; must be rejected. |
 | 6 | recovery | 05, 06 | SciML tasks measure recovery after poison; 06 is a counterexample anchor. |
 
 Leakage rule: no `(family, mechanism, source, mutation_template_id)` key
@@ -80,9 +80,17 @@ appears in both phase 1 and any later phase. `check-leakage` enforces this.
 | Evolution | 6 | 2 | 5 |
 | **Total** | **50** | **20** | **40** |
 
-The remaining 19 Core, 16 SciML, and 5 Evolution tasks are intentionally not
-generated in this pilot. They may be generated only after the population
-validator is green and the 20-task difficulty/noise calibration is reviewed.
+The remaining **19 Core, 16 SciML, and 5 Evolution** tasks are intentionally
+not generated in this pilot. They may be generated only after the population
+validator is green and the 20-task difficulty/noise calibration gate is
+reviewed. The slot quotas and public/sealed allocation are frozen separately
+in `manifests/v1.0-50-slots.json`; that file contains no sealed task content.
+
+The formal pilot defaults to `context_mode=reset` and compares A/B/C/D with
+three independent outer trials. `C` is raw-experience retrieval with the same
+retrieval/token budget as `D`, without RuleSpec abstraction or governance;
+`C_STRESS` is retained only as the append-only stress ablation. `carry` is an
+explicit secondary control and is never mixed into reset aggregates.
 
 ## Expansion plan to the frozen 50-task release
 

@@ -30,6 +30,7 @@ def main() -> None:
         assert not any("RuleSpec" in str(record) for record in records)
 
     assert conditions.INJECTION_POLICIES["C_STRESS"]["mode"] == "inbox_any"
+    assert conditions.INJECTION_POLICIES["C"]["retrieval_budget_tokens"] == conditions.INJECTION_POLICIES["D"]["retrieval_budget_tokens"]
     print("test_c_control: OK")
 
 

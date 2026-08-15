@@ -93,6 +93,22 @@ def _write_record(store: Path, rel_dir: str, record: dict[str, Any], fallback_id
     return record_id
 
 
+def _strip_poison_labels(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _strip_poison_labels(item) for key, item in value.items() if key != "poisoned"}
+    if isinstance(value, list):
+        return [_strip_poison_labels(item) for item in value]
+    return value
+
+
+def _has_poison_label(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any((key == "poisoned" and bool(item)) or _has_poison_label(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_poison_label(item) for item in value)
+    return False
+
+
 def _apply_phase_injections(store: Path, condition: str, phase: dict[str, Any]) -> dict[str, list[str]]:
     """Drop a phase's experiences/poisons into the store per the condition policy.
 
@@ -105,9 +121,7 @@ def _apply_phase_injections(store: Path, condition: str, phase: dict[str, Any]) 
         for position, record in enumerate(phase.get(key) or []):
             # Poison truth is harness-only metadata.  It must never enter the
             # candidate store or any replay payload visible to an agent.
-            visible_record = {
-                field: value for field, value in dict(record).items() if field != "poisoned"
-            }
+            visible_record = _strip_poison_labels(dict(record))
             rel = (
                 "evolution/candidates"
                 if condition == "D" and (visible_record.get("status") == "candidate" or visible_record.get("cases"))
@@ -164,6 +178,8 @@ def _promote_via_replay(
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         rule_id = payload["rule_id"]
         version = int(candidate.get("version", 1))
+        if ledger.has(rule_id, version):
+            continue
         replay_digest = str(manifest["result_digest"])
         try:
             ledger.record(rule_id, version, replay_digest, "candidate")
@@ -337,7 +353,7 @@ def run_episode(
         written = _apply_phase_injections(store, condition, phase)
         poison_ids.extend(written["poisons"])
         for record in phase.get("results") or []:
-            visible = {field: value for field, value in record.items() if field != "poisoned"}
+            visible = _strip_poison_labels(record)
             paired_results.append(visible)
             if "delta" in visible:
                 applications.append(visible)
@@ -377,7 +393,7 @@ def run_episode(
         1
         for phase in episode["phases"]
         for app in phase.get("results") or []
-        if app.get("poisoned") and float(app.get("delta", 0.0)) < 0.0
+        if _has_poison_label(app) and float(app.get("delta", 0.0)) < 0.0
     )
     metrics = {
         "transfer_gain": gain,

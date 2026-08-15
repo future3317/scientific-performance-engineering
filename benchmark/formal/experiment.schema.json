@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spe-evobench/schema/formal-experiment.schema.json",
+  "title": "SPE-EvoBench formal experiment manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "experiment_id", "benchmark_revision", "skill_view_digest",
+    "task_manifest_digest", "agent_model_id", "agent_config", "condition",
+    "context_mode", "task_order", "outer_trial_id", "budgets",
+    "hardware_fingerprint", "software_fingerprint", "torch_version", "cuda_version"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "benchmark_revision": {"type": "string", "minLength": 7},
+    "skill_view_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "task_manifest_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "agent_model_id": {"type": "string", "minLength": 1},
+    "agent_config": {"type": "object"},
+    "condition": {"enum": ["A", "B", "C", "C_STRESS", "D"]},
+    "context_mode": {"enum": ["reset", "carry"]},
+    "task_order": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "outer_trial_id": {"type": "string", "minLength": 1},
+    "budgets": {"type": "object", "required": ["tokens", "tool_calls", "wall_time_s"]},
+    "hardware_fingerprint": {"type": "object"},
+    "software_fingerprint": {"type": "object"},
+    "torch_version": {"type": ["string", "null"]},
+    "cuda_version": {"type": ["string", "null"]}
+  }
+}

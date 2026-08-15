@@ -1,0 +1,16 @@
+{
+  "task_id": "REAL-FAIRCHEM-GNN-02",
+  "lane": "real_artifact_feasibility",
+  "formal_population": false,
+  "repository": "https://github.com/facebookresearch/fairchem",
+  "pinned_commit": "bb0a062a9a08d8b3ad3995aca5b9765e07804990",
+  "network": "disabled",
+  "fixture": "fixture/graph.json",
+  "candidate_paths": [
+    "src/fairchem/core/models/gemnet/gemnet.py",
+    "src/fairchem/core/models/gemnet/layers/atom_update_block.py"
+  ],
+  "oracle_patch": "oracle.patch",
+  "hidden_verifier": "hidden_verifier.py",
+  "acceptance": "cache static graph geometry without changing energy/force outputs or neighbor-list work units"
+}

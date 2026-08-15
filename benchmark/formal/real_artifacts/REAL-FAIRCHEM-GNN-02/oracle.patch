@@ -1,0 +1,11 @@
+diff --git a/src/fairchem/core/models/gemnet/gemnet.py b/src/fairchem/core/models/gemnet/gemnet.py
+--- a/src/fairchem/core/models/gemnet/gemnet.py
++++ b/src/fairchem/core/models/gemnet/gemnet.py
+@@
+-        graph = self.generate_graph(data)
++        graph = self._cached_graph(data) if self._static_geometry(data) else self.generate_graph(data)
+diff --git a/src/fairchem/core/models/gemnet/layers/atom_update_block.py b/src/fairchem/core/models/gemnet/layers/atom_update_block.py
+--- a/src/fairchem/core/models/gemnet/layers/atom_update_block.py
++++ b/src/fairchem/core/models/gemnet/layers/atom_update_block.py
+@@
++    # Preserve edge ordering and force-derivative metadata when reusing geometry.

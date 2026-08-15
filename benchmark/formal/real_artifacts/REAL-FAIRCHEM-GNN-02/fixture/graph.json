@@ -1,0 +1,7 @@
+{
+  "seed": 7,
+  "num_atoms": 4,
+  "edges": [[0, 1], [1, 2], [2, 3], [3, 0]],
+  "positions_static": true,
+  "fresh_position_probe": false
+}

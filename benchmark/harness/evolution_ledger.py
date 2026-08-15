@@ -47,6 +47,9 @@ class EvolutionDecisionLedger:
     def decisions(self) -> list[dict[str, Any]]:
         return [asdict(item) for item in self._decisions.values()]
 
+    def has(self, rule_id: str, version: int) -> bool:
+        return any(item.rule_id == str(rule_id) and item.version == int(version) for item in self._decisions.values())
+
     def count(self, *statuses: str) -> int:
         return sum(item.status in statuses for item in self._decisions.values())
 

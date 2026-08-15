@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "population_id": "SPE-EvoBench-v1.0-50",
+  "tracks": {
+    "spe_core": {"total": 24, "public_dev": 8, "sealed": 16},
+    "sciml": {"total": 20, "public_dev": 6, "sealed": 14},
+    "evolution": {"total": 6, "public_dev": 1, "sealed": 5}
+  },
+  "atomic": {"public_dev": 14, "sealed": 30},
+  "slot_policy": {
+    "freeze_family_mechanism_polarity_difficulty": true,
+    "sealed_task_contents": "not_populated",
+    "generation_gate": "v1.0-20 empirical calibration must pass"
+  }
+}

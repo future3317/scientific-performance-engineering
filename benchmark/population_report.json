@@ -286,6 +286,27 @@
     "counterexample_or_do_not_apply": 5
   },
   "lineage_leakage_checked": true,
+  "empirical_calibration": {
+    "status": "pending",
+    "source": null,
+    "hard_flags": [],
+    "calibration_gate": "blocked"
+  },
+  "empirical_rejection_flags": {
+    "oracle_effect_too_small": [],
+    "noise_too_high": [],
+    "oracle_effect_unstable": [],
+    "baseline_already_optimal": [],
+    "semantic_gate_too_weak": [
+      "CORE-REPEATED-BACKBONE-02",
+      "CORE-SCALAR-SYNC-01"
+    ],
+    "repair_pattern_duplicate": [],
+    "difficulty_ceiling": [],
+    "difficulty_floor": [],
+    "platform_direction_flip": [],
+    "agent_shortcut_detected": []
+  },
   "formal_50_task_results": "not_claimed",
   "split_leakage_findings": []
 }

@@ -23,6 +23,7 @@ attests the resulting store.
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import stat
 from datetime import datetime, timezone
@@ -53,7 +54,7 @@ INJECTION_POLICIES = {
     "B": {"mode": "frozen", "description": "initial snapshot only; no experience or rules injected"},
     "C": {"mode": "raw_experience_retrieval", "retrieval_budget_tokens": 4096, "description": "raw records retrieved under a matched token budget; no rule abstraction"},
     "C_STRESS": {"mode": "inbox_any", "retrieval_budget_tokens": 4096, "description": "append-only stress ablation; any inbox record is eligible"},
-    "D": {"mode": "canonical_only", "description": "only canonical rules in rules/ + registry/rules.json are eligible"},
+    "D": {"mode": "canonical_only", "retrieval_budget_tokens": 4096, "description": "only canonical rules in rules/ + registry/rules.json are eligible"},
 }
 
 
@@ -76,6 +77,10 @@ def _attest(out_dir: Path, condition: str, policy: dict[str, Any], snapshot_dir:
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "files": anticheat.hash_tree(out_dir),
     }
+    body = {key: value for key, value in manifest.items() if key != "manifest_digest"}
+    manifest["manifest_digest"] = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
     (out_dir / "condition_manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -112,6 +117,11 @@ def materialize_condition(
         raise FileNotFoundError(f"snapshot directory not found: {snapshot_dir}")
     if not (snapshot_dir / "skill_view_manifest.json").is_file():
         raise ValueError("snapshot must be a render_skill_view.py bundle, not a repository root")
+    from scripts.render_skill_view import validate_skill_view_bundle
+
+    bundle_errors = validate_skill_view_bundle(snapshot_dir)
+    if bundle_errors:
+        raise ValueError("invalid skill-view bundle: " + "; ".join(bundle_errors))
     shutil.copytree(snapshot_dir, out_dir, dirs_exist_ok=True)
 
     if condition == "B":
@@ -141,8 +151,53 @@ def verify_attestation(condition_dir: str | Path) -> tuple[bool, list[str]]:
     manifest_path = condition_dir / "condition_manifest.json"
     if not manifest_path.is_file():
         return False, ["condition_manifest.json missing"]
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, [f"invalid condition manifest: {exc}"]
+    digest = manifest.get("manifest_digest")
+    body = {key: value for key, value in manifest.items() if key != "manifest_digest"}
+    expected_digest = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    if digest != expected_digest:
+        return False, ["condition manifest digest mismatch"]
     recorded = dict(manifest.get("files", {}))
     current = anticheat.hash_tree(condition_dir)
     current.pop("condition_manifest.json", None)
     return anticheat.manifests_equal(recorded, current)
+
+
+def verify_condition_policy(condition_dir: str | Path) -> tuple[bool, list[str]]:
+    """Check mutable-store boundaries for B/C/C_STRESS without hiding writes."""
+    condition_dir = Path(condition_dir)
+    manifest_path = condition_dir / "condition_manifest.json"
+    if not manifest_path.is_file():
+        return False, ["condition_manifest.json missing"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, [f"invalid condition manifest: {exc}"]
+    body = {key: value for key, value in manifest.items() if key != "manifest_digest"}
+    expected_digest = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    if manifest.get("manifest_digest") != expected_digest:
+        return False, ["condition manifest digest mismatch"]
+    condition = manifest.get("condition")
+    baseline_files = dict(manifest.get("files", {}))
+    current_files = anticheat.hash_tree(condition_dir)
+    current_files.pop("condition_manifest.json", None)
+    baseline = set(baseline_files)
+    current = set(current_files)
+    additions = sorted(current - baseline)
+    changed = sorted(path for path in baseline & current if baseline_files[path] != current_files[path])
+    if changed:
+        return False, [f"condition store modified attested file: {path}" for path in changed]
+    if condition in {"C", "C_STRESS"}:
+        forbidden = [path for path in additions if not path.startswith("experience/inbox/")]
+        if forbidden:
+            return False, [f"{condition} store wrote outside experience/inbox: {path}" for path in forbidden]
+    elif condition == "B" and additions:
+        return False, [f"frozen B store changed: {path}" for path in additions]
+    return True, []

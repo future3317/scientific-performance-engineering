@@ -9,11 +9,12 @@ conditions A–D §9, sequential split §10, harness architecture §11).
 [INTEGRATION_REQUIREMENTS.md](INTEGRATION_REQUIREMENTS.md) lists the benchmark-local
 workarounds for core-skill gaps (no core file is ever modified).
 
-**Status:** the v1.0-20 population-validity pilot is implemented as 18 atomic
-tasks plus 2 evolution episodes. The formal target remains frozen as
-SPE-EvoBench v1.0-50 (24 SPE-Core + 20 SciML + 6 Evolution), but no formal
-50-task result is claimed. See [TASK_MATRIX.md](TASK_MATRIX.md) for the pilot,
-the remaining 19 Core + 16 SciML + 5 Evolution tasks, and the frozen split plan.
+**Status:** the v1.0-20 population-validity pilot contains 18 atomic tasks plus
+2 evolution episodes. The formal-eval driver is available for a dry-run or an
+explicit agent command, but this repository claims no formal A/B/C/D results.
+The target remains frozen as SPE-EvoBench v1.0-50 (24 SPE-Core + 20 SciML + 6
+Evolution); the remaining work is exactly 19 Core + 16 SciML + 5 Evolution
+tasks, and is gated on pilot calibration.
 
 ## Layout
 
@@ -36,10 +37,11 @@ benchmark/
     verifier.py                # S0–S6 pipeline orchestrator
     scoring.py                 # per-task + track aggregates (§8.2–8.3)
     evolution.py               # episode runner + evolution metrics (§8.4)
+    evolution_ledger.py        # monotonic replay/promotion decision ledger
     conditions.py              # A/B/C/C_STRESS/D materialization + attestation
   taskgen/                     # pilot generator and population validator
+  formal/                      # experiment manifest, schedule, driver, aggregation
   population_report.json       # deterministic v1.0-20 population summary
-    evolution_ledger.py        # monotonic replay/promotion decision ledger
     split.py                   # sequential split + leakage checker
     cli.py                     # the CLI below
   tasks/<task_id>/...          # task packages (§4)

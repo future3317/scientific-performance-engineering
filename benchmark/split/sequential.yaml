@@ -24,7 +24,7 @@ phases:
     lineage_keys:
   - index: 5
     name: poisoned_experience
-    tasks: ["SCIML-GRAPH-REBUILD-08"]
+    tasks: ["EVOL-EPISODE-POISON-10", "SCIML-GRAPH-REBUILD-08"]
     lineage_keys:
       - ["crystal_sampling", "graph_rebuild", "fairchem-shaped", "MT-GRAPH-REBUILD-DO-NOT-APPLY-V1"]
   - index: 6

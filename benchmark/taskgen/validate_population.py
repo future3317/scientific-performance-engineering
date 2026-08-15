@@ -21,6 +21,18 @@ ATOMIC_REQUIRED = (
     "workspace_ast_skeleton_hash", "difficulty_tier",
 )
 EXPECTED_COUNTS = {"spe_core": 11, "sciml": 7, "evolution": 2}
+EMPIRICAL_FLAGS = (
+    "oracle_effect_too_small",
+    "noise_too_high",
+    "oracle_effect_unstable",
+    "baseline_already_optimal",
+    "semantic_gate_too_weak",
+    "repair_pattern_duplicate",
+    "difficulty_ceiling",
+    "difficulty_floor",
+    "platform_direction_flip",
+    "agent_shortcut_detected",
+)
 
 
 def _artifact_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
@@ -89,7 +101,109 @@ def _isolated_validate_task(task_dir: Path) -> list[str]:
     return [output or "isolated validate-task failed"]
 
 
-def build_report(tasks_root: str | Path) -> tuple[dict[str, Any], list[str]]:
+def _empirical_flags(
+    specs: list[dict[str, Any]], empirical_path: Path | None, duplicate_findings: list[dict[str, Any]],
+) -> tuple[dict[str, list[str]], dict[str, Any]]:
+    """Translate measured pilot evidence into replacement/review flags.
+
+    The validator remains structural when no measurements are supplied.  In
+    that case the report explicitly stays ``pending`` rather than treating
+    declared oracle ranges as empirical evidence.
+    """
+    flags = {name: [] for name in EMPIRICAL_FLAGS}
+    for finding in duplicate_findings:
+        if finding.get("type") in {"same_fix_pattern", "exact"}:
+            flags["repair_pattern_duplicate"].extend(str(item) for item in finding.get("task_ids", []))
+    for spec in specs:
+        if spec.get("track") != "evolution" and not spec.get("scientific_gates"):
+            flags["semantic_gate_too_weak"].append(str(spec.get("task_id")))
+    for name in flags:
+        flags[name] = sorted(set(flags[name]))
+    if empirical_path is None:
+        return flags, {"status": "pending", "source": None, "hard_flags": [], "calibration_gate": "blocked"}
+
+    try:
+        payload = json.loads(empirical_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return flags, {
+            "status": "invalid",
+            "source": str(empirical_path),
+            "hard_flags": [f"empirical input unreadable: {exc}"],
+            "calibration_gate": "blocked",
+        }
+    records = payload.get("tasks") if isinstance(payload, dict) else None
+    if not isinstance(records, list):
+        return flags, {
+            "status": "invalid",
+            "source": str(empirical_path),
+            "hard_flags": ["empirical input must contain a tasks list"],
+            "calibration_gate": "blocked",
+        }
+    specs_by_id = {str(spec.get("task_id")): spec for spec in specs}
+    seen: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        task_id = str(record.get("task_id", ""))
+        if task_id not in specs_by_id:
+            continue
+        seen.add(task_id)
+        spec = specs_by_id[task_id]
+        measurement = spec.get("measurement", {})
+        noise_limit = float(measurement.get("noise_floor_percent", 2.0))
+        min_improvement = float(measurement.get("min_improvement_percent", 5.0))
+        threshold = max(noise_limit, min_improvement)
+        low = record.get("oracle_ci_low_percent")
+        high = record.get("oracle_ci_high_percent")
+        if isinstance(high, (int, float)) and high < threshold:
+            flags["oracle_effect_too_small"].append(task_id)
+        elif isinstance(low, (int, float)) and low < threshold:
+            flags["oracle_effect_unstable"].append(task_id)
+        baseline = record.get("baseline_speedups")
+        if isinstance(baseline, list) and baseline and all(
+            isinstance(value, (int, float)) and float(value) <= 1.0 + noise_limit / 100.0 for value in baseline
+        ):
+            flags["baseline_already_optimal"].append(task_id)
+        control_noise = record.get("control_noise_percent")
+        if isinstance(control_noise, list) and control_noise and any(
+            isinstance(value, (int, float)) and float(value) > noise_limit for value in control_noise
+        ):
+            flags["noise_too_high"].append(task_id)
+        gate_rate = record.get("semantic_gate_pass_rate")
+        if isinstance(gate_rate, (int, float)) and float(gate_rate) < 1.0:
+            flags["semantic_gate_too_weak"].append(task_id)
+        elif not spec.get("scientific_gates"):
+            flags["semantic_gate_too_weak"].append(task_id)
+        effects = record.get("platform_effects")
+        if isinstance(effects, dict):
+            numeric = [float(value) for value in effects.values() if isinstance(value, (int, float))]
+            if numeric and min(numeric) < 0 < max(numeric):
+                flags["platform_direction_flip"].append(task_id)
+        if record.get("agent_shortcut_detected") is True:
+            flags["agent_shortcut_detected"].append(task_id)
+        difficulty = record.get("difficulty_score")
+        if isinstance(difficulty, (int, float)):
+            if float(difficulty) >= 0.8:
+                flags["difficulty_ceiling"].append(task_id)
+            elif float(difficulty) <= 0.2:
+                flags["difficulty_floor"].append(task_id)
+    for name in flags:
+        flags[name] = sorted(set(flags[name]))
+    hard_flags = [name for name, task_ids in flags.items() if task_ids]
+    missing = sorted(set(specs_by_id) - seen)
+    if missing:
+        hard_flags.append("missing_empirical_task_records")
+    return flags, {
+        "status": "observed",
+        "source": str(empirical_path),
+        "records": len(records),
+        "missing_task_ids": missing,
+        "hard_flags": sorted(set(hard_flags)),
+        "calibration_gate": "blocked" if hard_flags else "ready_for_review",
+    }
+
+
+def build_report(tasks_root: str | Path, empirical_path: str | Path | None = None) -> tuple[dict[str, Any], list[str]]:
     tasks_root = Path(tasks_root)
     errors: list[str] = []
     specs: list[dict[str, Any]] = []
@@ -149,6 +263,10 @@ def build_report(tasks_root: str | Path) -> tuple[dict[str, Any], list[str]]:
             duplicate_findings.append({"type": "lineage", "key": key, "task_ids": ids})
             errors.append(f"explicit lineage leak: {ids}")
 
+    empirical_flags, empirical_calibration = _empirical_flags(
+        specs, Path(empirical_path) if empirical_path is not None else None, duplicate_findings
+    )
+
     report = {
         "schema_version": 1,
         "population_id": "SPE-EvoBench-v1.0-20-pilot",
@@ -171,6 +289,8 @@ def build_report(tasks_root: str | Path) -> tuple[dict[str, Any], list[str]]:
             "counterexample_or_do_not_apply": sum(spec.get("kind") in {"counterexample", "do_not_apply"} for spec in specs if spec.get("track") != "evolution"),
         },
         "lineage_leakage_checked": True,
+        "empirical_calibration": empirical_calibration,
+        "empirical_rejection_flags": empirical_flags,
         "formal_50_task_results": "not_claimed",
     }
     return report, errors
@@ -181,8 +301,9 @@ def main() -> int:
     parser.add_argument("--tasks-root", type=Path, default=Path(__file__).resolve().parents[1] / "tasks")
     parser.add_argument("--split", type=Path, default=Path(__file__).resolve().parents[1] / "split" / "sequential.yaml")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--empirical", type=Path, default=None, help="measured pilot JSON; omitted means calibration pending")
     args = parser.parse_args()
-    report, errors = build_report(args.tasks_root)
+    report, errors = build_report(args.tasks_root, args.empirical)
     split_errors = check_leakage(args.split, args.tasks_root)
     errors.extend(split_errors)
     report["split_leakage_findings"] = split_errors

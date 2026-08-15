@@ -1,0 +1,16 @@
+{
+  "task_id": "REAL-TORCHBENCH-MULTIFILE-01",
+  "lane": "real_artifact_feasibility",
+  "formal_population": false,
+  "repository": "https://github.com/pytorch/benchmark",
+  "pinned_commit": "24755807fbfdd0e9b7426f1c69a96e77aa05137a",
+  "network": "disabled",
+  "fixture": "fixture/inputs.json",
+  "candidate_paths": [
+    "torchbenchmark/util/model.py",
+    "torchbenchmark/util/env_check.py"
+  ],
+  "oracle_patch": "oracle.patch",
+  "hidden_verifier": "hidden_verifier.py",
+  "acceptance": "preserve model outputs and measured work units while removing repeated host scalar synchronization"
+}
