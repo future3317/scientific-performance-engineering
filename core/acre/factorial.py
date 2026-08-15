@@ -37,13 +37,14 @@ class FactorialBlock:
 
 @dataclass(frozen=True)
 class FactorialEstimate:
-    interaction: float
-    ci_low: float
-    ci_high: float
-    classification: str
-    main_effect_a: float
-    main_effect_b: float
-    joint_effect: float
+    gamma: float
+    gamma_lcb: float
+    gamma_ucb: float
+    delta_a_given_b0: float
+    delta_a_given_b1: float
+    delta_b_given_a0: float
+    delta_b_given_a1: float
+    decision: str
     blocks: int
 
 
@@ -55,11 +56,9 @@ class CoverageResult:
     repetitions: int
 
 
-def _time_uniform_radius(n: int, delta: float) -> float:
-    # Allocate delta over all future sample counts, so every inspected
-    # endpoint remains covered without a fixed stopping horizon.
-    delta_n = delta / (n * (n + 1))
-    return math.sqrt(2.0 * math.log(2.0 / delta_n) / n)
+def _bounded_radius(n: int, delta: float) -> float:
+    """Hoeffding radius for a predeclared, fixed block set."""
+    return math.sqrt(2.0 * math.log(2.0 / delta) / n)
 
 
 class FactorialEngine:
@@ -71,11 +70,13 @@ class FactorialEngine:
         self.delta = delta
         self.practical_margin = practical_margin
         self._blocks: list[FactorialBlock] = []
+        self._block_ids: set[str] = set()
 
     def add_block(self, block: FactorialBlock) -> None:
-        if any(existing.block_id == block.block_id for existing in self._blocks):
+        if block.block_id in self._block_ids:
             raise ValueError(f"duplicate factorial block: {block.block_id}")
         self._blocks.append(block)
+        self._block_ids.add(block.block_id)
 
     def estimate(self) -> FactorialEstimate:
         if not self._blocks:
@@ -84,36 +85,52 @@ class FactorialEngine:
         values = {arm: [float(block.outcomes[arm]) for block in self._blocks] for arm in _ARMS}
         means = {arm: sum(samples) / n for arm, samples in values.items()}
         interaction_samples = [block.normalized_interaction for block in self._blocks]
-        interaction = sum(interaction_samples) / n
-        radius = min(1.0, _time_uniform_radius(n, self.delta))
-        ci_low, ci_high = max(-1.0, interaction - radius), min(1.0, interaction + radius)
-        main_a = means["10"] - means["00"]
-        main_b = means["01"] - means["00"]
-        joint = means["11"] - means["00"]
-        # A prerequisite has a beneficial joint effect while one arm alone
-        # has no detectable effect.  Check this before the generic interaction
-        # labels because prerequisites necessarily create positive contrast.
-        prerequisite = joint > self.practical_margin and (main_a <= self.practical_margin or main_b <= self.practical_margin)
-        if prerequisite:
-            classification = "prerequisite"
-        # The categorical estimate is a descriptive effect label; the
-        # interval remains the separately reported evidence gate.  This lets
-        # a complete block identify a large interaction while callers can
-        # require the CI to clear a margin before promotion.
-        elif interaction > self.practical_margin:
-            classification = "synergy"
-        elif interaction < -self.practical_margin:
-            classification = "antagonism"
+        gamma = sum(interaction_samples) / n
+        radius = min(1.0, _bounded_radius(n, self.delta))
+        gamma_lcb, gamma_ucb = max(-1.0, gamma - radius), min(1.0, gamma + radius)
+        delta_a_b0 = means["10"] - means["00"]
+        delta_a_b1 = means["11"] - means["01"]
+        delta_b_a0 = means["01"] - means["00"]
+        delta_b_a1 = means["11"] - means["10"]
+        margin = self.practical_margin
+        # Use the same bounded radius for the conditional effects.  A
+        # prerequisite is directional only when the present-partner effect is
+        # confidently above the margin and the absent-partner effect is
+        # confidently inside the practical-null interval.
+        def confidently_positive(value: float) -> bool:
+            return value - radius > margin
+
+        def confidently_null(value: float) -> bool:
+            return -margin < value - radius and value + radius < margin
+
+        # Relation decisions are confidence-gated.  Prerequisite direction is
+        # identified by a positive conditional effect only after the other
+        # intervention is present, while its absent-partner effect stays in
+        # the practical null region.
+        if gamma_lcb > margin:
+            if confidently_positive(delta_b_a1) and confidently_null(delta_b_a0):
+                decision = "prerequisite_a_to_b"
+            elif confidently_positive(delta_a_b1) and confidently_null(delta_a_b0):
+                decision = "prerequisite_b_to_a"
+            else:
+                decision = "confirmed_synergy"
+        elif gamma_ucb < -margin:
+            decision = "confirmed_antagonism"
+        elif gamma_lcb >= -margin and gamma_ucb <= margin:
+            decision = "confirmed_independence"
+        elif delta_a_b1 < -margin or delta_b_a1 < -margin:
+            decision = "semantic_conflict"
         else:
-            classification = "independence"
+            decision = "unresolved"
         return FactorialEstimate(
-            interaction=interaction,
-            ci_low=ci_low,
-            ci_high=ci_high,
-            classification=classification,
-            main_effect_a=main_a,
-            main_effect_b=main_b,
-            joint_effect=joint,
+            gamma=gamma,
+            gamma_lcb=gamma_lcb,
+            gamma_ucb=gamma_ucb,
+            delta_a_given_b0=delta_a_b0,
+            delta_a_given_b1=delta_a_b1,
+            delta_b_given_a0=delta_b_a0,
+            delta_b_given_a1=delta_b_a1,
+            decision=decision,
             blocks=n,
         )
 
@@ -143,6 +160,6 @@ def simulate_coverage(
             outcomes = {arm: value + rng.uniform(-noise, noise) for arm, value in latent.items()}
             engine.add_block(FactorialBlock(f"{block_index}", outcomes))
         estimate = engine.estimate()
-        if estimate.ci_low <= true_interaction <= estimate.ci_high:
+        if estimate.gamma_lcb <= true_interaction <= estimate.gamma_ucb:
             covered += 1
     return CoverageResult(true_interaction, covered / repetitions, covered, repetitions)

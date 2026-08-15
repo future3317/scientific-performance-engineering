@@ -1,13 +1,17 @@
-"""Deterministic ACRE predicate, interaction, acquisition, and routing primitives."""
+"""Core-owned ACRE semantics and orchestration primitives."""
 
-from .predicate_synthesis import PredicateGrammar, SynthesisResult, SYNTHESIZER_VERSION
+from .predicates import PredicateGrammar, SYNTHESIZER_VERSION, predicate_complexity
+from .cegis import BoundaryObservation, StatisticalCEGIS, SynthesisResult
 from .factorial import CoverageResult, FactorialBlock, FactorialEngine, FactorialEstimate, simulate_coverage
 from .acquisition import AcquisitionPolicy, AcquisitionQuery, AcquisitionResult, run_acquisition
-from .router import ConservativeCausalRouter, InteractionEvidence, RuleCandidate, RoutingDecision
+from .router import ConservativeCausalRouter, RoutingDecision
+from .engine import AcreEngine
+from core.governance import EvolutionDecision
 
 __all__ = [
-    "PredicateGrammar", "SynthesisResult", "SYNTHESIZER_VERSION",
+    "PredicateGrammar", "predicate_complexity", "SynthesisResult", "StatisticalCEGIS", "BoundaryObservation", "SYNTHESIZER_VERSION",
     "CoverageResult", "FactorialBlock", "FactorialEngine", "FactorialEstimate", "simulate_coverage",
     "AcquisitionPolicy", "AcquisitionQuery", "AcquisitionResult", "run_acquisition",
-    "ConservativeCausalRouter", "InteractionEvidence", "RuleCandidate", "RoutingDecision",
+    "ConservativeCausalRouter", "RoutingDecision",
+    "AcreEngine", "EvolutionDecision",
 ]

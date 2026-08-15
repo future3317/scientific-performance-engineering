@@ -15,6 +15,11 @@ all positive representative anchors and rejects every certified counterexample.
 Uncertain effects are retained as unresolved evidence and cannot shrink the
 version space.
 
+Ownership is explicit: `core/acre/predicates.py` and `core/acre/cegis.py`
+define predicate semantics and synthesis, while this package only constructs
+the hidden pools and evaluates the returned predicate through `evaluator.py`.
+Boundary code must not define a second synthesis or promotion algorithm.
+
 Run:
 
 ```powershell

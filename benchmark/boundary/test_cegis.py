@@ -9,9 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from benchmark.boundary.cegis import BoundaryObservation, StatisticalCEGIS
+from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
 from benchmark.boundary.families import family_cases, run_boundary_family
-from core.acre.predicate_synthesis import PredicateGrammar
+from core.acre.predicates import PredicateGrammar
 from core.predicates import match_predicate
 
 

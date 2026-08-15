@@ -105,20 +105,27 @@ def evaluate_cases(
 
 
 def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Materialize the paired replay as auditable on/off EvidenceEvents."""
+    """Materialize paired replay directly as canonical EvidenceEvent v2."""
     events: list[dict[str, Any]] = []
     for index, case in enumerate(payload["cases"]):
-        common = {"revision": case.get("revision", payload.get("revision", "unknown")), "seed_family": case.get("seed_family", payload.get("seed_family", "replay"))}
+        common = dict(case.get("context") or {})
+        common.setdefault("revision", case.get("revision", payload.get("revision", "unknown")))
+        common.setdefault("seed_family", case.get("seed_family", payload.get("seed_family", "replay")))
+        common.setdefault("rule_versions", {})
+        versions = dict(common["rule_versions"])
+        versions[payload["rule_id"]] = int(payload.get("rule_version", 1))
+        common["rule_versions"] = versions
         for arm in ("on", "off"):
             events.append({
-                "event_id": f"{case.get('case_id', index)}-{arm}", "context": case.get("context", common),
-                "rule_id": payload["rule_id"], "rule_version": int(payload.get("rule_version", 1)),
-                "assignment": {"arm": arm, "propensity": float(case.get("propensity", 0.5))},
+                "schema_version": 2,
+                "event_id": f"{case.get('case_id', index)}-{arm}", "context": common,
+                "assignment": {"interventions": {payload["rule_id"]: int(arm == "on")}, "propensity": float(case.get("propensity", 0.5)), "design_id": "paired-replay-v2"},
+                "evidence_stream": "representative", "query_id": str(case.get("query_id", case.get("case_id", index))),
                 "outcome_vector": {"utility": float(case["utility_on"] if arm == "on" else case["utility_off"])},
                 "scientific_gates": {"scientific_ok": bool(case.get("scientific_ok", False)), "quality_ok": bool(case.get("quality_ok", True))},
                 "artifacts": case.get("artifacts", {}), "versions": case.get("versions", {}),
-                "source_id": case.get("source_id", f"replay-{index}"), "independence_group": case.get("independence_group", "replay"),
-                "timestamp": case.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                "source_id": case.get("source_id", f"replay-{index}"), "independence_group": case.get("independence_group", f"replay-{index}"),
+                "timestamp": case.get("timestamp", datetime.now(timezone.utc).isoformat()), "trust_zone": "local", "attacker_controlled_fields": [],
             })
     return events
 

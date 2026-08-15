@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .cegis import BoundaryObservation, StatisticalCEGIS
-from core.acre.predicate_synthesis import PredicateGrammar
-from core.predicates import match_predicate
+from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
+from core.acre.predicates import PredicateGrammar
+from .evaluator import sealed_errors
 
 
 @dataclass(frozen=True)
@@ -59,17 +59,12 @@ def run_boundary_family(family: str) -> dict[str, Any]:
         counterexamples=counterexamples,
         parent_predicate=parent,
     )
-    sealed_errors = 0
-    if result.predicate is not None:
-        sealed_errors = sum(
-            int(bool(match_predicate(result.predicate, item.context)) != item.expected_applicable)
-            for item in pools["sealed_test_pool"]
-        )
+    errors = sealed_errors(result.predicate, pools["sealed_test_pool"])
     return {
         "family": family,
         "status": result.status,
         "predicate": result.predicate,
-        "sealed_errors": sealed_errors,
+        "sealed_errors": errors,
         "result": result.to_dict(),
         "pool_sizes": {name: len(items) for name, items in pools.items()},
     }

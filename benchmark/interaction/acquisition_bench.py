@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, run_acquisition
+from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
 
 
 def _fixture() -> tuple[list[AcquisitionQuery], dict[str, bool], dict[str, bool]]:
@@ -22,12 +22,19 @@ def _fixture() -> tuple[list[AcquisitionQuery], dict[str, bool], dict[str, bool]
 def run_acquisition_benchmark(*, target_error: float = 0.0, seed: int = 7) -> dict[str, object]:
     queries, labels, truths = _fixture()
     results = {
-        policy.value: run_acquisition(queries, labels, truths, policy, target_error=target_error, seed=seed)
+        policy.value: (
+            run_acquisition(queries, labels, policy, confidence_target=0.9, seed=seed),
+            truths,
+        )
         for policy in AcquisitionPolicy
+    }
+    evaluations = {
+        name: evaluate_trajectory(trajectory, queries, labels, truths, target_error=target_error)
+        for name, (trajectory, truths) in results.items()
     }
     return {
         "target_error": target_error,
-        "cost_to_target": {name: result.cost_to_target for name, result in results.items()},
-        "final_error": {name: result.final_error for name, result in results.items()},
-        "selected_query_ids": {name: list(result.selected_query_ids) for name, result in results.items()},
+        "cost_to_target": {name: evaluation.cost_to_target for name, evaluation in evaluations.items()},
+        "final_error": {name: evaluation.final_error for name, evaluation in evaluations.items()},
+        "selected_query_ids": {name: list(trajectory.selected_query_ids) for name, (trajectory, _) in results.items()},
     }

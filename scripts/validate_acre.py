@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import sys
 from pathlib import Path
 
@@ -15,11 +16,34 @@ from benchmark.boundary.families import family_cases, run_boundary_family
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
 from benchmark.interaction.factorial_bench import run_factorial_benchmark
 from benchmark.interaction.router_bench import run_router_benchmark
-from core.acre.predicate_synthesis import PredicateGrammar, SYNTHESIZER_VERSION
+from core.acre.predicates import PredicateGrammar, SYNTHESIZER_VERSION
+
+
+def validate_method_ownership(root: Path) -> list[str]:
+    """Keep method semantics in core; benchmark modules only build/evaluate fixtures."""
+    errors: list[str] = []
+    boundary_root = root / "benchmark" / "boundary"
+    interaction_root = root / "benchmark" / "interaction"
+    if (boundary_root / "cegis.py").exists():
+        errors.append("benchmark/boundary/cegis.py must not exist; CEGIS is core-owned")
+    forbidden_classes = {"StatisticalCEGIS", "ConservativeCausalRouter", "FactorialEngine", "AcreEngine"}
+    forbidden_names = {"RuleCandidate", "InteractionEvidence", "EvolutionDecision"}
+    for directory in (boundary_root, interaction_root):
+        for path in directory.rglob("*.py"):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (OSError, SyntaxError) as exc:
+                errors.append(f"ownership parse failure {path}: {exc}")
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name in forbidden_classes | forbidden_names:
+                    errors.append(f"benchmark method implementation {node.name} in {path}")
+    return errors
 
 
 def validate(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
+    errors.extend(validate_method_ownership(root))
     try:
         grammar = PredicateGrammar.from_dict(json.loads((root / "assets" / "predicate_grammar.json").read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError, ValueError) as exc:
@@ -45,8 +69,8 @@ def validate(root: Path = ROOT) -> list[str]:
         if first["result"]["synthesizer_version"] != SYNTHESIZER_VERSION:
             errors.append(f"{family}: missing synthesizer provenance")
     factorial = run_factorial_benchmark()
-    expected_kinds = {"synergy", "antagonism", "independence", "prerequisite"}
-    if set(factorial["classifications"]) != expected_kinds or set(factorial["classifications"].values()) != expected_kinds:
+    expected_kinds = {"confirmed_synergy", "confirmed_antagonism", "confirmed_independence", "prerequisite_a_to_b"}
+    if set(factorial["classifications"].values()) != expected_kinds:
         errors.append("factorial: interaction classes were not recovered")
     if float(factorial["coverage"]) < 0.93:
         errors.append("factorial: confidence interval coverage below pilot threshold")

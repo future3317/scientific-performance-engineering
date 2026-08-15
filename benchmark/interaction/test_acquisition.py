@@ -3,6 +3,7 @@ from __future__ import annotations
 from core.acre.acquisition import (
     AcquisitionQuery,
     AcquisitionPolicy,
+    evaluate_trajectory,
     run_acquisition,
 )
 
@@ -23,19 +24,40 @@ def pool() -> tuple[list[AcquisitionQuery], dict[str, bool], dict[str, bool]]:
 
 def test_decision_aware_acquisition_reaches_target_with_cost_report() -> None:
     queries, labels, truths = pool()
-    result = run_acquisition(queries, labels, truths, AcquisitionPolicy.DECISION_AWARE, target_error=0.0)
-    assert result.target_reached
-    assert result.cost_to_target == 4.0
-    assert result.final_error == 0.0
+    result = run_acquisition(queries, labels, AcquisitionPolicy.DECISION_AWARE, confidence_target=0.9)
+    evaluation = evaluate_trajectory(result, queries, labels, truths, target_error=0.0)
+    assert evaluation.target_reached
+    assert evaluation.cost_to_target == 4.0
+    assert evaluation.final_error == 0.0
 
 
 def test_policies_share_pool_and_selection_has_no_sealed_labels() -> None:
     queries, labels, truths = pool()
     for policy in AcquisitionPolicy:
-        result = run_acquisition(queries, labels, truths, policy, target_error=0.0)
+        result = run_acquisition(queries, labels, policy, confidence_target=0.9)
         assert set(result.selected_query_ids) <= {query.query_id for query in queries}
         assert result.cumulative_cost[-1] == result.total_cost
         assert all("label" not in selection for selection in result.selection_trace)
+
+
+def test_decision_value_is_recomputed_from_revealed_posterior() -> None:
+    queries, labels, _ = pool()
+    states: list[dict[str, tuple[bool, ...]]] = []
+
+    def decision_value(query: AcquisitionQuery, observations: dict[str, list[bool]]) -> float:
+        states.append({edge: tuple(values) for edge, values in observations.items()})
+        return 1.0 if query.edge_id not in observations else 0.1
+
+    result = run_acquisition(
+        queries,
+        labels,
+        AcquisitionPolicy.DECISION_AWARE,
+        confidence_target=0.9,
+        decision_value_fn=decision_value,
+    )
+    assert states and states[0] == {}
+    assert any(state for state in states[1:])
+    assert all("decision_value" in item for item in result.selection_trace)
 
 
 def test_query_contract_rejects_invalid_cost() -> None:

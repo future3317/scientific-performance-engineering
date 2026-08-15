@@ -30,6 +30,21 @@ def candidate(severity: str) -> dict:
     }
 
 
+def relation_candidate() -> dict:
+    return {
+        "relation_id": "REL-TEST-001",
+        "version": 1,
+        "parent": None,
+        "rule_ids": ["RULE-A", "RULE-B"],
+        "kind": "synergy",
+        "applicability": {"equals": {"workload": "graph"}},
+        "contrast_definition": {"quantity": "gamma"},
+        "practical_margin": 0.05,
+        "scientific_invariants": [],
+        "provenance_policy": {"required": True},
+    }
+
+
 def main() -> None:
     passed = {"outcome": "passed", "result_digest": "d" * 64}
     assert evaluate_candidate(candidate("P1"), passed).status == "review_required"
@@ -56,6 +71,12 @@ def main() -> None:
         assert decision.allowed
         card = json.loads((root / "rules" / "PERF-TEST-001.json").read_text(encoding="utf-8"))
         assert card["status"] == "canonical" and card["promotion"]["mode"] == "bounded-auto"
+        relation_decision = apply_promotion(root, relation_candidate(), passed, replay_path="evolution/relation.json")
+        assert relation_decision.allowed and relation_decision.subject_type == "relation"
+        relation_card = json.loads((root / "relations" / "REL-TEST-001.json").read_text(encoding="utf-8"))
+        relation_registry = json.loads((root / "registry" / "relations.json").read_text(encoding="utf-8"))
+        assert relation_card["relation_id"] == "REL-TEST-001" and relation_card["status"] == "canonical"
+        assert relation_registry["relations"][0]["relation_id"] == "REL-TEST-001"
 
     print("governance tests: ok")
 
