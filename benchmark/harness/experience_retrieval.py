@@ -47,10 +47,13 @@ class RawExperienceRetriever:
     def propose_interventions(self, query: str = "") -> list[str]:
         actions: list[str] = []
         for record in self.retrieve(query):
-            intervention = record.get("intervention")
-            if isinstance(intervention, dict) and intervention.get("action"):
-                actions.append(str(intervention["action"]))
-            lesson = record.get("lesson")
-            if isinstance(lesson, dict) and lesson.get("text") and not actions:
-                actions.append(str(lesson["text"]))
-        return actions
+            if record.get("record_type") != "causal_evidence":
+                lesson = record.get("lesson")
+                proposed = lesson.get("proposed_interventions", []) if isinstance(lesson, dict) else []
+                if isinstance(proposed, list):
+                    actions.extend(str(item) for item in proposed if item)
+                continue
+            intervention = record.get("assignment", {}).get("interventions", {})
+            if isinstance(intervention, dict):
+                actions.extend(str(action) for action, value in intervention.items() if value == 1)
+        return list(dict.fromkeys(actions))

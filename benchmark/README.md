@@ -70,6 +70,16 @@ an invalid trial. After verification, each task records an explicit evidence,
 maintenance, and store-attestation transition; C remains raw-experience-only,
 while D is the only condition allowed to promote governed rules.
 
+Formal worker treatment is namespace-based: an agent run must supply an external
+container or namespace executor with `--executor-command`. The executor mounts only
+the materialized `public_task.json`, writable solution workspace, public tests, and
+pre-task `retrieved_context.json`; the benchmark root, verifier, hidden task package,
+and condition store remain outside the worker namespace. `reset` is the default
+context mode and starts each task without prior trajectory context. The formal
+interaction report uses `wrong_relation_rate_among_resolved`, `unresolved_rate`,
+and `total_identification_failure_rate`; unresolved decisions are not counted as
+wrong relations.
+
 ## Layout
 
 ```

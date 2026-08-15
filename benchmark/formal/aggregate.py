@@ -88,8 +88,12 @@ def _hierarchical_ci(
                     sampled_values.append(rng.choice(trials))
         bootstrap_means.append(sum(sampled_values) / len(sampled_values))
     bootstrap_means.sort()
+    family_means = []
+    for family in families:
+        values = [value for _family, _lineage, _task, _trial, value in observations if _family == family]
+        family_means.append(sum(values) / len(values))
     return {
-        "estimate": sum(item[-1] for item in observations) / len(observations),
+        "estimate": sum(family_means) / len(family_means),
         "ci_low": bootstrap_means[int(0.025 * (len(bootstrap_means) - 1))],
         "ci_high": bootstrap_means[int(0.975 * (len(bootstrap_means) - 1))],
         "n": len(observations),

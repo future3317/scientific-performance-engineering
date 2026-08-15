@@ -7,7 +7,7 @@
   "required": [
     "schema_version", "experiment_id", "benchmark_revision", "skill_view_digest",
     "task_manifest_digest", "agent_model_id", "agent_config", "condition",
-    "context_mode", "task_order", "outer_trial_id", "budgets",
+    "context_mode", "worker_isolation", "task_order", "outer_trial_id", "budgets",
     "hardware_fingerprint", "software_fingerprint", "torch_version", "cuda_version"
   ],
   "properties": {
@@ -20,6 +20,12 @@
     "agent_config": {"type": "object"},
     "condition": {"enum": ["A", "B", "C", "C_STRESS", "D"]},
     "context_mode": {"enum": ["reset", "carry"]},
+    "worker_isolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {"mode": {"const": "external_namespace_executor"}}
+    },
     "task_order": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     "outer_trial_id": {"type": "string", "minLength": 1},
     "budgets": {"type": "object", "required": ["tokens", "tool_calls", "wall_time_s"]},

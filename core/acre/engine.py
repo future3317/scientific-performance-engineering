@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+import json
+from pathlib import Path
 from typing import Any
 
 from core.governance import EvolutionDecision
@@ -20,14 +22,89 @@ class AcreEngine:
         rule_states: Mapping[str, RuleState] | None = None,
         relation_specs: Sequence[RelationSpec] = (),
         relation_states: Mapping[str, RelationState] | None = None,
+        higher_order_certificates: Mapping[str, Any] | None = None,
         query_proposer: Callable[[TaskContext | Mapping[str, Any], Sequence[EvidenceEvent]], Any] | None = None,
     ) -> None:
         self.rule_specs = tuple(rule_specs)
         self.rule_states = dict(rule_states or {})
         self.relation_specs = tuple(relation_specs)
         self.relation_states = dict(relation_states or {})
+        self.higher_order_certificates = dict(higher_order_certificates or {})
         self._query_proposer = query_proposer
         self._controller = AcreController()
+
+    @classmethod
+    def from_store(cls, store: str | Path) -> "AcreEngine":
+        """Load one governed store without manufacturing lifecycle state."""
+        root = Path(store)
+        if not root.is_dir():
+            raise FileNotFoundError(f"condition store not found: {root}")
+
+        def read(path: Path) -> dict[str, Any]:
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValueError(f"invalid governed artifact: {path}") from exc
+            if not isinstance(value, dict):
+                raise ValueError(f"governed artifact must be an object: {path}")
+            return value
+
+        def load_state(directory: Path, identifier: str) -> dict[str, Any]:
+            candidates = (
+                directory / f"{identifier}.state.json",
+                root / "states" / directory.name / f"{identifier}.json",
+                root / "relation_states" / f"{identifier}.json",
+                root / f"{directory.name}_states" / f"{identifier}.json",
+            )
+            for candidate in candidates:
+                if candidate.is_file():
+                    return read(candidate)
+            raise ValueError(f"missing materialized state for {identifier}")
+
+        rule_specs: list[RuleSpec] = []
+        rule_states: dict[str, RuleState] = {}
+        rules_dir = root / "rules"
+        rule_paths = sorted(rules_dir.glob("*.json")) if rules_dir.is_dir() else []
+        for path in rule_paths:
+            if path.name.endswith(".state.json"):
+                continue
+            card = read(path)
+            spec = RuleSpec.from_dict(card)
+            raw_state = card.get("state") if isinstance(card.get("state"), dict) else load_state(rules_dir, spec.rule_id)
+            state = RuleState.from_dict(raw_state.get("state", raw_state))
+            if spec.rule_id != state.rule_id or spec.version != state.version:
+                raise ValueError(f"rule spec/state version mismatch: {spec.rule_id}")
+            rule_specs.append(spec)
+            rule_states[spec.rule_id] = state
+
+        relation_specs: list[RelationSpec] = []
+        relation_states: dict[str, RelationState] = {}
+        relations_dir = root / "relations"
+        relation_paths = sorted(relations_dir.glob("*.json")) if relations_dir.is_dir() else []
+        for path in relation_paths:
+            if path.name.endswith(".state.json"):
+                continue
+            card = read(path)
+            spec = RelationSpec.from_dict(card)
+            raw_state = card.get("state") if isinstance(card.get("state"), dict) else load_state(relations_dir, spec.relation_id)
+            state = RelationState.from_dict(raw_state.get("state", raw_state))
+            if spec.relation_id != state.relation_id or spec.version != state.version:
+                raise ValueError(f"relation spec/state version mismatch: {spec.relation_id}")
+            relation_specs.append(spec)
+            relation_states[spec.relation_id] = state
+
+        certificates: dict[str, Any] = {}
+        certificate_dir = root / "evolution" / "certificates"
+        if certificate_dir.is_dir():
+            for path in sorted(certificate_dir.glob("*.json")):
+                certificates[path.stem] = read(path)
+        return cls(
+            rule_specs=rule_specs,
+            rule_states=rule_states,
+            relation_specs=relation_specs,
+            relation_states=relation_states,
+            higher_order_certificates=certificates,
+        )
 
     def observe(self, event: EvidenceEvent | Mapping[str, Any]) -> EvidenceEvent:
         return self._controller.observe(event)

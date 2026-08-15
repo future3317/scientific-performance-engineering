@@ -81,6 +81,7 @@ def evaluate_cases(
     # This descriptive interval is not used for promotion; promotion uses the
     # time-uniform Bernoulli boundary below.
     lower_confidence_bound = mean_effect - 1.96 * standard_error
+    upper_confidence_bound = mean_effect + 1.96 * standard_error
     promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), delta)
     outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
     return {
@@ -89,6 +90,7 @@ def evaluate_cases(
         "utility_policy_id": utility_policy_id,
         "utility_scale": utility_scale,
         "lower_confidence_bound": lower_confidence_bound,
+        "upper_confidence_bound": upper_confidence_bound,
         "epsilon": epsilon,
         "successes": successes,
         "failures": failures,

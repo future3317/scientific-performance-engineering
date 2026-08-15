@@ -48,6 +48,8 @@ PIPELINE_DIRS = (
     "evolution/maintenance_reports",
     "evolution/retired",
     "rules",
+    "relations",
+    "relation_states",
     "registry",
     "tests/rule_cases",
 )

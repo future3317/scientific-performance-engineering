@@ -41,6 +41,7 @@ def main() -> None:
         "agent_config": {},
         "condition": "D",
         "context_mode": "reset",
+        "worker_isolation": {"mode": "external_namespace_executor"},
         "task_order": [task_id for _, task_id in ordered],
         "outer_trial_id": "outer-000",
         "budgets": budget.parse_budget(None).as_dict(),

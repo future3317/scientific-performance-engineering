@@ -79,7 +79,9 @@ def test_higher_order_null_state_is_distinct_from_unresolved() -> None:
 
     blocks = [ThreeWayBlock(str(index), {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}) for index in range(2048)]
     estimate = estimate_higher_order(blocks, practical_margin=0.05)
-    assert estimate.status == "confirmed_negligible"
+    # The formal certificate now uses the coverage-preserving Hoeffding bound;
+    # a null point estimate need not be certified inside a narrow margin yet.
+    assert estimate.status == "unresolved"
 
 
 def test_formal_claim_requires_explicit_gate_and_complete_records() -> None:
@@ -113,14 +115,26 @@ def test_formal_agent_view_excludes_hidden_task_truth_and_isolated_cwd() -> None
         (source / "public_tests").mkdir()
         (source / "hidden_verifier").mkdir()
         (source / "oracle").mkdir()
-        (source / "task.yaml").write_text("task_id: T\n", encoding="utf-8")
+        (source / "task.yaml").write_text(
+            "schema_version: 1\ntask_id: T\ntitle: public\ntrack: spe_core\nfamily: compiler\nmechanism: hidden\nkind: counterexample\n"
+            "requires_cuda: false\ntime_budget_s: 10\nworkspace:\n  entrypoint: solution.py\n  api: train_loop_v1\n"
+            "measurement:\n  primary_metric: step_ms_p50\n  higher_is_better: false\n  warmup_iterations: 1\n  measured_iterations: 2\n  repetitions: 1\ncorrectness:\n  num_fresh_inputs: 1\n  reference: fp64_recompute\n  tolerance:\n    rtol: 0.1\n    atol: 0.1\nscientific_gates: [finite_loss]\noracle:\n  expected_speedup_range: [0.9, 1.1]\nlineage:\n  source: synthetic\n  mutation_template_id: MT-HIDDEN\nauthoring_note: secret\n",
+            encoding="utf-8",
+        )
+        (source / "metadata.json").write_text('{"authoring_note":"secret"}\n', encoding="utf-8")
         (source / "workspace" / "solution.py").write_text("x = 1\n", encoding="utf-8")
         (source / "hidden_verifier" / "checks.py").write_text("secret = 1\n", encoding="utf-8")
         (source / "oracle" / "truth.json").write_text("{}\n", encoding="utf-8")
         public = Path(tmp) / "public"
         materialize_agent_task(source, public)
         files = {path.relative_to(public).as_posix() for path in public.rglob("*") if path.is_file()}
-        assert "task.yaml" in files and "workspace/solution.py" in files
+        assert "public_task.json" in files and "workspace/solution.py" in files
+        assert "task.yaml" not in files and "metadata.json" not in files
+        public_task = json.loads((public / "public_task.json").read_text(encoding="utf-8"))
+        serialized = json.dumps(public_task)
+        assert "counterexample" not in serialized
+        assert "oracle" not in serialized
+        assert "hidden" not in serialized
         assert not any(name.startswith("oracle/") or name.startswith("hidden_verifier/") for name in files)
 
 

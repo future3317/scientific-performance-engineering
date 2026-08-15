@@ -52,7 +52,7 @@ def benchmark_revision(repo_root: str | Path) -> str:
 REQUIRED_FIELDS = (
     "schema_version", "experiment_id", "benchmark_revision", "skill_view_digest",
     "task_manifest_digest", "agent_model_id", "agent_config", "condition",
-    "context_mode", "task_order", "outer_trial_id", "budgets",
+    "context_mode", "worker_isolation", "task_order", "outer_trial_id", "budgets",
     "hardware_fingerprint", "software_fingerprint", "torch_version", "cuda_version",
 )
 

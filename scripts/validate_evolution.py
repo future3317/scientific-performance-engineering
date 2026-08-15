@@ -375,6 +375,8 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
             regression_cases[case["case_id"]] = case
     for directory, expected_status in ((root / "evolution" / "candidates", "candidate"), (root / "rules", "canonical"), (root / "evolution" / "retired", "retired")):
         for path in sorted(directory.glob("*.json")):
+            if path.name.endswith(".state.json"):
+                continue
             try:
                 card = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:

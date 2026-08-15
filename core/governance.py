@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import RelationSpec, RuleSpec
+from .models import RelationSpec, RelationState, RuleSpec, RuleState
 
 
 @dataclass(frozen=True)
@@ -109,10 +109,35 @@ def apply_promotion(
     card["promotion"] = promotion
     if decision.subject_type == "relation":
         target = store / "relations" / f"{decision.subject_id}.json"
+        state = RelationState(
+            relation_id=decision.subject_id,
+            version=int(card.get("version", 1)),
+            estimate=float(replay_result.get("mean_effect", 0.0)),
+            confidence_sequence={
+                "lcb": max(-1.0, min(1.0, float(replay_result.get("lower_confidence_bound", replay_result.get("mean_effect", 0.0))))),
+                "ucb": max(-1.0, min(1.0, float(replay_result.get("upper_confidence_bound", replay_result.get("mean_effect", 0.0))))),
+            },
+            status="canonical",
+        )
     else:
         target = store / "rules" / f"{decision.subject_id}.json"
+        mean_effect = float(replay_result.get("mean_effect", 0.0))
+        state = RuleState(
+            rule_id=decision.subject_id,
+            version=int(card.get("version", 1)),
+            status="canonical",
+            effect={"utility": mean_effect, "lower_utility": mean_effect},
+            confidence_sequence={
+                "lcb": max(-1.0, min(1.0, float(replay_result.get("lower_confidence_bound", mean_effect)))),
+                "ucb": max(-1.0, min(1.0, float(replay_result.get("upper_confidence_bound", mean_effect)))),
+            },
+            retrieval_utility=mean_effect,
+            provenance_diversity=len(set(str(item) for item in card.get("source_cases", []))),
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(card, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    state_path = target.with_name(f"{target.stem}.state.json")
+    state_path.write_text(json.dumps(state.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     # Promotion is a state transition, not a second copy of the candidate.
     candidate_path = store / "evolution" / "candidates" / f"{decision.subject_id}.json"
     if candidate_path.is_file():

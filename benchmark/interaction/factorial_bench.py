@@ -190,6 +190,9 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         canonical_hidden = canonical_relation_label(str(item["hidden_relation"]))
         false_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] != canonical_hidden)
         unresolved_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] == "unresolved")
+    resolved = [item for item in details if item["predicted_relation"] != "unresolved"]
+    wrong_resolved = [item for item in resolved if item["predicted_relation"] != canonical_relation_label(str(item["hidden_relation"]))]
+    unresolved_count = len(details) - len(resolved)
     return {
         "surface_count": count,
         "block_schedule": list(blocks),
@@ -197,10 +200,23 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         "hidden_relation_counts": {label: list(hidden_labels.values()).count(label) for label in sorted(set(hidden_labels.values()))},
         "confusion_matrix": confusion,
         "surface_results": details,
-        "false_relation_rate": sum(item["predicted_relation"] != canonical_relation_label(str(item["hidden_relation"])) for item in details) / len(details),
-        "false_relation_rate_by_relation": {key: sum(values) / len(values) for key, values in false_by_relation.items()},
+        "wrong_relation_rate_among_resolved": len(wrong_resolved) / len(resolved) if resolved else None,
+        "wrong_relation_rate_among_resolved_by_relation": {
+            key: (
+                sum(
+                    item["predicted_relation"] != key
+                    for item in details
+                    if canonical_relation_label(str(item["hidden_relation"])) == key and item["predicted_relation"] != "unresolved"
+                )
+                / sum(1 for item in details if canonical_relation_label(str(item["hidden_relation"])) == key and item["predicted_relation"] != "unresolved")
+                if any(canonical_relation_label(str(item["hidden_relation"])) == key and item["predicted_relation"] != "unresolved" for item in details)
+                else None
+            )
+            for key in sorted(false_by_relation)
+        },
         "unresolved_rate_by_relation": {key: sum(values) / len(values) for key, values in unresolved_by_relation.items()},
-        "unresolved_rate": sum(item["predicted_relation"] == "unresolved" for item in details) / len(details),
+        "unresolved_rate": unresolved_count / len(details),
+        "total_identification_failure_rate": (len(wrong_resolved) + unresolved_count) / len(details),
         "median_blocks_to_confirmation": sorted(item["stopping_blocks"] for item in details if item["stopping_blocks"] is not None)[len([item for item in details if item["stopping_blocks"] is not None]) // 2] if any(item["stopping_blocks"] is not None for item in details) else None,
         "experiment_cost": sum(float(item["experiment_cost"]) for item in details),
     }
@@ -285,7 +301,12 @@ def run_factorial_benchmark(*, blocks: int = 5000, seed: int = 7) -> dict[str, o
     estimates: dict[str, dict[str, float]] = {}
     for name, values in _CASES.items():
         engine = FactorialEngine()
-        for index in range(blocks):
+        # Directed prerequisite confirmation requires the null conditional
+        # effect interval itself to fit inside the practical equivalence band.
+        # Keep the smoke benchmark's requested budget for the other relations,
+        # while allocating the predeclared larger budget needed by that gate.
+        case_blocks = max(blocks, 20_000) if name.startswith("prerequisite") else blocks
+        for index in range(case_blocks):
             engine.add_block(FactorialBlock(f"{name}-{index}", values))
         estimate = engine.estimate()
         classifications[name] = estimate.decision

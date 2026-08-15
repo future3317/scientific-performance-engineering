@@ -121,9 +121,10 @@ def estimate_higher_order(blocks: list[ThreeWayBlock], *, delta: float = 0.05, l
     normalized_samples = [value / 8.0 for value in residuals]
     residual = sum(normalized_samples) / n
     look_delta = delta / look_count
-    variance = sum((value - residual) ** 2 for value in normalized_samples) / max(1, n - 1)
-    log_term = math.log(3.0 / look_delta)
-    radius = min(_bounded_radius(n, look_delta), math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n)
+    # Formal certificates use the bounded Hoeffding radius only.  The empirical
+    # Bernstein estimate is intentionally not mixed into the coverage-critical
+    # interval until a separate joint-coverage result is available.
+    radius = _bounded_radius(n, look_delta)
     lcb, ucb = max(-1.0, residual - radius), min(1.0, residual + radius)
     if lcb > practical_margin or ucb < -practical_margin:
         status = "confirmed_nonzero"
@@ -204,10 +205,7 @@ class FactorialEngine:
         contrast_delta = self.delta / (self.look_count * len(contrast_samples))
         for name, samples in contrast_samples.items():
             mean = sum(samples) / n
-            variance = sum((value - mean) ** 2 for value in samples) / max(1, n - 1)
-            log_term = math.log(3.0 / contrast_delta)
-            empirical_radius = math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n
-            radius = min(1.0, _bounded_radius(n, contrast_delta), empirical_radius)
+            radius = _bounded_radius(n, contrast_delta)
             scale = contrast_scale[name]
             contrast_intervals[name] = (scale * max(-1.0, mean - radius), scale * min(1.0, mean + radius))
         gamma_lcb, gamma_ucb = contrast_intervals["gamma"]

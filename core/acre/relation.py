@@ -39,28 +39,13 @@ class RelationIdentifier:
         if not estimates:
             raise ValueError("at least one context estimate is required")
         decisions = {name: self._identify_local(estimate) for name, estimate in estimates.items()}
-        if len(estimates) >= 2:
-            positive = any(estimate.gamma_lcb > self.practical_margin for estimate in estimates.values())
-            negative = any(estimate.gamma_ucb < -self.practical_margin for estimate in estimates.values())
-            if positive and negative:
-                # A context-specialized child needs a local semantic label.
-                # If a local prerequisite/redundancy policy is unresolved but
-                # the interaction sign itself is already CI-separated, use
-                # that certified sign for the child rather than dropping the
-                # context from relational CEGIS.
-                decisions = {
-                    name: (
-                        "confirmed_synergy" if decisions[name] == "unresolved" and estimates[name].gamma_lcb > self.practical_margin
-                        else "confirmed_antagonism" if decisions[name] == "unresolved" and estimates[name].gamma_ucb < -self.practical_margin
-                        else decisions[name]
-                    )
-                    for name in estimates
-                }
-                return RelationIdentification(
-                    "context_dependent_relation", decisions,
-                    applicability_predicate={"contexts": sorted(estimates), "condition": "context-dependent sign"},
-                    confidence={"contexts": {name: {"gamma_lcb": value.gamma_lcb, "gamma_ucb": value.gamma_ucb} for name, value in estimates.items()}},
-                )
+        resolved = {decision for decision in decisions.values() if decision != "unresolved"}
+        if len(resolved) > 1:
+            return RelationIdentification(
+                "context_dependent_relation", decisions,
+                applicability_predicate={"contexts": sorted(estimates), "condition": "context-specialized semantics"},
+                confidence={"contexts": {name: {"gamma_lcb": value.gamma_lcb, "gamma_ucb": value.gamma_ucb} for name, value in estimates.items()}},
+            )
         return RelationIdentification(next(iter(decisions.values())), decisions)
 
     def to_spec(self, relation_id: str, left_rule_id: str, right_rule_id: str, identification: RelationIdentification) -> RelationSpec:

@@ -32,7 +32,12 @@ def test_engine_distinguishes_antagonism_independence_and_prerequisite() -> None
     }
     for expected, values in cases.items():
         estimate = FactorialEngine(delta=0.05, practical_margin=0.05)
-        for index in range(5000):
+        # The directed prerequisite gate requires the null conditional effect
+        # interval itself to fit inside the practical equivalence region.  The
+        # formal Hoeffding/alpha-spending contract therefore needs more blocks
+        # than the point-estimate smoke cases above.
+        blocks = 20000 if expected == "prerequisite" else 5000
+        for index in range(blocks):
             estimate.add_block(block(values, f"{expected}-{index}"))
         decision = estimate.estimate().decision
         assert decision == {

@@ -13,7 +13,6 @@ import json
 import os
 import shlex
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -46,25 +45,38 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    for name in ("task.yaml", "metadata.json", "scientific_contract.py"):
-        source = task_dir / name
-        if source.is_file():
-            shutil.copy2(source, destination / name)
+    task = miniyaml.load(str(task_dir / "task.yaml"))
+    measurement = task.get("measurement", {}) if isinstance(task, dict) else {}
+    correctness = task.get("correctness", {}) if isinstance(task, dict) else {}
+    public_task = {
+        "schema_version": 1,
+        "task_id": task.get("task_id", task_dir.name),
+        "title": task.get("title", ""),
+        "requires_cuda": bool(task.get("requires_cuda", False)),
+        "time_budget_s": int(task.get("time_budget_s", 0)),
+        "workspace": dict(task.get("workspace", {})),
+        "allowed_files": [str(task.get("workspace", {}).get("entrypoint", "solution.py"))],
+        "scientific_gates": list(task.get("scientific_gates", [])),
+        "scientific_contract": "scientific_contract.py",
+        "measurement_contract": {
+            "primary_metric": measurement.get("primary_metric"),
+            "higher_is_better": measurement.get("higher_is_better"),
+            "warmup_iterations": measurement.get("warmup_iterations"),
+            "measured_iterations": measurement.get("measured_iterations"),
+            "repetitions": measurement.get("repetitions"),
+        },
+        "correctness_contract": correctness,
+    }
+    (destination / "public_task.json").write_text(
+        json.dumps(public_task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    source = task_dir / "scientific_contract.py"
+    if source.is_file():
+        shutil.copy2(source, destination / "scientific_contract.py")
     for name in ("workspace", "public_tests"):
         source = task_dir / name
         if source.is_dir():
             shutil.copytree(source, destination / name, dirs_exist_ok=True)
-
-
-def _materialize_read_only_view(source: Path, destination: Path) -> None:
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(source, destination, dirs_exist_ok=True)
-    for entry in destination.rglob("*"):
-        if entry.is_file():
-            entry.chmod(stat.S_IRUSR | stat.S_IRGRP)
-        elif entry.is_dir():
-            entry.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
 
 
 def _run_agent(command_template: str, env: dict[str, str], cwd: Path, timeout: float) -> dict[str, Any]:
@@ -95,6 +107,48 @@ def _run_agent(command_template: str, env: dict[str, str], cwd: Path, timeout: f
     }
 
 
+def _run_isolated_agent(
+    command_template: str,
+    executor_command: str,
+    env: dict[str, str],
+    worker_root: Path,
+    timeout: float,
+) -> dict[str, Any]:
+    """Run through an externally supplied namespace/container executor.
+
+    The executor owns the filesystem boundary.  The campaign never exposes the
+    condition store, verifier, or benchmark root as worker paths.
+    """
+    executor = executor_command.format(
+        agent_command=shlex.quote(command_template),
+        worker_root=shlex.quote(str(worker_root)),
+        task_dir=shlex.quote(env["SPE_TASK_DIR"]),
+        solution_dir=shlex.quote(env["SPE_SOLUTION_DIR"]),
+        retrieved_context=shlex.quote(env["SPE_RETRIEVED_CONTEXT"]),
+    )
+    return _run_agent(executor, env, worker_root, timeout)
+
+
+def _read_agent_extensions(path: Path) -> dict[str, Any]:
+    """Read only worker-supplied evidence extensions before verifier output.
+
+    The verifier remains authoritative for scores, gates, and verdicts.  A
+    worker may contribute causal evidence and a governed candidate proposal,
+    but cannot overwrite any scored field in the harness result.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    extensions: dict[str, Any] = {}
+    for key in ("lesson", "causal_evidence_events", "acre_candidates"):
+        if key in payload:
+            extensions[key] = payload[key]
+    return extensions
+
+
 def post_task_update(
     *,
     condition: str,
@@ -111,53 +165,82 @@ def post_task_update(
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
     pre_digest = conditions.store_digest(store)
-    evidence_id = f"EXP-{task_id}"
+    experience_id = f"EXP-{task_id}"
     added_experience_ids: list[str] = []
+    added_evidence_ids: list[str] = []
+    maintenance_decisions: list[dict[str, Any]] = []
     promoted_rule_ids: list[str] = []
     if condition in {"C", "C_STRESS", "D"}:
-        evidence = {
-            "schema_version": 2,
-            "id": evidence_id,
-            "event_id": evidence_id,
+        experience = {
+            "schema_version": 1,
+            "record_type": "task_experience",
+            "id": experience_id,
+            "experience_id": experience_id,
             "task_id": task_id,
             "condition": condition,
             "context_mode": context_mode,
-            "context": {"task_id": task_id, "condition": condition, "context_mode": context_mode, "rule_versions": {}},
-            "assignment": {"interventions": {task_id: 1}, "propensity": 0.5, "design_id": "formal-task-v2"},
-            "evidence_stream": "representative",
-            "query_id": evidence_id,
-            "outcome_vector": {"task_score": float(scored.get("task_score", 0.0) or 0.0)},
-            "artifacts": {},
-            "versions": {},
-            "source_id": evidence_id,
-            "independence_group": task_id,
+            "observation": {
+                "verdict": result.get("verdict"),
+                "task_score": scored.get("task_score"),
+                "scientific_gates": result.get("scientific_gates", {}),
+                "measurement": result.get("measurement", {}),
+            },
+            "lesson": result.get("lesson", {}),
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "trust_zone": "local",
-            "attacker_controlled_fields": [],
-            "intervention": {"action": task_id},
-            "verdict": result.get("verdict"),
-            "task_score": scored.get("task_score"),
-            "scientific_gates": result.get("scientific_gates", {}),
-            "measurement": result.get("measurement", {}),
         }
         inbox = store / "experience" / "inbox"
         inbox.mkdir(parents=True, exist_ok=True)
-        evidence_path = inbox / f"{evidence_id}.json"
-        if not evidence_path.exists():
-            evidence_path.write_text(json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            added_experience_ids.append(evidence_id)
+        experience_path = inbox / f"{experience_id}.json"
+        if not experience_path.exists():
+            experience_path.write_text(json.dumps(experience, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            added_experience_ids.append(experience_id)
+
+        if condition == "D":
+            evidence_dir = store / "experience" / "cases"
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            for raw_event in result.get("causal_evidence_events", []):
+                from core.models import EvidenceEvent
+
+                event = EvidenceEvent.from_dict(dict(raw_event))
+                evidence_path = evidence_dir / f"{event.event_id}.json"
+                if not evidence_path.exists():
+                    evidence_path.write_text(json.dumps(event.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    added_evidence_ids.append(event.event_id)
 
     if condition == "D" and allow_maintenance:
         valid, policy_errors = conditions.verify_condition_policy(store)
         if not valid:
             raise ValueError("governed transition failed store policy: " + "; ".join(policy_errors))
+        from dataclasses import asdict
+        from core.acre.engine import AcreEngine
+        engine = AcreEngine.from_store(store)
+        for event_id in added_evidence_ids:
+            event_path = store / "experience" / "cases" / f"{event_id}.json"
+            engine.observe(json.loads(event_path.read_text(encoding="utf-8")))
+        for subject_id in (*engine.rule_states, *engine.relation_states):
+            maintenance_decisions.append(asdict(engine.evolve(subject_id)))
         active_ledger = ledger or EvolutionDecisionLedger()
         candidates_dir = store / "evolution" / "candidates"
-        candidates = []
+        candidates_dir.mkdir(parents=True, exist_ok=True)
+        candidates_by_id: dict[str, dict[str, Any]] = {}
+        for candidate in result.get("acre_candidates", []):
+            if not isinstance(candidate, dict):
+                continue
+            identifier = str(candidate.get("relation_id") or candidate.get("rule_id") or candidate.get("id") or "")
+            if not identifier:
+                continue
+            candidate = dict(candidate)
+            candidate.setdefault("status", "candidate")
+            candidate.setdefault("cases", list(added_evidence_ids))
+            path = candidates_dir / f"{identifier}.json"
+            path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            candidates_by_id[identifier] = candidate
         for path in sorted(candidates_dir.glob("*.json")):
             candidate = json.loads(path.read_text(encoding="utf-8"))
             if candidate.get("cases") and candidate.get("status") == "candidate":
-                candidates.append(candidate)
+                identifier = str(candidate.get("relation_id") or candidate.get("rule_id") or candidate.get("id") or path.stem)
+                candidates_by_id[identifier] = candidate
+        candidates = list(candidates_by_id.values())
         if candidates:
             promoted_rule_ids = promote_via_replay(store, candidates, core_repo, out_dir, active_ledger)
         from scripts.validate_evolution import audit
@@ -192,6 +275,8 @@ def post_task_update(
         "pre_store_digest": pre_digest,
         "post_store_digest": post_digest,
         "added_experience_ids": added_experience_ids,
+        "added_evidence_ids": added_evidence_ids,
+        "maintenance_decisions": maintenance_decisions,
         "promoted_rule_ids": promoted_rule_ids,
     }
 
@@ -221,6 +306,7 @@ def _experiment_manifest(
         "agent_config": agent_config,
         "condition": item["condition"],
         "context_mode": item["context_mode"],
+        "worker_isolation": {"mode": "external_namespace_executor"},
         "task_order": task_ids,
         "family_id": task_spec.get("family_id", task_spec.get("family", "unknown")),
         "anchor_instance_id": task_spec.get("anchor_instance_id", item["task_id"]),
@@ -343,22 +429,44 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         _copy_workspace(tasks_root / task_id, solution_dir)
         agent_task_dir = trial_dir / "agent-task"
         materialize_agent_task(tasks_root / task_id, agent_task_dir)
-        condition_view = trial_dir / "condition-view"
-        _materialize_read_only_view(store, condition_view)
+        retrieved_context_path = agent_task_dir / "retrieved_context.json"
+        if str(item["condition"]) in {"C", "C_STRESS", "D"}:
+            adapter = FormalConditionAdapter(str(item["condition"]), store, token_budget=budgets.tokens)
+            retrieved_context = adapter.retrieved_context({
+                "domain": "scientific-performance",
+                "workload": {
+                    "mechanism": task_spec.get("mechanism", ""),
+                    "family_id": task_spec.get("family_id", task_spec.get("family", "")),
+                },
+                "hardware": {},
+                "software": {},
+                "evidence": {},
+                "token_budget": budgets.tokens,
+            })
+        else:
+            retrieved_context = {
+                "schema_version": 1,
+                "condition": str(item["condition"]),
+                "context": {"task_id": task_id, "context_mode": str(item["context_mode"])},
+                "proposed_interventions": [],
+            }
+        retrieved_context_path.write_text(json.dumps(retrieved_context, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         env = {
             "SPE_TASK_ID": task_id,
             "SPE_TASK_DIR": str(agent_task_dir),
             "SPE_SOLUTION_DIR": str(solution_dir),
             "SPE_CONDITION": str(item["condition"]),
             "SPE_CONTEXT_MODE": str(item["context_mode"]),
-            "SPE_CONDITION_STORE": str(condition_view),
-            "SPE_CONTEXT_STATE": str(condition_view / "context.json"),
+            "SPE_RETRIEVED_CONTEXT": str(retrieved_context_path),
             "SPE_RESULT_PATH": str(trial_dir / "result.json"),
             "SPE_AGENT_USAGE_PATH": str(trial_dir / "agent_usage.json"),
             "SPE_BUDGET_JSON": json.dumps(budgets.as_dict(), sort_keys=True),
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
         }
-        agent = _run_agent(args.agent_command, env, solution_dir, budgets.wall_time_s)
+        if not getattr(args, "executor_command", None):
+            raise ValueError("formal agent runs require --executor-command with a namespace/container executor")
+        agent = _run_isolated_agent(args.agent_command, args.executor_command, env, trial_dir, budgets.wall_time_s)
+        agent_extensions = _read_agent_extensions(trial_dir / "result.json")
         usage_path = trial_dir / "agent_usage.json"
         try:
             usage = json.loads(usage_path.read_text(encoding="utf-8")) if usage_path.is_file() else {}
@@ -375,13 +483,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             context_mode=str(item["context_mode"]),
             seed=int(item["outer_trial_index"]),
         )
-        if str(item["condition"]) in {"C", "C_STRESS", "D"}:
-            adapter = FormalConditionAdapter(str(item["condition"]), store, token_budget=budgets.tokens)
-            result["condition_adapter"] = {
-                "kind": "raw_experience_retrieval" if str(item["condition"]) in {"C", "C_STRESS"} else "governed_acre_routing",
-                "token_budget": budgets.tokens,
-                "proposed_interventions": adapter.propose_interventions({"mechanism": task_spec.get("mechanism", ""), "family_id": task_spec.get("family_id", task_spec.get("family", ""))}),
-            }
+        result.update(agent_extensions)
+        result["condition_adapter"] = retrieved_context
         result.setdefault("cost", {}).update({
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
@@ -452,6 +555,11 @@ def main() -> int:
     parser.add_argument("--agent-config", default="{}")
     parser.add_argument("--budgets", default=None, help='JSON, e.g. {"tokens":12000,"tool_calls":80,"wall_time_s":900}')
     parser.add_argument("--agent-command", default=None, help="shell template; receives SPE_* environment variables")
+    parser.add_argument(
+        "--executor-command",
+        default=None,
+        help="namespace/container executor template; receives {agent_command}, {worker_root}, {task_dir}, {solution_dir}, {retrieved_context}",
+    )
     parser.add_argument("--claim-results", action="store_true", help="claim only if the formal calibration gate is passed")
     args = parser.parse_args()
     result = run_campaign(args)

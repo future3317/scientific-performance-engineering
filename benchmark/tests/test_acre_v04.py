@@ -31,8 +31,8 @@ def _factorial(outcomes: dict[str, float], blocks: int = 128) -> FactorialEngine
 
 
 def test_relational_cegis_returns_typed_child_predicates_and_router_selects_one():
-    low = _factorial({"00": 0.0, "10": 0.1, "01": 0.1, "11": 0.9}, blocks=512).estimate()
-    high = _factorial({"00": 0.0, "10": 0.8, "01": 0.8, "11": 0.2}, blocks=512).estimate()
+    low = _factorial({"00": 0.0, "10": 0.1, "01": 0.1, "11": 0.9}, blocks=4096).estimate()
+    high = _factorial({"00": 0.0, "10": 0.8, "01": 0.8, "11": 0.2}, blocks=4096).estimate()
     identifier = RelationIdentifier(practical_margin=0.1)
     identified = identifier.identify({"low": low, "high": high})
     grammar = PredicateGrammar.from_dict({"schema_version": 1, "features": [{"path": "dynamic_shape_rate", "type": "numeric"}]})
