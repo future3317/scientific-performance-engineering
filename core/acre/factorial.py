@@ -59,6 +59,7 @@ class FactorialEstimate:
     scientific_01: bool
     scientific_11: bool
     utility_intervals: Mapping[str, tuple[float, float]] = field(default_factory=dict)
+    contrast_intervals: Mapping[str, tuple[float, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,8 @@ class HigherOrderEstimate:
     residual_ucb: float
     blocks: int
     status: str
+    raw_residual: float = 0.0
+    normalized_residual: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -100,14 +103,18 @@ def estimate_higher_order(blocks: list[ThreeWayBlock], *, delta: float = 0.05, l
         u = block.outcomes
         residuals.append(u["111"] - u["110"] - u["101"] - u["011"] + u["100"] + u["010"] + u["001"] - u["000"])
     n = len(residuals)
-    residual = sum(residuals) / n
+    raw_residual = sum(residuals) / n
+    # Inclusion-exclusion of eight utilities in [-1, 1] is bounded by 8.
+    # Normalize before constructing a bounded confidence sequence.
+    normalized_samples = [value / 8.0 for value in residuals]
+    residual = sum(normalized_samples) / n
     look_delta = delta / look_count
-    variance = sum((value - residual) ** 2 for value in residuals) / max(1, n - 1)
+    variance = sum((value - residual) ** 2 for value in normalized_samples) / max(1, n - 1)
     log_term = math.log(3.0 / look_delta)
     radius = min(_bounded_radius(n, look_delta), math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n)
     lcb, ucb = max(-1.0, residual - radius), min(1.0, residual + radius)
     status = "confirmed_nonzero" if lcb > practical_margin or ucb < -practical_margin else "unresolved"
-    return HigherOrderEstimate(residual, lcb, ucb, n, status)
+    return HigherOrderEstimate(residual, lcb, ucb, n, status, raw_residual=raw_residual, normalized_residual=residual)
 
 
 def _bounded_radius(n: int, delta: float) -> float:
@@ -167,15 +174,34 @@ class FactorialEngine:
         means = {arm: sum(samples) / n for arm, samples in values.items()}
         interaction_samples = [block.normalized_interaction for block in self._blocks]
         gamma = sum(interaction_samples) / n
-        # Sequential callers predeclare the number of looks.  Spending
-        # delta/look_count at every look makes adaptive confirmation valid.
-        look_delta = self.delta / self.look_count
-        variance = sum((value - gamma) ** 2 for value in interaction_samples) / max(1, n - 1)
-        log_term = math.log(3.0 / look_delta)
-        empirical_radius = math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n
-        radius = min(1.0, _bounded_radius(n, look_delta), empirical_radius)
-        gamma_lcb, gamma_ucb = max(-1.0, gamma - radius), min(1.0, gamma + radius)
-        utility_intervals = {arm: (max(-1.0, means[arm] - radius), min(1.0, means[arm] + radius)) for arm in _ARMS}
+        contrast_samples = {
+            "gamma": interaction_samples,
+            "delta_a_given_b0": [(block.outcomes["10"] - block.outcomes["00"]) / 2.0 for block in self._blocks],
+            "delta_a_given_b1": [(block.outcomes["11"] - block.outcomes["01"]) / 2.0 for block in self._blocks],
+            "delta_b_given_a0": [(block.outcomes["01"] - block.outcomes["00"]) / 2.0 for block in self._blocks],
+            "delta_b_given_a1": [(block.outcomes["11"] - block.outcomes["10"]) / 2.0 for block in self._blocks],
+            "redundancy": [(block.outcomes["11"] - max(block.outcomes["10"], block.outcomes["01"])) / 2.0 for block in self._blocks],
+        }
+        contrast_intervals: dict[str, tuple[float, float]] = {}
+        contrast_scale = {"gamma": 1.0, "delta_a_given_b0": 2.0, "delta_a_given_b1": 2.0, "delta_b_given_a0": 2.0, "delta_b_given_a1": 2.0, "redundancy": 2.0}
+        contrast_delta = self.delta / (self.look_count * len(contrast_samples))
+        for name, samples in contrast_samples.items():
+            mean = sum(samples) / n
+            variance = sum((value - mean) ** 2 for value in samples) / max(1, n - 1)
+            log_term = math.log(3.0 / contrast_delta)
+            empirical_radius = math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n
+            radius = min(1.0, _bounded_radius(n, contrast_delta), empirical_radius)
+            scale = contrast_scale[name]
+            contrast_intervals[name] = (scale * max(-1.0, mean - radius), scale * min(1.0, mean + radius))
+        gamma_lcb, gamma_ucb = contrast_intervals["gamma"]
+        # Arm intervals are retained for redundancy diagnostics.  They are
+        # separate from the decision contrasts above.
+        arm_delta = self.delta / (self.look_count * (len(contrast_samples) + len(_ARMS)))
+        utility_intervals = {}
+        for arm, samples in values.items():
+            mean = means[arm]
+            radius = min(1.0, _bounded_radius(n, arm_delta))
+            utility_intervals[arm] = (max(-1.0, mean - radius), min(1.0, mean + radius))
         delta_a_b0 = means["10"] - means["00"]
         delta_a_b1 = means["11"] - means["01"]
         delta_b_a0 = means["01"] - means["00"]
@@ -186,11 +212,12 @@ class FactorialEngine:
         # prerequisite is directional only when the present-partner effect is
         # confidently above the margin and the absent-partner effect is
         # confidently inside the practical-null interval.
-        def confidently_positive(value: float) -> bool:
-            return value - radius > margin
+        def confidently_positive(name: str) -> bool:
+            return contrast_intervals[name][0] > margin
 
-        def confidently_null(value: float) -> bool:
-            return -margin < value - radius and value + radius < margin
+        def confidently_null(name: str) -> bool:
+            lower, upper = contrast_intervals[name]
+            return lower >= -margin and upper <= margin
 
         # Relation decisions are confidence-gated.  Prerequisite direction is
         # identified by a positive conditional effect only after the other
@@ -199,9 +226,9 @@ class FactorialEngine:
         if scientific["11"] is False and scientific["10"] and scientific["01"] and scientific["00"]:
             decision = "semantic_conflict"
         elif gamma_lcb > margin:
-            if confidently_positive(delta_b_a1) and confidently_null(delta_b_a0):
+            if confidently_positive("delta_b_given_a1") and confidently_null("delta_b_given_a0"):
                 decision = "prerequisite_a_to_b"
-            elif confidently_positive(delta_a_b1) and confidently_null(delta_a_b0):
+            elif confidently_positive("delta_a_given_b1") and confidently_null("delta_a_given_b0"):
                 decision = "prerequisite_b_to_a"
             else:
                 decision = "confirmed_synergy"
@@ -226,6 +253,7 @@ class FactorialEngine:
             scientific_01=scientific["01"],
             scientific_11=scientific["11"],
             utility_intervals=utility_intervals,
+            contrast_intervals=contrast_intervals,
         )
 
 

@@ -20,8 +20,74 @@ from benchmark.boundary.families import family_cases, run_boundary_family
 from benchmark.families import PILOT_FAMILIES, validate_cross_view_consistency
 from benchmark.harness.evolution import run_episode
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
-from benchmark.interaction.factorial_bench import run_family_factorial_benchmark, run_higher_order_benchmark
+from benchmark.interaction.factorial_bench import run_family_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
 from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
+from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
+from core.acre.predicates import PredicateGrammar
+from core.predicates import match_predicate
+
+
+def _decision_sensitivity_callback(
+    queries: list[AcquisitionQuery],
+) -> Any:
+    """Estimate whether either hypothetical outcome changes a deployment decision.
+
+    The pilot keeps the probe deterministic: each outcome updates the current
+    version-space vote and the resulting applicability bundle is compared with
+    the current bundle.  This is the decision-facing hook used by the
+    decision-aware policy; sealed labels are never consulted.
+    """
+    edge_order = tuple(sorted({query.edge_id for query in queries}))
+    grammar = PredicateGrammar.from_dict({
+        "schema_version": 1,
+        "features": [
+            {"path": f"workload.{key}", "type": "numeric"}
+            for key in sorted({key for query in queries for key, value in (query.context.get("workload", {}) if isinstance(query.context.get("workload", {}), dict) else {}).items() if isinstance(value, (int, float)) and not isinstance(value, bool)})
+        ] or [{"path": "_decision_probe", "type": "numeric"}],
+        "max_depth": 2,
+        "max_literals": 1,
+    })
+    decision_cache: dict[tuple[str, tuple[tuple[str, tuple[bool, ...]], ...]], bool] = {}
+
+    def callback(query: AcquisitionQuery, observations: dict[str, list[bool]]) -> float:
+        def edge_decision(edge_id: str, state: dict[str, list[bool]]) -> bool:
+            key = (edge_id, tuple(sorted((name, tuple(values)) for name, values in state.items())))
+            if key in decision_cache:
+                return decision_cache[key]
+            values = state.get(edge_id, [])
+            if not values:
+                decision_cache[key] = False
+                return False
+            if len(values) != 2:
+                decision = sum(values) * 2 >= len(values)
+                decision_cache[key] = decision
+                return decision
+            edge_queries = [item for item in queries if item.edge_id == edge_id]
+            observations = [BoundaryObservation(item.query_id, item.context, 1.0 if value else 0.0, bool(value), 1.0 if value else -1.0, 1.0 if value else 0.0) for item, value in zip(edge_queries[:8], values[:8])]
+            positive = [item for item in observations if item.positive_anchor()]
+            negative = [item for item in observations if item.certified_counterexample()]
+            decision = False
+            if positive and negative:
+                synthesis = StatisticalCEGIS(grammar).synthesize(positive=positive, counterexamples=negative, parent_predicate=None, decision_contexts=[item.context for item in edge_queries])
+                decision = synthesis.predicate is not None and any(match_predicate(synthesis.predicate, item.context) for item in edge_queries)
+            if not decision:
+                decision = sum(values) * 2 >= len(values)
+            decision_cache[key] = decision
+            return decision
+
+        def bundle(state: dict[str, list[bool]]) -> tuple[str, ...]:
+            return tuple(edge_id for edge_id in edge_order if edge_decision(edge_id, state))
+
+        current = bundle(observations)
+        changed = False
+        for outcome in (True, False):
+            hypothetical = {key: list(value) for key, value in observations.items()}
+            hypothetical.setdefault(query.edge_id, []).append(outcome)
+            if bundle(hypothetical) != current:
+                changed = True
+        return 1.0 if changed else 0.0
+
+    return callback
 
 
 def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> dict[str, Any]:
@@ -31,14 +97,14 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
     truths: dict[str, bool] = {}
     candidate_contexts = list(pools["representative_pool"]) + list(pools["active_query_pool"])
     context_rng = random.Random(seed * 1009 + len(family))
-    visible = sorted(context_rng.sample(candidate_contexts, min(12, len(candidate_contexts))), key=lambda item: item.observation_id)
+    visible = sorted(context_rng.sample(candidate_contexts, min(8, len(candidate_contexts))), key=lambda item: item.observation_id)
     for index, item in enumerate(visible):
         edge_id = f"{family}:{item.observation_id}"
         truths[edge_id] = item.positive_anchor()
         # Repeated, noisy observations make the certificate a real stopping
         # problem.  The noise is part of the visible experimental protocol;
         # the applicability label remains hidden from the acquisition policy.
-        for replicate in range(36):
+        for replicate in range(24):
             query_id = f"{edge_id}:q{replicate}"
             queries.append(AcquisitionQuery(
                 query_id,
@@ -47,6 +113,7 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
                 experiment_type="boundary",
                 risk=0.2 + ((index + replicate) % 5) / 10.0,
                 provenance_novelty=0.4 + (replicate % 3) / 5.0,
+                context=dict(item.context),
             ))
             labels[query_id] = item.positive_anchor()
     policy_results: dict[str, Any] = {}
@@ -58,7 +125,8 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
             for query_id in noisy_labels:
                 if noise_rng.random() < 0.02:
                     noisy_labels[query_id] = not noisy_labels[query_id]
-            trajectory = run_acquisition(queries, noisy_labels, policy, seed=trial_seed)
+            decision_probe = _decision_sensitivity_callback(queries) if policy is AcquisitionPolicy.DECISION_AWARE else None
+            trajectory = run_acquisition(queries, noisy_labels, policy, seed=trial_seed, decision_sensitivity_fn=decision_probe)
             evaluation = evaluate_trajectory(trajectory, queries, noisy_labels, truths, target_error=0.0)
             curve = evaluation.error_trajectory
             auc = sum((curve[i - 1] + curve[i]) / 2.0 for i in range(1, len(curve))) if len(curve) > 1 else (curve[0] if curve else 0.0)
@@ -79,7 +147,7 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
             "harmful_fp_during_learning": sum(item["harmful_fp_during_learning"] for item in trials) / len(trials),
             "learning_curve_auc": sum(item["learning_curve_auc"] for item in trials) / len(trials),
         }
-    return {"family": family, "surface_count": surface_count, "acquisition_context_count": len(visible), "query_pool_registration": "seeded_random_subset", "replicates_per_context": 36, "policies": policy_results, "certificate": "time-uniform-bernoulli-cs"}
+    return {"family": family, "surface_count": surface_count, "acquisition_context_count": len(visible), "query_pool_registration": "seeded_random_subset", "replicates_per_context": 24, "policies": policy_results, "certificate": "time-uniform-bernoulli-cs"}
 
 
 def run_drift_poison(*, root: Path, seed: int = 0) -> dict[str, Any]:
@@ -119,6 +187,7 @@ def run_pilot(*, root: Path, surface_count: int = 100, seed: int = 7) -> dict[st
         "boundary_cegis": boundaries,
         "causal_interaction": interactions,
         "higher_order_interaction": run_higher_order_benchmark(count=max(20, surface_count // 5), seed=seed),
+        "interaction_power_curve": run_interaction_power_curve(seed=seed),
         "drift_poison": run_drift_poison(root=root),
         "legacy_acquisition_calibration": run_acquisition_benchmark(seed=seed),
     }

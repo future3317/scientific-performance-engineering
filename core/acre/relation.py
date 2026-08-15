@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 from .factorial import CANONICAL_RELATIONS, FactorialEstimate
+from .cegis import BoundaryObservation, StatisticalCEGIS
+from .predicates import PredicateGrammar
 from core.models import RelationSpec
 
 
@@ -77,6 +79,11 @@ class RelationIdentifier:
 
     def _redundant(self, estimate: FactorialEstimate) -> bool:
         """Require CI-gated useful singles and practical-equivalent joint arm."""
+        if estimate.contrast_intervals:
+            a_lcb = estimate.contrast_intervals["delta_a_given_b0"][0]
+            b_lcb = estimate.contrast_intervals["delta_b_given_a0"][0]
+            joint_lower, joint_upper = estimate.contrast_intervals["redundancy"]
+            return a_lcb > self.practical_margin and b_lcb > self.practical_margin and joint_lower >= -self.equivalence_margin and joint_upper <= self.equivalence_margin
         intervals = estimate.utility_intervals
         if not intervals:
             return False
@@ -88,4 +95,65 @@ class RelationIdentifier:
         return a_lcb > margin and b_lcb > margin and joint_lower >= -self.equivalence_margin and joint_upper <= self.equivalence_margin
 
 
-__all__ = ["RelationIdentifier", "RelationIdentification", "CANONICAL_RELATIONS"]
+def _relation_kind(decision: str) -> tuple[str, str]:
+    if decision.startswith("confirmed_"):
+        return decision.removeprefix("confirmed_"), "symmetric"
+    if decision.startswith("prerequisite_"):
+        orientation = "left_to_right" if decision.endswith("a_to_b") else "right_to_left"
+        return "prerequisite", orientation
+    if decision == "context_dependent_relation":
+        return "context_dependent_interaction", "symmetric"
+    return decision, "symmetric"
+
+
+def relational_cegis(
+    identifier: RelationIdentifier,
+    contexts: Mapping[str, Mapping[str, object]],
+    identification: RelationIdentification,
+    grammar: PredicateGrammar,
+    *,
+    relation_id: str = "REL",
+    left_rule_id: str = "a",
+    right_rule_id: str = "b",
+) -> tuple[RelationSpec, ...]:
+    """Specialize a cross-context sign flip into typed predicate children.
+
+    The same finite grammar and CEGIS implementation used for boundary rules
+    is applied to relation applicability.  Only local decisions and their
+    confidence bounds are used; sealed truth is not part of synthesis.
+    """
+    if identification.decision != "context_dependent_relation":
+        raise ValueError("relational CEGIS requires a context-dependent identification")
+    children: list[RelationSpec] = []
+    decisions = dict(identification.context_decisions)
+    for child_index, (target_context, target_decision) in enumerate(sorted(decisions.items())):
+        if target_decision == "unresolved":
+            continue
+        positive = [
+            BoundaryObservation(target_context, contexts[target_context], 1.0, True, 1.0, 1.0)
+        ]
+        negative = [
+            BoundaryObservation(name, contexts[name], 0.0, False, -1.0, 0.0)
+            for name, decision in decisions.items() if name != target_context and decision != target_decision
+        ]
+        if not negative:
+            continue
+        synthesis = StatisticalCEGIS(grammar).synthesize(
+            positive=positive, counterexamples=negative, parent_predicate=None,
+            decision_contexts=list(contexts.values()),
+        )
+        if synthesis.predicate is None:
+            continue
+        kind, orientation = _relation_kind(target_decision)
+        children.append(RelationSpec(
+            relation_id=f"{relation_id}-{child_index + 1}", version=1, parent=relation_id,
+            endpoints={"left": left_rule_id, "right": right_rule_id}, orientation=orientation,
+            kind=kind, applicability=synthesis.predicate,
+            contrast_definition={"contexts": [target_context], "cegis": synthesis.to_dict()},
+            practical_margin=identifier.practical_margin,
+            scientific_invariants=[], provenance_policy={"required": True},
+        ))
+    return tuple(children)
+
+
+__all__ = ["RelationIdentifier", "RelationIdentification", "relational_cegis", "CANONICAL_RELATIONS"]

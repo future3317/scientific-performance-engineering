@@ -39,7 +39,7 @@ from benchmark.families import poisoning_transformation, transformation
 from benchmark.formal.aggregate import RegretStep, evolution_regret
 from core.acre.engine import AcreEngine
 from core.models import RuleSpec, RuleState, TaskContext
-from benchmark.families import FamilyEnvironment
+from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from .experience_retrieval import RawExperienceRetriever
 
 METRIC_NAMES = (
@@ -137,7 +137,13 @@ def _strip_poison_labels(value: Any) -> Any:
     return value
 
 
-def _environment_result(condition: str, phase: dict[str, Any], raw: dict[str, Any], store: Path) -> dict[str, Any]:
+def _environment_result(
+    condition: str,
+    phase: dict[str, Any],
+    raw: dict[str, Any],
+    store: Path,
+    environment_state: EpisodeEnvironmentState | None = None,
+) -> dict[str, Any]:
     """Evaluate deployment from the condition store and phase environment.
 
     Episode manifests describe contexts and transformations only.  Utility is
@@ -164,12 +170,10 @@ def _environment_result(condition: str, phase: dict[str, Any], raw: dict[str, An
         routed = AcreEngine(rule_specs=specs, rule_states=states).route(context)
         selected = {spec.rule_id: spec for spec in specs}
         deployed_ids = [str(selected[item].intervention.get("action", item)) for item in routed.selected_rule_ids if item in selected]
-    transformation_state = dict(phase.get("transformation_parameters") or {})
-    transformation_state["drifted"] = phase.get("name") == "drift"
-    transformation_state["poison"] = phase.get("name") == "misleading_experience"
-    deployed_outcome = environment.evaluate(context.workload, deployed_ids, transformation_state)
-    oracle_outcome = environment.oracle(context.workload, transformation_state)
-    baseline_outcome = environment.evaluate(context.workload, (), transformation_state)
+    state = environment_state or EpisodeEnvironmentState()
+    deployed_outcome = environment.evaluate(context.workload, deployed_ids, state)
+    oracle_outcome = environment.oracle(context.workload, state)
+    baseline_outcome = environment.evaluate(context.workload, (), state)
     source = "drift" if phase.get("name") == "drift" else "poison" if phase.get("name") == "misleading_experience" else "recovery" if phase.get("name") == "recovery" else "acquisition" if phase.get("name") == "acquisition" else "negative_transfer"
     return {**raw, "task_id": str(raw.get("task_id", f"phase-{phase.get('index', 0)}")), "utility_on": deployed_outcome.utility, "utility_off": baseline_outcome.utility, "task_score_on": deployed_outcome.utility, "task_score_off": baseline_outcome.utility, "delta": deployed_outcome.utility - baseline_outcome.utility, "noise_floor": 0.05, "reused": bool(deployed_ids), "oracle_bundle": list(deployed_outcome.oracle_bundle), "deployed_bundle": deployed_ids, "oracle_utility": oracle_outcome.utility, "deployed_utility": deployed_outcome.utility, "scientific_gates": dict(deployed_outcome.scientific_gates), "experiment_cost": 1.0, "failure_source": source}
 
@@ -424,23 +428,28 @@ def run_episode(
     promoted_total: list[str] = []
     regret_steps: list[RegretStep] = []
     family_transformations: list[dict[str, Any]] = []
+    environment_state = EpisodeEnvironmentState()
     ledger = EvolutionDecisionLedger()
     drift_start: int | None = None
 
     for phase in episode["phases"]:
         if phase.get("family_id") and phase.get("transformation"):
-            family_transformations.append(
-                transformation(str(phase["family_id"]), str(phase["transformation"]), **dict(phase.get("transformation_parameters") or {})).__dict__
-            )
+            transform = transformation(str(phase["family_id"]), str(phase["transformation"]), **dict(phase.get("transformation_parameters") or {}))
+            family_transformations.append(transform.__dict__)
+            environment_state = environment_state.apply(transform)
         if phase.get("family_id") and phase.get("poison_operator"):
-            family_transformations.append(
-                poisoning_transformation(str(phase["family_id"]), str(phase["poison_operator"]), **dict(phase.get("poison_parameters") or {})).__dict__
-            )
+            poison = poisoning_transformation(str(phase["family_id"]), str(phase["poison_operator"]), **dict(phase.get("poison_parameters") or {}))
+            family_transformations.append(poison.__dict__)
+            environment_state = environment_state.apply(poison)
+        if phase.get("name") == "drift" and not phase.get("transformation"):
+            environment_state = environment_state.apply({"kind": "software", "parameters": {"to_runtime": "B"}})
+        if phase.get("name") == "recovery" and not phase.get("transformation"):
+            environment_state = environment_state.apply({"kind": "revalidation", "parameters": {}})
         written = _apply_phase_injections(store, condition, phase)
         poison_ids.extend(written["poisons"])
         phase_results: list[dict[str, Any]] = []
         for record in phase.get("results") or []:
-            visible = _environment_result(condition, phase, _strip_poison_labels(record), store)
+            visible = _environment_result(condition, phase, _strip_poison_labels(record), store, environment_state)
             phase_results.append(visible)
             paired_results.append(visible)
             if phase.get("name") in {"same_family_transfer", "cross_family_transfer"}:

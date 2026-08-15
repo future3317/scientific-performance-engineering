@@ -9,6 +9,13 @@ fixture remains a unit/calibration path only:
 - `acquisition_bench.py` compares random, uncertainty-only, and decision-aware query selection by cost to a fixed edge-identification error.
 - `router_bench.py` compares governed routing, CEGIS specialization, causal interaction evidence, and the combined router.
 
+The v0.4 calibration path adds typed relational CEGIS children for
+context-dependent sign changes, independent alpha-spent confidence intervals
+for each causal contrast, normalized three-way residuals, and an
+effect-strength-by-noise power curve.  Evolution environments use a persistent
+family regime state so drift and poisoning transformations remain active until
+an explicit revalidation transition.
+
 Acquisition is adaptive: each round recomputes uncertainty and decision value
 from the observations revealed so far. Policies stop only on their observable
 posterior state or when the query pool is exhausted; hidden edge truth is used

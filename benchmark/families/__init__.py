@@ -16,7 +16,7 @@ from .catalog import (
     CompositionSpec,
     InteractionOracle,
 )
-from .environment import EnvironmentOutcome, FamilyEnvironment
+from .environment import EnvironmentOutcome, EpisodeEnvironmentState, FamilyEnvironment
 
 __all__ = [
     "FamilyInstance",
@@ -33,7 +33,7 @@ __all__ = [
     "family_instance_digest",
     "CompositionSpec",
     "InteractionOracle",
-    "EnvironmentOutcome", "FamilyEnvironment",
+    "EnvironmentOutcome", "EpisodeEnvironmentState", "FamilyEnvironment",
     "PILOT_FAMILIES",
     "validate_cross_view_consistency",
 ]

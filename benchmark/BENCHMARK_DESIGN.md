@@ -105,8 +105,11 @@ contexts for calibration. Active-boundary stopping uses a time-uniform Bernoulli
 confidence sequence and remains truth-blind during acquisition; InteractionBench
 is sequential over 8/16/32/64/128 blocks with predeclared alpha spending;
 evolution episodes require canonical transfer evidence
-before drift/poison metrics are interpreted. These surfaces are not formal-50
-slots or formal results.
+before drift/poison metrics are interpreted. Relation applicability is learned
+with the same typed predicate grammar as boundary applicability, and three-way
+interaction residuals are reported on a normalized [-1,1] scale alongside their
+raw inclusion--exclusion value. These surfaces are not formal-50 slots or formal
+results.
 
 ## 3. Tracks
 

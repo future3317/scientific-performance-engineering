@@ -18,6 +18,20 @@ _CASES = {
 }
 
 
+def build_three_way_oracle(*, residual: float, baseline: float = -0.1) -> dict[str, float]:
+    """Construct 2^3 cells with an exact raw inclusion-exclusion residual."""
+    if not -1.0 <= residual / 8.0 <= 1.0:
+        raise ValueError("residual must produce a normalized value in [-1, 1]")
+    cells = {
+        "000": baseline, "100": 0.05, "010": 0.04, "001": 0.03,
+        "110": 0.12, "101": 0.10, "011": 0.09,
+    }
+    cells["111"] = residual + cells["110"] + cells["101"] + cells["011"] - cells["100"] - cells["010"] - cells["001"] + cells["000"]
+    if not -1.0 <= cells["111"] <= 1.0:
+        raise ValueError("requested residual produces an out-of-range u111")
+    return cells
+
+
 def generate_interaction_surface(*, count: int = 128, seed: int = 7) -> list[dict[str, object]]:
     """Generate deterministic relation surfaces for pilot calibration."""
     if count < 8:
@@ -138,6 +152,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             estimate = context_estimates["baseline"]
             identified = RelationIdentifier(practical_margin=0.08, equivalence_margin=0.35).identify(context_estimates)
             row = {"blocks": block_count, "decision": estimate.decision, "gamma": estimate.gamma, "gamma_lcb": estimate.gamma_lcb, "gamma_ucb": estimate.gamma_ucb}
+            row["contrast_intervals"] = {key: list(value) for key, value in estimate.contrast_intervals.items()}
             row["relation_identifier"] = identified.decision
             row["context_decisions"] = dict(identified.context_decisions)
             estimates.append(row)
@@ -162,6 +177,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             "gamma": estimate.gamma,
             "gamma_lcb": estimate.gamma_lcb,
             "gamma_ucb": estimate.gamma_ucb,
+            "contrast_intervals": {key: list(value) for key, value in estimate.contrast_intervals.items()},
             "context_decisions": dict(identified.context_decisions),
             "applicability_predicate": identified.applicability_predicate,
             "stopping_blocks": stopping_blocks,
@@ -192,6 +208,48 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
     }
 
 
+def run_interaction_power_curve(
+    *,
+    blocks: tuple[int, ...] = (8, 16, 32, 64, 128),
+    repetitions: int = 12,
+    seed: int = 7,
+    practical_margin: float = 0.15,
+) -> dict[str, object]:
+    """Calibrate confirmation power across effect strength and noise."""
+    strengths = {"near-null": 0.02, "near-margin": 0.12, "moderate": 0.20, "strong": 0.24}
+    noises = {"low": 0.005, "medium": 0.03, "high": 0.08}
+    rows: list[dict[str, object]] = []
+    for strength_name, effect in strengths.items():
+        for noise_name, noise in noises.items():
+            confirmations: list[int] = []
+            stopping: list[int] = []
+            for repetition in range(repetitions):
+                rng = random.Random(seed * 1009 + repetition * 97 + len(rows))
+                chosen: int | None = None
+                for block_count in blocks:
+                    engine = FactorialEngine(delta=0.05, practical_margin=practical_margin, look_count=len(blocks))
+                    for block_index in range(block_count):
+                        outcomes = {"00": 0.0, "10": 0.20, "01": 0.20, "11": 0.40 + 4.0 * effect}
+                        outcomes = {arm: max(-1.0, min(1.0, value + rng.uniform(-noise, noise))) for arm, value in outcomes.items()}
+                        engine.add_block(FactorialBlock(f"{strength_name}-{noise_name}-{repetition}-{block_index}", outcomes))
+                    if engine.estimate().decision == "confirmed_synergy":
+                        chosen = block_count
+                        break
+                confirmations.append(int(chosen is not None))
+                if chosen is not None:
+                    stopping.append(chosen)
+            rows.append({
+                "effect_strength": strength_name,
+                "absolute_gamma_minus_margin": abs(effect) - practical_margin,
+                "noise": noise_name,
+                "noise_scale": noise,
+                "correct_confirmation_probability": sum(confirmations) / len(confirmations),
+                "expected_blocks_to_confirmation": sum(stopping) / len(stopping) if stopping else None,
+                "repetitions": repetitions,
+            })
+    return {"blocks": list(blocks), "practical_margin": practical_margin, "results": rows}
+
+
 def run_higher_order_benchmark(*, count: int = 20, seed: int = 7, blocks: tuple[int, ...] = (8, 16, 32, 64, 128)) -> dict[str, object]:
     """Measure a genuine 2^3 residual over three composable interventions."""
     if count < 1:
@@ -200,17 +258,17 @@ def run_higher_order_benchmark(*, count: int = 20, seed: int = 7, blocks: tuple[
     details: list[dict[str, object]] = []
     for index in range(count):
         residual = 0.24 if index % 2 == 0 else -0.24
-        latent = {"000": -0.1, "100": 0.05, "010": 0.04, "001": 0.03, "110": 0.12, "101": 0.10, "011": 0.09, "111": 0.12 + residual}
+        latent = build_three_way_oracle(residual=residual)
         chosen = None
         estimates = []
         for block_count in blocks:
             sample = [ThreeWayBlock(f"three-{index}-{j}", {arm: max(-1.0, min(1.0, value + rng.uniform(-0.01, 0.01))) for arm, value in latent.items()}) for j in range(block_count)]
             estimate = estimate_higher_order(sample, delta=0.05, look_count=len(blocks), practical_margin=0.05)
-            estimates.append({"blocks": block_count, "residual": estimate.residual, "residual_lcb": estimate.residual_lcb, "residual_ucb": estimate.residual_ucb, "status": estimate.status})
+            estimates.append({"blocks": block_count, "raw_residual": estimate.raw_residual, "normalized_residual": estimate.normalized_residual, "residual_lcb": estimate.residual_lcb, "residual_ucb": estimate.residual_ucb, "status": estimate.status})
             if chosen is None and estimate.status != "unresolved":
                 chosen = estimate
         final = chosen or estimate
-        details.append({"surface_id": f"three-way-{index:04d}", "hidden_residual": residual, "predicted_residual": final.residual, "residual_lcb": final.residual_lcb, "residual_ucb": final.residual_ucb, "bundle_certificate": {"residual_lcb": final.residual_lcb, "residual_ucb": final.residual_ucb, "status": final.status}, "stopping_blocks": final.blocks if chosen else None, "estimates": estimates})
+        details.append({"surface_id": f"three-way-{index:04d}", "hidden_raw_residual": residual, "hidden_normalized_residual": residual / 8.0, "predicted_raw_residual": final.raw_residual, "predicted_normalized_residual": final.normalized_residual, "residual_lcb": final.residual_lcb, "residual_ucb": final.residual_ucb, "bundle_certificate": {"residual_lcb": final.residual_lcb, "residual_ucb": final.residual_ucb, "status": final.status}, "stopping_blocks": final.blocks if chosen else None, "estimates": estimates})
     return {"surface_count": count, "block_schedule": list(blocks), "results": details, "confirmed_rate": sum(item["stopping_blocks"] is not None for item in details) / count}
 
 

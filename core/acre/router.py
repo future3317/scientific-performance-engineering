@@ -63,21 +63,32 @@ class ConservativeCausalRouter:
         return int(math.ceil(float(value)))
 
     @staticmethod
-    def _relation_map(specs: Sequence[RelationSpec]) -> dict[frozenset[str], RelationSpec]:
-        pairs: dict[frozenset[str], RelationSpec] = {}
+    def _relation_map(specs: Sequence[RelationSpec]) -> dict[frozenset[str], tuple[RelationSpec, ...]]:
+        pairs: dict[frozenset[str], list[RelationSpec]] = {}
         for spec in specs:
             key = frozenset(spec.endpoints.values())
             if len(key) != 2:
                 continue
-            if key in pairs:
-                raise ValueError("duplicate canonical relation for rule pair")
-            pairs[key] = spec
-        return pairs
+            pairs.setdefault(key, []).append(spec)
+        return {key: tuple(value) for key, value in pairs.items()}
 
     @staticmethod
-    def _active(spec: RelationSpec, states: Mapping[str, RelationState]) -> bool:
+    def _active(spec: RelationSpec, states: Mapping[str, RelationState], context: Mapping[str, Any]) -> bool:
         state = states.get(spec.relation_id)
-        return state is not None and state.status == "canonical" and state.drift_state == "stable"
+        return state is not None and state.status == "canonical" and state.drift_state == "stable" and match_predicate(spec.applicability, context)
+
+    @classmethod
+    def _matching_relations(
+        cls,
+        pair: frozenset[str],
+        relation_map: Mapping[frozenset[str], tuple[RelationSpec, ...]],
+        relation_states: Mapping[str, RelationState],
+        context: Mapping[str, Any],
+    ) -> tuple[tuple[RelationSpec, ...], bool]:
+        matches = tuple(spec for spec in relation_map.get(pair, ()) if cls._active(spec, relation_states, context))
+        kinds = {spec.kind for spec in matches}
+        conflict = len(kinds) > 1 and any(kind not in {"independence", "redundancy"} for kind in kinds)
+        return matches, conflict
 
     @staticmethod
     def _lower_bound(spec: RelationSpec, state: RelationState | None) -> float:
@@ -88,8 +99,9 @@ class ConservativeCausalRouter:
     def _invalid_reasons(
         self,
         bundle: tuple[RuleSpec, ...],
-        relation_map: Mapping[frozenset[str], RelationSpec],
+        relation_map: Mapping[frozenset[str], tuple[RelationSpec, ...]],
         relation_states: Mapping[str, RelationState],
+        context: Mapping[str, Any],
     ) -> tuple[str, ...]:
         ids = {spec.rule_id for spec in bundle}
         reasons: set[str] = set()
@@ -98,18 +110,20 @@ class ConservativeCausalRouter:
         # A directed prerequisite is a closure constraint, not merely a
         # pairwise bonus.  Reject a dependent rule when its prerequisite is
         # absent from the candidate bundle, even if the pair is not selected.
-        for relation in relation_map.values():
-            if relation.kind != "prerequisite" or not self._active(relation, relation_states):
-                continue
-            if len(relation.endpoints) != 2:
-                continue
-            left, right = relation.endpoints["left"], relation.endpoints["right"]
-            prerequisite, dependent = (left, right) if relation.orientation == "left_to_right" else (right, left) if relation.orientation == "right_to_left" else (None, None)
-            if prerequisite is not None and dependent in ids and prerequisite not in ids:
-                reasons.add("missing_prerequisite:" + prerequisite)
+        for pair, candidates in relation_map.items():
+            for relation in candidates:
+                if relation.kind != "prerequisite" or not self._active(relation, relation_states, context):
+                    continue
+                left, right = relation.endpoints["left"], relation.endpoints["right"]
+                prerequisite, dependent = (left, right) if relation.orientation == "left_to_right" else (right, left) if relation.orientation == "right_to_left" else (None, None)
+                if prerequisite is not None and dependent in ids and prerequisite not in ids:
+                    reasons.add("missing_prerequisite:" + prerequisite)
         for left, right in itertools.combinations(bundle, 2):
-            relation = relation_map.get(frozenset((left.rule_id, right.rule_id)))
-            if relation is None or not self._active(relation, relation_states):
+            matches, overlap_conflict = self._matching_relations(frozenset((left.rule_id, right.rule_id)), relation_map, relation_states, context)
+            if overlap_conflict:
+                reasons.add("relation_overlap_conflict")
+            relation = matches[0] if matches else None
+            if relation is None:
                 if left.scientific_invariants and right.scientific_invariants:
                     reasons.add("unknown_scientific_interaction")
                 continue
@@ -121,13 +135,15 @@ class ConservativeCausalRouter:
         self,
         bundle: tuple[RuleSpec, ...],
         states: Mapping[str, RuleState],
-        relation_map: Mapping[frozenset[str], RelationSpec],
+        relation_map: Mapping[frozenset[str], tuple[RelationSpec, ...]],
         relation_states: Mapping[str, RelationState],
+        context: Mapping[str, Any],
     ) -> float:
         score = sum(self._utility(states[spec.rule_id]) for spec in bundle)
         for left, right in itertools.combinations(bundle, 2):
-            relation = relation_map.get(frozenset((left.rule_id, right.rule_id)))
-            if relation is not None and self._active(relation, relation_states):
+            matches, _ = self._matching_relations(frozenset((left.rule_id, right.rule_id)), relation_map, relation_states, context)
+            relation = matches[0] if matches else None
+            if relation is not None:
                 score += self._lower_bound(relation, relation_states.get(relation.relation_id))
         if len(bundle) > 1:
             score -= self.zeta
@@ -156,12 +172,12 @@ class ConservativeCausalRouter:
         for width in range(0, len(applicable) + 1):
             for selected in itertools.combinations(applicable, width):
                 bundle = tuple(sorted(selected, key=lambda spec: spec.rule_id))
-                reasons = self._invalid_reasons(bundle, relation_map, relation_states)
+                reasons = self._invalid_reasons(bundle, relation_map, relation_states, context_map)
                 if reasons:
                     for spec in bundle:
                         rejected[spec.rule_id].update(reasons)
                     continue
-                valid.append((bundle, self._objective(bundle, rule_states, relation_map, relation_states)))
+                valid.append((bundle, self._objective(bundle, rule_states, relation_map, relation_states, context_map)))
         if not valid:
             raise ValueError("no valid rule bundle under the token budget")
         bundle, objective = max(valid, key=lambda item: (item[1], tuple(spec.rule_id for spec in item[0])))
