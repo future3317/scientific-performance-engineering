@@ -12,6 +12,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from benchmark.boundary.families import family_cases, run_boundary_family
+from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
+from benchmark.interaction.factorial_bench import run_factorial_benchmark
+from benchmark.interaction.router_bench import run_router_benchmark
 from core.acre.predicate_synthesis import PredicateGrammar, SYNTHESIZER_VERSION
 
 
@@ -41,6 +44,23 @@ def validate(root: Path = ROOT) -> list[str]:
             errors.append(f"{family}: boundary synthesis failed: {first}")
         if first["result"]["synthesizer_version"] != SYNTHESIZER_VERSION:
             errors.append(f"{family}: missing synthesizer provenance")
+    factorial = run_factorial_benchmark()
+    expected_kinds = {"synergy", "antagonism", "independence", "prerequisite"}
+    if set(factorial["classifications"]) != expected_kinds or set(factorial["classifications"].values()) != expected_kinds:
+        errors.append("factorial: interaction classes were not recovered")
+    if float(factorial["coverage"]) < 0.93:
+        errors.append("factorial: confidence interval coverage below pilot threshold")
+    acquisition = run_acquisition_benchmark()
+    if set(acquisition["cost_to_target"]) != {"random", "uncertainty-only", "decision-aware"}:
+        errors.append("acquisition: missing policy comparison")
+    if any(cost is None for cost in acquisition["cost_to_target"].values()):
+        errors.append("acquisition: a policy did not reach the declared target error")
+    router = run_router_benchmark()
+    expected_variants = {"current_governed_D", "D_plus_CEGIS", "D_plus_causal_interaction", "full_ACRE"}
+    if set(router) != expected_variants:
+        errors.append("router: missing ACRE comparison variant")
+    if router["full_ACRE"]["objective"] <= router["current_governed_D"]["objective"]:
+        errors.append("router: full ACRE did not improve the conservative objective")
     return errors
 
 
