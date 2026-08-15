@@ -66,22 +66,27 @@ class InteractionOracle:
             relation = "prerequisite_b_to_a"
         else:
             relation = "independence"
-        a = min(0.35, 0.08 + abs(left_score) % 0.2)
-        b = min(0.35, 0.08 + abs(right_score) % 0.2)
+        a = min(0.15, 0.08 + abs(left_score) % 0.07)
+        b = min(0.15, 0.08 + abs(right_score) % 0.07)
         if relation == "redundancy":
             a, b = 0.48, 0.42
-        interaction = {"synergy": 0.55, "antagonism": -0.55, "independence": 0.0, "redundancy": 0.0, "prerequisite_a_to_b": 0.55, "prerequisite_b_to_a": 0.55, "semantic_conflict": 0.0}[relation]
+        # Keep the latent factorial contrast inside the utility bounds.  The
+        # interaction value is gamma, not an unbounded additive effect later
+        # clipped into a different hidden relation.
+        interaction = {"synergy": 0.12, "antagonism": -0.12, "independence": 0.0, "redundancy": 0.0, "prerequisite_a_to_b": 0.12, "prerequisite_b_to_a": 0.12, "semantic_conflict": 0.0}[relation]
         if ctx.get("sign_flip"):
             interaction = -interaction if interaction else -0.12
-        baseline = -0.35 if relation in {"synergy", "antagonism", "prerequisite_a_to_b", "prerequisite_b_to_a"} else 0.0
-        outcomes = {"00": baseline, "10": baseline + a, "01": baseline + b, "11": max(-0.95, min(0.95, baseline + a + b + 4.0 * interaction))}
+        baseline = -0.20 if relation in {"synergy", "antagonism", "prerequisite_a_to_b", "prerequisite_b_to_a"} else 0.0
+        outcomes = {"00": baseline, "10": baseline + a, "01": baseline + b, "11": baseline + a + b + 4.0 * interaction}
+        if not all(-1.0 <= value <= 1.0 for value in outcomes.values()):
+            raise ValueError("composition oracle produced an out-of-range factorial cell")
         if relation == "prerequisite_a_to_b": outcomes["01"] = baseline
         if relation == "prerequisite_b_to_a": outcomes["10"] = baseline
         if relation == "redundancy": outcomes["11"] = max(outcomes["10"], outcomes["01"])
         gates = {arm: True for arm in ("00", "10", "01", "11")}
         if relation == "semantic_conflict":
             gates["11"] = False
-        return {"outcomes": outcomes, "hidden_relation": relation, "scientific_gates": gates, "higher_order_residual": float(ctx.get("higher_order_residual", 0.0))}
+        return {"outcomes": outcomes, "hidden_relation": relation, "target_gamma": interaction, "scientific_gates": gates, "higher_order_residual": float(ctx.get("higher_order_residual", 0.0))}
 
 
 @dataclass(frozen=True)

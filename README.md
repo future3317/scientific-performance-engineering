@@ -92,7 +92,8 @@ python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python t
 ## Repository map
 
 - `SKILL.md`: compact router and lifecycle policy.
-- `core/`: canonical typed models, predicate matcher, and budgeted retriever.
+- `core/`: canonical typed models, predicate matcher, and the frozen B-baseline
+  retriever adapter; governed routing is exposed by `core/acre/AcreEngine`.
 - `references/`: detailed performance and scientific-domain procedures.
 - `scripts/`: validators, replay, confidence, retrieval, telemetry, and tests.
 - `assets/`: benchmark templates and generated model schemas.

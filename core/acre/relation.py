@@ -13,6 +13,7 @@ from typing import Mapping
 from .factorial import CANONICAL_RELATIONS, FactorialEstimate
 from .cegis import BoundaryObservation, StatisticalCEGIS
 from .predicates import PredicateGrammar
+from .policy import RelationDecisionPolicy
 from core.models import RelationSpec
 
 
@@ -32,6 +33,7 @@ class RelationIdentifier:
             raise ValueError("practical_margin must be in [0, 1]")
         self.practical_margin = practical_margin
         self.equivalence_margin = practical_margin if equivalence_margin is None else equivalence_margin
+        self._policy = RelationDecisionPolicy(practical_margin, self.equivalence_margin)
 
     def identify(self, estimates: Mapping[str, FactorialEstimate]) -> RelationIdentification:
         if not estimates:
@@ -41,6 +43,19 @@ class RelationIdentifier:
             positive = any(estimate.gamma_lcb > self.practical_margin for estimate in estimates.values())
             negative = any(estimate.gamma_ucb < -self.practical_margin for estimate in estimates.values())
             if positive and negative:
+                # A context-specialized child needs a local semantic label.
+                # If a local prerequisite/redundancy policy is unresolved but
+                # the interaction sign itself is already CI-separated, use
+                # that certified sign for the child rather than dropping the
+                # context from relational CEGIS.
+                decisions = {
+                    name: (
+                        "confirmed_synergy" if decisions[name] == "unresolved" and estimates[name].gamma_lcb > self.practical_margin
+                        else "confirmed_antagonism" if decisions[name] == "unresolved" and estimates[name].gamma_ucb < -self.practical_margin
+                        else decisions[name]
+                    )
+                    for name in estimates
+                }
                 return RelationIdentification(
                     "context_dependent_relation", decisions,
                     applicability_predicate={"contexts": sorted(estimates), "condition": "context-dependent sign"},
@@ -70,12 +85,15 @@ class RelationIdentifier:
         )
 
     def _identify_local(self, estimate: FactorialEstimate) -> str:
-        margin = self.practical_margin
-        if estimate.decision == "semantic_conflict":
-            return estimate.decision
-        if self._redundant(estimate):
+        decision = self._policy.decide(estimate.contrast_intervals, {
+            "00": estimate.scientific_00,
+            "10": estimate.scientific_10,
+            "01": estimate.scientific_01,
+            "11": estimate.scientific_11,
+        })
+        if decision in {"confirmed_synergy", "confirmed_independence"} and self._redundant(estimate):
             return "confirmed_redundancy"
-        return estimate.decision
+        return decision
 
     def _redundant(self, estimate: FactorialEstimate) -> bool:
         """Require CI-gated useful singles and practical-equivalent joint arm."""

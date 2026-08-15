@@ -27,5 +27,9 @@
     "software_fingerprint": {"type": "object"},
     "torch_version": {"type": ["string", "null"]},
     "cuda_version": {"type": ["string", "null"]}
+    ,"family_id": {"type": "string", "minLength": 1}
+    ,"anchor_instance_id": {"type": "string", "minLength": 1}
+    ,"family_instance_digest": {"type": ["string", "null"]}
+    ,"lineage_id": {"type": "string", "minLength": 1}
   }
 }

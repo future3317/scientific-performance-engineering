@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 from benchmark.boundary.families import family_cases, run_boundary_family
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
-from benchmark.interaction.factorial_bench import run_factorial_benchmark
+from benchmark.interaction.factorial_bench import run_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
 from benchmark.interaction.router_bench import run_router_benchmark
 from core.acre.predicates import PredicateGrammar, SYNTHESIZER_VERSION
 
@@ -28,7 +28,7 @@ def validate_method_ownership(root: Path) -> list[str]:
         errors.append("benchmark/boundary/cegis.py must not exist; CEGIS is core-owned")
     forbidden_classes = {"StatisticalCEGIS", "ConservativeCausalRouter", "FactorialEngine", "AcreEngine"}
     forbidden_names = {"RuleCandidate", "InteractionEvidence", "EvolutionDecision"}
-    for directory in (boundary_root, interaction_root):
+    for directory in (boundary_root, interaction_root, root / "scripts"):
         for path in directory.rglob("*.py"):
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -80,6 +80,14 @@ def validate(root: Path = ROOT) -> list[str]:
         errors.append("factorial: interaction classes were not recovered")
     if float(factorial["coverage"]) < 0.93:
         errors.append("factorial: confidence interval coverage below pilot threshold")
+    power = run_interaction_power_curve(blocks=(8, 16, 32, 64), repetitions=2)
+    if any(abs(float(row["realized_gamma"]) - float(row["target_gamma"])) > 1e-12 for row in power["results"]):
+        errors.append("interaction: power-curve target contrast was altered during construction")
+    if len({float(row["target_gamma"]) for row in power["results"]}) < 4:
+        errors.append("interaction: power curve has no effect-strength ladder")
+    higher = run_higher_order_benchmark(count=5, blocks=(8, 16, 32, 64))
+    if not all("raw_residual" in row and "normalized_residual" in row for row in higher["results"]):
+        errors.append("higher-order: raw and normalized residuals are not recorded")
     acquisition = run_acquisition_benchmark()
     if set(acquisition["cost_to_target"]) != {"random", "uncertainty-only", "decision-aware"}:
         errors.append("acquisition: missing policy comparison")

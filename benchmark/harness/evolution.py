@@ -37,10 +37,9 @@ from .evolution_ledger import EvolutionDecisionLedger
 from core import governance
 from benchmark.families import poisoning_transformation, transformation
 from benchmark.formal.aggregate import RegretStep, evolution_regret
-from core.acre.engine import AcreEngine
-from core.models import RuleSpec, RuleState, TaskContext
+from core.models import TaskContext
+from benchmark.formal.condition_adapter import FormalConditionAdapter
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
-from .experience_retrieval import RawExperienceRetriever
 
 METRIC_NAMES = (
     "transfer_gain",
@@ -149,27 +148,10 @@ def _environment_result(
     Episode manifests describe contexts and transformations only.  Utility is
     produced here after routing, so C and D cannot share pre-written outcomes.
     """
-    rules_dir = store / "rules"
-    cards = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(rules_dir.glob("*.json"))] if rules_dir.is_dir() else []
-    specs: list[RuleSpec] = []
-    states: dict[str, RuleState] = {}
-    for card in cards:
-        try:
-            spec = RuleSpec.from_dict(card)
-            specs.append(spec)
-            states[spec.rule_id] = RuleState(rule_id=spec.rule_id, version=spec.version, status="canonical", effect={"utility": 0.2}, confidence_sequence={"lcb": 0.2}, retrieval_utility=0.2)
-        except (TypeError, ValueError):
-            continue
     mechanism = "compile" if "COMPILE" in str(raw.get("task_id", "")) else "runtime"
     context = TaskContext(domain="runtime", workload={"workload": {"mechanism": mechanism}}, hardware={}, software={}, evidence={}, token_budget=4096)
     environment = FamilyEnvironment(str(phase.get("family_id", "compile")))
-    if condition == "C":
-        deployed = RawExperienceRetriever(store, token_budget=context.token_budget).propose_interventions(query=mechanism)
-        deployed_ids = list(deployed)
-    else:
-        routed = AcreEngine(rule_specs=specs, rule_states=states).route(context)
-        selected = {spec.rule_id: spec for spec in specs}
-        deployed_ids = [str(selected[item].intervention.get("action", item)) for item in routed.selected_rule_ids if item in selected]
+    deployed_ids = FormalConditionAdapter(condition, store, token_budget=context.token_budget).propose_interventions(context)
     state = environment_state or EpisodeEnvironmentState()
     deployed_outcome = environment.evaluate(context.workload, deployed_ids, state)
     oracle_outcome = environment.oracle(context.workload, state)

@@ -22,72 +22,7 @@ from benchmark.harness.evolution import run_episode
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
 from benchmark.interaction.factorial_bench import run_family_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
 from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
-from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
-from core.acre.predicates import PredicateGrammar
-from core.predicates import match_predicate
-
-
-def _decision_sensitivity_callback(
-    queries: list[AcquisitionQuery],
-) -> Any:
-    """Estimate whether either hypothetical outcome changes a deployment decision.
-
-    The pilot keeps the probe deterministic: each outcome updates the current
-    version-space vote and the resulting applicability bundle is compared with
-    the current bundle.  This is the decision-facing hook used by the
-    decision-aware policy; sealed labels are never consulted.
-    """
-    edge_order = tuple(sorted({query.edge_id for query in queries}))
-    grammar = PredicateGrammar.from_dict({
-        "schema_version": 1,
-        "features": [
-            {"path": f"workload.{key}", "type": "numeric"}
-            for key in sorted({key for query in queries for key, value in (query.context.get("workload", {}) if isinstance(query.context.get("workload", {}), dict) else {}).items() if isinstance(value, (int, float)) and not isinstance(value, bool)})
-        ] or [{"path": "_decision_probe", "type": "numeric"}],
-        "max_depth": 2,
-        "max_literals": 1,
-    })
-    decision_cache: dict[tuple[str, tuple[tuple[str, tuple[bool, ...]], ...]], bool] = {}
-
-    def callback(query: AcquisitionQuery, observations: dict[str, list[bool]]) -> float:
-        def edge_decision(edge_id: str, state: dict[str, list[bool]]) -> bool:
-            key = (edge_id, tuple(sorted((name, tuple(values)) for name, values in state.items())))
-            if key in decision_cache:
-                return decision_cache[key]
-            values = state.get(edge_id, [])
-            if not values:
-                decision_cache[key] = False
-                return False
-            if len(values) != 2:
-                decision = sum(values) * 2 >= len(values)
-                decision_cache[key] = decision
-                return decision
-            edge_queries = [item for item in queries if item.edge_id == edge_id]
-            observations = [BoundaryObservation(item.query_id, item.context, 1.0 if value else 0.0, bool(value), 1.0 if value else -1.0, 1.0 if value else 0.0) for item, value in zip(edge_queries[:8], values[:8])]
-            positive = [item for item in observations if item.positive_anchor()]
-            negative = [item for item in observations if item.certified_counterexample()]
-            decision = False
-            if positive and negative:
-                synthesis = StatisticalCEGIS(grammar).synthesize(positive=positive, counterexamples=negative, parent_predicate=None, decision_contexts=[item.context for item in edge_queries])
-                decision = synthesis.predicate is not None and any(match_predicate(synthesis.predicate, item.context) for item in edge_queries)
-            if not decision:
-                decision = sum(values) * 2 >= len(values)
-            decision_cache[key] = decision
-            return decision
-
-        def bundle(state: dict[str, list[bool]]) -> tuple[str, ...]:
-            return tuple(edge_id for edge_id in edge_order if edge_decision(edge_id, state))
-
-        current = bundle(observations)
-        changed = False
-        for outcome in (True, False):
-            hypothetical = {key: list(value) for key, value in observations.items()}
-            hypothetical.setdefault(query.edge_id, []).append(outcome)
-            if bundle(hypothetical) != current:
-                changed = True
-        return 1.0 if changed else 0.0
-
-    return callback
+from core.acre.decision_probe import decision_sensitivity_callback
 
 
 def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> dict[str, Any]:
@@ -125,7 +60,7 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
             for query_id in noisy_labels:
                 if noise_rng.random() < 0.02:
                     noisy_labels[query_id] = not noisy_labels[query_id]
-            decision_probe = _decision_sensitivity_callback(queries) if policy is AcquisitionPolicy.DECISION_AWARE else None
+            decision_probe = decision_sensitivity_callback(queries) if policy is AcquisitionPolicy.DECISION_AWARE else None
             trajectory = run_acquisition(queries, noisy_labels, policy, seed=trial_seed, decision_sensitivity_fn=decision_probe)
             evaluation = evaluate_trajectory(trajectory, queries, noisy_labels, truths, target_error=0.0)
             curve = evaluation.error_trajectory

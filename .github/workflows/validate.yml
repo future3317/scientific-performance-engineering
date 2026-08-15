@@ -46,6 +46,7 @@ jobs:
         run: python -m compileall -q scripts assets core benchmark
       - name: Run benchmark harness contracts
         run: |
+          python -m pytest -q
           python benchmark/tests/run_all.py
           python benchmark/boundary/test_cegis.py
           python scripts/validate_acre.py

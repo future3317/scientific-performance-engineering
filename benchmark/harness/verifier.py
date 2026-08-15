@@ -120,6 +120,18 @@ def validate_task(task_dir: str | Path, check_fixtures: bool = True) -> list[str
         errors.append("workspace_ast_skeleton_hash must be a 64-character digest")
     if spec.get("difficulty_tier") not in {"easy", "medium", "hard"}:
         errors.append("difficulty_tier must be easy, medium, or hard")
+    # Canonical SPE anchors carry explicit family lineage.  Generic harness
+    # fixtures used by split-contract tests may omit it and are validated by
+    # the population validator when they enter the benchmark population.
+    if any(key in spec for key in ("family_id", "anchor_instance_id", "family_parameters", "family_instance_digest")):
+        if not isinstance(spec.get("family_id"), str) or not spec["family_id"]:
+            errors.append("family_id must be a non-empty string")
+        if spec.get("anchor_instance_id") != spec.get("task_id"):
+            errors.append("anchor_instance_id must equal task_id for a materialized anchor")
+        if not isinstance(spec.get("family_parameters"), dict) or not spec["family_parameters"]:
+            errors.append("family_parameters must be a non-empty mapping")
+        if not isinstance(spec.get("family_instance_digest"), str) or len(spec["family_instance_digest"]) != 64:
+            errors.append("family_instance_digest must be a 64-character digest")
     if not isinstance(spec.get("requires_cuda"), bool):
         errors.append("requires_cuda must be a boolean")
 

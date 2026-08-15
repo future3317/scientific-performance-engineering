@@ -86,11 +86,10 @@ only `RelationSpec`/`RelationState`; `RuleSpec.relations` is a read-only import
 projection. Bundle certificates mark unmeasured higher-order residuals as
 `higher_order_suspected` and block bounded-auto deployment.
 
-Use `core.retriever.retrieve_candidates` and `select_rules` for progressive
-retrieval. The greedy selector maximizes coverage and expected utility minus
-redundancy under a token budget while rejecting hard conflicts. Embeddings may
-retrieve candidates, but exact typed predicates and conflict resolution decide
-the final set.
+`AcreEngine.route` is the only production routing path and consumes the typed
+rule/relation specs and states. `core.retriever.retrieve_candidates` and
+`select_rules` are retained only as the frozen-skill B-baseline adapter for
+comparative evaluation; they do not participate in governed D routing.
 
 Promotion is bounded autonomous evolution: P0/P1 scientific, correctness,
 authorization, and safety rules always require human review. P2/P3 diagnostic

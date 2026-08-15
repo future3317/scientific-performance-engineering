@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Mapping
 
 
@@ -206,39 +206,8 @@ class FactorialEngine:
         delta_a_b1 = means["11"] - means["01"]
         delta_b_a0 = means["01"] - means["00"]
         delta_b_a1 = means["11"] - means["10"]
-        margin = self.practical_margin
         scientific = {arm: all(block.scientific_gates[arm] for block in self._blocks) for arm in _ARMS}
-        # Use the same bounded radius for the conditional effects.  A
-        # prerequisite is directional only when the present-partner effect is
-        # confidently above the margin and the absent-partner effect is
-        # confidently inside the practical-null interval.
-        def confidently_positive(name: str) -> bool:
-            return contrast_intervals[name][0] > margin
-
-        def confidently_null(name: str) -> bool:
-            lower, upper = contrast_intervals[name]
-            return lower >= -margin and upper <= margin
-
-        # Relation decisions are confidence-gated.  Prerequisite direction is
-        # identified by a positive conditional effect only after the other
-        # intervention is present, while its absent-partner effect stays in
-        # the practical null region.
-        if scientific["11"] is False and scientific["10"] and scientific["01"] and scientific["00"]:
-            decision = "semantic_conflict"
-        elif gamma_lcb > margin:
-            if confidently_positive("delta_b_given_a1") and confidently_null("delta_b_given_a0"):
-                decision = "prerequisite_a_to_b"
-            elif confidently_positive("delta_a_given_b1") and confidently_null("delta_a_given_b0"):
-                decision = "prerequisite_b_to_a"
-            else:
-                decision = "confirmed_synergy"
-        elif gamma_ucb < -margin:
-            decision = "confirmed_antagonism"
-        elif gamma_lcb >= -margin and gamma_ucb <= margin:
-            decision = "confirmed_independence"
-        else:
-            decision = "unresolved"
-        return FactorialEstimate(
+        estimate = FactorialEstimate(
             gamma=gamma,
             gamma_lcb=gamma_lcb,
             gamma_ucb=gamma_ucb,
@@ -246,7 +215,7 @@ class FactorialEngine:
             delta_a_given_b1=delta_a_b1,
             delta_b_given_a0=delta_b_a0,
             delta_b_given_a1=delta_b_a1,
-            decision=decision,
+            decision="unresolved",
             blocks=n,
             scientific_00=scientific["00"],
             scientific_10=scientific["10"],
@@ -255,6 +224,11 @@ class FactorialEngine:
             utility_intervals=utility_intervals,
             contrast_intervals=contrast_intervals,
         )
+        # The semantic policy is shared with cross-context RelationIdentifier;
+        # the estimator itself only creates arm and contrast confidence sets.
+        from .policy import RelationDecisionPolicy
+
+        return replace(estimate, decision=RelationDecisionPolicy(self.practical_margin).decide(contrast_intervals, scientific))
 
 
 def simulate_coverage(

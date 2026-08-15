@@ -21,7 +21,10 @@ class BundleCertificate:
 
     @property
     def bounded_auto_allowed(self) -> bool:
-        return self.status in {"certified", "not_applicable"}
+        # A non-zero higher-order residual is a hyperedge, not evidence that
+        # the pairwise graph is complete.  It must not silently pass the
+        # bounded-auto gate.
+        return self.status in {"pairwise_certified", "not_applicable"}
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,33 @@ class RoutingDecision:
     objective: float
     rejected_reasons: Mapping[str, tuple[str, ...]]
     bundle_certificate: BundleCertificate | None = None
+
+
+def validate_relation_nonoverlap(
+    relation_specs: Sequence[RelationSpec], contexts: Sequence[Mapping[str, Any]] = ()
+) -> list[str]:
+    """Return active relation overlap errors for a registered relation set."""
+    errors: list[str] = []
+    grouped: dict[frozenset[str], list[RelationSpec]] = {}
+    for spec in relation_specs:
+        grouped.setdefault(frozenset(spec.endpoints.values()), []).append(spec)
+    for pair, specs in grouped.items():
+        for index, left in enumerate(specs):
+            for right in specs[index + 1 :]:
+                if left.relation_id == right.relation_id:
+                    continue
+                overlap = left.applicability == right.applicability
+                if contexts:
+                    overlap = overlap or any(
+                        match_predicate(left.applicability, context)
+                        and match_predicate(right.applicability, context)
+                        for context in contexts
+                    )
+                if overlap:
+                    errors.append(
+                        f"relation applicability overlap for {left.relation_id} and {right.relation_id} on {sorted(pair)}"
+                    )
+    return errors
 
 
 class ConservativeCausalRouter:
@@ -85,10 +115,18 @@ class ConservativeCausalRouter:
         relation_states: Mapping[str, RelationState],
         context: Mapping[str, Any],
     ) -> tuple[tuple[RelationSpec, ...], bool]:
-        matches = tuple(spec for spec in relation_map.get(pair, ()) if cls._active(spec, relation_states, context))
-        kinds = {spec.kind for spec in matches}
-        conflict = len(kinds) > 1 and any(kind not in {"independence", "redundancy"} for kind in kinds)
-        return matches, conflict
+        active = [spec for spec in relation_map.get(pair, ()) if cls._active(spec, relation_states, context)]
+        # A single canonical semantic relation is the only safe router state.
+        # Multiple versions of the same relation resolve to the newest one;
+        # distinct active relations are an overlap conflict regardless of kind
+        # (independence and redundancy are not interchangeable).
+        newest: dict[str, RelationSpec] = {}
+        for spec in active:
+            previous = newest.get(spec.relation_id)
+            if previous is None or spec.version > previous.version:
+                newest[spec.relation_id] = spec
+        matches = tuple(sorted(newest.values(), key=lambda item: (item.relation_id, item.version)))
+        return matches, len(matches) > 1
 
     @staticmethod
     def _lower_bound(spec: RelationSpec, state: RelationState | None) -> float:
@@ -122,7 +160,7 @@ class ConservativeCausalRouter:
             matches, overlap_conflict = self._matching_relations(frozenset((left.rule_id, right.rule_id)), relation_map, relation_states, context)
             if overlap_conflict:
                 reasons.add("relation_overlap_conflict")
-            relation = matches[0] if matches else None
+            relation = matches[0] if len(matches) == 1 else None
             if relation is None:
                 if left.scientific_invariants and right.scientific_invariants:
                     reasons.add("unknown_scientific_interaction")
@@ -142,7 +180,7 @@ class ConservativeCausalRouter:
         score = sum(self._utility(states[spec.rule_id]) for spec in bundle)
         for left, right in itertools.combinations(bundle, 2):
             matches, _ = self._matching_relations(frozenset((left.rule_id, right.rule_id)), relation_map, relation_states, context)
-            relation = matches[0] if matches else None
+            relation = matches[0] if len(matches) == 1 else None
             if relation is not None:
                 score += self._lower_bound(relation, relation_states.get(relation.relation_id))
         if len(bundle) > 1:
@@ -189,7 +227,10 @@ class ConservativeCausalRouter:
         if len(bundle) < 3:
             certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, 0.0, 0.0, "not_applicable")
         elif "lcb" in evidence and "ucb" in evidence:
-            certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, float(evidence["lcb"]), float(evidence["ucb"]), "certified" if float(evidence["lcb"]) > 0.0 or float(evidence["ucb"]) < 0.0 else "unresolved")
+            lcb, ucb = float(evidence["lcb"]), float(evidence["ucb"])
+            eta = float(evidence.get("practical_margin", 0.05))
+            status = "pairwise_certified" if lcb >= -eta and ucb <= eta else "hyperedge_required"
+            certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, lcb, ucb, status)
         else:
             certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, -1.0, 1.0, "higher_order_suspected")
         return RoutingDecision(

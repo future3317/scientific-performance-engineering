@@ -13,6 +13,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,7 @@ from benchmark.harness import conditions, miniyaml, scoring, verifier
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
+from benchmark.formal.condition_adapter import FormalConditionAdapter
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 
 
@@ -34,14 +36,45 @@ def _copy_workspace(task_dir: Path, destination: Path) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True)
 
 
+def materialize_agent_task(task_dir: Path, destination: Path) -> None:
+    """Create the public task view used by the external worker.
+
+    Oracle and verifier code are harness-only.  The worker receives the task
+    contract, workspace, and public tests, never the task package root.
+    """
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in ("task.yaml", "metadata.json", "scientific_contract.py"):
+        source = task_dir / name
+        if source.is_file():
+            shutil.copy2(source, destination / name)
+    for name in ("workspace", "public_tests"):
+        source = task_dir / name
+        if source.is_dir():
+            shutil.copytree(source, destination / name, dirs_exist_ok=True)
+
+
+def _materialize_read_only_view(source: Path, destination: Path) -> None:
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination, dirs_exist_ok=True)
+    for entry in destination.rglob("*"):
+        if entry.is_file():
+            entry.chmod(stat.S_IRUSR | stat.S_IRGRP)
+        elif entry.is_dir():
+            entry.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
+
+
 def _run_agent(command_template: str, env: dict[str, str], cwd: Path, timeout: float) -> dict[str, Any]:
     command = command_template.format(**env)
     try:
+        inherited = {key: value for key, value in os.environ.items() if not key.startswith("SPE_") and key not in {"PYTHONPATH", "PYTHONHOME"}}
         completed = subprocess.run(
             command,
             shell=True,
             cwd=str(cwd),
-            env={**os.environ, **env},
+            env={**inherited, **env},
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -82,10 +115,25 @@ def post_task_update(
     promoted_rule_ids: list[str] = []
     if condition in {"C", "C_STRESS", "D"}:
         evidence = {
+            "schema_version": 2,
             "id": evidence_id,
+            "event_id": evidence_id,
             "task_id": task_id,
             "condition": condition,
             "context_mode": context_mode,
+            "context": {"task_id": task_id, "condition": condition, "context_mode": context_mode, "rule_versions": {}},
+            "assignment": {"interventions": {task_id: 1}, "propensity": 0.5, "design_id": "formal-task-v2"},
+            "evidence_stream": "representative",
+            "query_id": evidence_id,
+            "outcome_vector": {"task_score": float(scored.get("task_score", 0.0) or 0.0)},
+            "artifacts": {},
+            "versions": {},
+            "source_id": evidence_id,
+            "independence_group": task_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "trust_zone": "local",
+            "attacker_controlled_fields": [],
+            "intervention": {"action": task_id},
             "verdict": result.get("verdict"),
             "task_score": scored.get("task_score"),
             "scientific_gates": result.get("scientific_gates", {}),
@@ -150,6 +198,7 @@ def post_task_update(
 def _experiment_manifest(
     *,
     repo_root: Path,
+    tasks_root: Path,
     skill_digest: str,
     task_digest: str,
     task_ids: list[str],
@@ -159,6 +208,8 @@ def _experiment_manifest(
     budgets: budget.Budget,
     fingerprint: dict[str, Any],
 ) -> dict[str, Any]:
+    task_spec = miniyaml.load(str(tasks_root / item["task_id"] / "task.yaml"))
+    lineage = task_spec.get("lineage", {}) if isinstance(task_spec, dict) else {}
     return {
         "schema_version": 1,
         "experiment_id": f"SPE-EvoBench-v1.0-20-{item['stream_id']}-{item['task_id']}",
@@ -170,6 +221,10 @@ def _experiment_manifest(
         "condition": item["condition"],
         "context_mode": item["context_mode"],
         "task_order": task_ids,
+        "family_id": task_spec.get("family_id", task_spec.get("family", "unknown")),
+        "anchor_instance_id": task_spec.get("anchor_instance_id", item["task_id"]),
+        "family_instance_digest": task_spec.get("family_instance_digest"),
+        "lineage_id": lineage.get("mutation_template_id", item["task_id"]),
         "outer_trial_id": item["outer_trial_id"],
         "budgets": budgets.as_dict(),
         "hardware_fingerprint": fingerprint,
@@ -181,6 +236,23 @@ def _experiment_manifest(
         "torch_version": fingerprint.get("torch_version"),
         "cuda_version": fingerprint.get("cuda_version"),
     }
+
+
+def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], report_path: Path) -> bool:
+    """Allow a claim only after the frozen schedule and calibration gate pass."""
+    if campaign.get("status") != "complete" or not records:
+        return False
+    if any(record.get("validity") != "valid" for record in records):
+        return False
+    expected = int(campaign.get("schedule_size", 0))
+    if len(records) != expected:
+        return False
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    calibration = report.get("empirical_calibration", {})
+    return calibration.get("calibration_gate") == "passed"
 
 
 def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
@@ -242,10 +314,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     for item in plan:
         stream_id = str(item["stream_id"])
         task_id = str(item["task_id"])
+        task_spec = miniyaml.load(str(tasks_root / task_id / "task.yaml"))
         trial_dir = out_dir / "trials" / stream_id / task_id
         trial_dir.mkdir(parents=True, exist_ok=True)
         manifest = _experiment_manifest(
             repo_root=repo_root,
+            tasks_root=tasks_root,
             skill_digest=skill_digest,
             task_digest=task_digest,
             task_ids=task_ids,
@@ -266,20 +340,24 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             stores[stream_id] = store
         solution_dir = trial_dir / "solution"
         _copy_workspace(tasks_root / task_id, solution_dir)
+        agent_task_dir = trial_dir / "agent-task"
+        materialize_agent_task(tasks_root / task_id, agent_task_dir)
+        condition_view = trial_dir / "condition-view"
+        _materialize_read_only_view(store, condition_view)
         env = {
             "SPE_TASK_ID": task_id,
-            "SPE_TASK_DIR": str(tasks_root / task_id),
+            "SPE_TASK_DIR": str(agent_task_dir),
             "SPE_SOLUTION_DIR": str(solution_dir),
             "SPE_CONDITION": str(item["condition"]),
             "SPE_CONTEXT_MODE": str(item["context_mode"]),
-            "SPE_CONDITION_STORE": str(store),
-            "SPE_CONTEXT_STATE": str(state_path),
+            "SPE_CONDITION_STORE": str(condition_view),
+            "SPE_CONTEXT_STATE": str(condition_view / "context.json"),
             "SPE_RESULT_PATH": str(trial_dir / "result.json"),
             "SPE_AGENT_USAGE_PATH": str(trial_dir / "agent_usage.json"),
             "SPE_BUDGET_JSON": json.dumps(budgets.as_dict(), sort_keys=True),
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
         }
-        agent = _run_agent(args.agent_command, env, repo_root, budgets.wall_time_s)
+        agent = _run_agent(args.agent_command, env, solution_dir, budgets.wall_time_s)
         usage_path = trial_dir / "agent_usage.json"
         try:
             usage = json.loads(usage_path.read_text(encoding="utf-8")) if usage_path.is_file() else {}
@@ -296,6 +374,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             context_mode=str(item["context_mode"]),
             seed=int(item["outer_trial_index"]),
         )
+        if str(item["condition"]) in {"C", "C_STRESS", "D"}:
+            adapter = FormalConditionAdapter(str(item["condition"]), store, token_budget=budgets.tokens)
+            result["condition_adapter"] = {
+                "kind": "raw_experience_retrieval" if str(item["condition"]) in {"C", "C_STRESS"} else "governed_acre_routing",
+                "token_budget": budgets.tokens,
+                "proposed_interventions": adapter.propose_interventions({"mechanism": task_spec.get("mechanism", ""), "family_id": task_spec.get("family_id", task_spec.get("family", ""))}),
+            }
         result.setdefault("cost", {}).update({
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
@@ -314,11 +399,18 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             ledger=ledgers.setdefault(stream_id, EvolutionDecisionLedger()),
             allow_maintenance=not budget_errors,
         )
+        attestation_ok, attestation_errors = conditions.verify_attestation(store)
+        if not attestation_ok:
+            budget_errors.extend(f"condition attestation failed: {error}" for error in attestation_errors)
         record = {
             "experiment": manifest,
             "task_id": task_id,
-            "family": miniyaml.load(str(tasks_root / task_id / "task.yaml")).get("family"),
-            "kind": miniyaml.load(str(tasks_root / task_id / "task.yaml")).get("kind"),
+            "family": task_spec.get("family"),
+            "family_id": task_spec.get("family_id", task_spec.get("family")),
+            "anchor_instance_id": task_spec.get("anchor_instance_id", task_id),
+            "family_instance_digest": task_spec.get("family_instance_digest"),
+            "lineage_id": task_spec.get("lineage", {}).get("mutation_template_id", task_id),
+            "kind": task_spec.get("kind"),
             "condition": item["condition"],
             "context_mode": item["context_mode"],
             "outer_trial_id": item["outer_trial_id"],
@@ -326,6 +418,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "agent": agent,
             "agent_usage": usage,
             "budget_errors": budget_errors,
+            "attestation_ok": attestation_ok,
             "validity": "invalid" if budget_errors else "valid",
             "transition": transition,
             "score": scored,
@@ -333,7 +426,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
         records.append(record)
     campaign["status"] = "complete"
-    campaign["results_claimed"] = any(record.get("validity") == "valid" for record in records)
+    campaign["results_claimed"] = bool(
+        getattr(args, "claim_results", False)
+        and _formal_claim_gate(campaign, records, repo_root / "benchmark" / "population_report.json")
+    )
     campaign["aggregate"] = aggregate.aggregate_trials(records)
     (out_dir / "campaign.json").write_text(json.dumps(campaign, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
     return campaign
@@ -355,6 +451,7 @@ def main() -> int:
     parser.add_argument("--agent-config", default="{}")
     parser.add_argument("--budgets", default=None, help='JSON, e.g. {"tokens":12000,"tool_calls":80,"wall_time_s":900}')
     parser.add_argument("--agent-command", default=None, help="shell template; receives SPE_* environment variables")
+    parser.add_argument("--claim-results", action="store_true", help="claim only if the formal calibration gate is passed")
     args = parser.parse_args()
     result = run_campaign(args)
     print(json.dumps({"status": result["status"], "schedule_size": result["schedule_size"], "results_claimed": result["results_claimed"]}, ensure_ascii=False))

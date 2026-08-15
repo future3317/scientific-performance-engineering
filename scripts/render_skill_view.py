@@ -13,7 +13,33 @@ from typing import Iterable
 
 ALLOWED_FILES = ("SKILL.md",)
 ALLOWED_DIRS = ("agents", "assets", "core", "references", "registry", "rules")
-ALLOWED_SCRIPT_SUFFIXES = {".py", ".md", ".json"}
+# Only scripts named by the public Skill workflow are agent-visible.  In
+# particular, benchmark runners and pilot report generators remain harness
+# code even though they live under ``scripts/`` in the repository.
+ALLOWED_SCRIPTS = {
+    "assess_rule_drift.py",
+    "behavioral_contract_tests.py",
+    "capture_experience.py",
+    "capture_rule_usage.py",
+    "collect_env.py",
+    "compare_benchmarks.py",
+    "evolution_contract_tests.py",
+    "evolution_statistics_tests.py",
+    "evolution_utility_tests.py",
+    "experience_contract_tests.py",
+    "generate_rule_schemas.py",
+    "governance_tests.py",
+    "rule_engine_tests.py",
+    "run_rule_replay.py",
+    "run_with_gpu_monitor.py",
+    "score_rule_library.py",
+    "validate_benchmark.py",
+    "validate_evolution.py",
+    "validate_experience.py",
+    "validate_rule_os.py",
+    "validate_rule_usage.py",
+    "validate_skill.py",
+}
 DENIED_NAMES = {".git", "benchmark", "oracle", "hidden_verifier", "__pycache__"}
 
 
@@ -69,7 +95,7 @@ def render_skill_view(source: str | Path, output: str | Path) -> dict[str, objec
     scripts = source / "scripts"
     if scripts.is_dir():
         for path in _safe_entries(scripts):
-            if path.is_file() and path.suffix.lower() in ALLOWED_SCRIPT_SUFFIXES:
+            if path.is_file() and path.name in ALLOWED_SCRIPTS:
                 target = output / path.relative_to(source)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)
@@ -78,9 +104,11 @@ def render_skill_view(source: str | Path, output: str | Path) -> dict[str, objec
     manifest = {
         "schema_version": 1,
         "kind": "skill-view",
-        "source_snapshot": str(source),
+        # Do not disclose the harness repository path to the worker.  The
+        # manifest records the view contract, not the private source location.
+        "source_snapshot": "redacted",
         "files": sorted(set(copied)),
-        "excluded_top_level": ["benchmark", ".git"],
+        "excluded_top_level": ["benchmark", ".git", "oracle", "hidden_verifier"],
     }
     manifest["manifest_digest"] = _manifest_digest(manifest)
     (output / "skill_view_manifest.json").write_text(

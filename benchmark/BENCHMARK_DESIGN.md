@@ -595,5 +595,12 @@ fixtures; CDVAE's hard validity gates and recall+precision pairing.
   the prototype; multi-process tasks arrive in the expansion matrix.
 - Subprocess isolation is not a security boundary; formal runs need the driver-level
   hardening of §13.
+- The formal worker receives only a public task view (contract, workspace, and
+  public tests) from an isolated working directory. Oracle, hidden-verifier,
+  and repository-root paths are not passed to the worker. Its condition-store
+  view is read-only; the harness appends evidence after verification. Synthetic
+  Boundary/Interaction calibration remains diagnostic, while executable-workload
+  calibration uses the empirical boundary adapter and may be inconclusive when
+  its paired interval is inside the measured noise floor.
 - Speedups are hardware-relative; cross-hardware claims require re-measured noise
   floors (fingerprints gate comparability).

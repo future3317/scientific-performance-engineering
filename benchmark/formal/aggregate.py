@@ -128,8 +128,8 @@ def _speedup(record: dict[str, Any]) -> float | None:
 
 def _identity(record: dict[str, Any], task_id: str) -> tuple[str, str, str]:
     task = record.get("task") if isinstance(record.get("task"), dict) else {}
-    family = str(record.get("family", task.get("family", "unknown")))
-    lineage = str(record.get("lineage_id", task.get("lineage_id", task_id)))
+    family = str(record.get("family_id", task.get("family_id", record.get("family", task.get("family", "unknown")))))
+    lineage = str(record.get("lineage_id", task.get("lineage_id", record.get("anchor_instance_id", task_id))))
     trial = str(record.get("outer_trial_id", record.get("experiment", {}).get("outer_trial_id", "")))
     return family, lineage, trial
 

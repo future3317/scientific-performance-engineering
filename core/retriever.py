@@ -1,4 +1,8 @@
-"""Conflict-aware, budgeted rule retrieval with a greedy submodular objective."""
+"""Frozen B-baseline retrieval adapter.
+
+Production routing is owned by :class:`core.acre.engine.AcreEngine`; this
+module remains only so the explicit frozen-skill baseline can be reproduced.
+"""
 
 from __future__ import annotations
 
