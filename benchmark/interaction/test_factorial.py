@@ -5,6 +5,7 @@ import math
 import pytest
 
 from core.acre.factorial import FactorialBlock, FactorialEngine, simulate_coverage
+from benchmark.interaction.factorial_bench import generate_interaction_surface
 
 
 def block(values: dict[str, float], block_id: str = "b1") -> FactorialBlock:
@@ -47,6 +48,23 @@ def test_factorial_requires_confidence_before_relation_decision() -> None:
     assert estimate.decision == "unresolved"
 
 
+def test_semantic_conflict_requires_independent_scientific_gate_pattern() -> None:
+    engine = FactorialEngine()
+    for index in range(5000):
+        engine.add_block(block({"00": 0.0, "10": 0.8, "01": 0.8, "11": 0.2}, f"normal-{index}"))
+    gated = FactorialEngine()
+    for index in range(5000):
+        gated.add_block(FactorialBlock(
+            f"conflict-{index}",
+            {"00": 0.0, "10": 0.8, "01": 0.8, "11": 0.2},
+            {"00": True, "10": True, "01": True, "11": False},
+        ))
+    assert engine.estimate().decision == "confirmed_antagonism"
+    estimate = gated.estimate()
+    assert estimate.decision == "semantic_conflict"
+    assert estimate.scientific_11 is False and estimate.scientific_10 is True
+
+
 def test_factorial_rejects_incomplete_or_out_of_range_blocks() -> None:
     with pytest.raises(ValueError, match="complete"):
         block({"00": 0.0, "10": 0.1, "11": 0.2})
@@ -59,3 +77,13 @@ def test_coverage_simulation_is_deterministic_and_meets_contract() -> None:
     assert result == simulate_coverage(true_interaction=0.2, noise=0.04, blocks=24, repetitions=200, seed=7)
     assert result.coverage >= 0.93
     assert math.isclose(result.true_interaction, 0.2)
+
+
+def test_parameterized_interaction_surface_is_deterministic_and_stratified() -> None:
+    first = generate_interaction_surface(count=128, seed=11)
+    assert first == generate_interaction_surface(count=128, seed=11)
+    assert len(first) == 128
+    assert {item["kind"] for item in first} == {
+        "synergy", "antagonism", "independence", "prerequisite_a_to_b",
+        "prerequisite_b_to_a", "redundancy", "semantic_conflict", "context_dependent_interaction",
+    }

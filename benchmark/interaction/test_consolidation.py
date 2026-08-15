@@ -11,6 +11,7 @@ from core.acre.acquisition import (
 from core.acre.predicates import PredicateGrammar, predicate_complexity
 from core.acre.router import ConservativeCausalRouter
 from core.acre.engine import AcreEngine
+from core.acre.evidence import assess, representative_events
 from core.governance import EvolutionDecision
 from core.models import RelationSpec, RelationState, RuleSpec, RuleState, TaskContext
 from scripts.run_rule_replay import build_evidence_events
@@ -18,8 +19,8 @@ from scripts.run_rule_replay import build_evidence_events
 
 def test_acquisition_stopping_uses_posterior_not_hidden_truth() -> None:
     queries = [
-        AcquisitionQuery("a", "edge-a", 0.8, 0.2, 1.0),
-        AcquisitionQuery("b", "edge-b", 0.8, 1.0, 1.0),
+        AcquisitionQuery("a", "edge-a", 1.0),
+        AcquisitionQuery("b", "edge-b", 1.0),
     ]
     labels = {"a": True, "b": False}
     trajectory = run_acquisition(queries, labels, AcquisitionPolicy.DECISION_AWARE, confidence_target=0.9)
@@ -50,7 +51,7 @@ def test_router_consumes_canonical_rule_and_relation_models() -> None:
 
     specs = [rule("a"), rule("b")]
     states = {rule_id: RuleState(rule_id, 1, status="canonical", effect={"lower_utility": 0.5}) for rule_id in ("a", "b")}
-    relation = RelationSpec("a-b", 1, None, ["a", "b"], "synergy", {"equals": {"workload": "graph"}}, {"contrast": "gamma"}, 0.05, [], {"required": True})
+    relation = RelationSpec("a-b", 1, None, {"left": "a", "right": "b"}, "symmetric", "synergy", {"equals": {"workload": "graph"}}, {"contrast": "gamma"}, 0.05, [], {"required": True})
     relation_state = RelationState("a-b", 1, 0.2, {"lcb": 0.2}, status="canonical")
     context = TaskContext("runtime", {"workload": "graph"}, {}, {}, {}, token_budget=4)
     decision = ConservativeCausalRouter(token_budget=4).route(specs, states, [relation], {"a-b": relation_state}, context)
@@ -75,7 +76,7 @@ def test_replay_writer_emits_canonical_evidence_v2() -> None:
 def test_acre_engine_is_the_single_public_orchestration_facade() -> None:
     spec = RuleSpec("RULE-A", 1, None, {"equals": {}}, {"action": "a"}, "mechanism", ["evidence"], [], {}, {}, {"tokens": 1.0}, {"required": True})
     state = RuleState("RULE-A", 1, status="canonical", effect={"lower_utility": 0.5})
-    engine = AcreEngine(rule_specs=[spec], rule_states={"RULE-A": state})
+    engine = AcreEngine(rule_specs=[spec], rule_states={"RULE-A": state}, query_proposer=lambda context, events: "experiment")
     event = {
         "schema_version": 2, "event_id": "e1", "context": {"rule_versions": {"RULE-A": 1}},
         "assignment": {"interventions": {"RULE-A": 1}, "propensity": 0.5, "design_id": "test"},
@@ -83,7 +84,33 @@ def test_acre_engine_is_the_single_public_orchestration_facade() -> None:
         "source_id": "test", "independence_group": "g1", "timestamp": "2026-01-01T00:00:00Z", "evidence_stream": "representative", "query_id": "q1", "trust_zone": "local", "attacker_controlled_fields": [],
     }
     engine.observe(event)
-    decision = engine.update_rule("RULE-A")
+    decision = engine.evolve("RULE-A")
     assert isinstance(decision, EvolutionDecision)
     assert decision.subject_type == "rule"
+    assert decision.operation == "NO_OP"
+    assert engine.propose_experiment({}) == "experiment"
     assert engine.route({}) .selected_rule_ids == ("RULE-A",)
+
+
+def test_adversarial_evidence_cannot_change_promotion_lcb() -> None:
+    def event(event_id: str, stream: str, *, utility: float, scientific_ok: bool = True) -> dict[str, object]:
+        return {
+            "schema_version": 2,
+            "event_id": event_id,
+            "context": {"rule_versions": {"RULE-A": 1}},
+            "assignment": {"interventions": {"RULE-A": 1}, "propensity": 0.5, "design_id": "test"},
+            "outcome_vector": {"utility": utility, "counterexample": not scientific_ok},
+            "scientific_gates": {"scientific_ok": scientific_ok},
+            "artifacts": {}, "versions": {}, "source_id": "test", "independence_group": event_id,
+            "timestamp": "2026-01-01T00:00:00Z", "evidence_stream": stream, "query_id": event_id,
+            "trust_zone": "local", "attacker_controlled_fields": [],
+        }
+
+    representative = [event("rep-1", "representative", utility=0.8)]
+    baseline = assess(representative)
+    adversarial = [event(f"adv-{index}", "adversarial", utility=-1.0, scientific_ok=False) for index in range(10_000)]
+    combined = assess(representative + adversarial)
+    assert combined.promotion_lcb == baseline.promotion_lcb
+    assert combined.representative_count == baseline.representative_count == 1
+    assert len(combined.specialization_event_ids) == 10_000
+    assert len(representative_events(representative + adversarial)) == 1

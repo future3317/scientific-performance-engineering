@@ -40,6 +40,13 @@ selection under token budget`. Similarity may narrow candidates, but structured
 predicates and hard conflicts decide what is selected. Runtime use never edits
 `SKILL.md` or silently promotes a rule.
 
+ACRE is one method core rather than a collection of independent pilot
+primitives. `core/acre/engine.py` is the public façade; it coordinates
+EvidenceEvent v2, asymmetric representative/adversarial evidence, version-space
+CEGIS, adaptive experiment acquisition, factorial relation inference, and
+conservative routing over canonical `RuleSpec`/`RelationSpec` state. BoundaryBench
+and InteractionBench construct environments and evaluate sealed outcomes only.
+
 ### Current maturity
 
 The governed Rule OS is implemented, but the canonical rule library is still
@@ -93,6 +100,8 @@ python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python t
   and runnable prototype tasks for evaluating performance-engineering and
   skill-evolution behavior. Start with [`benchmark/README.md`](benchmark/README.md).
 - `experience/`, `evolution/`, `rules/`, `registry/`: evidence and rule lifecycle.
+- `core/acre/`: the single ACRE method core (`AcreEngine`, evidence policy,
+  CEGIS, acquisition, factorial inference, routing, and bundle certificates).
 
 ## Validation
 

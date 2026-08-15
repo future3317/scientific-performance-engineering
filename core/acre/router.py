@@ -12,10 +12,24 @@ from core.predicates import match_predicate
 
 
 @dataclass(frozen=True)
+class BundleCertificate:
+    bundle_ids: tuple[str, ...]
+    context_predicate: Mapping[str, Any]
+    residual_lcb: float
+    residual_ucb: float
+    status: str
+
+    @property
+    def bounded_auto_allowed(self) -> bool:
+        return self.status in {"certified", "not_applicable"}
+
+
+@dataclass(frozen=True)
 class RoutingDecision:
     selected_rule_ids: tuple[str, ...]
     objective: float
     rejected_reasons: Mapping[str, tuple[str, ...]]
+    bundle_certificate: BundleCertificate | None = None
 
 
 class ConservativeCausalRouter:
@@ -52,9 +66,9 @@ class ConservativeCausalRouter:
     def _relation_map(specs: Sequence[RelationSpec]) -> dict[frozenset[str], RelationSpec]:
         pairs: dict[frozenset[str], RelationSpec] = {}
         for spec in specs:
-            if len(spec.rule_ids) != 2:
+            key = frozenset(spec.endpoints.values())
+            if len(key) != 2:
                 continue
-            key = frozenset(spec.rule_ids)
             if key in pairs:
                 raise ValueError("duplicate canonical relation for rule pair")
             pairs[key] = spec
@@ -87,11 +101,10 @@ class ConservativeCausalRouter:
         for relation in relation_map.values():
             if relation.kind != "prerequisite" or not self._active(relation, relation_states):
                 continue
-            if len(relation.rule_ids) != 2:
+            if len(relation.endpoints) != 2:
                 continue
-            left, right = relation.rule_ids
-            direction = relation.contrast_definition.get("direction")
-            prerequisite, dependent = (left, right) if direction == "a_to_b" else (right, left) if direction == "b_to_a" else (None, None)
+            left, right = relation.endpoints["left"], relation.endpoints["right"]
+            prerequisite, dependent = (left, right) if relation.orientation == "left_to_right" else (right, left) if relation.orientation == "right_to_left" else (None, None)
             if prerequisite is not None and dependent in ids and prerequisite not in ids:
                 reasons.add("missing_prerequisite:" + prerequisite)
         for left, right in itertools.combinations(bundle, 2):
@@ -159,4 +172,11 @@ class ConservativeCausalRouter:
             selected_rule_ids=tuple(spec.rule_id for spec in bundle),
             objective=objective,
             rejected_reasons={rule_id: tuple(sorted(reasons)) for rule_id, reasons in rejected.items() if reasons},
+            bundle_certificate=BundleCertificate(
+                bundle_ids=tuple(spec.rule_id for spec in bundle),
+                context_predicate={"context": dict(context_map)},
+                residual_lcb=0.0 if len(bundle) < 3 else -1.0,
+                residual_ucb=0.0 if len(bundle) < 3 else 1.0,
+                status="not_applicable" if len(bundle) < 3 else "higher_order_suspected",
+            ),
         )

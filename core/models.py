@@ -173,7 +173,8 @@ class RelationSpec:
     relation_id: str
     version: int
     parent: str | None
-    rule_ids: list[str]
+    endpoints: dict[str, str]
+    orientation: str
     kind: str
     applicability: dict[str, Any]
     contrast_definition: dict[str, Any]
@@ -185,10 +186,18 @@ class RelationSpec:
         _nonempty(self.relation_id, "relation_id")
         if self.version < 1:
             raise ValueError("version must be >= 1")
-        if len(self.rule_ids) < 2 or len(set(self.rule_ids)) != len(self.rule_ids):
-            raise ValueError("rule_ids must contain at least two unique rules")
+        if set(self.endpoints) != {"left", "right"} or any(not isinstance(value, str) or not value for value in self.endpoints.values()):
+            raise ValueError("endpoints must contain non-empty left and right rule ids")
+        if self.endpoints["left"] == self.endpoints["right"]:
+            raise ValueError("relation endpoints must be distinct")
+        if self.orientation not in {"symmetric", "left_to_right", "right_to_left"}:
+            raise ValueError("invalid relation orientation")
         if self.kind not in {"synergy", "antagonism", "independence", "prerequisite", "redundancy", "semantic_conflict", "context_dependent_interaction"}:
             raise ValueError("invalid relation kind")
+        if self.kind == "prerequisite" and self.orientation == "symmetric":
+            raise ValueError("prerequisite relations must be directed")
+        if self.kind != "prerequisite" and self.orientation != "symmetric":
+            raise ValueError("only prerequisite relations may be directed")
         _nonempty(self.applicability, "applicability")
         _nonempty(self.contrast_definition, "contrast_definition")
         if not math.isfinite(self.practical_margin) or self.practical_margin < 0:
@@ -196,6 +205,16 @@ class RelationSpec:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "RelationSpec":
+        # Legacy cards are accepted only at the read boundary and are emitted
+        # in the explicit endpoint/orientation form below.
+        if "endpoints" not in value and "rule_ids" in value:
+            ids = value["rule_ids"]
+            if not isinstance(ids, list) or len(ids) != 2:
+                raise ValueError("legacy rule_ids must contain exactly two rules")
+            value = dict(value)
+            value.pop("rule_ids")
+            value["endpoints"] = {"left": ids[0], "right": ids[1]}
+            value["orientation"] = "symmetric" if value.get("kind") != "prerequisite" else "left_to_right"
         return cls(**value)
 
     def to_dict(self) -> dict[str, Any]:

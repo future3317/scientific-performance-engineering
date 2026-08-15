@@ -18,6 +18,14 @@ class EvolutionDecision:
     status: str
     mode: str
     reason: str
+    evidence_ids: tuple[str, ...] = ()
+    policy_version: str = "acre-governance-1"
+
+    def __post_init__(self) -> None:
+        if self.subject_type not in {"rule", "relation"}:
+            raise ValueError("subject_type must be rule or relation")
+        if self.operation not in {"NO_OP", "PROMOTE", "SPECIALIZE", "SPLIT", "QUARANTINE", "REVALIDATE", "RETIRE"}:
+            raise ValueError("invalid evolution operation")
 
     @property
     def allowed(self) -> bool:
@@ -28,17 +36,12 @@ class EvolutionDecision:
         return self.subject_id if self.subject_type == "rule" else ""
 
 
-# Name retained as a read-only import alias for callers written before the
-# unified rule/relation lifecycle; it has no separate semantics or state.
-PromotionDecision = EvolutionDecision
-
-
 def evaluate_candidate(candidate: dict[str, Any], replay_manifest: dict[str, Any]) -> EvolutionDecision:
     """Evaluate replay and policy gates without mutating a store."""
     subject_type = "relation" if candidate.get("relation_id") else "rule"
     subject_id = str(candidate.get("relation_id") if subject_type == "relation" else candidate.get("rule_id") or candidate.get("id") or "")
     if not subject_id:
-        return EvolutionDecision(subject_type, "", "promote", "rejected", "none", "candidate has no subject id")
+        return EvolutionDecision(subject_type, "", "PROMOTE", "rejected", "none", "candidate has no subject id")
     try:
         if subject_type == "relation":
             relation_fields = RelationSpec.__dataclass_fields__
@@ -46,16 +49,16 @@ def evaluate_candidate(candidate: dict[str, Any], replay_manifest: dict[str, Any
         else:
             RuleSpec.from_dict(candidate)
     except (TypeError, ValueError, KeyError) as exc:
-        return EvolutionDecision(subject_type, subject_id, "promote", "rejected", "none", f"typed {subject_type} invalid: {exc}")
+        return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", f"typed {subject_type} invalid: {exc}")
     if replay_manifest.get("outcome") != "passed":
-        return EvolutionDecision(subject_type, subject_id, "promote", "rejected", "none", "replay did not pass")
+        return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", "replay did not pass")
     severity = str(candidate.get("severity", "P2"))
     requires_review = severity in {"P0", "P1"} or (subject_type == "relation" and candidate.get("kind") in {"prerequisite", "semantic_conflict"})
     if requires_review:
-        return EvolutionDecision(subject_type, subject_id, "promote", "review_required", "human-review", "scientific-sensitive subject requires human review")
+        return EvolutionDecision(subject_type, subject_id, "PROMOTE", "review_required", "human-review", "scientific-sensitive subject requires human review")
     if severity not in {"P2", "P3"}:
-        return EvolutionDecision(subject_type, subject_id, "promote", "rejected", "none", f"unsupported auto-promotion severity: {severity}")
-    return EvolutionDecision(subject_type, subject_id, "promote", "approved", "bounded-auto", "replay and typed policy gates passed")
+        return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", f"unsupported auto-promotion severity: {severity}")
+    return EvolutionDecision(subject_type, subject_id, "PROMOTE", "approved", "bounded-auto", "replay and typed policy gates passed")
 
 
 def apply_promotion(

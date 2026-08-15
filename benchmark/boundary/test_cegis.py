@@ -51,12 +51,21 @@ def main() -> None:
     assert not match_predicate(result.predicate, contexts[1])
     assert result.synthesizer_version
 
+    second_counterexample = BoundaryObservation("c2", {"workload": {"threshold": 2, "kind": "b"}}, -0.1, True, -0.3, -0.05)
+    narrowed = synthesizer.synthesize(
+        positive=[BoundaryObservation("p", contexts[0], 0.2, True, 0.1, 0.3)],
+        counterexamples=[BoundaryObservation("c", contexts[1], -0.1, True, -0.3, -0.05), second_counterexample],
+        parent_predicate=None,
+    )
+    assert narrowed.status == "accepted"
+    assert 0 < len(narrowed.version_space) < len(result.version_space)
+
     uncertain = synthesizer.synthesize(
         positive=[BoundaryObservation("p", contexts[0], 0.2, True, 0.1, 0.3)],
         counterexamples=[BoundaryObservation("u", contexts[1], -0.01, True, -0.1, 0.1)],
         parent_predicate=None,
     )
-    assert uncertain.status == "no_consistent_hypothesis"
+    assert uncertain.status == "insufficient_evidence"
     assert uncertain.predicate is None
     assert uncertain.certified_counterexamples == ()
 
@@ -65,7 +74,7 @@ def main() -> None:
         counterexamples=[BoundaryObservation("c", contexts[0], -0.1, False, -0.2, -0.05)],
         parent_predicate=None,
     )
-    assert impossible.status == "no_consistent_hypothesis"
+    assert impossible.status == "unsynthesizable_boundary"
 
     for family in ("graph_cache_geometry_motion", "compile_horizon"):
         report = run_boundary_family(family)

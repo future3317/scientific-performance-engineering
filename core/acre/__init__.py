@@ -4,14 +4,18 @@ from .predicates import PredicateGrammar, SYNTHESIZER_VERSION, predicate_complex
 from .cegis import BoundaryObservation, StatisticalCEGIS, SynthesisResult
 from .factorial import CoverageResult, FactorialBlock, FactorialEngine, FactorialEstimate, simulate_coverage
 from .acquisition import AcquisitionPolicy, AcquisitionQuery, AcquisitionResult, run_acquisition
-from .router import ConservativeCausalRouter, RoutingDecision
+from .router import BundleCertificate, ConservativeCausalRouter, RoutingDecision
 from .engine import AcreEngine
 from core.governance import EvolutionDecision
+from .evidence import EvidenceAssessment, adversarial_events, assess, representative_events
+from .controller import AcreController
 
 __all__ = [
     "PredicateGrammar", "predicate_complexity", "SynthesisResult", "StatisticalCEGIS", "BoundaryObservation", "SYNTHESIZER_VERSION",
     "CoverageResult", "FactorialBlock", "FactorialEngine", "FactorialEstimate", "simulate_coverage",
     "AcquisitionPolicy", "AcquisitionQuery", "AcquisitionResult", "run_acquisition",
-    "ConservativeCausalRouter", "RoutingDecision",
+    "ConservativeCausalRouter", "RoutingDecision", "BundleCertificate",
     "AcreEngine", "EvolutionDecision",
+    "EvidenceAssessment", "representative_events", "adversarial_events", "assess",
+    "AcreController",
 ]

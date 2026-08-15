@@ -75,6 +75,17 @@ library of already-promoted performance rules.
   applicability calibration, retrieval utility, override rate, and drift state.
   Never edit a canonical spec in place; create a new version with `parent`.
 
+ACRE is a single method core under `core/acre/`, exposed through
+`AcreEngine.observe`, `AcreEngine.propose_experiment`, `AcreEngine.evolve`, and
+`AcreEngine.route`. Representative evidence alone updates effect, confidence,
+and promotion statistics. Adversarial evidence can falsify, specialize, or
+quarantine, but cannot increase promotion evidence; use
+`core.acre.evidence.assess` rather than filtering streams at call sites.
+`RelationSpec` uses explicit endpoints and orientation, and routing consumes
+only `RelationSpec`/`RelationState`; `RuleSpec.relations` is a read-only import
+projection. Bundle certificates mark unmeasured higher-order residuals as
+`higher_order_suspected` and block bounded-auto deployment.
+
 Use `core.retriever.retrieve_candidates` and `select_rules` for progressive
 retrieval. The greedy selector maximizes coverage and expected utility minus
 redundancy under a token budget while rejecting hard conflicts. Embeddings may

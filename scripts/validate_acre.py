@@ -68,6 +68,9 @@ def validate(root: Path = ROOT) -> list[str]:
             errors.append(f"{family}: boundary synthesis failed: {first}")
         if first["result"]["synthesizer_version"] != SYNTHESIZER_VERSION:
             errors.append(f"{family}: missing synthesizer provenance")
+        generated = family_cases(family, surface_count=100)
+        if sum(len(pool) for pool in generated.values()) != 100 or any(not generated[name] for name in generated):
+            errors.append(f"{family}: parameterized surface generation is incomplete")
     factorial = run_factorial_benchmark()
     expected_kinds = {"confirmed_synergy", "confirmed_antagonism", "confirmed_independence", "prerequisite_a_to_b"}
     if set(factorial["classifications"].values()) != expected_kinds:

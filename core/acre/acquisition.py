@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Mapping, Sequence
 
@@ -18,17 +19,22 @@ class AcquisitionPolicy(str, Enum):
 class AcquisitionQuery:
     query_id: str
     edge_id: str
-    uncertainty: float
-    decision_value: float
     cost: float
+    context: Mapping[str, object] = field(default_factory=dict)
+    subject_ids: tuple[str, ...] = ()
+    experiment_type: str = "observation"
+    risk: float = 0.5
+    provenance_novelty: float = 0.5
 
     def __post_init__(self) -> None:
         if not self.query_id or not self.edge_id:
             raise ValueError("query_id and edge_id must be non-empty")
-        if not 0.0 <= self.uncertainty <= 1.0 or not 0.0 <= self.decision_value <= 1.0:
-            raise ValueError("uncertainty and decision_value must be in [0, 1]")
         if self.cost <= 0.0:
             raise ValueError("cost must be positive")
+        if not 0.0 <= self.risk <= 1.0 or not 0.0 <= self.provenance_novelty <= 1.0:
+            raise ValueError("risk and provenance_novelty must be in [0, 1]")
+        if self.experiment_type == "":
+            raise ValueError("experiment_type must be non-empty")
 
 
 @dataclass(frozen=True)
@@ -65,12 +71,32 @@ def _posterior(observations: Mapping[str, list[bool]], edge_id: str) -> tuple[fl
     return mean, confidence
 
 
+def _entropy(probability: float) -> float:
+    if probability <= 0.0 or probability >= 1.0:
+        return 0.0
+    return -(probability * math.log2(probability) + (1.0 - probability) * math.log2(1.0 - probability))
+
+
 def _dynamic_uncertainty(query: AcquisitionQuery, observations: Mapping[str, list[bool]]) -> float:
     values = observations.get(query.edge_id, [])
     if not values:
-        return query.uncertainty
+        return 1.0
     mean, _ = _posterior(observations, query.edge_id)
-    return min(query.uncertainty, 4.0 * mean * (1.0 - mean))
+    return _entropy(mean)
+
+
+def _information_gain(query: AcquisitionQuery, observations: Mapping[str, list[bool]]) -> float:
+    values = observations.get(query.edge_id, [])
+    prior_mean, _ = _posterior(observations, query.edge_id)
+    prior_entropy = _entropy(prior_mean)
+    if not values:
+        return prior_entropy
+    expected = 0.0
+    for outcome, probability in ((True, prior_mean), (False, 1.0 - prior_mean)):
+        updated = list(values) + [outcome]
+        posterior = (1.0 + sum(updated)) / (2.0 + len(updated))
+        expected += probability * _entropy(posterior)
+    return max(0.0, prior_entropy - expected)
 
 
 def _choose(
@@ -78,25 +104,29 @@ def _choose(
     policy: AcquisitionPolicy,
     observations: Mapping[str, list[bool]],
     rng: random.Random,
-    decision_value_fn: Callable[[AcquisitionQuery, Mapping[str, list[bool]]], float] | None,
-) -> tuple[AcquisitionQuery, float, float]:
+    decision_sensitivity_fn: Callable[[AcquisitionQuery, Mapping[str, list[bool]]], float] | None,
+) -> tuple[AcquisitionQuery, float, float, float]:
     if not available:
         raise ValueError("no queries available")
     if policy is AcquisitionPolicy.RANDOM:
         query = available[rng.randrange(len(available))]
         uncertainty = _dynamic_uncertainty(query, observations)
-        return query, uncertainty, query.decision_value * (0.5 + uncertainty)
-    scored: list[tuple[tuple[float, str], AcquisitionQuery, float, float]] = []
+        return query, uncertainty, _information_gain(query, observations), 0.0
+    scored: list[tuple[tuple[float, str], AcquisitionQuery, float, float, float]] = []
     for query in available:
         uncertainty = _dynamic_uncertainty(query, observations)
-        decision = decision_value_fn(query, observations) if decision_value_fn else query.decision_value * (0.5 + uncertainty)
+        information_gain = _information_gain(query, observations)
+        decision = decision_sensitivity_fn(query, observations) if decision_sensitivity_fn else (1.0 if not observations.get(query.edge_id) else 0.5)
         decision = min(1.0, max(0.0, decision))
         if not 0.0 <= decision <= 1.0:
-            raise ValueError("decision_value_fn must return a value in [0, 1]")
-        score = uncertainty if policy is AcquisitionPolicy.UNCERTAINTY_ONLY else uncertainty * decision / query.cost
-        scored.append(((score, query.query_id), query, uncertainty, decision))
-    _, query, uncertainty, decision = max(scored, key=lambda item: item[0])
-    return query, uncertainty, decision
+            raise ValueError("decision_sensitivity_fn must return a value in [0, 1]")
+        if policy is AcquisitionPolicy.UNCERTAINTY_ONLY:
+            score = information_gain / query.cost
+        else:
+            score = (information_gain + decision + query.risk + query.provenance_novelty) / (query.cost + 0.1)
+        scored.append(((score, query.query_id), query, uncertainty, information_gain, decision))
+    _, query, uncertainty, information_gain, decision = max(scored, key=lambda item: item[0])
+    return query, uncertainty, information_gain, decision
 
 
 def run_acquisition(
@@ -106,7 +136,7 @@ def run_acquisition(
     *,
     confidence_target: float = 0.9,
     seed: int = 0,
-    decision_value_fn: Callable[[AcquisitionQuery, Mapping[str, list[bool]]], float] | None = None,
+    decision_sensitivity_fn: Callable[[AcquisitionQuery, Mapping[str, list[bool]]], float] | None = None,
 ) -> AcquisitionResult:
     """Select until the observable posterior is confident or the pool ends.
 
@@ -139,7 +169,7 @@ def run_acquisition(
             query for query in available
             if _posterior(observations, query.edge_id)[1] < confidence_target
         ]
-        query, uncertainty, decision = _choose(frontier or available, policy, observations, rng, decision_value_fn)
+        query, uncertainty, information_gain, decision = _choose(frontier or available, policy, observations, rng, decision_sensitivity_fn)
         available.remove(query)
         # The observation is revealed only after selection; selection saw only
         # the posterior state accumulated from earlier revealed observations.
@@ -151,7 +181,10 @@ def run_acquisition(
             "query_id": query.query_id,
             "edge_id": query.edge_id,
             "uncertainty": uncertainty,
-            "decision_value": decision,
+            "information_gain": information_gain,
+            "decision_sensitivity": decision,
+            "risk": query.risk,
+            "provenance_novelty": query.provenance_novelty,
             "cost": query.cost,
         })
     posterior = {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Mapping
 
 
@@ -17,6 +17,7 @@ class FactorialBlock:
 
     block_id: str
     outcomes: Mapping[str, float]
+    scientific_gates: Mapping[str, bool] = field(default_factory=lambda: {arm: True for arm in _ARMS})
 
     def __post_init__(self) -> None:
         if not self.block_id:
@@ -28,6 +29,8 @@ class FactorialBlock:
                 raise ValueError("factorial outcomes must be finite numbers")
             if not -1.0 <= float(value) <= 1.0:
                 raise ValueError("factorial outcomes must be bounded in [-1, 1]")
+        if set(self.scientific_gates) != set(_ARMS) or any(not isinstance(value, bool) for value in self.scientific_gates.values()):
+            raise ValueError("scientific_gates must provide boolean values for all factorial arms")
 
     @property
     def normalized_interaction(self) -> float:
@@ -46,6 +49,10 @@ class FactorialEstimate:
     delta_b_given_a1: float
     decision: str
     blocks: int
+    scientific_00: bool
+    scientific_10: bool
+    scientific_01: bool
+    scientific_11: bool
 
 
 @dataclass(frozen=True)
@@ -93,6 +100,7 @@ class FactorialEngine:
         delta_b_a0 = means["01"] - means["00"]
         delta_b_a1 = means["11"] - means["10"]
         margin = self.practical_margin
+        scientific = {arm: all(block.scientific_gates[arm] for block in self._blocks) for arm in _ARMS}
         # Use the same bounded radius for the conditional effects.  A
         # prerequisite is directional only when the present-partner effect is
         # confidently above the margin and the absent-partner effect is
@@ -107,7 +115,9 @@ class FactorialEngine:
         # identified by a positive conditional effect only after the other
         # intervention is present, while its absent-partner effect stays in
         # the practical null region.
-        if gamma_lcb > margin:
+        if scientific["11"] is False and scientific["10"] and scientific["01"] and scientific["00"]:
+            decision = "semantic_conflict"
+        elif gamma_lcb > margin:
             if confidently_positive(delta_b_a1) and confidently_null(delta_b_a0):
                 decision = "prerequisite_a_to_b"
             elif confidently_positive(delta_a_b1) and confidently_null(delta_a_b0):
@@ -118,8 +128,6 @@ class FactorialEngine:
             decision = "confirmed_antagonism"
         elif gamma_lcb >= -margin and gamma_ucb <= margin:
             decision = "confirmed_independence"
-        elif delta_a_b1 < -margin or delta_b_a1 < -margin:
-            decision = "semantic_conflict"
         else:
             decision = "unresolved"
         return FactorialEstimate(
@@ -132,6 +140,10 @@ class FactorialEngine:
             delta_b_given_a1=delta_b_a1,
             decision=decision,
             blocks=n,
+            scientific_00=scientific["00"],
+            scientific_10=scientific["10"],
+            scientific_01=scientific["01"],
+            scientific_11=scientific["11"],
         )
 
 

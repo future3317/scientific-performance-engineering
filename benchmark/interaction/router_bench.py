@@ -15,7 +15,7 @@ def _states(values: dict[str, float]) -> dict[str, RuleState]:
 
 
 def _relation() -> tuple[list[RelationSpec], dict[str, RelationState]]:
-    spec = RelationSpec("base-specialized", 1, None, ["base", "specialized"], "synergy", {"equals": {}}, {"contrast": "gamma"}, 0.05, [], {"required": True})
+    spec = RelationSpec("base-specialized", 1, None, {"left": "base", "right": "specialized"}, "symmetric", "synergy", {"equals": {}}, {"contrast": "gamma"}, 0.05, [], {"required": True})
     state = RelationState("base-specialized", 1, 0.30, {"lcb": 0.30}, status="canonical")
     return [spec], {"base-specialized": state}
 

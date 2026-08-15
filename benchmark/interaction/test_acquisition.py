@@ -10,12 +10,12 @@ from core.acre.acquisition import (
 
 def pool() -> tuple[list[AcquisitionQuery], dict[str, bool], dict[str, bool]]:
     queries = [
-        AcquisitionQuery("q-a1", "edge-a", uncertainty=0.9, decision_value=0.1, cost=2.0),
-        AcquisitionQuery("q-a2", "edge-a", uncertainty=0.5, decision_value=1.0, cost=1.0),
-        AcquisitionQuery("q-b1", "edge-b", uncertainty=0.7, decision_value=1.0, cost=1.0),
-        AcquisitionQuery("q-b2", "edge-b", uncertainty=0.4, decision_value=1.0, cost=1.0),
-        AcquisitionQuery("q-c1", "edge-c", uncertainty=0.6, decision_value=0.8, cost=2.0),
-        AcquisitionQuery("q-c2", "edge-c", uncertainty=0.3, decision_value=0.8, cost=2.0),
+        AcquisitionQuery("q-a1", "edge-a", cost=2.0, experiment_type="factorial", risk=0.2, provenance_novelty=0.8),
+        AcquisitionQuery("q-a2", "edge-a", cost=1.0, experiment_type="factorial", risk=0.8, provenance_novelty=0.5),
+        AcquisitionQuery("q-b1", "edge-b", cost=1.0, experiment_type="factorial", risk=0.8, provenance_novelty=0.5),
+        AcquisitionQuery("q-b2", "edge-b", cost=1.0, experiment_type="factorial", risk=0.5, provenance_novelty=0.4),
+        AcquisitionQuery("q-c1", "edge-c", cost=2.0, experiment_type="factorial", risk=0.7, provenance_novelty=0.4),
+        AcquisitionQuery("q-c2", "edge-c", cost=2.0, experiment_type="factorial", risk=0.4, provenance_novelty=0.3),
     ]
     labels = {"q-a1": True, "q-a2": True, "q-b1": False, "q-b2": False, "q-c1": True, "q-c2": True}
     truths = {"edge-a": True, "edge-b": False, "edge-c": True}
@@ -53,16 +53,16 @@ def test_decision_value_is_recomputed_from_revealed_posterior() -> None:
         labels,
         AcquisitionPolicy.DECISION_AWARE,
         confidence_target=0.9,
-        decision_value_fn=decision_value,
+        decision_sensitivity_fn=decision_value,
     )
     assert states and states[0] == {}
     assert any(state for state in states[1:])
-    assert all("decision_value" in item for item in result.selection_trace)
+    assert all("decision_sensitivity" in item for item in result.selection_trace)
 
 
 def test_query_contract_rejects_invalid_cost() -> None:
     try:
-        AcquisitionQuery("bad", "edge", 0.5, 0.5, 0.0)
+        AcquisitionQuery("bad", "edge", 0.0)
     except ValueError as exc:
         assert "cost" in str(exc)
     else:

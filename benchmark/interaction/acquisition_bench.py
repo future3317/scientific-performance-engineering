@@ -7,12 +7,12 @@ from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_
 
 def _fixture() -> tuple[list[AcquisitionQuery], dict[str, bool], dict[str, bool]]:
     queries = [
-        AcquisitionQuery("q-a1", "edge-a", 0.9, 0.1, 2.0),
-        AcquisitionQuery("q-a2", "edge-a", 0.5, 1.0, 1.0),
-        AcquisitionQuery("q-b1", "edge-b", 0.7, 1.0, 1.0),
-        AcquisitionQuery("q-b2", "edge-b", 0.4, 1.0, 1.0),
-        AcquisitionQuery("q-c1", "edge-c", 0.6, 0.8, 2.0),
-        AcquisitionQuery("q-c2", "edge-c", 0.3, 0.8, 2.0),
+        AcquisitionQuery("q-a1", "edge-a", 2.0, experiment_type="factorial", risk=0.2, provenance_novelty=0.8),
+        AcquisitionQuery("q-a2", "edge-a", 1.0, experiment_type="factorial", risk=0.8, provenance_novelty=0.5),
+        AcquisitionQuery("q-b1", "edge-b", 1.0, experiment_type="factorial", risk=0.8, provenance_novelty=0.5),
+        AcquisitionQuery("q-b2", "edge-b", 1.0, experiment_type="factorial", risk=0.5, provenance_novelty=0.4),
+        AcquisitionQuery("q-c1", "edge-c", 2.0, experiment_type="factorial", risk=0.7, provenance_novelty=0.4),
+        AcquisitionQuery("q-c2", "edge-c", 2.0, experiment_type="factorial", risk=0.4, provenance_novelty=0.3),
     ]
     labels = {"q-a1": True, "q-a2": True, "q-b1": False, "q-b2": False, "q-c1": True, "q-c2": True}
     truths = {"edge-a": True, "edge-b": False, "edge-c": True}

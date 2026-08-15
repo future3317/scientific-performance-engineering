@@ -23,7 +23,34 @@ def _case(case_id: str, value: float, path: str, mechanism: str, positive: bool)
     return BoundaryCase(case_id, context, effect, True, effect - 0.02, effect + 0.02, positive)
 
 
-def family_cases(family: str) -> dict[str, list[BoundaryCase]]:
+def _generated_surface(family: str, index: int) -> BoundaryCase:
+    if family == "graph_cache_geometry_motion":
+        displacement = 0.005 + (index % 40) * 0.003
+        skin = 0.2 + (index % 7) * 0.1
+        graph_size = 32 + (index % 10) * 32
+        dynamic_rate = (index % 8) / 10.0
+        positive = displacement <= 0.05 and dynamic_rate <= 0.3
+        context = {"workload": {"mechanism": "graph_cache", "geometry_displacement": displacement, "skin": skin, "graph_size": graph_size, "dynamic_rate": dynamic_rate}}
+    elif family == "compile_horizon":
+        horizon = 32 + (index % 16) * 32
+        graph_size = 32 + (index % 10) * 32
+        dynamic_rate = (index % 8) / 10.0
+        positive = horizon >= 128 and dynamic_rate <= 0.4
+        context = {"workload": {"mechanism": "compile", "logical_steps": horizon, "graph_size": graph_size, "dynamic_rate": dynamic_rate}}
+    else:
+        raise ValueError(f"unknown BoundaryBench family: {family}")
+    effect = 0.2 if positive else -0.1
+    return BoundaryCase(f"{family[:3].upper()}-SURFACE-{index:04d}", context, effect, True, effect - 0.02, effect + 0.02, positive)
+
+
+def family_cases(family: str, *, surface_count: int | None = None) -> dict[str, list[BoundaryCase]]:
+    if surface_count is not None:
+        if surface_count < 12:
+            raise ValueError("surface_count must be at least 12")
+        cases = [_generated_surface(family, index) for index in range(surface_count)]
+        first = max(1, surface_count // 3)
+        second = max(first + 1, 2 * surface_count // 3)
+        return {"representative_pool": cases[:first], "query_pool": cases[first:second], "sealed_test_pool": cases[second:]}
     if family == "graph_cache_geometry_motion":
         return {
             "representative_pool": [_case("G-REP-01", 0.01, "geometry_displacement", "graph_cache", True), _case("G-REP-02", 0.03, "geometry_displacement", "graph_cache", True)],

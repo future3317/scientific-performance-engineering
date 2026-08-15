@@ -34,6 +34,7 @@ class SynthesisResult:
     positive_anchors: tuple[str, ...]
     synthesizer_version: str = SYNTHESIZER_VERSION
     provenance: dict[str, Any] | None = None
+    version_space: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +44,8 @@ class SynthesisResult:
             "positive_anchors": list(self.positive_anchors),
             "synthesizer_version": self.synthesizer_version,
             "provenance": self.provenance,
+            "version_space_size": len(self.version_space),
+            "version_space": list(self.version_space),
         }
 
 
@@ -51,6 +54,7 @@ class StatisticalCEGIS:
         self.grammar = grammar
         self.epsilon_true = epsilon_true
         self.epsilon_false = epsilon_false
+        self._hypothesis_space: tuple[dict[str, Any], ...] | None = None
 
     def synthesize(
         self,
@@ -65,17 +69,19 @@ class StatisticalCEGIS:
         counterexample_ids = tuple(item.observation_id for item in certified)
         provenance = {"parent_predicate": parent_predicate, "grammar_version": 2}
         if not anchors:
-            return SynthesisResult("no_consistent_hypothesis", None, counterexample_ids, anchor_ids, provenance=provenance)
+            return SynthesisResult("insufficient_evidence", None, counterexample_ids, anchor_ids, provenance=provenance)
         if not certified:
             provenance["reason"] = "awaiting_certified_counterexample"
-            return SynthesisResult("no_consistent_hypothesis", None, counterexample_ids, anchor_ids, provenance=provenance)
+            return SynthesisResult("insufficient_evidence", None, counterexample_ids, anchor_ids, provenance=provenance)
         anchor_keys = {_key(item.context) for item in anchors}
         if any(_key(item.context) in anchor_keys for item in certified):
-            return SynthesisResult("no_consistent_hypothesis", None, counterexample_ids, anchor_ids, provenance=provenance)
+            return SynthesisResult("unsynthesizable_boundary", None, counterexample_ids, anchor_ids, provenance=provenance)
         contexts = [item.context for item in anchors] + [item.context for item in certified]
+        if self._hypothesis_space is None:
+            self._hypothesis_space = tuple(self.grammar.candidates(contexts, parent_predicate=parent_predicate))
         consistent = [
             predicate
-            for predicate in self.grammar.candidates(contexts, parent_predicate=parent_predicate)
+            for predicate in self._hypothesis_space
             if all(match_predicate(predicate, item.context) for item in anchors)
             and all(not match_predicate(predicate, item.context) for item in certified)
         ]
@@ -93,4 +99,4 @@ class StatisticalCEGIS:
         provenance["certified_evidence"] = list(counterexample_ids)
         provenance["positive_anchors"] = list(anchor_ids)
         provenance["complexity"] = predicate_complexity(predicate)
-        return SynthesisResult("accepted", predicate, counterexample_ids, anchor_ids, provenance=provenance)
+        return SynthesisResult("accepted", predicate, counterexample_ids, anchor_ids, provenance=provenance, version_space=tuple(consistent))

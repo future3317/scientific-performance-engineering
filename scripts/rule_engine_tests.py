@@ -102,7 +102,7 @@ def main() -> None:
         raise AssertionError("EvidenceEvent must reject unknown evidence streams")
 
     relation = RelationSpec(
-        "REL-A-B", 1, None, ["A", "B"], "synergy", {"all": ["same_batch"]},
+        "REL-A-B", 1, None, {"left": "A", "right": "B"}, "symmetric", "synergy", {"all": ["same_batch"]},
         {"type": "factorial_interaction"}, 0.05, ["quality"], {"required": True}
     )
     assert RelationSpec.from_dict(relation.to_dict()) == relation

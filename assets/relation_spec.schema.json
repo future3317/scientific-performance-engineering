@@ -8,7 +8,8 @@
     "relation_id",
     "version",
     "parent",
-    "rule_ids",
+    "endpoints",
+    "orientation",
     "kind",
     "applicability",
     "contrast_definition",
@@ -31,14 +32,30 @@
         "null"
       ]
     },
-    "rule_ids": {
-      "type": "array",
-      "minItems": 2,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1
+    "endpoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "left",
+        "right"
+      ],
+      "properties": {
+        "left": {
+          "type": "string",
+          "minLength": 1
+        },
+        "right": {
+          "type": "string",
+          "minLength": 1
+        }
       }
+    },
+    "orientation": {
+      "enum": [
+        "symmetric",
+        "left_to_right",
+        "right_to_left"
+      ]
     },
     "kind": {
       "enum": [
