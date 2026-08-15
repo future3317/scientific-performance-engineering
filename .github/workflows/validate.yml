@@ -47,6 +47,8 @@ jobs:
       - name: Run benchmark harness contracts
         run: |
           python benchmark/tests/run_all.py
+          python benchmark/boundary/test_cegis.py
+          python scripts/validate_acre.py
           python -m benchmark.taskgen.validate_population \
             --tasks-root benchmark/tasks \
             --out benchmark/population_report.json
