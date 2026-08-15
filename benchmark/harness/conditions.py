@@ -76,7 +76,9 @@ def _attest(out_dir: Path, condition: str, policy: dict[str, Any], snapshot_dir:
         "condition": condition,
         "context_mode": context_mode,
         "injection_policy": policy,
-        "source_snapshot": str(snapshot_dir) if snapshot_dir else None,
+        # The worker-visible manifest records the contract, never a host path.
+        # The source bundle is already identified by the attested file set.
+        "source_snapshot": "redacted" if snapshot_dir else None,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "files": anticheat.hash_tree(out_dir),
     }

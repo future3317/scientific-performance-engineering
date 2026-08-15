@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.acre.factorial import FactorialBlock, FactorialEngine, ThreeWayBlock, estimate_higher_order
+from core.acre.factorial import FactorialBlock, FactorialEngine, ThreeWayBlock, estimate_higher_order, canonical_relation_label
 from core.acre.predicates import PredicateGrammar
 from core.acre.relation import RelationIdentifier, relational_cegis
 from core.acre.router import ConservativeCausalRouter
@@ -75,6 +75,12 @@ def test_higher_order_estimate_reports_normalized_residual():
     estimate = estimate_higher_order(blocks)
     assert estimate.raw_residual == 0.0
     assert estimate.normalized_residual == 0.0
+    assert estimate.status == "unresolved"
+
+
+def test_relation_report_labels_share_one_canonical_namespace():
+    assert canonical_relation_label("synergy") == "confirmed_synergy"
+    assert canonical_relation_label("context_dependent_interaction") == "context_dependent_relation"
 
 
 def test_three_way_oracle_hits_requested_residual_exactly():

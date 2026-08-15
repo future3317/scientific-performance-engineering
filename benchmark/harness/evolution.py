@@ -195,7 +195,7 @@ def _apply_phase_injections(store: Path, condition: str, phase: dict[str, Any]) 
     return written
 
 
-def _promote_via_replay(
+def promote_via_replay(
     store: Path,
     candidate_results: list[dict[str, Any]],
     core_repo: Path,
@@ -466,7 +466,7 @@ def run_episode(
                 record = json.loads(path.read_text(encoding="utf-8"))
                 if record.get("cases") and record.get("status") == "candidate":
                     candidates.append(record)
-            promoted_total.extend(_promote_via_replay(store, candidates, core_repo, out_dir, ledger))
+            promoted_total.extend(promote_via_replay(store, candidates, core_repo, out_dir, ledger))
 
     rules_dir = store / "rules"
     canonical_rules = [

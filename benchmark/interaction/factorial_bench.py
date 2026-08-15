@@ -7,7 +7,7 @@ from core.acre.relation import RelationIdentifier
 import random
 from benchmark.families import family_instances, resolve_family_id
 from benchmark.families.catalog import FAMILY_SPECS, CompositionSpec, InteractionOracle
-from core.acre.factorial import CANONICAL_RELATIONS
+from core.acre.factorial import CANONICAL_RELATIONS, canonical_relation_label
 
 
 _CASES = {
@@ -166,10 +166,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             stopping_blocks, estimate, identified = chosen
         predicted = identified.decision
         classifications[predicted] = classifications.get(predicted, 0) + 1
-        hidden_canonical = {
-            "synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism",
-            "independence": "confirmed_independence", "redundancy": "confirmed_redundancy",
-        }.get(hidden, hidden)
+        hidden_canonical = canonical_relation_label(hidden)
         confusion.setdefault(hidden_canonical, {})[predicted] = confusion.setdefault(hidden_canonical, {}).get(predicted, 0) + 1
         details.append({
             "surface_id": surface["surface_id"],
@@ -190,7 +187,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
     false_by_relation: dict[str, list[bool]] = {}
     unresolved_by_relation: dict[str, list[bool]] = {}
     for item in details:
-        canonical_hidden = {"synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism", "independence": "confirmed_independence", "redundancy": "confirmed_redundancy"}.get(item["hidden_relation"], item["hidden_relation"])
+        canonical_hidden = canonical_relation_label(str(item["hidden_relation"]))
         false_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] != canonical_hidden)
         unresolved_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] == "unresolved")
     return {
@@ -200,7 +197,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         "hidden_relation_counts": {label: list(hidden_labels.values()).count(label) for label in sorted(set(hidden_labels.values()))},
         "confusion_matrix": confusion,
         "surface_results": details,
-        "false_relation_rate": sum(item["predicted_relation"] not in ({"synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism", "independence": "confirmed_independence", "redundancy": "confirmed_redundancy"}.get(item["hidden_relation"], item["hidden_relation"])) for item in details) / len(details),
+        "false_relation_rate": sum(item["predicted_relation"] != canonical_relation_label(str(item["hidden_relation"])) for item in details) / len(details),
         "false_relation_rate_by_relation": {key: sum(values) / len(values) for key, values in false_by_relation.items()},
         "unresolved_rate_by_relation": {key: sum(values) / len(values) for key, values in unresolved_by_relation.items()},
         "unresolved_rate": sum(item["predicted_relation"] == "unresolved" for item in details) / len(details),

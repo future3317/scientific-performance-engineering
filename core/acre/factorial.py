@@ -16,6 +16,18 @@ CANONICAL_RELATIONS = (
 )
 
 
+def canonical_relation_label(value: str) -> str:
+    """Normalize estimator labels and typed relation-kind labels for reports."""
+    aliases = {
+        "synergy": "confirmed_synergy",
+        "antagonism": "confirmed_antagonism",
+        "independence": "confirmed_independence",
+        "redundancy": "confirmed_redundancy",
+        "context_dependent_interaction": "context_dependent_relation",
+    }
+    return aliases.get(value, value)
+
+
 @dataclass(frozen=True)
 class FactorialBlock:
     """One complete randomized block with utility values in ``[-1, 1]``."""
@@ -113,7 +125,12 @@ def estimate_higher_order(blocks: list[ThreeWayBlock], *, delta: float = 0.05, l
     log_term = math.log(3.0 / look_delta)
     radius = min(_bounded_radius(n, look_delta), math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n)
     lcb, ucb = max(-1.0, residual - radius), min(1.0, residual + radius)
-    status = "confirmed_nonzero" if lcb > practical_margin or ucb < -practical_margin else "unresolved"
+    if lcb > practical_margin or ucb < -practical_margin:
+        status = "confirmed_nonzero"
+    elif lcb >= -practical_margin and ucb <= practical_margin:
+        status = "confirmed_negligible"
+    else:
+        status = "unresolved"
     return HigherOrderEstimate(residual, lcb, ucb, n, status, raw_residual=raw_residual, normalized_residual=residual)
 
 

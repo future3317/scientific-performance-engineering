@@ -26,6 +26,7 @@ from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
 from benchmark.formal.condition_adapter import FormalConditionAdapter
+from benchmark.harness.evolution import promote_via_replay
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 
 
@@ -158,7 +159,7 @@ def post_task_update(
             if candidate.get("cases") and candidate.get("status") == "candidate":
                 candidates.append(candidate)
         if candidates:
-            promoted_rule_ids = _promote_via_replay(store, candidates, core_repo, out_dir, active_ledger)
+            promoted_rule_ids = promote_via_replay(store, candidates, core_repo, out_dir, active_ledger)
         from scripts.validate_evolution import audit
 
         errors = audit(store, schema_root=core_repo)

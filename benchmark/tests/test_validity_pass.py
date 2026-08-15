@@ -28,6 +28,22 @@ def test_skill_view_uses_explicit_script_allowlist() -> None:
         assert manifest["source_snapshot"] == "redacted"
 
 
+def test_condition_attestation_redacts_host_snapshot_path() -> None:
+    from benchmark.harness.conditions import materialize_condition
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = Path(tmp) / "source"
+        source.mkdir()
+        (source / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+        from scripts.render_skill_view import render_skill_view
+        bundle = Path(tmp) / "bundle"
+        render_skill_view(source, bundle)
+        store = Path(tmp) / "store"
+        manifest = materialize_condition("C", bundle, store)
+        assert manifest["source_snapshot"] == "redacted"
+        assert str(bundle) not in (store / "condition_manifest.json").read_text(encoding="utf-8")
+
+
 def test_bundle_certificate_requires_pairwise_null_residual_for_auto_deployment() -> None:
     assert BundleCertificate(("a", "b", "c"), {}, -0.01, 0.02, "pairwise_certified").bounded_auto_allowed
     assert not BundleCertificate(("a", "b", "c"), {}, 0.12, 0.20, "hyperedge_required").bounded_auto_allowed
@@ -56,6 +72,14 @@ def test_power_curve_realizes_requested_gamma_without_clipping() -> None:
     report = run_interaction_power_curve(blocks=(8,), repetitions=1)
     for row in report["results"]:
         assert abs(row["realized_gamma"] - row["target_gamma"]) < 1e-12
+
+
+def test_higher_order_null_state_is_distinct_from_unresolved() -> None:
+    from core.acre.factorial import ThreeWayBlock, estimate_higher_order
+
+    blocks = [ThreeWayBlock(str(index), {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}) for index in range(2048)]
+    estimate = estimate_higher_order(blocks, practical_margin=0.05)
+    assert estimate.status == "confirmed_negligible"
 
 
 def test_formal_claim_requires_explicit_gate_and_complete_records() -> None:

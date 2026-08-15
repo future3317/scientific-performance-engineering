@@ -23,39 +23,52 @@ def decision_sensitivity_callback(queries: list[AcquisitionQuery]) -> Any:
         "max_depth": 2,
         "max_literals": 1,
     })
-    learned_predicates: dict[str, dict[str, object]] = {}
+    predicate_cache: dict[tuple[str, tuple[bool, ...]], dict[str, object]] = {}
+    route_cache: dict[tuple[tuple[tuple[str, str], ...], str], tuple[str, ...]] = {}
     def predicate_for_edge(edge_id: str, state: dict[str, list[bool]]) -> dict[str, object]:
         values = state.get(edge_id, [])
+        # The CEGIS probe uses a bounded evidence window.  Once that window is
+        # fixed, additional observations cannot change the hypothetical
+        # predicate and should not trigger a full grammar enumeration.
+        cache_key = (edge_id, tuple(values[:8]))
+        if cache_key in predicate_cache:
+            return predicate_cache[cache_key]
         edge_queries = [item for item in queries if item.edge_id == edge_id]
         if not values or len(values) < 2:
             return {"all": []}
-        if len(values) % 4 and edge_id in learned_predicates:
-            return learned_predicates[edge_id]
         evidence = [BoundaryObservation(item.query_id, item.context, 1.0 if value else 0.0, bool(value), 1.0 if value else -1.0, 1.0 if value else 0.0) for item, value in zip(edge_queries[:8], values[:8])]
         positive = [item for item in evidence if item.positive_anchor()]
         negative = [item for item in evidence if item.certified_counterexample()]
         if not positive or not negative:
-            learned_predicates[edge_id] = {"all": []}
-            return learned_predicates[edge_id]
+            predicate_cache[cache_key] = {"all": []}
+            return predicate_cache[cache_key]
         synthesis = StatisticalCEGIS(grammar).synthesize(
             positive=positive,
             counterexamples=negative,
             parent_predicate=None,
             decision_contexts=[item.context for item in edge_queries],
         )
-        learned_predicates[edge_id] = dict(synthesis.predicate or {"all": []})
-        return learned_predicates[edge_id]
+        predicate_cache[cache_key] = dict(synthesis.predicate or {"all": []})
+        return predicate_cache[cache_key]
 
     def route_bundle(state: dict[str, list[bool]], context: dict[str, object], focus_edge: str | None = None) -> tuple[str, ...]:
-        route_edges = (focus_edge,) if focus_edge is not None else edge_order
+        # Route the complete decision-relevant pool.  Restricting the
+        # hypothetical to the queried edge would miss bundle changes caused
+        # by prerequisites, conflicts, or token competition with other rules.
+        predicates = {edge_id: predicate_for_edge(edge_id, state) for edge_id in edge_order}
+        state_key = tuple(sorted((key, repr(value)) for key, value in predicates.items()))
+        context_key = repr(sorted(context.items()))
+        cache_key = (state_key, context_key)
+        if cache_key in route_cache:
+            return route_cache[cache_key]
         specs = [RuleSpec(
             rule_id=edge_id, version=1, parent=None,
-            applicability=predicate_for_edge(edge_id, state),
+            applicability=predicates[edge_id],
             intervention={"action": edge_id}, expected_mechanism="boundary",
             evidence_requirements=["boundary"], scientific_invariants=[],
             abstain_conditions={}, relations={}, runtime_cost={"tokens": 1},
             provenance_policy={"required": True},
-        ) for edge_id in route_edges]
+        ) for edge_id in edge_order]
         states = {spec.rule_id: RuleState(
             rule_id=spec.rule_id, version=1, status="canonical",
             effect={"utility": 0.1}, confidence_sequence={"lcb": 0.1},
@@ -63,7 +76,9 @@ def decision_sensitivity_callback(queries: list[AcquisitionQuery]) -> Any:
         # The probe asks whether the next observation can change the
         # decision-relevant bundle; a small fixed bundle budget keeps this
         # hypothetical replay bounded while still using the production router.
-        return AcreEngine(rule_specs=specs, rule_states=states).route(context, token_budget=min(2, len(specs))).selected_rule_ids
+        selected = AcreEngine(rule_specs=specs, rule_states=states).route(context, token_budget=min(2, len(specs))).selected_rule_ids
+        route_cache[cache_key] = selected
+        return selected
 
     def callback(query: AcquisitionQuery, observations: dict[str, list[bool]]) -> float:
         current = route_bundle(observations, dict(query.context), query.edge_id)

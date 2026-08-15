@@ -25642,18 +25642,18 @@
         "surface_id": "three-way-0000",
         "hidden_raw_residual": 0.0,
         "hidden_normalized_residual": 0.0,
-        "raw_residual": -0.0007483422608151194,
-        "normalized_residual": -9.354278260188993e-05,
-        "predicted_raw_residual": -0.0007483422608151194,
-        "predicted_normalized_residual": -9.354278260188993e-05,
-        "residual_lcb": -0.018398677455885967,
-        "residual_ucb": 0.018211591890682183,
+        "raw_residual": 0.000172870961237743,
+        "normalized_residual": 2.1608870154717876e-05,
+        "predicted_raw_residual": 0.000172870961237743,
+        "predicted_normalized_residual": 2.1608870154717876e-05,
+        "residual_lcb": -0.036466248638893854,
+        "residual_ucb": 0.03650946637920329,
         "bundle_certificate": {
-          "residual_lcb": -0.018398677455885967,
-          "residual_ucb": 0.018211591890682183,
-          "status": "unresolved"
+          "residual_lcb": -0.036466248638893854,
+          "residual_ucb": 0.03650946637920329,
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 512,
         "estimates": [
           {
             "blocks": 8,
@@ -25709,7 +25709,7 @@
             "normalized_residual": 2.1608870154717876e-05,
             "residual_lcb": -0.036466248638893854,
             "residual_ucb": 0.03650946637920329,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           },
           {
             "blocks": 1024,
@@ -25717,7 +25717,7 @@
             "normalized_residual": -9.354278260188993e-05,
             "residual_lcb": -0.018398677455885967,
             "residual_ucb": 0.018211591890682183,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -25734,9 +25734,9 @@
         "bundle_certificate": {
           "residual_lcb": -0.04804276272051353,
           "residual_ucb": -0.01143853805774411,
-          "status": "unresolved"
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 1024,
         "estimates": [
           {
             "blocks": 8,
@@ -25800,7 +25800,7 @@
             "normalized_residual": -0.029740650389128816,
             "residual_lcb": -0.04804276272051353,
             "residual_ucb": -0.01143853805774411,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -26057,18 +26057,18 @@
         "surface_id": "three-way-0005",
         "hidden_raw_residual": -0.0,
         "hidden_normalized_residual": -0.0,
-        "raw_residual": 0.00033316621464025937,
-        "normalized_residual": 4.164577683003242e-05,
-        "predicted_raw_residual": 0.00033316621464025937,
-        "predicted_normalized_residual": 4.164577683003242e-05,
-        "residual_lcb": -0.0182694333478953,
-        "residual_ucb": 0.018352724901555362,
+        "raw_residual": 0.0006354759872002888,
+        "normalized_residual": 7.94344984000361e-05,
+        "predicted_raw_residual": 0.0006354759872002888,
+        "predicted_normalized_residual": 7.94344984000361e-05,
+        "residual_lcb": -0.03641472488044874,
+        "residual_ucb": 0.0365735938772488,
         "bundle_certificate": {
-          "residual_lcb": -0.0182694333478953,
-          "residual_ucb": 0.018352724901555362,
-          "status": "unresolved"
+          "residual_lcb": -0.03641472488044874,
+          "residual_ucb": 0.0365735938772488,
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 512,
         "estimates": [
           {
             "blocks": 8,
@@ -26124,7 +26124,7 @@
             "normalized_residual": 7.94344984000361e-05,
             "residual_lcb": -0.03641472488044874,
             "residual_ucb": 0.0365735938772488,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           },
           {
             "blocks": 1024,
@@ -26132,7 +26132,7 @@
             "normalized_residual": 4.164577683003242e-05,
             "residual_lcb": -0.0182694333478953,
             "residual_ucb": 0.018352724901555362,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -26149,9 +26149,9 @@
         "bundle_certificate": {
           "residual_lcb": 0.011370662239557454,
           "residual_ucb": 0.047955137541451615,
-          "status": "unresolved"
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 1024,
         "estimates": [
           {
             "blocks": 8,
@@ -26215,7 +26215,7 @@
             "normalized_residual": 0.029662899890504534,
             "residual_lcb": 0.011370662239557454,
             "residual_ucb": 0.047955137541451615,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -26472,18 +26472,18 @@
         "surface_id": "three-way-0010",
         "hidden_raw_residual": 0.0,
         "hidden_normalized_residual": 0.0,
-        "raw_residual": -0.00047328001355124896,
-        "normalized_residual": -5.916000169390612e-05,
-        "predicted_raw_residual": -0.00047328001355124896,
-        "predicted_normalized_residual": -5.916000169390612e-05,
-        "residual_lcb": -0.018375159712033094,
-        "residual_ucb": 0.018256839708645285,
+        "raw_residual": 0.00020625395715197388,
+        "normalized_residual": 2.5781744643996735e-05,
+        "predicted_raw_residual": 0.00020625395715197388,
+        "predicted_normalized_residual": 2.5781744643996735e-05,
+        "residual_lcb": -0.036467457294370835,
+        "residual_ucb": 0.036519020783658825,
         "bundle_certificate": {
-          "residual_lcb": -0.018375159712033094,
-          "residual_ucb": 0.018256839708645285,
-          "status": "unresolved"
+          "residual_lcb": -0.036467457294370835,
+          "residual_ucb": 0.036519020783658825,
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 512,
         "estimates": [
           {
             "blocks": 8,
@@ -26539,7 +26539,7 @@
             "normalized_residual": 2.5781744643996735e-05,
             "residual_lcb": -0.036467457294370835,
             "residual_ucb": 0.036519020783658825,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           },
           {
             "blocks": 1024,
@@ -26547,7 +26547,7 @@
             "normalized_residual": -5.916000169390612e-05,
             "residual_lcb": -0.018375159712033094,
             "residual_ucb": 0.018256839708645285,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -26564,9 +26564,9 @@
         "bundle_certificate": {
           "residual_lcb": -0.048048589975211754,
           "residual_ucb": -0.011453431090447962,
-          "status": "unresolved"
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 1024,
         "estimates": [
           {
             "blocks": 8,
@@ -26630,7 +26630,7 @@
             "normalized_residual": -0.029751010532829858,
             "residual_lcb": -0.048048589975211754,
             "residual_ucb": -0.011453431090447962,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -26887,18 +26887,18 @@
         "surface_id": "three-way-0015",
         "hidden_raw_residual": -0.0,
         "hidden_normalized_residual": -0.0,
-        "raw_residual": 0.00034812602164827956,
-        "normalized_residual": 4.3515752706034945e-05,
-        "predicted_raw_residual": 0.00034812602164827956,
-        "predicted_normalized_residual": 4.3515752706034945e-05,
-        "residual_lcb": -0.018267762754407398,
-        "residual_ucb": 0.018354794259819465,
+        "raw_residual": 0.00023953952225786373,
+        "normalized_residual": 2.9942440282232966e-05,
+        "predicted_raw_residual": 0.00023953952225786373,
+        "predicted_normalized_residual": 2.9942440282232966e-05,
+        "residual_lcb": -0.03645639423610453,
+        "residual_ucb": 0.03651627911666899,
         "bundle_certificate": {
-          "residual_lcb": -0.018267762754407398,
-          "residual_ucb": 0.018354794259819465,
-          "status": "unresolved"
+          "residual_lcb": -0.03645639423610453,
+          "residual_ucb": 0.03651627911666899,
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 512,
         "estimates": [
           {
             "blocks": 8,
@@ -26954,7 +26954,7 @@
             "normalized_residual": 2.9942440282232966e-05,
             "residual_lcb": -0.03645639423610453,
             "residual_ucb": 0.03651627911666899,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           },
           {
             "blocks": 1024,
@@ -26962,7 +26962,7 @@
             "normalized_residual": 4.3515752706034945e-05,
             "residual_lcb": -0.018267762754407398,
             "residual_ucb": 0.018354794259819465,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -26979,9 +26979,9 @@
         "bundle_certificate": {
           "residual_lcb": 0.011301883607498543,
           "residual_ucb": 0.04789296562026301,
-          "status": "unresolved"
+          "status": "confirmed_negligible"
         },
-        "stopping_blocks": null,
+        "stopping_blocks": 1024,
         "estimates": [
           {
             "blocks": 8,
@@ -27045,7 +27045,7 @@
             "normalized_residual": 0.029597424613880777,
             "residual_lcb": 0.011301883607498543,
             "residual_ucb": 0.04789296562026301,
-            "status": "unresolved"
+            "status": "confirmed_negligible"
           }
         ]
       },
@@ -27299,7 +27299,7 @@
         ]
       }
     ],
-    "confirmed_rate": 0.6
+    "confirmed_rate": 1.0
   },
   "interaction_power_curve": {
     "blocks": [
