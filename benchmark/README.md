@@ -9,6 +9,16 @@ conditions A–D §9, sequential split §10, harness architecture §11).
 [INTEGRATION_REQUIREMENTS.md](INTEGRATION_REQUIREMENTS.md) lists the benchmark-local
 workarounds for core-skill gaps (no core file is ever modified).
 
+## Contents
+
+- [Status and calibration scope](#status-and-calibration-scope)
+- [Family source of truth](#family-source-of-truth)
+- [Layout](#layout)
+- [Quickstart](#quickstart)
+- [Dependencies](#dependencies)
+
+## Status and calibration scope
+
 **Status:** the v1.0-20 population-validity pilot contains 18 atomic tasks plus
 2 evolution episodes. The formal-eval driver is available for a dry-run or an
 explicit agent command, but this repository claims no formal A/B/C/D results.
@@ -16,6 +26,8 @@ The target remains frozen as SPE-EvoBench v1.0-50 (24 SPE-Core + 20 SciML + 6
 Evolution). The current pilot contains 11 Core, 7 SciML, and 2 Evolution
 tasks; 13 Core, 13 SciML, and 4 Evolution slots remain ungenerated and are
 gated on pilot calibration.
+
+## Family source of truth
 
 The workload source of truth is now the Family catalog. The five pilot families
 (`compile`, `graph_cache`, `h2d_pipeline`, `checkpoint`, and `scalar_sync`)

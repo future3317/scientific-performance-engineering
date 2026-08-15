@@ -32,6 +32,46 @@ When two expensive auxiliary paths have the same expected frequency, prefer a de
 
 The usual (1/p) loss reweighting preserves the first-moment gradient expectation, not Adam-like second moments or the resulting preconditioned update. Treat `p < 1` as a gradient-statistics change until proven otherwise: run a matched `p=1` control and compare optimizer second-moment state, preconditioned update norms, clipping fractions, late-window quality, and resume behavior. Do not call thinning objective-equivalent from unbiased gradients alone; if these statistics or quality move materially, record it as an `algorithmic_experiment` and keep the systems speed result separate.
 
+### Warm-start ownership and drift audit
+
+For a warm-start model with shared, structural, physical, conditioner, and head
+branches, treat optimizer policy as a per-parameter contract. Materialize the
+parameter-to-group map and verify that every trainable group has an explicit
+learning-rate multiplier, anchor/proximal scope, gradient-controller scope,
+scheduler, and EMA policy. Protecting a shared block does not protect inherited
+structural or physical blocks; a fresh head must not silently inherit the trunk
+policy.
+
+At fixed early, middle, and late horizons, report branch-level parameter drift
+relative to the declared initialization/anchor, both unweighted and weighted by
+parameter count. An aggregate anchor percentage can mask large drift in an
+unprotected branch. If a protected branch exceeds its bound, stop that horizon
+and run a matched ownership/learning-rate ablation before extending the run.
+
+Global clipping is part of this contract. When clipping is active on most steps,
+compare per-task gradient norms, clipping fractions, optimizer second moments,
+and preconditioned update norms; inverse-probability loss weighting preserves
+neither Adam-like second moments nor the clipped update. Per-domain clipping,
+mixed-task blocks, or a new schedule are optimizer/objective experiments and
+must be reported separately from a systems speed change.
+
+### Schedule-aware observability
+
+When objectives or auxiliary branches alternate periodically, choose logging and
+validation cadence so it does not alias the schedule, or log by phase. Verify
+that every branch has independent loss, gradient, clipping, and quality
+telemetry. If a cadence makes one branch effectively invisible, the run is
+diagnostically incomplete even when aggregate logs are regular.
+
+### Pareto and horizon gates
+
+For multi-task scientific training, lower regression error does not compensate
+automatically for worse calibration, diversity, distributional fit, or physical
+quality. Preserve the task-native metric vector, report Pareto movement, and
+freeze checkpoint guardrails before the run. Use fixed early/middle/late
+horizons to detect task-direction splits; do not assume a longer horizon will
+self-correct an unresolved objective or ownership mismatch.
+
 ### Gradient ownership and shared trunks
 
 For sparse auxiliary tasks sharing a trunk, report per-task gradient norms and pairwise cosine/ownership for trunk, adapter, and head parameters before aggregating all auxiliary terms. An `auxiliary` total can hide cancellation or one sparse task dominating the shared trunk. A fresh conditioner attached to a pretrained trunk should be zero-initialized/gated or isolated behind a declared adapter when warm-start preservation is required; verify step-0 output closeness and the first-block gradient path. Freezing the trunk and training cached-feature heads can reduce recurring work, but it changes supervision/parameter ownership and needs a matched quality and time-to-quality experiment.

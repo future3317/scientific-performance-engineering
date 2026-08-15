@@ -33,4 +33,20 @@ For metric or teacher encoders, use matched-budget experiments: element-balanced
 
 ## 5. Prediction acceptance
 
+### Conditional-path and mixture controls
+
+When a continuous condition (for example a field, strain, or `e_max`) is
+combined with electronic/property features before a shared projection, audit
+which targets can backpropagate into each path. A property loss changing a
+generation-only condition path is an ownership/coupling finding, not merely a
+representation detail. Compare path-specific gradient norms and fixed-condition
+sweeps; use separate projections, a declared adapter, or detachment only as an
+authorized algorithmic experiment with matched quality gates.
+
+Equal loss weights across sources do not imply equal effective supervision. Report
+source-by-stratum eligible and used rows, class/condition prevalence, balanced
+metrics, calibration, and lineage/component coverage. A change supported by only
+a few connected components is a calibration warning until a broader split or
+matched control confirms it.
+
 Accept only when the comparable steady-state run meets the general performance rule and all graph/tensor/scientific gates. Record compiler warmup and profiling overhead separately. A faster microkernel, lower memory use, or higher GPU utilization alone is not an accepted optimization.
