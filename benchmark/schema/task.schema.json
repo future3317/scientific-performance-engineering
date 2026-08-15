@@ -20,7 +20,12 @@
     "correctness",
     "scientific_gates",
     "diagnosis",
-    "oracle"
+    "oracle",
+    "generator_family_id",
+    "oracle_fix_pattern_id",
+    "scientific_contract_id",
+    "workspace_ast_skeleton_hash",
+    "difficulty_tier"
   ],
   "additionalProperties": false,
   "properties": {
@@ -157,6 +162,11 @@
           "items": {"type": "number", "exclusiveMinimum": 0}
         }
       }
-    }
+    },
+    "generator_family_id": {"type": "string", "minLength": 1},
+    "oracle_fix_pattern_id": {"type": "string", "minLength": 1},
+    "scientific_contract_id": {"type": "string", "minLength": 1},
+    "workspace_ast_skeleton_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "difficulty_tier": {"type": "string", "enum": ["easy", "medium", "hard"]}
   }
 }

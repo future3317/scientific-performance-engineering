@@ -8,8 +8,10 @@ the result so a run can prove which skill bits were visible:
 
 - A (no-skill):        empty directory.
 - B (frozen-skill):    read-only copy; experience/evolution machinery disabled.
-- C (append-only):     copy with ``experience/inbox/`` writable; injection
-                       policy = any inbox record is eligible for injection.
+- C (raw retrieval):   copy with ``experience/inbox/`` writable; raw records
+                       are retrieved under a matched token budget, without
+                       RuleSpec abstraction or governance transitions.
+- C_STRESS (ablation): old append-only/inject-everything control.
 - D (governed):        copy with the full pipeline dirs; injection policy =
                        only canonical rules in ``rules/`` + ``registry/rules.json``.
 
@@ -29,7 +31,7 @@ from typing import Any
 
 from . import anticheat
 
-CONDITIONS = ("A", "B", "C", "D")
+CONDITIONS = ("A", "B", "C", "C_STRESS", "D")
 
 # Pipeline dirs that must exist in the governed (D) store, per the core layout.
 PIPELINE_DIRS = (
@@ -49,7 +51,8 @@ PIPELINE_DIRS = (
 INJECTION_POLICIES = {
     "A": {"mode": "none", "description": "no skill visible"},
     "B": {"mode": "frozen", "description": "initial snapshot only; no experience or rules injected"},
-    "C": {"mode": "inbox_any", "description": "any record in experience/inbox/ is eligible for injection"},
+    "C": {"mode": "raw_experience_retrieval", "retrieval_budget_tokens": 4096, "description": "raw records retrieved under a matched token budget; no rule abstraction"},
+    "C_STRESS": {"mode": "inbox_any", "retrieval_budget_tokens": 4096, "description": "append-only stress ablation; any inbox record is eligible"},
     "D": {"mode": "canonical_only", "description": "only canonical rules in rules/ + registry/rules.json are eligible"},
 }
 
@@ -63,10 +66,11 @@ def _make_read_only(path: Path) -> None:
     path.chmod(stat.S_IRUSR | stat.S_IXUSR)
 
 
-def _attest(out_dir: Path, condition: str, policy: dict[str, str], snapshot_dir: Path | None) -> dict[str, Any]:
+def _attest(out_dir: Path, condition: str, policy: dict[str, Any], snapshot_dir: Path | None, context_mode: str) -> dict[str, Any]:
     manifest = {
         "schema_version": 1,
         "condition": condition,
+        "context_mode": context_mode,
         "injection_policy": policy,
         "source_snapshot": str(snapshot_dir) if snapshot_dir else None,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -79,7 +83,7 @@ def _attest(out_dir: Path, condition: str, policy: dict[str, str], snapshot_dir:
 
 
 def materialize_condition(
-    condition: str, snapshot_dir: str | Path | None, out_dir: str | Path
+    condition: str, snapshot_dir: str | Path | None, out_dir: str | Path, context_mode: str = "reset"
 ) -> dict[str, Any]:
     """Build the condition store; returns the attestation manifest dict.
 
@@ -88,6 +92,8 @@ def materialize_condition(
     content is replaced.
     """
     condition = condition.upper()
+    if context_mode not in {"reset", "carry"}:
+        raise ValueError("context_mode must be reset or carry")
     if condition not in CONDITIONS:
         raise ValueError(f"condition must be one of {CONDITIONS}, got {condition!r}")
     out_dir = Path(out_dir)
@@ -97,7 +103,7 @@ def materialize_condition(
 
     policy = dict(INJECTION_POLICIES[condition])
     if condition == "A":
-        return _attest(out_dir, condition, policy, None)
+        return _attest(out_dir, condition, policy, None, context_mode)
 
     if snapshot_dir is None:
         raise ValueError(f"condition {condition} requires --snapshot DIR")
@@ -110,11 +116,11 @@ def materialize_condition(
 
     if condition == "B":
         # Attest first (writes condition_manifest.json), then lock the tree read-only.
-        manifest = _attest(out_dir, condition, policy, snapshot_dir)
+        manifest = _attest(out_dir, condition, policy, snapshot_dir, context_mode)
         _make_read_only(out_dir)
         return manifest
 
-    if condition == "C":
+    if condition in {"C", "C_STRESS"}:
         inbox = out_dir / "experience" / "inbox"
         inbox.mkdir(parents=True, exist_ok=True)
     elif condition == "D":
@@ -126,7 +132,7 @@ def materialize_condition(
 
     policy_file = out_dir / "injection_policy.json"
     policy_file.write_text(json.dumps(policy, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return _attest(out_dir, condition, policy, snapshot_dir)
+    return _attest(out_dir, condition, policy, snapshot_dir, context_mode)
 
 
 def verify_attestation(condition_dir: str | Path) -> tuple[bool, list[str]]:

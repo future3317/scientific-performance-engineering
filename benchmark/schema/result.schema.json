@@ -8,6 +8,7 @@
     "schema_version",
     "task_id",
     "condition",
+    "context_mode",
     "verdict",
     "correctness_pass",
     "scientific_gates",
@@ -22,7 +23,8 @@
   "properties": {
     "schema_version": {"type": "integer", "const": 1},
     "task_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
-    "condition": {"type": "string", "enum": ["A", "B", "C", "D", "standalone"]},
+    "condition": {"type": "string", "enum": ["A", "B", "C", "C_STRESS", "D", "standalone"]},
+    "context_mode": {"type": "string", "enum": ["reset", "carry"]},
     "verdict": {
       "type": "string",
       "enum": ["pass", "fail", "inconclusive", "error"],

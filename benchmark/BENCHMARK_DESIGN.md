@@ -3,9 +3,9 @@
 A paper-grade benchmark for **S**cientific **P**erformance **E**ngineering agents and for the
 **evolution** of the `scientific-performance-engineering` skill itself.
 
-Status: **10 runnable prototype tasks implemented and verified**; the formal
-target is frozen as SPE-EvoBench v1.0-50 (44 atomic tasks plus 6 evolution
-episodes), with the prototype not yet claiming completion.
+Status: **v1.0-20 population-validity pilot implemented** (18 atomic tasks plus
+2 evolution episodes). The formal target is frozen as SPE-EvoBench v1.0-50
+(24 SPE-Core + 20 SciML + 6 Evolution), but no formal 50-task result is claimed.
 
 ## Contents
 
@@ -20,7 +20,7 @@ episodes), with the prototype not yet claiming completion.
 - [9. Experimental conditions A–D](#9-experimental-conditions-ad)
 - [10. Sequential split and leakage control](#10-sequential-split-and-leakage-control)
 - [11. Harness architecture and CLI](#11-harness-architecture-and-cli)
-- [12. Prototype task set](#12-prototype-task-set)
+- [12. Pilot task set](#12-pilot-task-set)
 - [13. Reproducibility and environment](#13-reproducibility-and-environment)
 - [14. External sources](#14-external-sources)
 - [15. Limitations](#15-limitations)
@@ -40,8 +40,9 @@ SPE-EvoBench measures three things that existing benchmarks measure only in isol
    CDVAE/MP-20 structures, but self-contained (no dataset downloads).
 3. **Evolution** — whether a skill that *evolves* over a sequential task stream
    (rule acquisition, reuse, specialization, conflict resolution, retirement, drift
-   recovery, poisoning survival) outperforms frozen, append-only, and no-skill
-   conditions under identical budgets.
+   recovery, poisoning survival) outperforms frozen, raw-retrieval, and no-skill
+   conditions under identical budgets; the old append-only arm is retained as
+   `C_STRESS` only.
 
 The benchmark is a **skill-evaluation** benchmark: the unit of comparison is a paired
 condition (§9), and the headline result is a *verified* performance/evolution delta,
@@ -359,15 +360,16 @@ order, seeds, and hardware; only the skill/evolution condition changes:
 - **A. no-skill**: agent runs without the skill.
 - **B. frozen-skill**: the initial skill snapshot, mounted read-only; experience and
   evolution machinery disabled.
-- **C. append-only**: skill + free-form experience capture (`experience/inbox/`
-  writable, append-only); no replay, no validation gates, no retirement — anything
-  recorded may be injected later. This is the "memory" control.
+- **C. raw-experience retrieval**: skill + raw `experience/inbox/` capture and
+  retrieval under the same token budget as D; no RuleSpec abstraction, replay
+  promotion, specialization, or retirement. `C_STRESS` retains the old
+  append-only/inject-everything ablation.
 - **D. governed self-evolving**: the full pipeline — experience capture, candidate
   cards, paired replay (`run_rule_replay.py`), governance audit
   (`validate_evolution.py`), promotion to canonical, maintenance/retirement
   (`score_rule_library.py`), and usage telemetry (`capture_rule_usage.py`).
 
-Harness support: `harness/conditions.py materialize A|B|C|D` builds an isolated skill
+Harness support: `harness/conditions.py materialize A|B|C|C_STRESS|D` builds an isolated skill
 copy per condition from a pinned snapshot, with the appropriate read-only/writable
 bits and injection policy; rule injection into the agent context is performed by the
 harness from the condition's store (the core skill has no runtime retrieval interface
@@ -375,9 +377,10 @@ harness from the condition's store (the core skill has no runtime retrieval inte
 run can prove which skill bits were visible.
 
 Equal-budget controls: identical max tool calls/tokens/wall time per task; C and D get
-identical *extra* budget for evolution activities; skill-text context length is
-matched between B/C/D via a filler arm when comparing against A (length confound
-noted by SkillsBench).
+identical retrieval/token budgets for evolution activities; skill-text context length
+is matched between B/C/D via a filler arm when comparing against A. The primary
+benchmark uses `context_mode=reset`; `carry` is an explicit sequential adaptation
+control, never silently mixed into reset results.
 
 ## 10. Sequential split and leakage control
 
@@ -397,7 +400,10 @@ noted by SkillsBench).
 
 ### 10.2 Group split
 
-Split key = `(family, mechanism, lineage.source, lineage.mutation_template_id)`.
+Split key = `(family, mechanism, lineage.source, lineage.mutation_template_id,
+generator_family_id, oracle_fix_pattern_id, scientific_contract_id,
+workspace_ast_skeleton_hash)`. The population validator also rejects explicit
+lineage reuse and near-duplicate repair patterns.
 `harness/split.py check-leakage` verifies: no split key appears in both the
 evolution-visible set (phase 1) and any held-out set (phases 2–6); oracle files are
 not readable from any agent sandbox; and the split manifest (`split/sequential.yaml`)
@@ -447,9 +453,10 @@ fallback scatter implementation so CPU-CI can run them). YAML parsing: a tiny
 built-in subset parser (no PyYAML dependency) — `task.yaml` files are restricted to
 the supported subset, enforced by `validate-task`.
 
-## 12. Prototype task set
+## 12. Pilot task set
 
-Ten tasks (runnable with zero external downloads; CPU-capable unless noted):
+The pilot contains 20 packages (18 atomic tasks plus 2 evolution episodes),
+runnable with zero external downloads; CPU-capable unless noted:
 
 | # | task_id | track | family | mechanism | kind |
 |---|---|---|---|---|---|
@@ -463,9 +470,21 @@ Ten tasks (runnable with zero external downloads; CPU-capable unless noted):
 | 8 | SCIML-GRAPH-REBUILD-08 | sciml | crystal_sampling | graph_rebuild | do_not_apply (positions change every step — caching is wrong) |
 | 9 | CORE-KERNEL-FUSION-09 | spe_core | compiler | launch_fragmentation | positive (KernelBench-style verified fusion; CPU-capable) |
 | 10 | EVOL-EPISODE-POISON-10 | evolution | episode | (all above) | 6-phase episode over held-out variants + poisoned experience |
+| 11 | CORE-COMPILE-DYNAMIC-11 | spe_core | compiler | compile_dynamic_shapes | positive |
+| 12 | CORE-COMPILE-TINY-12 | spe_core | compiler | compile_tiny_graphs | counterexample |
+| 13 | CORE-MEM-RETAINED-GRAPH-13 | spe_core | memory | retained_graph | positive |
+| 14 | CORE-CHECKPOINT-AMPLE-MEM-14 | spe_core | memory | checkpoint_ample_memory | counterexample |
+| 15 | CORE-AUTOGRAD-BATCHED-VJP-15 | spe_core | autograd | batched_vjp | positive |
+| 16 | CORE-DATALOADER-FANOUT-16 | spe_core | data_pipeline | dataloader_worker_fanout | positive |
+| 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive |
+| 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample |
+| 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive |
+| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_recompile + runtime_drift | positive |
 
-Each task ships with an oracle patch that `validate-task` proves passes all gates, and
-a baseline that `validate-task` proves does *not* meet the verified-speedup bar
+Each atomic task ships with baseline/oracle validation metadata, fresh-input
+verification, an anti-cheat probe, a deterministic fixture, a declared noise
+floor, and lineage identifiers. Each task ships with an oracle patch that
+`validate-task` proves passes all gates, and a baseline that `validate-task` proves does *not* meet the verified-speedup bar
 (positive tasks) or *would* regress if the tempting rule were applied (counterexample
 tasks, proven via an oracle "tempting-patch" that the verifier rejects).
 
@@ -496,8 +515,8 @@ fixtures; CDVAE's hard validity gates and recall+precision pairing.
 
 ## 15. Limitations
 
-- Prototype scale (10 tasks) calibrates the harness; effect sizes and difficulty are
-  not yet population-validated.
+- Pilot scale (20 tasks) calibrates population validity, difficulty, and noise
+  floors; it is not a formal v1.0-50 result.
 - DDP/contention mechanisms are represented by simulated single-process telemetry in
   the prototype; multi-process tasks arrive in the expansion matrix.
 - Subprocess isolation is not a security boundary; formal runs need the driver-level

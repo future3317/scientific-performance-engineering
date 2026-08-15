@@ -3,22 +3,34 @@
   "title": "Sequential evolution episode: rule acquisition, drift, and poisoned experience",
   "track": "evolution",
   "family": "episode",
-  "mechanism": ["scalar_sync", "h2d_blocking", "repeated_compute", "launch_fragmentation", "graph_rebuild"],
+  "mechanism": [
+    "scalar_sync",
+    "h2d_blocking",
+    "repeated_compute",
+    "launch_fragmentation",
+    "graph_rebuild"
+  ],
   "kind": "positive",
   "lineage": {
     "source": "synthetic",
     "mutation_template_id": "MT-EPISODE-POISON-V1",
-    "mutation_seed": 1010
+    "mutation_seed": 3624505240
   },
   "split_group": {
     "family": "episode",
-    "mechanism": "episode",
+    "mechanism": [
+      "scalar_sync",
+      "h2d_blocking",
+      "repeated_compute",
+      "launch_fragmentation",
+      "graph_rebuild"
+    ],
     "source": "synthetic",
     "mutation_template_id": "MT-EPISODE-POISON-V1"
   },
   "episode_phase": 5,
   "hidden": true,
-  "difficulty": "medium",
+  "difficulty": "hard",
   "authoring_note": "Defines the 6-phase sequential episode used by the evolution track. The episode exercises acquisition (scalar_sync, h2d_blocking), same-family transfer (repeated_compute), cross-family transfer (crystal_diffusion), runtime drift (h2d rule specialization), and poisoned experience (graph_rebuild and scalar_sync tempting rules). The task score is the poisoning survival rate under governed condition D vs append-only condition C.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14"

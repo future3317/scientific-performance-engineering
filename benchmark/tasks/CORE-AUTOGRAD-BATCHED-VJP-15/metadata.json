@@ -1,0 +1,25 @@
+{
+  "task_id": "CORE-AUTOGRAD-BATCHED-VJP-15",
+  "title": "torch.compile graph break and dynamic-shape recompilation storm",
+  "track": "spe_core",
+  "family": "autograd",
+  "mechanism": "batched_vjp",
+  "kind": "positive",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-AUTOGRAD-BATCHED-VJP-V1",
+    "mutation_seed": 3195378658
+  },
+  "split_group": {
+    "family": "autograd",
+    "mechanism": "batched_vjp",
+    "source": "synthetic",
+    "mutation_template_id": "MT-AUTOGRAD-BATCHED-VJP-V1"
+  },
+  "episode_phase": 1,
+  "hidden": false,
+  "difficulty": "hard",
+  "authoring_note": "Baseline wraps a tiny MLP in torch.compile and injects an .item()-dependent graph break; the measurement loop cycles 8 batch sizes, causing repeated recompilation. Oracle removes the graph break and compiles with dynamic=True. Scope is intentionally small so warmup fits the time budget on CPU-only CI.",
+  "author": "batch-C prototype agent",
+  "created_utc": "2026-08-14"
+}

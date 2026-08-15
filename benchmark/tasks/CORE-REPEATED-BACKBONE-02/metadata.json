@@ -3,12 +3,23 @@
   "lineage": {
     "source": "synthetic",
     "mutation_template_id": "MT-REPEATED-BACKBONE-V1",
-    "mutation_seed": 2345
+    "mutation_seed": 2510685673
   },
   "split": {
     "group": "repeated_compute-repeated_compute-synthetic-MT-REPEATED-BACKBONE-V1",
     "phase": "acquisition"
   },
-  "difficulty": "easy",
-  "authoring_note": "Prototype SPE-Core task. Baseline recomputes a shared backbone separately for each of K=4 heads and recomputes a fixed-input embedding projection every head/step. Oracle computes backbone once, shares it across heads, and caches the embedding projection keyed by an input-content hash. Includes a semantic-trap 'changing' regime where an unconditional cache must fail."
+  "difficulty": "medium",
+  "authoring_note": "Prototype SPE-Core task. Baseline recomputes a shared backbone separately for each of K=4 heads and recomputes a fixed-input embedding projection every head/step. Oracle computes backbone once, shares it across heads, and caches the embedding projection keyed by an input-content hash. Includes a semantic-trap 'changing' regime where an unconditional cache must fail.",
+  "title": "Repeated backbone + fixed-embedding projection in a multi-head regression loop",
+  "track": "spe_core",
+  "family": "repeated_compute",
+  "mechanism": "repeated_compute",
+  "kind": "positive",
+  "split_group": {
+    "family": "repeated_compute",
+    "mechanism": "repeated_compute",
+    "source": "synthetic",
+    "mutation_template_id": "MT-REPEATED-BACKBONE-V1"
+  }
 }

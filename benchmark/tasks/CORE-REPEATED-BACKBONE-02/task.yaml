@@ -7,7 +7,7 @@ kind: positive
 lineage:
   source: synthetic
   mutation_template_id: MT-REPEATED-BACKBONE-V1
-  mutation_seed: 2345
+  mutation_seed: 2510685673
 title: "Repeated backbone + fixed-embedding projection in a multi-head regression loop"
 requires_cuda: false
 time_budget_s: 600
@@ -26,10 +26,17 @@ measurement:
 correctness:
   num_fresh_inputs: 3
   reference: fp64_recompute
-  tolerance: {rtol: 1.0e-2, atol: 1.0e-3}
+  tolerance:
+    rtol: 0.01
+    atol: 0.001
 scientific_gates: []
 diagnosis:
   enabled: true
   choices: [repeated_compute, scalar_sync, h2d_blocking, compile_recompile]
 oracle:
   expected_speedup_range: [1.8, 2.5]
+generator_family_id: GEN-REPEATED_COMPUTE
+oracle_fix_pattern_id: FIX-CORE-REPEATED-BACKBONE-02
+scientific_contract_id: CONTRACT-REPEATED_COMPUTE
+difficulty_tier: medium
+workspace_ast_skeleton_hash: dc92c69dadfadb628c5b22c812969a12a04afe2912d696698a057a47ea13e032

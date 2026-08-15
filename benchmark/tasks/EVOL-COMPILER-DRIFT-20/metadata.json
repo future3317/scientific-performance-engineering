@@ -1,0 +1,31 @@
+{
+  "task_id": "EVOL-COMPILER-DRIFT-20",
+  "title": "Sequential evolution episode: compiler/runtime drift and revalidation",
+  "track": "evolution",
+  "family": "episode",
+  "mechanism": [
+    "compile_recompile",
+    "runtime_drift"
+  ],
+  "kind": "positive",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-EPISODE-COMPILER-DRIFT-V1",
+    "mutation_seed": 3513780186
+  },
+  "split_group": {
+    "family": "episode",
+    "mechanism": [
+      "compile_recompile",
+      "runtime_drift"
+    ],
+    "source": "synthetic",
+    "mutation_template_id": "MT-EPISODE-COMPILER-DRIFT-V1"
+  },
+  "episode_phase": 4,
+  "hidden": true,
+  "difficulty": "hard",
+  "authoring_note": "Defines the 6-phase compiler-drift episode: compile-rule acquisition, same-family transfer, runtime drift, a stale-cache misleading experience, and recovery under governed replay.",
+  "author": "batch-C prototype agent",
+  "created_utc": "2026-08-14"
+}

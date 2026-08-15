@@ -1,0 +1,25 @@
+{
+  "task_id": "CORE-COMPILE-TINY-12",
+  "title": "torch.compile graph break and dynamic-shape recompilation storm",
+  "track": "spe_core",
+  "family": "compiler",
+  "mechanism": "compile_tiny_graphs",
+  "kind": "counterexample",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-COMPILE-TINY-V1",
+    "mutation_seed": 2851936905
+  },
+  "split_group": {
+    "family": "compiler",
+    "mechanism": "compile_tiny_graphs",
+    "source": "synthetic",
+    "mutation_template_id": "MT-COMPILE-TINY-V1"
+  },
+  "episode_phase": 1,
+  "hidden": false,
+  "difficulty": "hard",
+  "authoring_note": "Baseline wraps a tiny MLP in torch.compile and injects an .item()-dependent graph break; the measurement loop cycles 8 batch sizes, causing repeated recompilation. Oracle removes the graph break and compiles with dynamic=True. Scope is intentionally small so warmup fits the time budget on CPU-only CI.",
+  "author": "batch-C prototype agent",
+  "created_utc": "2026-08-14"
+}

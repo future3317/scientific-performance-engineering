@@ -9,12 +9,11 @@ conditions A–D §9, sequential split §10, harness architecture §11).
 [INTEGRATION_REQUIREMENTS.md](INTEGRATION_REQUIREMENTS.md) lists the benchmark-local
 workarounds for core-skill gaps (no core file is ever modified).
 
-**Status:** 10 runnable prototype tasks implemented and individually verified;
-the formal target is frozen as SPE-EvoBench v1.0-50 (44 atomic tasks plus 6
-evolution episodes) and is not yet claimed complete. The current prototype
-must not be described as a finished 50-task benchmark.
-see [TASK_MATRIX.md](TASK_MATRIX.md) for the task list, verified speedups, and
-the frozen 50-task matrix and formal public/sealed split plan.
+**Status:** the v1.0-20 population-validity pilot is implemented as 18 atomic
+tasks plus 2 evolution episodes. The formal target remains frozen as
+SPE-EvoBench v1.0-50 (24 SPE-Core + 20 SciML + 6 Evolution), but no formal
+50-task result is claimed. See [TASK_MATRIX.md](TASK_MATRIX.md) for the pilot,
+the remaining 19 Core + 16 SciML + 5 Evolution tasks, and the frozen split plan.
 
 ## Layout
 
@@ -37,7 +36,9 @@ benchmark/
     verifier.py                # S0–S6 pipeline orchestrator
     scoring.py                 # per-task + track aggregates (§8.2–8.3)
     evolution.py               # episode runner + evolution metrics (§8.4)
-    conditions.py              # A/B/C/D materialization + attestation
+    conditions.py              # A/B/C/C_STRESS/D materialization + attestation
+  taskgen/                     # pilot generator and population validator
+  population_report.json       # deterministic v1.0-20 population summary
     evolution_ledger.py        # monotonic replay/promotion decision ledger
     split.py                   # sequential split + leakage checker
     cli.py                     # the CLI below
@@ -52,14 +53,16 @@ Run everything from the repository root (the directory containing `benchmark/`):
 ```bash
 # tests (standalone assert-scripts, repo convention)
 python benchmark/tests/run_all.py
+python -m benchmark.taskgen.validate_population \
+    --tasks-root benchmark/tasks --out benchmark/population_report.json
 
 # CLI examples (run from the repo root)
 python -m benchmark.harness.cli validate-task benchmark/tasks/<task_id>
 python -m benchmark.harness.cli run-task benchmark/tasks/<task_id> --solution DIR --out result.json \
     [--predict-mechanism scalar_sync,h2d_blocking] [--seed 0]
 python scripts/render_skill_view.py SKILL_ROOT SKILL_VIEW_DIR
-python -m benchmark.harness.cli materialize-condition {A,B,C,D} --snapshot SKILL_VIEW_DIR --out DIR
-python -m benchmark.harness.cli run-episode benchmark/tasks/EVOL-EPISODE-POISON-10/episodes/<id>.yaml --condition {C,D} --out DIR
+python -m benchmark.harness.cli materialize-condition {A,B,C,C_STRESS,D} --snapshot SKILL_VIEW_DIR --out DIR --context-mode reset
+python -m benchmark.harness.cli run-episode benchmark/tasks/EVOL-EPISODE-POISON-10/episodes/<id>.yaml --condition {C,C_STRESS,D} --out DIR --context-mode reset
 python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml [--tasks-root DIR]
 python -m benchmark.harness.cli score-run RUN_DIR --out scores.json
 ```

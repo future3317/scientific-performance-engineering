@@ -1,14 +1,14 @@
 # SPE-EvoBench Task Matrix
 
-This matrix documents the **10 runnable prototype tasks** and the planned
-the frozen SPE-EvoBench v1.0-50 target. All prototypes run with zero external downloads;
-planned tasks keep the same data discipline (synthetic fixtures, bundled small
-data, or deterministic generators).
+This matrix freezes the SPE-EvoBench v1.0-50 target and records the
+**v1.0-20 population-validity pilot**. The pilot contains 11 SPE-Core tasks,
+7 SciML tasks, and 2 evolution episodes; it does not claim formal 50-task
+results. All tasks run with zero external downloads.
 
 ## Contents
 
 - [Legend](#legend)
-- [Prototype tasks (10)](#prototype-tasks-10--implemented-and-verified)
+- [Pilot tasks (20)](#pilot-tasks-20)
 - [Verification meaning](#verification-meaning)
 - [Expansion plan](#expansion-plan)
 - [Task-family coverage](#task-family-coverage)
@@ -25,7 +25,7 @@ data, or deterministic generators).
   `cdvae-shaped` (structure derived from CDVAE/MP-20),
   `kernelbench-shaped` (fused-op structure inspired by KernelBench).
 
-## Prototype tasks (10) — implemented and verified
+## Pilot tasks (20)
 
 | # | Task ID | Track | Family | Mechanism(s) | Kind | Source | Verified oracle speedup | Status |
 |---|---------|-------|--------|--------------|------|--------|------------------------|--------|
@@ -44,7 +44,18 @@ Verification meaning: “✅” = `validate-task` passes, baseline is
 `inconclusive` (no verified speedup), oracle/reference is `pass` with a real
 measured speedup, and counterexample/do_not_apply tempting patches are rejected.
 
-## Sequential split (prototype)
+| 11 | CORE-COMPILE-DYNAMIC-11 | spe_core | compiler | compile_dynamic_shapes | positive | synthetic | population-validity pending | pilot |
+| 12 | CORE-COMPILE-TINY-12 | spe_core | compiler | compile_tiny_graphs | counterexample | synthetic | population-validity pending | pilot |
+| 13 | CORE-MEM-RETAINED-GRAPH-13 | spe_core | memory | retained_graph | positive | synthetic | population-validity pending | pilot |
+| 14 | CORE-CHECKPOINT-AMPLE-MEM-14 | spe_core | memory | checkpoint_ample_memory | counterexample | synthetic | population-validity pending | pilot |
+| 15 | CORE-AUTOGRAD-BATCHED-VJP-15 | spe_core | autograd | batched_vjp | positive | synthetic | population-validity pending | pilot |
+| 16 | CORE-DATALOADER-FANOUT-16 | spe_core | data_pipeline | dataloader_worker_fanout | positive | synthetic | population-validity pending | pilot |
+| 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive | fairchem-shaped | population-validity pending | pilot |
+| 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample | fairchem-shaped | population-validity pending | pilot |
+| 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive | fairchem-shaped | population-validity pending | pilot |
+| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_recompile + runtime_drift | positive | synthetic | population-validity pending | pilot |
+
+## Sequential split (pilot)
 
 See `benchmark/split/sequential.yaml`.
 
@@ -59,6 +70,19 @@ See `benchmark/split/sequential.yaml`.
 
 Leakage rule: no `(family, mechanism, source, mutation_template_id)` key
 appears in both phase 1 and any later phase. `check-leakage` enforces this.
+
+## Frozen v1.0-50 matrix and remaining work
+
+| Track | Frozen total | In v1.0-20 pilot | Remaining after pilot |
+|---|---:|---:|---:|
+| SPE-Core | 24 | 11 | 19 |
+| SciML | 20 | 7 | 16 |
+| Evolution | 6 | 2 | 5 |
+| **Total** | **50** | **20** | **40** |
+
+The remaining 19 Core, 16 SciML, and 5 Evolution tasks are intentionally not
+generated in this pilot. They may be generated only after the population
+validator is green and the 20-task difficulty/noise calibration is reviewed.
 
 ## Expansion plan to the frozen 50-task release
 
@@ -108,7 +132,7 @@ fixtures, model shapes, and mutation polarity.
 
 ## Implementation priority for expansion
 
-1. Harden the harness on the 10 prototypes (noise floors, CI stability,
+1. Harden the harness on the 20-task pilot (noise floors, CI stability,
    anti-cheat tripwires).
 2. Add SPE-Core compiler and memory-pressure tasks next — they are the cheapest
    to author and validate.

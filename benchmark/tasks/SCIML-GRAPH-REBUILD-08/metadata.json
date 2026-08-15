@@ -8,7 +8,7 @@
   "lineage": {
     "source": "fairchem-shaped",
     "mutation_template_id": "MT-GRAPH-REBUILD-DO-NOT-APPLY-V1",
-    "mutation_seed": 8008
+    "mutation_seed": 2170316235
   },
   "split_group": {
     "family": "crystal_sampling",

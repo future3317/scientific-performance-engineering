@@ -1,0 +1,42 @@
+schema_version: 1
+task_id: CORE-MEM-RETAINED-GRAPH-13
+track: spe_core
+family: memory
+mechanism: retained_graph
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-MEM-RETAINED-GRAPH-V1
+  mutation_seed: 354591506
+title: "torch.compile graph break and dynamic-shape recompilation storm"
+requires_cuda: false
+time_budget_s: 300
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 8
+  measured_iterations: 50
+  repetitions: 12
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: 1e-05
+scientific_gates: [finite_loss]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_recompile, memory_pressure, launch_fragmentation]
+oracle:
+  expected_speedup_range: [1.15, 1.5]
+generator_family_id: GEN-MEMORY-RETAINED
+oracle_fix_pattern_id: FIX-MEM-RETAINED-DETACH
+scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
+difficulty_tier: hard
+workspace_ast_skeleton_hash: e4ad9b8bd18f9b258a3870f913c4ffd8c0e3be91cd26de4b6f8727e892287e8e

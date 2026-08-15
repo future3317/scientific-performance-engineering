@@ -7,7 +7,7 @@ kind: counterexample
 lineage:
   source: fairchem-shaped
   mutation_template_id: MT-REPEATED-BASIS-V1
-  mutation_seed: 6006
+  mutation_seed: 4069147195
 title: "Misleading rank-3 equivariant-basis caching across a structure-relaxation trajectory"
 requires_cuda: false
 time_budget_s: 600
@@ -26,10 +26,17 @@ measurement:
 correctness:
   num_fresh_inputs: 3
   reference: fp64_recompute
-  tolerance: {rtol: 1.0e-4, atol: 1.0e-5}
+  tolerance:
+    rtol: 0.0001
+    atol: 1e-05
 scientific_gates: [equivariance_rank3, translation_invariance]
 diagnosis:
   enabled: true
   choices: [repeated_compute, ragged_loops, autograd_overhead, graph_rebuild, scalar_sync, launch_fragmentation, h2d_blocking]
 oracle:
   expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-EQUIVARIANT_HEAD
+oracle_fix_pattern_id: FIX-SCIML-EQUIV-RECOMPUTE-06
+scientific_contract_id: CONTRACT-EQUIVARIANT_HEAD
+difficulty_tier: medium
+workspace_ast_skeleton_hash: e2d3356ef0e3f509a94ec9bc166cad4ae7917d325e4e858c94fe811d0e658f0d

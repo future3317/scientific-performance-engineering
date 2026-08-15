@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Sequential split and leakage control (BENCHMARK_DESIGN.md section 10).
 
-Split key = ``(family, mechanism, lineage.source, lineage.mutation_template_id)``.
+Split key = ``(family, mechanism, lineage.source, lineage.mutation_template_id,
+generator_family_id, oracle_fix_pattern_id, scientific_contract_id,
+workspace_ast_skeleton_hash)``.
 Phase 1 (acquisition) is evolution-visible; phases 2-6 are held out.
 :func:`check_leakage` verifies phase ordering, task existence, and that no
 split key appears in both phase 1 and any held-out phase. The split manifest is
@@ -53,7 +55,7 @@ def split_manifest_hash(path: str | Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def split_key(task_spec: dict[str, Any]) -> list[tuple[str, str, str, str]]:
+def split_key(task_spec: dict[str, Any]) -> list[tuple[str, ...]]:
     """Split keys of a parsed task.yaml (one per mechanism when it is a list)."""
     lineage = task_spec.get("lineage", {})
     mechanism = task_spec.get("mechanism")
@@ -64,6 +66,10 @@ def split_key(task_spec: dict[str, Any]) -> list[tuple[str, str, str, str]]:
             str(mech),
             str(lineage.get("source")),
             str(lineage.get("mutation_template_id")),
+            str(task_spec.get("generator_family_id", "unknown")),
+            str(task_spec.get("oracle_fix_pattern_id", "unknown")),
+            str(task_spec.get("scientific_contract_id", "unknown")),
+            str(task_spec.get("workspace_ast_skeleton_hash", "unknown")),
         )
         for mech in mechanisms
     ]

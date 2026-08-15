@@ -3,22 +3,28 @@
   "title": "Ragged per-graph Python loops and separate backward passes in a crystal GNN energy/force evaluator",
   "track": "sciml",
   "family": "graph_energy_force",
-  "mechanism": ["ragged_loops", "autograd_overhead"],
+  "mechanism": [
+    "ragged_loops",
+    "autograd_overhead"
+  ],
   "kind": "positive",
   "lineage": {
     "source": "fairchem-shaped",
     "mutation_template_id": "MT-RAGGED-AUTOGRAD-V1",
-    "mutation_seed": 5005
+    "mutation_seed": 1959397164
   },
   "split_group": {
     "family": "graph_energy_force",
-    "mechanism": ["ragged_loops", "autograd_overhead"],
+    "mechanism": [
+      "ragged_loops",
+      "autograd_overhead"
+    ],
     "source": "fairchem-shaped",
     "mutation_template_id": "MT-RAGGED-AUTOGRAD-V1"
   },
   "episode_phase": 1,
   "hidden": false,
-  "difficulty": "easy",
+  "difficulty": "medium",
   "authoring_note": "SciML graph/materials task shaped after FAIRChem radius-graph + PBC energy/force evaluation. Baseline loops over graphs and calls backward once per graph; the reference fix concatenates the ragged batch into a single batched graph and performs one batched backward. Plain torch only (no PyG). Calibrated on the authoring host; range is updated to measured reality.",
   "author": "batch-SciML-A prototype agent",
   "created_utc": "2026-08-14"

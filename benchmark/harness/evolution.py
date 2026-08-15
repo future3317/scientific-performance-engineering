@@ -294,6 +294,7 @@ def run_episode(
     out_dir: str | Path,
     snapshot_dir: str | Path | None = None,
     core_repo: str | Path | None = None,
+    context_mode: str = "reset",
 ) -> dict[str, Any]:
     """Run one episode under condition C or D; write episode_result.json + attestation.
 
@@ -302,8 +303,10 @@ def run_episode(
     ``results`` entries (see module docstring) which this runner aggregates.
     """
     condition = condition.upper()
-    if condition not in ("C", "D"):
-        raise ValueError(f"episodes run under conditions C or D, got {condition!r}")
+    if context_mode not in {"reset", "carry"}:
+        raise ValueError("context_mode must be reset or carry")
+    if condition not in ("C", "C_STRESS", "D"):
+        raise ValueError(f"episodes run under conditions C, C_STRESS, or D, got {condition!r}")
     episode = load_episode(episode_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -315,12 +318,12 @@ def run_episode(
 
     if (snapshot_dir / "skill_view_manifest.json").is_file():
         skill_view = snapshot_dir
-        manifest = conditions.materialize_condition(condition, skill_view, store)
+        manifest = conditions.materialize_condition(condition, skill_view, store, context_mode=context_mode)
     else:
         with tempfile.TemporaryDirectory(dir=out_dir.parent) as temp:
             skill_view = Path(temp) / "skill-view"
             render_skill_view(snapshot_dir, skill_view)
-            manifest = conditions.materialize_condition(condition, skill_view, store)
+            manifest = conditions.materialize_condition(condition, skill_view, store, context_mode=context_mode)
 
     poison_ids: list[str] = []
     paired_results: list[dict[str, Any]] = []
@@ -407,6 +410,7 @@ def run_episode(
         "schema_version": 1,
         "episode_id": episode["episode_id"],
         "condition": condition,
+        "context_mode": context_mode,
         "metrics": metrics,
         "raw": {
             "paired_results": paired_results,

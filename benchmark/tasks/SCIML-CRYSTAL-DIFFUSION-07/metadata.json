@@ -3,16 +3,22 @@
   "title": "DDPM crystal sampler with per-step scalar sync and fragmented time embedding",
   "track": "sciml",
   "family": "crystal_generation",
-  "mechanism": ["scalar_sync", "launch_fragmentation"],
+  "mechanism": [
+    "scalar_sync",
+    "launch_fragmentation"
+  ],
   "kind": "positive",
   "lineage": {
     "source": "cdvae-shaped",
     "mutation_template_id": "MT-SCALAR-SYNC-LAUNCH-FRAG-V1",
-    "mutation_seed": 7007
+    "mutation_seed": 1235783125
   },
   "split_group": {
     "family": "crystal_generation",
-    "mechanism": "scalar_sync",
+    "mechanism": [
+      "scalar_sync",
+      "launch_fragmentation"
+    ],
     "source": "cdvae-shaped",
     "mutation_template_id": "MT-SCALAR-SYNC-LAUNCH-FRAG-V1"
   },

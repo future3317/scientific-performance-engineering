@@ -5,8 +5,8 @@ Run from the repository root (the directory containing ``benchmark/``)::
 
     python -m benchmark.harness.cli validate-task tasks/<id>
     python -m benchmark.harness.cli run-task tasks/<id> --solution DIR --out result.json
-    python -m benchmark.harness.cli materialize-condition {A,B,C,D} --snapshot DIR --out DIR
-    python -m benchmark.harness.cli run-episode episodes/<id>.yaml --condition {C,D} --out DIR
+    python -m benchmark.harness.cli materialize-condition {A,B,C,C_STRESS,D} --snapshot DIR --out DIR
+    python -m benchmark.harness.cli run-episode episodes/<id>.yaml --condition {C,C_STRESS,D} --out DIR
     python -m benchmark.harness.cli check-leakage split/sequential.yaml
     python -m benchmark.harness.cli score-run RUN_DIR --out scores.json
 """
@@ -48,6 +48,7 @@ def _cmd_run_task(args: argparse.Namespace) -> int:
         predicted_mechanism=predicted,
         seed=args.seed,
         condition=args.condition,
+        context_mode=args.context_mode,
     )
     verdict = result["verdict"]
     speedup = result.get("verified_speedup", {})
@@ -62,7 +63,7 @@ def _cmd_run_task(args: argparse.Namespace) -> int:
 def _cmd_materialize_condition(args: argparse.Namespace) -> int:
     from . import conditions
 
-    manifest = conditions.materialize_condition(args.condition, args.snapshot, args.out)
+    manifest = conditions.materialize_condition(args.condition, args.snapshot, args.out, context_mode=args.context_mode)
     print(
         f"materialize-condition: {args.condition} -> {args.out} "
         f"({len(manifest['files'])} files attested)"
@@ -79,6 +80,7 @@ def _cmd_run_episode(args: argparse.Namespace) -> int:
         args.out,
         snapshot_dir=args.snapshot,
         core_repo=args.core_repo,
+        context_mode=args.context_mode,
     )
     print(f"run-episode: {result['episode_id']} condition={result['condition']} -> {args.out}")
     for name, value in result["metrics"].items():
@@ -131,20 +133,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--predict-mechanism", default=None, help="comma-separated predicted mechanism ids (diagnosis)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--condition", default="standalone", choices=["A", "B", "C", "D", "standalone"])
+    p.add_argument("--context-mode", default="reset", choices=["reset", "carry"])
     p.set_defaults(func=_cmd_run_task)
 
     p = sub.add_parser("materialize-condition", help="build an A/B/C/D condition store from a snapshot")
-    p.add_argument("condition", choices=["A", "B", "C", "D"])
+    p.add_argument("condition", choices=["A", "B", "C", "C_STRESS", "D"])
     p.add_argument("--snapshot", type=Path, default=None, help="pinned skill snapshot (required for B/C/D)")
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--context-mode", choices=["reset", "carry"], default="reset")
     p.set_defaults(func=_cmd_materialize_condition)
 
     p = sub.add_parser("run-episode", help="run an evolution episode under condition C or D")
     p.add_argument("episode", type=Path)
-    p.add_argument("--condition", choices=["C", "D"], required=True)
+    p.add_argument("--condition", choices=["C", "C_STRESS", "D"], required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--snapshot", type=Path, default=None)
     p.add_argument("--core-repo", type=Path, default=None)
+    p.add_argument("--context-mode", choices=["reset", "carry"], default="reset")
     p.set_defaults(func=_cmd_run_episode)
 
     p = sub.add_parser("check-leakage", help="verify the sequential split has no group leakage")

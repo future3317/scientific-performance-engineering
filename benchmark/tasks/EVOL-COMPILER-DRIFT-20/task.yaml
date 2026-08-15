@@ -1,0 +1,42 @@
+schema_version: 1
+task_id: EVOL-COMPILER-DRIFT-20
+track: evolution
+family: episode
+mechanism: [compile_recompile, runtime_drift]
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-EPISODE-COMPILER-DRIFT-V1
+  mutation_seed: 3513780186
+title: "Sequential evolution episode: compiler/runtime drift and revalidation"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: episode_v1
+measurement:
+  primary_metric: episode_score
+  higher_is_better: true
+  warmup_iterations: 0
+  measured_iterations: 1
+  repetitions: 3
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 1
+  reference: fp64_recompute
+  tolerance:
+    rtol: 1e-05
+    atol: 1e-06
+scientific_gates: [episode_runnable, poison_survives_governance]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_break, memory_pressure]
+oracle:
+  expected_speedup_range: [1.2, 5.0]
+generator_family_id: GEN-EVOLUTION-DRIFT
+oracle_fix_pattern_id: FIX-EVOLUTION-DRIFT-REVALIDATE
+scientific_contract_id: CONTRACT-EVOLUTION-GOVERNANCE
+difficulty_tier: hard
+workspace_ast_skeleton_hash: "825d41431a3733f4c37a3027d045f34ba70fe0083c1722fdaf0dfdcf790a30fe"

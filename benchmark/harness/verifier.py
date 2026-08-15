@@ -42,6 +42,11 @@ TASK_YAML_REQUIRED = (
     "scientific_gates",
     "diagnosis",
     "oracle",
+    "generator_family_id",
+    "oracle_fix_pattern_id",
+    "scientific_contract_id",
+    "workspace_ast_skeleton_hash",
+    "difficulty_tier",
 )
 
 TRACKS = {"spe_core", "sciml", "evolution"}
@@ -108,6 +113,13 @@ def validate_task(task_dir: str | Path, check_fixtures: bool = True) -> list[str
         errors.append(f"track must be one of {sorted(TRACKS)}")
     if spec.get("kind") not in KINDS:
         errors.append(f"kind must be one of {sorted(KINDS)}")
+    for key in ("generator_family_id", "oracle_fix_pattern_id", "scientific_contract_id"):
+        if not isinstance(spec.get(key), str) or not spec[key]:
+            errors.append(f"{key} must be a non-empty string")
+    if not isinstance(spec.get("workspace_ast_skeleton_hash"), str) or len(spec["workspace_ast_skeleton_hash"]) != 64:
+        errors.append("workspace_ast_skeleton_hash must be a 64-character digest")
+    if spec.get("difficulty_tier") not in {"easy", "medium", "hard"}:
+        errors.append("difficulty_tier must be easy, medium, or hard")
     if not isinstance(spec.get("requires_cuda"), bool):
         errors.append("requires_cuda must be a boolean")
 
@@ -240,6 +252,7 @@ def verify_task(
     predicted_mechanism: list[str] | None = None,
     seed: int = 0,
     condition: str = "standalone",
+    context_mode: str = "reset",
 ) -> dict[str, Any]:
     """Run the S0-S6 pipeline; return (and optionally write) the result dict."""
     started = time.perf_counter()
@@ -247,6 +260,8 @@ def verify_task(
     solution_dir = Path(solution_dir)
     errors: list[str] = []
 
+    if context_mode not in {"reset", "carry"}:
+        raise ValueError("context_mode must be reset or carry")
     spec = load_task_yaml(task_dir)  # raises cleanly on missing task
     if not solution_dir.is_dir():
         raise FileNotFoundError(f"solution directory not found: {solution_dir}")
@@ -255,6 +270,7 @@ def verify_task(
         "schema_version": 1,
         "task_id": spec["task_id"],
         "condition": condition,
+        "context_mode": context_mode,
         "verdict": "error",
         "correctness_pass": False,
         "scientific_gates": {},

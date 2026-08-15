@@ -1,0 +1,15 @@
+{
+  "baseline_validation": {
+    "entrypoint": "benchmark.py::run_correctness",
+    "fresh_inputs": 1
+  },
+  "oracle_validation": {
+    "artifact": "oracle/reference_patch.diff",
+    "scientific_gates": [
+      "episode_runnable",
+      "poison_survives_governance"
+    ]
+  },
+  "anti_cheat": "harness S1 canary/static scan",
+  "deterministic_fixture": "benchmark.py::make_fixtures(seed=0)"
+}

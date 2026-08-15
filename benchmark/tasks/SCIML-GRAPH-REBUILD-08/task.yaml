@@ -7,7 +7,7 @@ kind: do_not_apply
 lineage:
   source: fairchem-shaped
   mutation_template_id: MT-GRAPH-REBUILD-DO-NOT-APPLY-V1
-  mutation_seed: 8008
+  mutation_seed: 2170316235
 title: "Langevin sampler where positions change every step — graph rebuild is required"
 requires_cuda: false
 time_budget_s: 600
@@ -26,10 +26,17 @@ measurement:
 correctness:
   num_fresh_inputs: 3
   reference: fp64_recompute
-  tolerance: {rtol: 1.0, atol: 3.0}
+  tolerance:
+    rtol: 1.0
+    atol: 3.0
 scientific_gates: [energy_force_consistency, neighbor_consistency, distribution_moment_check]
 diagnosis:
   enabled: true
   choices: [graph_rebuild, scalar_sync, launch_fragmentation, repeated_compute, h2d_blocking, compile_break, autograd_overhead, ragged_loops]
 oracle:
   expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-CRYSTAL_SAMPLING
+oracle_fix_pattern_id: FIX-SCIML-GRAPH-REBUILD-08
+scientific_contract_id: CONTRACT-CRYSTAL_SAMPLING
+difficulty_tier: medium
+workspace_ast_skeleton_hash: ad8c18ee5b94566995220165f2ceccd388075edef30348997b0dec1d208a2317

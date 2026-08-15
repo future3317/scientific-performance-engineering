@@ -7,7 +7,7 @@ kind: positive
 lineage:
   source: cdvae-shaped
   mutation_template_id: MT-SCALAR-SYNC-LAUNCH-FRAG-V1
-  mutation_seed: 7007
+  mutation_seed: 1235783125
 title: "DDPM crystal sampler with per-step scalar sync and fragmented time embedding"
 requires_cuda: false
 time_budget_s: 600
@@ -26,10 +26,17 @@ measurement:
 correctness:
   num_fresh_inputs: 3
   reference: fp64_recompute
-  tolerance: {rtol: 1.0e-4, atol: 1.0e-4}
+  tolerance:
+    rtol: 0.0001
+    atol: 0.0001
 scientific_gates: [crystal_validity, distribution_moment_check]
 diagnosis:
   enabled: true
   choices: [scalar_sync, launch_fragmentation, h2d_blocking, repeated_compute, graph_rebuild, compile_break, autograd_overhead, ragged_loops]
 oracle:
   expected_speedup_range: [2.0, 25.0]
+generator_family_id: GEN-CRYSTAL_GENERATION
+oracle_fix_pattern_id: FIX-SCIML-CRYSTAL-DIFFUSION-07
+scientific_contract_id: CONTRACT-CRYSTAL_GENERATION
+difficulty_tier: medium
+workspace_ast_skeleton_hash: e4607f8b7bac1352026fe08ee42514d1f50043ee2b72ae67c4f5ca365c954ff2

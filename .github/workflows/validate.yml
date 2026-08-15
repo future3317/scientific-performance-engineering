@@ -47,6 +47,9 @@ jobs:
       - name: Run benchmark harness contracts
         run: |
           python benchmark/tests/run_all.py
+          python -m benchmark.taskgen.validate_population \
+            --tasks-root benchmark/tasks \
+            --out benchmark/population_report.json
           python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml
           for task in benchmark/tasks/*; do
             python -m benchmark.harness.cli validate-task "$task"

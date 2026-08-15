@@ -1,0 +1,42 @@
+schema_version: 1
+task_id: SCIML-GNN-DYNAMIC-GRAPH-18
+track: sciml
+family: graph_energy_force
+mechanism: dynamic_graph_rebuild
+kind: counterexample
+lineage:
+  source: fairchem-shaped
+  mutation_template_id: MT-GNN-DYNAMIC-GRAPH-V1
+  mutation_seed: 4228580477
+title: "Ragged per-graph Python loops and separate backward passes in a crystal GNN energy/force evaluator"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: energy_force_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 5
+  measured_iterations: 25
+  repetitions: 4
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: 1e-05
+scientific_gates: [energy_force_consistency, gradient_agreement, translation_invariance]
+diagnosis:
+  enabled: true
+  choices: [ragged_loops, autograd_overhead, repeated_compute, graph_rebuild, scalar_sync, launch_fragmentation, h2d_blocking]
+oracle:
+  expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-GNN-DYNAMIC
+oracle_fix_pattern_id: FIX-GNN-DYNAMIC-REBUILD
+scientific_contract_id: CONTRACT-ENERGY-FORCE
+difficulty_tier: hard
+workspace_ast_skeleton_hash: "0061ca3c18386b308957daa0f6232e46bdb8abc3418a7f67bdc1a4f7a8f39a60"

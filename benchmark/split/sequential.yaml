@@ -2,25 +2,25 @@ split_id: sequential-v1
 phases:
   - index: 1
     name: acquisition
-    tasks: ["CORE-SCALAR-SYNC-01", "CORE-H2D-PIPELINE-03"]
+    tasks: ["CORE-SCALAR-SYNC-01", "CORE-H2D-PIPELINE-03", "CORE-COMPILE-DYNAMIC-11", "CORE-MEM-RETAINED-GRAPH-13", "CORE-AUTOGRAD-BATCHED-VJP-15", "SCIML-GNN-STATIC-GRAPH-CACHE-17"]
     lineage_keys:
       - ["training_loop_overhead", "scalar_sync", "synthetic", "MT-SCALAR-SYNC-V1"]
       - ["data_pipeline", "h2d_blocking", "synthetic", "MT-H2D-BLOCKING-V1"]
   - index: 2
     name: same_family_transfer
-    tasks: ["CORE-REPEATED-BACKBONE-02", "CORE-COMPILE-RECOMPILE-04"]
+    tasks: ["CORE-REPEATED-BACKBONE-02", "CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-TINY-12", "CORE-CHECKPOINT-AMPLE-MEM-14", "SCIML-GNN-DYNAMIC-GRAPH-18"]
     lineage_keys:
       - ["repeated_compute", "repeated_compute", "synthetic", "MT-REPEATED-BACKBONE-V1"]
       - ["compiler", "compile_recompile", "synthetic", "MT-COMPILE-RECOMPILE-V1"]
   - index: 3
     name: cross_family_transfer
-    tasks: ["SCIML-CRYSTAL-DIFFUSION-07", "CORE-KERNEL-FUSION-09"]
+    tasks: ["SCIML-CRYSTAL-DIFFUSION-07", "CORE-KERNEL-FUSION-09", "CORE-DATALOADER-FANOUT-16", "SCIML-FORCE-AUTOGRAD-19"]
     lineage_keys:
       - ["crystal_generation", "scalar_sync+launch_fragmentation", "cdvae-shaped", "MT-SCALAR-SYNC-LAUNCH-FRAG-V1"]
       - ["compiler", "launch_fragmentation", "kernelbench-shaped", "MT-LAUNCH-FRAGMENTATION-V1"]
   - index: 4
     name: drift
-    tasks: []
+    tasks: ["EVOL-COMPILER-DRIFT-20"]
     lineage_keys:
   - index: 5
     name: poisoned_experience

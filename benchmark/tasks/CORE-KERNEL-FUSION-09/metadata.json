@@ -8,7 +8,7 @@
   "lineage": {
     "source": "kernelbench-shaped",
     "mutation_template_id": "MT-LAUNCH-FRAGMENTATION-V1",
-    "mutation_seed": 9009
+    "mutation_seed": 1535355374
   },
   "split_group": {
     "family": "compiler",
@@ -16,7 +16,7 @@
     "source": "kernelbench-shaped",
     "mutation_template_id": "MT-LAUNCH-FRAGMENTATION-V1"
   },
-  "difficulty": "easy",
+  "difficulty": "medium",
   "authoring_note": "KernelBench-style pointwise chain at torch level (no triton). Baseline runs the chain as 8 separate eager ops; the reference fix fuses via torch.jit.script, which is safe on both CPU-only CI and CUDA hosts. Calibrate expected_speedup_range to the authoring host.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14"

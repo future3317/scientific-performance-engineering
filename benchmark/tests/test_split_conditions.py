@@ -47,6 +47,11 @@ diagnosis:
   enabled: false
 oracle:
   expected_speedup_range: [1.2, 6.0]
+generator_family_id: GEN-{family}
+oracle_fix_pattern_id: FIX-{template}
+scientific_contract_id: CONTRACT-{family}
+workspace_ast_skeleton_hash: 0000000000000000000000000000000000000000000000000000000000000000
+difficulty_tier: medium
 """
 
 
@@ -130,7 +135,7 @@ def main() -> None:
         manifest = conditions.materialize_condition("A", None, out)
         assert manifest["files"] == {} and manifest["injection_policy"]["mode"] == "none"
 
-        for cond, mode in (("B", "frozen"), ("C", "inbox_any"), ("D", "canonical_only")):
+        for cond, mode in (("B", "frozen"), ("C", "raw_experience_retrieval"), ("C_STRESS", "inbox_any"), ("D", "canonical_only")):
             out = root / f"cond{cond}"
             manifest = conditions.materialize_condition(cond, snapshot_bundle, out)
             assert manifest["injection_policy"]["mode"] == mode

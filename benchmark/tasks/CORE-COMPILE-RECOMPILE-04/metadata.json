@@ -8,7 +8,7 @@
   "lineage": {
     "source": "synthetic",
     "mutation_template_id": "MT-COMPILE-RECOMPILE-V1",
-    "mutation_seed": 4004
+    "mutation_seed": 1908234210
   },
   "split_group": {
     "family": "compiler",

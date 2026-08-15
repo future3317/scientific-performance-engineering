@@ -8,7 +8,7 @@
   "lineage": {
     "source": "synthetic",
     "mutation_template_id": "MT-H2D-BLOCKING-V1",
-    "mutation_seed": 3003
+    "mutation_seed": 2360599027
   },
   "split_group": {
     "family": "data_pipeline",

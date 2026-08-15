@@ -21,6 +21,8 @@ TESTS = (
     "test_runner.py",
     "test_poison_label_never_visible.py",
     "test_skill_view.py",
+    "test_context_mode.py",
+    "test_c_control.py",
 )
 
 

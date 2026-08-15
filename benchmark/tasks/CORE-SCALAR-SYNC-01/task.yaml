@@ -7,7 +7,7 @@ kind: positive
 lineage:
   source: synthetic
   mutation_template_id: MT-SCALAR-SYNC-V1
-  mutation_seed: 1234
+  mutation_seed: 3929792783
 title: "Per-step scalar synchronization in a tiny MLP training loop"
 requires_cuda: false
 time_budget_s: 600
@@ -26,10 +26,17 @@ measurement:
 correctness:
   num_fresh_inputs: 3
   reference: fp64_recompute
-  tolerance: {rtol: 1.0e-5, atol: 1.0e-6}
+  tolerance:
+    rtol: 1e-05
+    atol: 1e-06
 scientific_gates: []
 diagnosis:
   enabled: true
   choices: [scalar_sync, h2d_blocking, compile_recompile, repeated_compute]
 oracle:
   expected_speedup_range: [1.2, 2.0]
+generator_family_id: GEN-TRAINING_LOOP_OVERHEAD
+oracle_fix_pattern_id: FIX-CORE-SCALAR-SYNC-01
+scientific_contract_id: CONTRACT-TRAINING_LOOP_OVERHEAD
+difficulty_tier: medium
+workspace_ast_skeleton_hash: d2d9dd3946ccf3b5af6835d1aa147a73186e0787783ba248b21cb71b583beab7

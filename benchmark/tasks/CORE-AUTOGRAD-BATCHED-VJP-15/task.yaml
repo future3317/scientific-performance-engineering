@@ -1,0 +1,42 @@
+schema_version: 1
+task_id: CORE-AUTOGRAD-BATCHED-VJP-15
+track: spe_core
+family: autograd
+mechanism: batched_vjp
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-AUTOGRAD-BATCHED-VJP-V1
+  mutation_seed: 3195378658
+title: "torch.compile graph break and dynamic-shape recompilation storm"
+requires_cuda: false
+time_budget_s: 300
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 8
+  measured_iterations: 50
+  repetitions: 12
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: 1e-05
+scientific_gates: [finite_loss]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_recompile, memory_pressure, launch_fragmentation]
+oracle:
+  expected_speedup_range: [1.15, 1.5]
+generator_family_id: GEN-AUTOGRAD-VJP
+oracle_fix_pattern_id: FIX-AUTOGRAD-BATCHED-VJP
+scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
+difficulty_tier: hard
+workspace_ast_skeleton_hash: "9938c5d3b108f4eaab2533b990281a0958c1e6b41f8195bb6588e59d6226dba1"

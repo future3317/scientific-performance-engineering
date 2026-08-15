@@ -48,11 +48,12 @@ bounded paired delta `clamp((utility_on - utility_off) / utility_scale, -1, 1)`.
 External measurements must provide a positive versioned scale; promotion and
 validation reject other policy IDs or unbounded mean effects.
 
-## R5 (P2) — Condition semantics (frozen / append-only) as core concepts
+## R5 (P2) — Condition semantics (frozen / raw-retrieval / governed) as core concepts
 
 Conditions A–D (BENCHMARK_DESIGN.md §9) are benchmark-defined. If the core skill
-formalizes "frozen snapshot", "append-only experience mode", and "governed mode" as
-named configurations, condition materialization could delegate to core.
+formalizes "frozen snapshot", "raw-experience retrieval", the `C_STRESS`
+append-only ablation, and "governed mode" as named configurations, condition
+materialization could delegate to core.
 
 ## R6 (P2) — Registry/store schema stability notice
 
@@ -65,5 +66,6 @@ listing current schema versions (currently: benchmark_record=4, all others=1).
 ---
 
 Benchmark-local workarounds mean **no core file changes are required** to run the
-prototype. R1 remains the only core integration request that blocks a formal
-campaign claim; R2 and R4 are resolved in the current repository.
+prototype. R1, R2, and R4 are resolved in the current repository; remaining
+requirements are optional follow-up integrations and do not block the v1.0-20
+population-validity pilot.
