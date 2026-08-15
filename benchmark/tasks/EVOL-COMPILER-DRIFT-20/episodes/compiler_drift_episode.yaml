@@ -98,17 +98,7 @@ phases:
     inject_poisons: []
     results:
       - task_id: CORE-COMPILE-RECOMPILE-04
-        utility_on: 0.80
-        utility_off: 0.60
-        task_score_on: 0.90
-        task_score_off: 0.70
-        delta: 0.20
-        noise_floor: 0.05
-        reused: false
-        oracle_utility: 0.90
-        deployed_utility: 0.80
-        experiment_cost: 2.0
-        failure_source: acquisition
+        environment: {mechanism: compile, regime: baseline, oracle_bundle: [compile-cache-rule]}
   - index: 2
     name: same_family_transfer
     tasks: [CORE-COMPILE-TINY-12]
@@ -116,17 +106,7 @@ phases:
     inject_poisons: []
     results:
       - task_id: CORE-COMPILE-TINY-12
-        utility_on: 0.86
-        utility_off: 0.65
-        task_score_on: 0.92
-        task_score_off: 0.70
-        delta: 0.21
-        noise_floor: 0.05
-        reused: true
-        oracle_utility: 0.92
-        deployed_utility: 0.86
-        experiment_cost: 1.0
-        failure_source: negative_transfer
+        environment: {mechanism: compile, regime: same_family, oracle_bundle: [compile-cache-rule]}
   - index: 3
     name: cross_family_transfer
     tasks: [CORE-KERNEL-FUSION-09]
@@ -134,17 +114,7 @@ phases:
     inject_poisons: []
     results:
       - task_id: CORE-KERNEL-FUSION-09
-        utility_on: 0.80
-        utility_off: 0.65
-        task_score_on: 0.85
-        task_score_off: 0.70
-        delta: 0.15
-        noise_floor: 0.05
-        reused: true
-        oracle_utility: 0.86
-        deployed_utility: 0.80
-        experiment_cost: 1.5
-        failure_source: negative_transfer
+        environment: {mechanism: compile, regime: cross_family, oracle_bundle: [compile-cache-rule]}
   - index: 4
     name: drift
     family_id: compile
@@ -182,17 +152,7 @@ phases:
     inject_poisons: []
     results:
       - task_id: CORE-COMPILE-DYNAMIC-11
-        utility_on: 0.35
-        utility_off: 0.70
-        task_score_on: 0.40
-        task_score_off: 0.75
-        delta: -0.35
-        noise_floor: 0.05
-        reused: true
-        oracle_utility: 0.75
-        deployed_utility: 0.35
-        experiment_cost: 2.0
-        failure_source: drift
+        environment: {mechanism: compile, regime: runtime_B, oracle_bundle: [compile-cache-rule]}
   - index: 5
     name: misleading_experience
     family_id: episode
@@ -227,18 +187,7 @@ phases:
         artifacts: {}
     results:
       - task_id: CORE-COMPILE-TINY-12
-        poisoned: true
-        utility_on: 0.45
-        utility_off: 0.55
-        task_score_on: 0.0
-        task_score_off: 0.8
-        delta: -0.10
-        noise_floor: 0.05
-        reused: true
-        oracle_utility: 0.75
-        deployed_utility: 0.45
-        experiment_cost: 1.0
-        failure_source: poison
+        environment: {mechanism: compile, regime: poisoned, oracle_bundle: []}
   - index: 6
     name: recovery
     tasks: [CORE-COMPILE-DYNAMIC-11]
@@ -246,14 +195,4 @@ phases:
     inject_poisons: []
     results:
       - task_id: CORE-COMPILE-DYNAMIC-11
-        utility_on: 0.88
-        utility_off: 0.65
-        task_score_on: 0.93
-        task_score_off: 0.70
-        delta: 0.23
-        noise_floor: 0.05
-        reused: true
-        oracle_utility: 0.93
-        deployed_utility: 0.88
-        experiment_cost: 1.5
-        failure_source: recovery
+        environment: {mechanism: compile, regime: recovered, oracle_bundle: [compile-cache-rule]}

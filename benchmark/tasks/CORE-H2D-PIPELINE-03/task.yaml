@@ -42,3 +42,9 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: "8619d8ab6cd33cbc070064f2236ffe5faf3246a6ea0a9d27183e377274d1f321"
 family_id: h2d_pipeline
 anchor_instance_id: CORE-H2D-PIPELINE-03
+family_parameters:
+  batch_size: 32
+  worker_count: 2
+  prefetch_factor: 2
+  pin_memory: true
+family_instance_digest: fbd23c6da2cda8e8c9f919a2a99c857698dfbb106d41dc78e233db6d8983c50f

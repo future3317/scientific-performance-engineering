@@ -9,6 +9,10 @@ from typing import Mapping
 
 
 _ARMS = ("00", "10", "01", "11")
+CANONICAL_RELATIONS = (
+    "unresolved", "confirmed_synergy", "confirmed_antagonism", "confirmed_independence",
+    "prerequisite_a_to_b", "prerequisite_b_to_a", "semantic_conflict",
+)
 
 
 @dataclass(frozen=True)
@@ -68,14 +72,41 @@ def _bounded_radius(n: int, delta: float) -> float:
     return math.sqrt(2.0 * math.log(2.0 / delta) / n)
 
 
+def _kl_radius(samples: list[float], delta: float) -> float:
+    """KL confidence radius for a bounded mean mapped from [-1,1] to [0,1]."""
+    n = len(samples)
+    q = (sum(samples) / n + 1.0) / 2.0
+    threshold = math.log(2.0 / delta) / n
+    eps = 1e-12
+    def kl(p: float) -> float:
+        p = min(1.0 - eps, max(eps, p)); qq = min(1.0 - eps, max(eps, q))
+        return qq * math.log(qq / p) + (1.0 - qq) * math.log((1.0 - qq) / (1.0 - p))
+    lo, hi = eps, q
+    for _ in range(48):
+        mid = (lo + hi) / 2.0
+        if kl(mid) > threshold: lo = mid
+        else: hi = mid
+    lower = hi
+    lo, hi = q, 1.0 - eps
+    for _ in range(48):
+        mid = (lo + hi) / 2.0
+        if kl(mid) > threshold: hi = mid
+        else: lo = mid
+    upper = lo
+    return max(q - lower, upper - q)
+
+
 class FactorialEngine:
-    def __init__(self, *, delta: float = 0.05, practical_margin: float = 0.05) -> None:
+    def __init__(self, *, delta: float = 0.05, practical_margin: float = 0.05, look_count: int = 1) -> None:
         if not 0.0 < delta < 1.0:
             raise ValueError("delta must be in (0, 1)")
         if practical_margin < 0.0 or practical_margin > 1.0:
             raise ValueError("practical_margin must be in [0, 1]")
         self.delta = delta
         self.practical_margin = practical_margin
+        if look_count < 1:
+            raise ValueError("look_count must be positive")
+        self.look_count = look_count
         self._blocks: list[FactorialBlock] = []
         self._block_ids: set[str] = set()
 
@@ -93,14 +124,13 @@ class FactorialEngine:
         means = {arm: sum(samples) / n for arm, samples in values.items()}
         interaction_samples = [block.normalized_interaction for block in self._blocks]
         gamma = sum(interaction_samples) / n
-        # Use the fixed-sample Hoeffding bound as a safety cap, with the
-        # empirical-Bernstein radius when observed block variance is small.
-        # This preserves the bounded contract while making sequential
-        # confirmation sensitive to the actual noise level.
+        # Sequential callers predeclare the number of looks.  Spending
+        # delta/look_count at every look makes adaptive confirmation valid.
+        look_delta = self.delta / self.look_count
         variance = sum((value - gamma) ** 2 for value in interaction_samples) / max(1, n - 1)
-        log_term = math.log(3.0 / self.delta)
+        log_term = math.log(3.0 / look_delta)
         empirical_radius = math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n
-        radius = min(1.0, _bounded_radius(n, self.delta), empirical_radius)
+        radius = min(1.0, _bounded_radius(n, look_delta), empirical_radius)
         gamma_lcb, gamma_ucb = max(-1.0, gamma - radius), min(1.0, gamma + radius)
         delta_a_b0 = means["10"] - means["00"]
         delta_a_b1 = means["11"] - means["01"]

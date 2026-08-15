@@ -42,3 +42,8 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: c99e1e2a7f8bcde3f47121b81bbc4eb6f6aa9890c8611fa595fda117f7a47fff
 family_id: checkpoint
 anchor_instance_id: CORE-CHECKPOINT-AMPLE-MEM-14
+family_parameters:
+  memory_pressure: 0.4
+  segment_count: 3
+  recompute_ratio: 0.2
+family_instance_digest: "0ba85d210b77632f6fc3e19f841a325819d9820c9c71e30301045e6f9e782b20"

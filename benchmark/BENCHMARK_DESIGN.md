@@ -101,9 +101,10 @@ combines family interventions into factorial surfaces. Evolution episodes record
 the same family transformations (software, hardware, scale, scientific-regime,
 or harness drift) rather than introducing a separate workload generator.
 The pilot surface runner expands the five pilot families to 100--500 hidden
-contexts for calibration. Active-boundary stopping is certificate-based and
-truth-blind during acquisition; InteractionBench is sequential over
-8/16/32/64/128 blocks; evolution episodes require canonical transfer evidence
+contexts for calibration. Active-boundary stopping uses a time-uniform Bernoulli
+confidence sequence and remains truth-blind during acquisition; InteractionBench
+is sequential over 8/16/32/64/128 blocks with predeclared alpha spending;
+evolution episodes require canonical transfer evidence
 before drift/poison metrics are interpreted. These surfaces are not formal-50
 slots or formal results.
 

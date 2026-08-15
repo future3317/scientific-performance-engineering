@@ -29,14 +29,16 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
     queries: list[AcquisitionQuery] = []
     labels: dict[str, bool] = {}
     truths: dict[str, bool] = {}
-    visible = (list(pools["representative_pool"]) + list(pools["active_query_pool"]))[:16]
+    candidate_contexts = list(pools["representative_pool"]) + list(pools["active_query_pool"])
+    context_rng = random.Random(seed * 1009 + len(family))
+    visible = sorted(context_rng.sample(candidate_contexts, min(12, len(candidate_contexts))), key=lambda item: item.observation_id)
     for index, item in enumerate(visible):
         edge_id = f"{family}:{item.observation_id}"
         truths[edge_id] = item.positive_anchor()
         # Repeated, noisy observations make the certificate a real stopping
         # problem.  The noise is part of the visible experimental protocol;
         # the applicability label remains hidden from the acquisition policy.
-        for replicate in range(6):
+        for replicate in range(36):
             query_id = f"{edge_id}:q{replicate}"
             queries.append(AcquisitionQuery(
                 query_id,
@@ -54,11 +56,10 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
             noisy_labels = dict(labels)
             noise_rng = random.Random(trial_seed * 7919 + len(family))
             for query_id in noisy_labels:
-                if noise_rng.random() < 0.08:
+                if noise_rng.random() < 0.02:
                     noisy_labels[query_id] = not noisy_labels[query_id]
             trajectory = run_acquisition(queries, noisy_labels, policy, confidence_target=0.5, seed=trial_seed)
             evaluation = evaluate_trajectory(trajectory, queries, noisy_labels, truths, target_error=0.0)
-            harmful = [error for error in evaluation.error_trajectory if error > 0.0]
             curve = evaluation.error_trajectory
             auc = sum((curve[i - 1] + curve[i]) / 2.0 for i in range(1, len(curve))) if len(curve) > 1 else (curve[0] if curve else 0.0)
             trials.append({
@@ -66,7 +67,8 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
                 "experiment_cost": trajectory.total_cost,
                 "cost_to_target": evaluation.cost_to_target,
                 "final_error": evaluation.final_error,
-                "harmful_fp_during_learning": max(harmful, default=0.0),
+                "harmful_fp_during_learning": max(evaluation.harmful_fp_trajectory, default=0.0),
+                "confusion_final": dict(evaluation.confusion_trajectory[-1]) if evaluation.confusion_trajectory else {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
                 "learning_curve_auc": auc,
             })
         policy_results[policy.value] = {
@@ -77,7 +79,7 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
             "harmful_fp_during_learning": sum(item["harmful_fp_during_learning"] for item in trials) / len(trials),
             "learning_curve_auc": sum(item["learning_curve_auc"] for item in trials) / len(trials),
         }
-    return {"family": family, "surface_count": surface_count, "policies": policy_results, "certificate": "observable-posterior"}
+    return {"family": family, "surface_count": surface_count, "acquisition_context_count": len(visible), "query_pool_registration": "seeded_random_subset", "replicates_per_context": 36, "policies": policy_results, "certificate": "time-uniform-bernoulli-cs"}
 
 
 def run_drift_poison(*, root: Path, seed: int = 0) -> dict[str, Any]:

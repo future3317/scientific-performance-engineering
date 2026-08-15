@@ -42,3 +42,8 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: "5df3f6277de9bc009acffbdcfa6b7a7b085e9cf13d24435d306e81d8b45a6827"
 family_id: crystal_sampling
 anchor_instance_id: SCIML-GRAPH-REBUILD-08
+family_parameters:
+  fixture_index: 0
+  seed: 0
+  applicable: false
+family_instance_digest: "4c6305b0b4781f387d7ebcc78c0d7f0e2f1f1972b855a269b9ca34110bbb4404"

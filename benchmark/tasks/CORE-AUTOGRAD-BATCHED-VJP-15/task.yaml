@@ -42,3 +42,7 @@ difficulty_tier: hard
 workspace_ast_skeleton_hash: "261fa176b762391590c2eb2f5460b1f74e2b633a194cc8ea133e390b913e3172"
 family_id: autograd
 anchor_instance_id: CORE-AUTOGRAD-BATCHED-VJP-15
+family_parameters:
+  fixture_index: 0
+  seed: 0
+family_instance_digest: e5521a3dcddc84a259a51995ff2f18bca12927a5848cd37516086f216f9297d3

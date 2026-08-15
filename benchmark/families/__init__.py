@@ -12,6 +12,9 @@ from .catalog import (
     poisoning_transformation,
     reconstruct_anchor_instance,
     all_anchor_instances,
+    family_instance_digest,
+    CompositionSpec,
+    InteractionOracle,
 )
 
 __all__ = [
@@ -26,6 +29,9 @@ __all__ = [
     "poisoning_transformation",
     "reconstruct_anchor_instance",
     "all_anchor_instances",
+    "family_instance_digest",
+    "CompositionSpec",
+    "InteractionOracle",
     "PILOT_FAMILIES",
     "validate_cross_view_consistency",
 ]

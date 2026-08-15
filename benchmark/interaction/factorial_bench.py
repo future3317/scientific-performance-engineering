@@ -5,7 +5,8 @@ from __future__ import annotations
 from core.acre.factorial import FactorialBlock, FactorialEngine, simulate_coverage
 import random
 from benchmark.families import family_instances, resolve_family_id
-from benchmark.families.catalog import FAMILY_SPECS
+from benchmark.families.catalog import FAMILY_SPECS, CompositionSpec, InteractionOracle
+from core.acre.factorial import CANONICAL_RELATIONS
 
 
 _CASES = {
@@ -64,34 +65,18 @@ def generate_family_interaction_surface(
     left = family_instances(resolved[0], count=count, seed=seed)
     right = family_instances(resolved[1], count=count, seed=seed + 1)
     surfaces: list[dict[str, object]] = []
+    oracle = InteractionOracle(CompositionSpec(resolved[0], resolved[1]))
     for index, (a, b) in enumerate(zip(left, right)):
-        # The mechanism score is deliberately bounded and deterministic.  It
-        # is an environment generator, not a relation label supplied to the
-        # estimator; the hidden verifier can recompute the four outcomes.
-        a_effect = 0.08 + (sum(sum(ord(char) for char in str(v)) for v in a.parameters.values()) % 12) / 100.0
-        b_effect = 0.08 + (sum(sum(ord(char) for char in str(v)) for v in b.parameters.values()) % 12) / 100.0
-        mode = (index + seed) % 8
-        if mode == 0:  # compositional synergy
-            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect + 0.85)}
-        elif mode == 1:  # destructive interference
-            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": max(-0.95, a_effect + b_effect - 0.75)}
-        elif mode == 2:  # independent additive effects
-            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect)}
-        elif mode == 3:  # B is useful only when A is present
-            outcomes = {"00": 0.0, "10": a_effect, "01": 0.0, "11": min(0.95, a_effect + 0.9)}
-        elif mode == 4:  # A is useful only when B is present
-            outcomes = {"00": 0.0, "10": 0.0, "01": b_effect, "11": min(0.95, b_effect + 0.9)}
-        elif mode == 5:  # redundant interventions
-            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": max(a_effect, b_effect)}
-        elif mode == 6:  # semantic conflict: the joint arm is invalid
-            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": 0.0}
-        else:  # a sign flip is represented by a hidden context variant
-            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect + 0.45)}
-        relation = (
-            ("synergy", "antagonism", "independence", "prerequisite_a_to_b",
-             "prerequisite_b_to_a", "redundancy", "semantic_conflict",
-             "context_dependent_sign_flip")[mode]
-        )
+        sign_flip = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) > 0.5
+        semantic_conflict = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) <= 0.5
+        context = {"sign_flip": sign_flip, "semantic_conflict": semantic_conflict, "higher_order_residual": 0.18 if (index % 5 == 0) else 0.0}
+        result = oracle.evaluate(a, b, context)
+        outcomes = result["outcomes"]
+        relation = result["hidden_relation"]
+        contexts = [{"name": "baseline", "outcomes": outcomes}]
+        if context["sign_flip"]:
+            shifted = oracle.evaluate(a, b, {"sign_flip": True})
+            contexts.append({"name": "shifted", "outcomes": shifted["outcomes"], "hidden_relation": shifted["hidden_relation"]})
         surfaces.append({
             "surface_id": f"{resolved[0]}__{resolved[1]}-{seed:04d}-{index:04d}",
             "family_ids": list(resolved),
@@ -99,8 +84,11 @@ def generate_family_interaction_surface(
             "interventions": [list(FAMILY_SPECS[resolved[0]].interventions), list(FAMILY_SPECS[resolved[1]].interventions)],
             "outcomes": outcomes,
             "hidden_relation": relation,
-            "context_variant": {arm: -value for arm, value in outcomes.items()} if mode == 7 else None,
-            "higher_order_residual": 0.18 if mode == 7 else 0.0,
+            "scientific_gates": result["scientific_gates"],
+            "contexts": contexts,
+            "context_variant": contexts[1]["outcomes"] if len(contexts) > 1 else None,
+            "higher_order_residual": result["higher_order_residual"],
+            "bundle_outcomes": {**outcomes, "111": min(0.95, outcomes["11"] + result["higher_order_residual"])},
             "cost": 1.0 + ((index + seed) % 9) / 2.0,
         })
     return surfaces
@@ -129,7 +117,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         chosen = None
         estimates: list[dict[str, object]] = []
         for block_count in blocks:
-            engine = FactorialEngine(delta=0.2, practical_margin=0.1)
+            engine = FactorialEngine(delta=0.05, practical_margin=0.15, look_count=len(blocks))
             for block in generated[:block_count]:
                 engine.add_block(block)
             estimate = engine.estimate()
@@ -143,7 +131,11 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             stopping_blocks, estimate = chosen
         predicted = estimate.decision
         classifications[predicted] = classifications.get(predicted, 0) + 1
-        confusion.setdefault(hidden, {})[predicted] = confusion.setdefault(hidden, {}).get(predicted, 0) + 1
+        hidden_canonical = {
+            "synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism",
+            "independence": "confirmed_independence",
+        }.get(hidden, hidden)
+        confusion.setdefault(hidden_canonical, {})[predicted] = confusion.setdefault(hidden_canonical, {}).get(predicted, 0) + 1
         details.append({
             "surface_id": surface["surface_id"],
             "hidden_relation": hidden,
@@ -153,6 +145,8 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             "gamma_ucb": estimate.gamma_ucb,
             "stopping_blocks": stopping_blocks,
             "experiment_cost": float(surface["cost"]) * float(stopping_blocks or max(blocks)),
+            "contexts": surface.get("contexts", []),
+            "higher_order_residual": surface.get("higher_order_residual", 0.0),
             "estimates": estimates,
         })
     return {
@@ -162,7 +156,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         "hidden_relation_counts": {label: list(hidden_labels.values()).count(label) for label in sorted(set(hidden_labels.values()))},
         "confusion_matrix": confusion,
         "surface_results": details,
-        "false_relation_rate": sum(item["predicted_relation"] not in {item["hidden_relation"], "confirmed_independence"} for item in details) / len(details),
+        "false_relation_rate": sum(item["predicted_relation"] not in ({"synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism", "independence": "confirmed_independence"}.get(item["hidden_relation"], item["hidden_relation"])) for item in details) / len(details),
         "unresolved_rate": sum(item["predicted_relation"] == "unresolved" for item in details) / len(details),
         "median_blocks_to_confirmation": sorted(item["stopping_blocks"] for item in details if item["stopping_blocks"] is not None)[len([item for item in details if item["stopping_blocks"] is not None]) // 2] if any(item["stopping_blocks"] is not None for item in details) else None,
         "experiment_cost": sum(float(item["experiment_cost"]) for item in details),

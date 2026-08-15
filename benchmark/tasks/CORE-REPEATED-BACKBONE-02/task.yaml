@@ -42,3 +42,7 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: a8215c57828fc7b1742e240b1b7788fbe12654df614c798350760a9058fddbbd
 family_id: repeated_compute
 anchor_instance_id: CORE-REPEATED-BACKBONE-02
+family_parameters:
+  fixture_index: 0
+  seed: 0
+family_instance_digest: "91f106e7a86a4766d8579a3b31fb96edb4da5acac5757de1ee6d5e3671523996"

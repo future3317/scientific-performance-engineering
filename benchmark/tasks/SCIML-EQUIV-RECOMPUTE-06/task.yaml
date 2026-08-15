@@ -42,3 +42,8 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: b326949aceed06fb8bd39e64a48f5ad4e840233487ec6cf9acc013ade518c1f1
 family_id: equivariant_head
 anchor_instance_id: SCIML-EQUIV-RECOMPUTE-06
+family_parameters:
+  fixture_index: 0
+  seed: 0
+  applicable: false
+family_instance_digest: fa624f95485a95d93d928bd4582b947b49280aa44bf59c4e8504b357894f5f32

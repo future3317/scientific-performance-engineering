@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.harness import miniyaml
-from benchmark.families import resolve_family_id
+from benchmark.families import resolve_family_id, family_instance_digest
 from benchmark.families.catalog import FAMILY_SPECS
 from benchmark.families import family_instances
 
@@ -101,6 +101,9 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
         spec["family_id"] = family_id
         if metadata["task_id"] in FAMILY_SPECS[family_id].anchors:
             spec["anchor_instance_id"] = metadata["task_id"]
+            anchor = FAMILY_SPECS[family_id].reconstruct_anchor(metadata["task_id"])
+            spec["family_parameters"] = dict(anchor.parameters)
+            spec["family_instance_digest"] = family_instance_digest(family_id, anchor.parameters)
     spec["oracle_fix_pattern_id"] = metadata["fix"]
     spec["scientific_contract_id"] = metadata["contract"]
     spec["difficulty_tier"] = metadata["difficulty"]

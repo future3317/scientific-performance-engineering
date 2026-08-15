@@ -8,7 +8,7 @@ from typing import Any
 
 from benchmark.harness import miniyaml
 
-from .catalog import FAMILY_SPECS, family_instances, family_views, resolve_family_id, transformation, poisoning_transformation
+from .catalog import FAMILY_SPECS, family_instances, family_views, resolve_family_id, transformation, poisoning_transformation, family_instance_digest
 
 
 PILOT_FAMILIES = ("compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync")
@@ -121,6 +121,14 @@ def validate_cross_view_consistency(
                 generator_family = ""
             if generator_family != family_id:
                 errors.append(f"{task_dir.name}: generator family differs from {family_id}")
+            anchor = spec.reconstruct_anchor(anchor_id)
+            if task.get("family_parameters") != dict(anchor.parameters):
+                errors.append(f"{task_dir.name}: family_parameters do not match canonical anchor")
+            if str(task.get("family_instance_digest", "")) != family_instance_digest(family_id, anchor.parameters):
+                errors.append(f"{task_dir.name}: family_instance_digest does not match canonical anchor")
+            expected_kind = "positive" if anchor.applicable else "counterexample"
+            if str(task.get("kind")) not in {expected_kind, "do_not_apply" if not anchor.applicable else expected_kind}:
+                errors.append(f"{task_dir.name}: task polarity differs from FamilySpec applicability")
             if anchor_id in seen and seen[anchor_id] != family_id:
                 errors.append(f"{task_dir.name}: anchor is assigned to multiple families")
             seen[anchor_id] = family_id

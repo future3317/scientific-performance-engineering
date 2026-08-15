@@ -42,3 +42,9 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: "61d70fb6dbf165703e9e2a94cd638e76ec73387ebd7ecbf5724d78651a7cccc9"
 family_id: graph_cache
 anchor_instance_id: SCIML-GNN-RAGGED-05
+family_parameters:
+  geometry_displacement: 0.02
+  skin: 0.2
+  graph_size: 64
+  dynamic_rate: 0.0
+family_instance_digest: f06dfd0b42cb80076ee5437520f24ab2c61b0f137d2c1ada694204eb6f6fa7d8

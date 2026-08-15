@@ -42,3 +42,9 @@ difficulty_tier: hard
 workspace_ast_skeleton_hash: "575608ad8cdd630584ba0cbeb4421fd020d4ff26b6fe624fb8d1ab8d30ace08c"
 family_id: graph_cache
 anchor_instance_id: SCIML-GNN-DYNAMIC-GRAPH-18
+family_parameters:
+  geometry_displacement: 0.08
+  skin: 0.6
+  graph_size: 96
+  dynamic_rate: 0.8
+family_instance_digest: "43c52c91348441943a1a90e8b160c632839a1b22ffcc2c5c8717ffb02165a1c5"

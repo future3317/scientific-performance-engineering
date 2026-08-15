@@ -42,3 +42,8 @@ difficulty_tier: hard
 workspace_ast_skeleton_hash: ae35f33516b09c1b293f4339e6b5239ebcc837058bc06f92ff37b9c663572d96
 family_id: checkpoint
 anchor_instance_id: CORE-MEM-RETAINED-GRAPH-13
+family_parameters:
+  memory_pressure: 0.7
+  segment_count: 4
+  recompute_ratio: 0.2
+family_instance_digest: e35df1f81f13dc3d6dc362284bc0a8c7cd4ad823467f41a01e9e6a099707f0c6

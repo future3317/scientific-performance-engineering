@@ -50,9 +50,11 @@ python scripts/run_pilot_surface_experiments.py --surface-count 100 \
 
 This report is a calibration/diagnostic artifact, not an algorithmic-success claim
 and not a formal-50 result. Active-boundary rows use an observable posterior
-certificate and report multi-seed cost/error curves. Interaction rows use the
-8/16/32/64/128 sequential block schedule and retain surface-level hidden versus
-predicted relations, confidence intervals, and stopping blocks. Evolution rows
+time-uniform Bernoulli confidence sequences and report the registered context
+count, multi-seed cost/error curves, and TP/FP/FN/TN trajectories. Interaction
+rows use the 8/16/32/64/128 sequential block schedule with predeclared alpha
+spending and retain canonical hidden versus predicted relations, confidence
+intervals, context variants, and stopping blocks. Evolution rows
 must contain a canonical-rule transfer phase before drift/poison metrics are
 interpreted. Evolution Regret and the vector Performance Profile are aggregated
 only by `benchmark.formal.aggregate`.

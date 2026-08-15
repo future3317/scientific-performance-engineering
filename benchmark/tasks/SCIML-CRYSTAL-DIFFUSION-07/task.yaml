@@ -42,3 +42,7 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: "6e2c73f962313b4dad2ec57a221d4d9adb7a19266812f388de70e0c06e5028f8"
 family_id: crystal_generation
 anchor_instance_id: SCIML-CRYSTAL-DIFFUSION-07
+family_parameters:
+  fixture_index: 0
+  seed: 0
+family_instance_digest: b801e6858b049706fbec233024b621ac4bd33da9d59cd5f97179f5736e00692b

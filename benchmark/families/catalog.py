@@ -8,7 +8,9 @@ their benchmark or oracle implementations.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+import hashlib
+import json
 from typing import Any, Callable, Mapping
 
 
@@ -19,6 +21,58 @@ class FamilyTransformation:
     name: str
     kind: str
     parameters: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class CompositionSpec:
+    """Canonical pairwise composition contract shared by interaction views."""
+
+    left_family: str
+    right_family: str
+    context: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class InteractionOracle:
+    """Generate factorial outcomes from family parameters, not labels."""
+
+    spec: CompositionSpec
+
+    def evaluate(self, left: "FamilyInstance", right: "FamilyInstance", context: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        ctx = dict(self.spec.context or {})
+        ctx.update(context or {})
+        numeric_left = [float(v) for v in left.parameters.values() if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        numeric_right = [float(v) for v in right.parameters.values() if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        left_score = sum(numeric_left) / max(1, len(numeric_left))
+        right_score = sum(numeric_right) / max(1, len(numeric_right))
+        left_active, right_active = left.applicable, right.applicable
+        # The relation is a consequence of regime and parameter interaction;
+        # no surface index or pre-assigned relation is consulted.
+        if ctx.get("semantic_conflict"):
+            relation = "semantic_conflict"
+        elif ctx.get("sign_flip"):
+            relation = "antagonism" if left_active and right_active else "independence"
+        elif left_active and right_active and left_score > 0 and right_score > 0:
+            relation = "synergy"
+        elif left_active and not right_active:
+            relation = "prerequisite_a_to_b"
+        elif right_active and not left_active:
+            relation = "prerequisite_b_to_a"
+        else:
+            relation = "independence"
+        a = min(0.35, 0.08 + abs(left_score) % 0.2)
+        b = min(0.35, 0.08 + abs(right_score) % 0.2)
+        interaction = {"synergy": 0.55, "antagonism": -0.55, "independence": 0.0, "prerequisite_a_to_b": 0.55, "prerequisite_b_to_a": 0.55, "semantic_conflict": 0.0}[relation]
+        if ctx.get("sign_flip"):
+            interaction = -interaction if interaction else -0.12
+        baseline = -0.35 if relation in {"synergy", "antagonism", "prerequisite_a_to_b", "prerequisite_b_to_a"} else 0.0
+        outcomes = {"00": baseline, "10": baseline + a, "01": baseline + b, "11": max(-0.95, min(0.95, baseline + a + b + 4.0 * interaction))}
+        if relation == "prerequisite_a_to_b": outcomes["01"] = baseline
+        if relation == "prerequisite_b_to_a": outcomes["10"] = baseline
+        gates = {arm: True for arm in ("00", "10", "01", "11")}
+        if relation == "semantic_conflict":
+            gates["11"] = False
+        return {"outcomes": outcomes, "hidden_relation": relation, "scientific_gates": gates, "higher_order_residual": float(ctx.get("higher_order_residual", 0.0))}
 
 
 @dataclass(frozen=True)
@@ -49,6 +103,12 @@ class FamilyInstance:
         }
 
 
+def family_instance_digest(family_id: str, parameters: Mapping[str, Any]) -> str:
+    """Stable identity for a canonical family point."""
+    payload = {"family_id": family_id, "parameters": dict(parameters)}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class FamilySpec:
     family_id: str
@@ -65,7 +125,7 @@ class FamilySpec:
         "applicable": True,
         "parameters": dict(parameters),
     }
-    anchor_applicability: Mapping[str, bool] | None = None
+    anchor_parameters: Mapping[str, Mapping[str, Any]] | None = None
 
     def generate(self, count: int, seed: int = 0) -> list[FamilyInstance]:
         if count < 1:
@@ -73,17 +133,20 @@ class FamilySpec:
         result: list[FamilyInstance] = []
         for index in range(count):
             params = dict(self.generator(index, seed))
-            polarity = str(params.pop("polarity", "positive"))
+            # Generators may carry legacy metadata, but truth is never read
+            # from it.  Applicability is the only source of polarity.
+            params.pop("polarity", None)
             difficulty = str(params.pop("difficulty_tier", "medium"))
+            applicable = bool(self.applicability(params))
             result.append(
                 FamilyInstance(
                     family_id=self.family_id,
                     instance_id=f"{self.family_id}-{seed:04d}-{index:04d}",
                     parameters=params,
-                    polarity=polarity,
+                    polarity="positive" if applicable else "counterexample",
                     difficulty_tier=difficulty,
                     lineage={"generator_family_id": self.generator_family_id, "seed": seed, "index": index},
-                    applicable=bool(self.applicability(params)),
+                    applicable=applicable,
                     scientific_truth=dict(self.scientific_truth(params)),
                 )
             )
@@ -99,23 +162,21 @@ class FamilySpec:
         if task_id not in self.anchors:
             raise ValueError(f"{task_id} is not a canonical anchor of family {self.family_id}")
         index = self.anchors.index(task_id)
-        generated = self.generate(index + 1, seed=0)[index]
-        applicable = (
-            bool(self.anchor_applicability[task_id])
-            if self.anchor_applicability is not None and task_id in self.anchor_applicability
-            else generated.applicable
-        )
-        truth = dict(generated.scientific_truth or {})
+        if not self.anchor_parameters or task_id not in self.anchor_parameters:
+            raise ValueError(f"{self.family_id} anchor {task_id} lacks explicit parameters")
+        params = dict(self.anchor_parameters[task_id])
+        applicable = bool(self.applicability(params))
+        truth = dict(self.scientific_truth(params) or {})
         truth["applicable"] = applicable
         truth["anchor_task_id"] = task_id
         return FamilyInstance(
             family_id=self.family_id,
             instance_id=task_id,
-            parameters=generated.parameters,
+            parameters=params,
             polarity="positive" if applicable else "counterexample",
-            difficulty_tier=generated.difficulty_tier,
+            difficulty_tier="medium",
             anchor_task_id=task_id,
-            lineage={**dict(generated.lineage or {}), "role": "anchor", "anchor_index": index},
+            lineage={"generator_family_id": self.generator_family_id, "role": "anchor", "anchor_index": index},
             applicable=applicable,
             scientific_truth=truth,
         )
@@ -126,7 +187,6 @@ def _compile(index: int, seed: int) -> Mapping[str, Any]:
         "logical_steps": 32 + ((index + seed) % 16) * 32,
         "graph_size": 32 + ((index * 3 + seed) % 10) * 32,
         "dynamic_shape_rate": ((index + seed) % 8) / 10.0,
-        "polarity": "positive" if ((index + seed) % 3) else "counterexample",
         "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3],
     }
 
@@ -138,7 +198,6 @@ def _graph_cache(index: int, seed: int) -> Mapping[str, Any]:
         "skin": 0.2 + ((index * 2 + seed) % 7) * 0.1,
         "graph_size": 32 + ((index + seed) % 10) * 32,
         "dynamic_rate": ((index + seed) % 8) / 10.0,
-        "polarity": "positive" if displacement <= 0.05 else "counterexample",
         "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3],
     }
 
@@ -149,7 +208,6 @@ def _h2d(index: int, seed: int) -> Mapping[str, Any]:
         "worker_count": (index + seed) % 9,
         "prefetch_factor": 2 + ((index + seed) % 4),
         "pin_memory": bool((index + seed) % 2),
-        "polarity": "positive" if ((index + seed) % 4) != 0 else "counterexample",
         "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3],
     }
 
@@ -160,7 +218,6 @@ def _checkpoint(index: int, seed: int) -> Mapping[str, Any]:
         "memory_pressure": pressure,
         "segment_count": 2 + ((index + seed) % 8),
         "recompute_ratio": 0.1 + ((index + seed) % 6) * 0.1,
-        "polarity": "positive" if pressure >= 0.57 else "counterexample",
         "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3],
     }
 
@@ -170,17 +227,20 @@ def _scalar_sync(index: int, seed: int) -> Mapping[str, Any]:
     return {
         "scalar_syncs_per_step": syncs,
         "metric_cadence": 1 + ((index * 3 + seed) % 16),
-        "polarity": "positive" if 5 <= syncs <= 10 else "counterexample",
         "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3],
     }
 
 
 def _legacy(index: int, seed: int) -> Mapping[str, Any]:
-    return {"fixture_index": index, "seed": seed, "difficulty_tier": "medium", "polarity": "positive"}
+    return {"fixture_index": index, "seed": seed, "difficulty_tier": "medium"}
 
 
 def _truth_from_polarity(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
-    return {"applicable": parameters.get("polarity", "positive") == "positive", "parameters": dict(parameters)}
+    return {"applicable": bool(parameters.get("applicable", True)), "parameters": dict(parameters)}
+
+
+def _legacy_applicability(parameters: Mapping[str, Any]) -> bool:
+    return bool(parameters.get("applicable", True))
 
 
 def _compile_applicability(parameters: Mapping[str, Any]) -> bool:
@@ -237,6 +297,45 @@ _SPECS: tuple[FamilySpec, ...] = (
     FamilySpec("crystal_sampling", "GEN-CRYSTAL_SAMPLING", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("fixture_index", "seed"), ("graph_rebuild",), ("scale", "scientific_regime"), _legacy, ("SCIML-GRAPH-REBUILD-08",), lambda p: True, _truth_from_polarity, {"SCIML-GRAPH-REBUILD-08": True}),
     FamilySpec("episode", "GEN-EPISODE", "evolution", "CONTRACT-EVOLUTION-GOVERNANCE", ("fixture_index", "seed"), ("rule_update",), ("software", "hardware", "scale", "scientific_regime", "harness"), _legacy, ("EVOL-EPISODE-POISON-10", "EVOL-COMPILER-DRIFT-20"), lambda p: True, _truth_from_polarity, {"EVOL-EPISODE-POISON-10": True, "EVOL-COMPILER-DRIFT-20": True}),
 )
+
+# Explicit anchor coordinates are the canonical task truth.  The legacy
+# generator-index projections above remain useful for unmaterialized pools,
+# but never define an anchor's applicability.
+_EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
+    "compile": {
+        "CORE-COMPILE-RECOMPILE-04": {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.2},
+        "CORE-COMPILE-DYNAMIC-11": {"logical_steps": 256, "graph_size": 128, "dynamic_shape_rate": 0.3},
+        "CORE-COMPILE-TINY-12": {"logical_steps": 64, "graph_size": 64, "dynamic_shape_rate": 0.8},
+        "CORE-KERNEL-FUSION-09": {"logical_steps": 192, "graph_size": 320, "dynamic_shape_rate": 0.2},
+    },
+    "graph_cache": {
+        "SCIML-GNN-RAGGED-05": {"geometry_displacement": 0.02, "skin": 0.2, "graph_size": 64, "dynamic_rate": 0.0},
+        "SCIML-GNN-STATIC-GRAPH-CACHE-17": {"geometry_displacement": 0.03, "skin": 0.4, "graph_size": 96, "dynamic_rate": 0.1},
+        "SCIML-GNN-DYNAMIC-GRAPH-18": {"geometry_displacement": 0.08, "skin": 0.6, "graph_size": 96, "dynamic_rate": 0.8},
+        "SCIML-FORCE-AUTOGRAD-19": {"geometry_displacement": 0.02, "skin": 0.8, "graph_size": 128, "dynamic_rate": 0.3},
+    },
+    "h2d_pipeline": {
+        "CORE-H2D-PIPELINE-03": {"batch_size": 32, "worker_count": 2, "prefetch_factor": 2, "pin_memory": True},
+        "CORE-DATALOADER-FANOUT-16": {"batch_size": 64, "worker_count": 3, "prefetch_factor": 4, "pin_memory": True},
+    },
+    "checkpoint": {
+        "CORE-MEM-RETAINED-GRAPH-13": {"memory_pressure": 0.7, "segment_count": 4, "recompute_ratio": 0.2},
+        "CORE-CHECKPOINT-AMPLE-MEM-14": {"memory_pressure": 0.4, "segment_count": 3, "recompute_ratio": 0.2},
+    },
+    "scalar_sync": {"CORE-SCALAR-SYNC-01": {"scalar_syncs_per_step": 12, "metric_cadence": 4}},
+    "repeated_compute": {"CORE-REPEATED-BACKBONE-02": {"fixture_index": 0, "seed": 0}},
+    "autograd": {"CORE-AUTOGRAD-BATCHED-VJP-15": {"fixture_index": 0, "seed": 0}},
+    "equivariant_head": {"SCIML-EQUIV-RECOMPUTE-06": {"fixture_index": 0, "seed": 0, "applicable": False}},
+    "crystal_generation": {"SCIML-CRYSTAL-DIFFUSION-07": {"fixture_index": 0, "seed": 0}},
+    "crystal_sampling": {"SCIML-GRAPH-REBUILD-08": {"fixture_index": 0, "seed": 0, "applicable": False}},
+    "episode": {"EVOL-EPISODE-POISON-10": {"fixture_index": 0, "seed": 0}, "EVOL-COMPILER-DRIFT-20": {"fixture_index": 1, "seed": 0}},
+}
+
+_CANONICAL_SPECS: list[FamilySpec] = []
+for _spec in _SPECS:
+    _applicability = _legacy_applicability if _spec.family_id in {"repeated_compute", "autograd", "equivariant_head", "crystal_generation", "crystal_sampling", "episode"} else _spec.applicability
+    _CANONICAL_SPECS.append(replace(_spec, applicability=_applicability, anchor_parameters=_EXPLICIT_ANCHORS[_spec.family_id]))
+_SPECS = tuple(_CANONICAL_SPECS)
 
 FAMILY_SPECS = {spec.family_id: spec for spec in _SPECS}
 _ALIASES = {

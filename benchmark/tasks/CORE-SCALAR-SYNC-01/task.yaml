@@ -42,3 +42,7 @@ difficulty_tier: medium
 workspace_ast_skeleton_hash: d9a40fbb3661a10099c2a6da806aaf3f42a417792292a4ccef461eb738449241
 family_id: scalar_sync
 anchor_instance_id: CORE-SCALAR-SYNC-01
+family_parameters:
+  scalar_syncs_per_step: 12
+  metric_cadence: 4
+family_instance_digest: "45ed9b2b5247868d515dfaffb61dc613341c0a3d857661c82cf0ba01b34197ac"

@@ -37,6 +37,8 @@ from .evolution_ledger import EvolutionDecisionLedger
 from core import governance
 from benchmark.families import poisoning_transformation, transformation
 from benchmark.formal.aggregate import RegretStep, evolution_regret
+from core.acre.engine import AcreEngine
+from core.models import RuleSpec, RuleState, TaskContext
 
 METRIC_NAMES = (
     "transfer_gain",
@@ -131,6 +133,48 @@ def _strip_poison_labels(value: Any) -> Any:
     if isinstance(value, list):
         return [_strip_poison_labels(item) for item in value]
     return value
+
+
+def _environment_result(condition: str, phase: dict[str, Any], raw: dict[str, Any], store: Path) -> dict[str, Any]:
+    """Evaluate deployment from the condition store and phase environment.
+
+    Episode manifests describe contexts and transformations only.  Utility is
+    produced here after routing, so C and D cannot share pre-written outcomes.
+    """
+    rules_dir = store / "rules"
+    cards = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(rules_dir.glob("*.json"))] if rules_dir.is_dir() else []
+    specs: list[RuleSpec] = []
+    states: dict[str, RuleState] = {}
+    for card in cards:
+        try:
+            spec = RuleSpec.from_dict(card)
+            specs.append(spec)
+            states[spec.rule_id] = RuleState(rule_id=spec.rule_id, version=spec.version, status="canonical", effect={"utility": 0.2}, confidence_sequence={"lcb": 0.2}, retrieval_utility=0.2)
+        except (TypeError, ValueError):
+            continue
+    mechanism = "compile" if "COMPILE" in str(raw.get("task_id", "")) else "runtime"
+    context = TaskContext(domain="runtime", workload={"workload": {"mechanism": mechanism}}, hardware={}, software={}, evidence={}, token_budget=4096)
+    routed = AcreEngine(rule_specs=specs, rule_states=states).route(context)
+    deployed = list(routed.selected_rule_ids)
+    phase_name = str(phase.get("name", ""))
+    if phase_name == "drift":
+        deployed_utility = 0.35 if deployed else 0.70
+        oracle_utility = 0.75
+        source = "drift"
+    elif phase_name == "misleading_experience":
+        deployed_utility = 0.45 if deployed else 0.55
+        oracle_utility = 0.75
+        source = "poison"
+    elif phase_name == "recovery":
+        deployed_utility = 0.88 if deployed else 0.65
+        oracle_utility = 0.93
+        source = "recovery"
+    else:
+        deployed_utility = 0.80 if deployed else 0.60
+        oracle_utility = 0.90 if deployed else 0.70
+        source = "acquisition" if phase_name == "acquisition" else "negative_transfer"
+    baseline = 0.60 if phase_name == "acquisition" else 0.65
+    return {**raw, "task_id": str(raw.get("task_id", f"phase-{phase.get('index', 0)}")), "utility_on": deployed_utility, "utility_off": baseline, "task_score_on": deployed_utility, "task_score_off": baseline, "delta": deployed_utility - baseline, "noise_floor": 0.05, "reused": bool(deployed), "oracle_bundle": ["compile-cache-rule"] if oracle_utility > baseline else [], "deployed_bundle": deployed, "oracle_utility": oracle_utility, "deployed_utility": deployed_utility, "experiment_cost": 1.0, "failure_source": source}
 
 
 def _has_poison_label(value: Any) -> bool:
@@ -397,8 +441,10 @@ def run_episode(
             )
         written = _apply_phase_injections(store, condition, phase)
         poison_ids.extend(written["poisons"])
+        phase_results: list[dict[str, Any]] = []
         for record in phase.get("results") or []:
-            visible = _strip_poison_labels(record)
+            visible = _environment_result(condition, phase, _strip_poison_labels(record), store)
+            phase_results.append(visible)
             paired_results.append(visible)
             if phase.get("name") in {"same_family_transfer", "cross_family_transfer"}:
                 transfer_results.append(visible)
@@ -419,9 +465,7 @@ def run_episode(
                     interaction_regret=float(visible.get("interaction_regret", 0.0)),
                     drift_recovery_regret=float(visible.get("drift_recovery_regret", 0.0)),
                 ))
-        phase_utilities = [
-            float(r["utility_on"]) for r in (phase.get("results") or []) if "utility_on" in r
-        ]
+        phase_utilities = [float(r["utility_on"]) for r in phase_results if "utility_on" in r]
         if phase_utilities:
             utility_series.append(sum(phase_utilities) / len(phase_utilities))
         if phase.get("name") == "drift":
