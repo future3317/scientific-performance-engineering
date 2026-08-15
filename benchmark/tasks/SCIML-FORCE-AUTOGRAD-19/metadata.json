@@ -21,5 +21,7 @@
   "difficulty": "hard",
   "authoring_note": "SciML graph/materials task shaped after FAIRChem radius-graph + PBC energy/force evaluation. Baseline loops over graphs and calls backward once per graph; the reference fix concatenates the ragged batch into a single batched graph and performs one batched backward. Plain torch only (no PyG). Calibrated on the authoring host; range is updated to measured reality.",
   "author": "batch-SciML-A prototype agent",
-  "created_utc": "2026-08-14"
+  "created_utc": "2026-08-14",
+  "family_id": "graph_cache",
+  "anchor_instance_id": "SCIML-FORCE-AUTOGRAD-19"
 }

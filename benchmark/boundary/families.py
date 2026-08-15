@@ -1,4 +1,4 @@
-"""Two disjoint, deterministic BoundaryBench families for ACRE-v0."""
+"""Deterministic BoundaryBench views over the canonical family catalog."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 
 from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
 from core.acre.predicates import PredicateGrammar
+from benchmark.families import family_views
 from .evaluator import sealed_errors
 
 
@@ -17,52 +18,55 @@ class BoundaryCase(BoundaryObservation):
     expected_applicable: bool = False
 
 
-def _case(case_id: str, value: float, path: str, mechanism: str, positive: bool) -> BoundaryCase:
-    context = {"workload": {"mechanism": mechanism, path: value}}
-    effect = 0.2 if positive else -0.1
-    return BoundaryCase(case_id, context, effect, True, effect - 0.02, effect + 0.02, positive)
-
-
-def _generated_surface(family: str, index: int) -> BoundaryCase:
-    if family == "graph_cache_geometry_motion":
-        displacement = 0.005 + (index % 40) * 0.003
-        skin = 0.2 + (index % 7) * 0.1
-        graph_size = 32 + (index % 10) * 32
-        dynamic_rate = (index % 8) / 10.0
-        positive = displacement <= 0.05 and dynamic_rate <= 0.3
-        context = {"workload": {"mechanism": "graph_cache", "geometry_displacement": displacement, "skin": skin, "graph_size": graph_size, "dynamic_rate": dynamic_rate}}
-    elif family == "compile_horizon":
-        horizon = 32 + (index % 16) * 32
-        graph_size = 32 + (index % 10) * 32
-        dynamic_rate = (index % 8) / 10.0
-        positive = horizon >= 128 and dynamic_rate <= 0.4
-        context = {"workload": {"mechanism": "compile", "logical_steps": horizon, "graph_size": graph_size, "dynamic_rate": dynamic_rate}}
-    else:
-        raise ValueError(f"unknown BoundaryBench family: {family}")
-    effect = 0.2 if positive else -0.1
-    return BoundaryCase(f"{family[:3].upper()}-SURFACE-{index:04d}", context, effect, True, effect - 0.02, effect + 0.02, positive)
-
-
 def family_cases(family: str, *, surface_count: int | None = None) -> dict[str, list[BoundaryCase]]:
-    if surface_count is not None:
-        if surface_count < 12:
-            raise ValueError("surface_count must be at least 12")
-        cases = [_generated_surface(family, index) for index in range(surface_count)]
-        first = max(1, surface_count // 3)
-        second = max(first + 1, 2 * surface_count // 3)
-        return {"representative_pool": cases[:first], "query_pool": cases[first:second], "sealed_test_pool": cases[second:]}
-    if family == "graph_cache_geometry_motion":
+    # Canonical family views are generated from benchmark/families.  The
+    # historical names below remain calibration aliases for ACRE-v0 tests.
+    aliases = {"graph_cache_geometry_motion": "graph_cache", "compile_horizon": "compile"}
+    if family in aliases:
+        views = family_cases(aliases[family], surface_count=surface_count or 24)
         return {
-            "representative_pool": [_case("G-REP-01", 0.01, "geometry_displacement", "graph_cache", True), _case("G-REP-02", 0.03, "geometry_displacement", "graph_cache", True)],
-            "query_pool": [_case("G-QUERY-01", 0.08, "geometry_displacement", "graph_cache", False)],
-            "sealed_test_pool": [_case("G-SEALED-01", 0.04, "geometry_displacement", "graph_cache", True), _case("G-SEALED-02", 0.07, "geometry_displacement", "graph_cache", False)],
+            "representative_pool": views["representative_pool"],
+            "query_pool": views["active_query_pool"],
+            "sealed_test_pool": views["sealed_boundary_pool"],
         }
-    if family == "compile_horizon":
-        return {
-            "representative_pool": [_case("C-REP-01", 128, "logical_steps", "compile", True), _case("C-REP-02", 256, "logical_steps", "compile", True)],
-            "query_pool": [_case("C-QUERY-01", 64, "logical_steps", "compile", False)],
-            "sealed_test_pool": [_case("C-SEALED-01", 112, "logical_steps", "compile", True), _case("C-SEALED-02", 80, "logical_steps", "compile", False)],
-        }
+    canonical = {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}
+    if family in canonical and surface_count is None:
+        surface_count = 24
+    if family in canonical and surface_count is not None:
+        views = family_views(family, count=surface_count)
+        def convert(item: Any) -> BoundaryCase:
+            params = dict(item.parameters)
+            if family == "compile":
+                positive = params["logical_steps"] >= 128 and params["dynamic_shape_rate"] <= 0.4
+                mechanism, path = "compile", "logical_steps"
+            elif family == "graph_cache":
+                positive = params["geometry_displacement"] <= 0.05
+                mechanism, path = "graph_cache", "geometry_displacement"
+            elif family == "h2d_pipeline":
+                positive = params["pin_memory"] and params["worker_count"] <= 4
+                mechanism, path = "h2d_pipeline", "worker_count"
+            elif family == "checkpoint":
+                positive = params["memory_pressure"] >= 0.57
+                mechanism, path = "checkpoint", "memory_pressure"
+            else:
+                positive = params["scalar_syncs_per_step"] > 8
+                mechanism, path = "scalar_sync", "scalar_syncs_per_step"
+            effect = 0.2 if positive else -0.1
+            context = {"workload": {"mechanism": mechanism, **params}}
+            return BoundaryCase(item.instance_id, context, effect, True, effect - 0.02, effect + 0.02, positive)
+        converted = [convert(item) for values in views.values() for item in values]
+        positives = [item for item in converted if item.positive_anchor()]
+        negatives = [item for item in converted if item.certified_counterexample()]
+        representative_count = max(1, min(len(positives), surface_count // 3))
+        query_count = max(1, min(len(negatives), surface_count // 3))
+        if representative_count == 1:
+            representative = positives[:1]
+        else:
+            representative = [positives[round(index * (len(positives) - 1) / (representative_count - 1))] for index in range(representative_count)]
+        query = negatives[:query_count]
+        used = {item.observation_id for item in representative + query}
+        sealed = [item for item in converted if item.observation_id not in used]
+        return {"representative_pool": representative, "active_query_pool": query, "sealed_boundary_pool": sealed}
     raise ValueError(f"unknown BoundaryBench family: {family}")
 
 
@@ -76,17 +80,49 @@ def _grammar_for(family: str) -> PredicateGrammar:
 
 
 def run_boundary_family(family: str) -> dict[str, Any]:
-    pools = family_cases(family)
+    canonical_family = {"graph_cache_geometry_motion": "graph_cache", "compile_horizon": "compile"}.get(family, family)
+    if canonical_family in {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}:
+        pools = family_cases(canonical_family, surface_count=24)
+        path = {
+            "compile": "workload.logical_steps",
+            "graph_cache": "workload.geometry_displacement",
+            "h2d_pipeline": "workload.worker_count",
+            "checkpoint": "workload.memory_pressure",
+            "scalar_sync": "workload.scalar_syncs_per_step",
+        }[canonical_family]
+        mechanism = canonical_family
+        grammar_path = path
+    else:
+        pools = family_cases(family)
+        grammar_path = "workload.geometry_displacement" if family == "graph_cache_geometry_motion" else "workload.logical_steps"
+        mechanism = "graph_cache" if family.startswith("graph") else "compile"
     representative = [item for item in pools["representative_pool"] if item.positive_anchor()]
-    query = pools["query_pool"]
+    query = pools.get("active_query_pool", pools.get("query_pool", []))
     counterexamples = [item for item in query if item.certified_counterexample()]
-    parent = {"equals": {"workload.mechanism": "graph_cache" if family.startswith("graph") else "compile"}}
-    result = StatisticalCEGIS(_grammar_for(family)).synthesize(
+    parent = {"equals": {"workload.mechanism": mechanism}}
+    if canonical_family not in {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}:
+        grammar = _grammar_for(family)
+    else:
+        features = [{"path": grammar_path, "type": "numeric"}, {"path": "workload.mechanism", "type": "categorical"}]
+        if canonical_family == "compile":
+            features.append({"path": "workload.dynamic_shape_rate", "type": "numeric"})
+        if canonical_family == "graph_cache":
+            features.append({"path": "workload.dynamic_rate", "type": "numeric"})
+        if family == "h2d_pipeline":
+            features.append({"path": "workload.pin_memory", "type": "categorical"})
+        grammar = PredicateGrammar.from_dict({
+            "schema_version": 1,
+            "features": features,
+            "max_depth": 2,
+            "max_literals": 3,
+        })
+    result = StatisticalCEGIS(grammar).synthesize(
         positive=representative,
         counterexamples=counterexamples,
         parent_predicate=parent,
     )
-    errors = sealed_errors(result.predicate, pools["sealed_test_pool"])
+    sealed = pools.get("sealed_boundary_pool", pools.get("sealed_test_pool", []))
+    errors = sealed_errors(result.predicate, sealed)
     return {
         "family": family,
         "status": result.status,

@@ -13,6 +13,22 @@ results. All tasks run with zero external downloads.
 - [Expansion plan](#expansion-plan)
 - [Task-family coverage](#task-family-coverage)
 
+## Family catalog and anchor projection
+
+The pilot uses one shared generator layer for all benchmark views. The five
+initial canonical families and their retained anchor packages are:
+
+| Family | Parameter axes | Anchor instances |
+|---|---|---|
+| `compile` | logical steps, graph size, dynamic-shape rate | CORE-COMPILE-RECOMPILE-04, CORE-COMPILE-DYNAMIC-11, CORE-COMPILE-TINY-12 |
+| `graph_cache` | geometry displacement, skin, graph size, dynamic rate | SCIML-GNN-STATIC-GRAPH-CACHE-17, SCIML-GNN-DYNAMIC-GRAPH-18 |
+| `h2d_pipeline` | batch size, workers, prefetch, pinning | CORE-H2D-PIPELINE-03, CORE-DATALOADER-FANOUT-16 |
+| `checkpoint` | memory pressure, segments, recompute ratio | CORE-CHECKPOINT-AMPLE-MEM-14 |
+| `scalar_sync` | scalar synchronizations, metric cadence | CORE-SCALAR-SYNC-01 |
+
+The remaining pilot packages retain their existing task family metadata and
+remain public anchors; they are not duplicated into a second workload source.
+
 ## Legend
 
 - **Track**: `spe_core` (PyTorch performance engineering), `sciml`

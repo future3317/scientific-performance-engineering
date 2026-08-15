@@ -168,5 +168,7 @@
     "scientific_contract_id": {"type": "string", "minLength": 1},
     "workspace_ast_skeleton_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "difficulty_tier": {"type": "string", "enum": ["easy", "medium", "hard"]}
+    ,"family_id": {"type": "string", "minLength": 1}
+    ,"anchor_instance_id": {"type": "string", "minLength": 1}
   }
 }

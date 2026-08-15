@@ -21,6 +21,11 @@ phases:
     results: []
   - index: 4
     name: drift
+    family_id: compile
+    transformation: software
+    transformation_parameters:
+      from_runtime: A
+      to_runtime: B
     tasks: []
     inject_experiences:
       - schema_version: 1
@@ -52,6 +57,8 @@ phases:
     results: []
   - index: 5
     name: misleading_experience
+    family_id: episode
+    poison_operator: overbroad_rule
     tasks: []
     inject_experiences: []
     inject_poisons:

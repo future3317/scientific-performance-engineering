@@ -39,4 +39,6 @@ generator_family_id: GEN-AUTOGRAD-VJP
 oracle_fix_pattern_id: FIX-AUTOGRAD-BATCHED-VJP
 scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
 difficulty_tier: hard
-workspace_ast_skeleton_hash: "9938c5d3b108f4eaab2533b990281a0958c1e6b41f8195bb6588e59d6226dba1"
+workspace_ast_skeleton_hash: "261fa176b762391590c2eb2f5460b1f74e2b633a194cc8ea133e390b913e3172"
+family_id: autograd
+anchor_instance_id: CORE-AUTOGRAD-BATCHED-VJP-15

@@ -17,6 +17,13 @@ Evolution). The current pilot contains 11 Core, 7 SciML, and 2 Evolution
 tasks; 13 Core, 13 SciML, and 4 Evolution slots remain ungenerated and are
 gated on pilot calibration.
 
+The workload source of truth is now the Family catalog. The five pilot families
+(`compile`, `graph_cache`, `h2d_pipeline`, `checkpoint`, and `scalar_sync`)
+define parameter axes, interventions, and legal transformations. Existing
+directories under `tasks/` remain materialized canonical anchors; task,
+BoundaryBench, InteractionBench, and evolution views refer back to the same
+family generator instead of maintaining separate synthetic workloads.
+
 Agent-backed trials must write `agent_usage.json` at the path supplied by
 `SPE_AGENT_USAGE_PATH` with `input_tokens`, `output_tokens`, `tool_calls`, and
 `wall_time_s`. The driver treats a missing, malformed, or over-budget receipt as
@@ -48,6 +55,7 @@ benchmark/
     evolution_ledger.py        # monotonic replay/promotion decision ledger
     conditions.py              # A/B/C/C_STRESS/D materialization + attestation
   taskgen/                     # pilot generator and population validator
+  families/                    # canonical family specs, instances, and transformations
   formal/                      # experiment manifest, schedule, driver, aggregation
   population_report.json       # deterministic v1.0-20 population summary
     split.py                   # sequential split + leakage checker

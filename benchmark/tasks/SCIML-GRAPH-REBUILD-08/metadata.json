@@ -21,5 +21,7 @@
   "difficulty": "medium",
   "authoring_note": "Do-not-apply adversarial anchor for the evolution episode. The baseline already does the correct thing: it rebuilds the radius neighbor graph every step because atom positions change every step. The tempting rule 'cache the neighbor list' is poisoned: oracle/tempting_patch.diff caches the graph and is rejected by the neighbor_consistency scientific gate (stale edges produce wrong forces/energy). The reference patch is an abstention that keeps the rebuild and documents why caching is unsafe.",
   "author": "batch-C prototype agent",
-  "created_utc": "2026-08-14"
+  "created_utc": "2026-08-14",
+  "family_id": "crystal_sampling",
+  "anchor_instance_id": "SCIML-GRAPH-REBUILD-08"
 }

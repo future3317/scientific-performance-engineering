@@ -21,5 +21,7 @@
     "mechanism": "repeated_compute",
     "source": "synthetic",
     "mutation_template_id": "MT-REPEATED-BACKBONE-V1"
-  }
+  },
+  "family_id": "repeated_compute",
+  "anchor_instance_id": "CORE-REPEATED-BACKBONE-02"
 }

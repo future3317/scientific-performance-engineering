@@ -39,4 +39,6 @@ generator_family_id: GEN-MEMORY-RETAINED
 oracle_fix_pattern_id: FIX-MEM-RETAINED-DETACH
 scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
 difficulty_tier: hard
-workspace_ast_skeleton_hash: e4ad9b8bd18f9b258a3870f913c4ffd8c0e3be91cd26de4b6f8727e892287e8e
+workspace_ast_skeleton_hash: ae35f33516b09c1b293f4339e6b5239ebcc837058bc06f92ff37b9c663572d96
+family_id: checkpoint
+anchor_instance_id: CORE-MEM-RETAINED-GRAPH-13

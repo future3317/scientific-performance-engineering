@@ -27,5 +27,7 @@
   "difficulty": "medium",
   "authoring_note": "Positive SciML generation task. Baseline uses .item() schedule reads, per-step fragmented time embedding, and a one-crystal-at-a-time sampling loop. Reference fix precomputes schedules, fuses the embedding, and batches the loop. Time-to-quality is wall-clock to reach 0.9 validity on a seeded eval batch.",
   "author": "batch-C prototype agent",
-  "created_utc": "2026-08-14"
+  "created_utc": "2026-08-14",
+  "family_id": "crystal_generation",
+  "anchor_instance_id": "SCIML-CRYSTAL-DIFFUSION-07"
 }

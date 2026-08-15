@@ -14,6 +14,8 @@ from typing import Any
 from benchmark.harness import miniyaml
 from benchmark.harness.split import check_leakage
 from benchmark.taskgen.generate import ast_skeleton_hash
+from benchmark.families import resolve_family_id
+from benchmark.families.catalog import FAMILY_SPECS
 
 
 ATOMIC_REQUIRED = (
@@ -86,6 +88,9 @@ def _metadata_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
             errors.append(f"{task_dir.name}: metadata lineage.{key} does not match task.yaml")
     if metadata.get("difficulty") != spec.get("difficulty_tier"):
         errors.append(f"{task_dir.name}: metadata difficulty does not match difficulty_tier")
+    for key in ("family_id", "anchor_instance_id"):
+        if spec.get(key) and metadata.get(key) != spec.get(key):
+            errors.append(f"{task_dir.name}: metadata {key} does not match task.yaml")
     return errors
 
 
@@ -218,12 +223,23 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         spec["_task_dir"] = task_dir
         specs.append(spec)
         errors.extend(_metadata_findings(task_dir, spec))
+        if not spec.get("family_id"):
+            errors.append(f"{task_dir.name}: missing family_id anchor projection")
+        elif not spec.get("anchor_instance_id"):
+            errors.append(f"{task_dir.name}: missing anchor_instance_id")
         if spec.get("track") != "evolution":
             for key in ATOMIC_REQUIRED:
                 if not spec.get(key):
                     errors.append(f"{task_dir.name}: missing atomic metadata {key}")
             if spec.get("difficulty_tier") not in {"easy", "medium", "hard"}:
                 errors.append(f"{task_dir.name}: invalid difficulty_tier")
+            if spec.get("family_id"):
+                try:
+                    family_id = resolve_family_id(str(spec["family_id"]))
+                    if spec.get("anchor_instance_id") and spec["anchor_instance_id"] == spec.get("task_id") and spec["task_id"] not in FAMILY_SPECS[family_id].anchors:
+                        errors.append(f"{task_dir.name}: task is not a declared anchor of family {family_id}")
+                except KeyError:
+                    errors.append(f"{task_dir.name}: unknown family_id {spec.get('family_id')}")
             errors.extend(_artifact_findings(task_dir, spec))
             actual_hash = ast_skeleton_hash(task_dir)
             if spec.get("workspace_ast_skeleton_hash") != actual_hash:
@@ -274,6 +290,13 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         "track_counts": dict(counts),
         "mechanism_distribution": dict(Counter(str(spec.get("mechanism")) for spec in specs)),
         "family_distribution": dict(Counter(str(spec.get("family")) for spec in specs)),
+        "family_id_distribution": dict(Counter(str(spec.get("family_id", spec.get("family"))) for spec in specs)),
+        "anchor_projection": {
+            str(spec.get("family_id")): sorted(
+                [str(item.get("task_id")) for item in specs if item.get("anchor_instance_id") and item.get("family_id") == spec.get("family_id")]
+            )
+            for spec in specs if spec.get("family_id") and spec.get("anchor_instance_id")
+        },
         "polarity_distribution": dict(Counter(str(spec.get("kind")) for spec in specs)),
         "difficulty_distribution": dict(Counter(str(spec.get("difficulty_tier")) for spec in specs)),
         "duplicate_near_duplicate_findings": duplicate_findings,

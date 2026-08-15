@@ -164,3 +164,54 @@ def aggregate_trials(records: list[dict[str, Any]]) -> dict[str, Any]:
             if record.get("kind") in {"counterexample", "do_not_apply"}
         ],
     }
+
+
+def performance_profile(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return track-native metrics without collapsing them into one score."""
+    profile: dict[str, Any] = {
+        "spe_core": {"verified_optimization_rate": None, "geomean_speedup_all_valid": None, "semantic_failure_rate": None},
+        "boundary": {"harmful_false_positive_rate": None, "boundary_error": None, "experiment_cost": None},
+        "interaction": {"relation_identification_rate": None, "bundle_regret": None},
+        "evolution": {"negative_transfer_rate": None, "drift_recovery_latency": None, "poison_robustness": None, "regret": None},
+        "efficiency": {"tokens": 0.0, "gpu_time": 0.0, "experiment_cost": 0.0, "library_complexity": 0.0},
+    }
+    optimization = [record for record in records if str(record.get("track", "spe_core")) == "spe_core"]
+    valid_speedups = [value for record in optimization if (value := _speedup(record)) is not None]
+    verified = [record for record in optimization if bool(record.get("verified", record.get("score", {}).get("verified", False) if isinstance(record.get("score"), dict) else False))]
+    semantic_failures = [record for record in optimization if record.get("validity") == "invalid" or record.get("status") == "invalid" or (isinstance(record.get("score"), dict) and record["score"].get("gates_passed") is False)]
+    if optimization:
+        profile["spe_core"]["verified_optimization_rate"] = len(verified) / len(optimization)
+        if valid_speedups:
+            profile["spe_core"]["geomean_speedup_all_valid"] = math.exp(sum(math.log(value) for value in valid_speedups) / len(valid_speedups))
+        profile["spe_core"]["semantic_failure_rate"] = len(semantic_failures) / len(optimization)
+    boundaries = [record for record in records if record.get("track") == "boundary"]
+    if boundaries:
+        profile["boundary"]["harmful_false_positive_rate"] = sum(bool(record.get("harmful_false_positive", False)) for record in boundaries) / len(boundaries)
+        profile["boundary"]["boundary_error"] = sum(float(record.get("boundary_error", 0.0)) for record in boundaries) / len(boundaries)
+        profile["boundary"]["experiment_cost"] = sum(float(record.get("experiment_cost", 0.0)) for record in boundaries)
+    interactions = [record for record in records if record.get("track") == "interaction"]
+    if interactions:
+        profile["interaction"]["relation_identification_rate"] = sum(bool(record.get("relation_correct", False)) for record in interactions) / len(interactions)
+        profile["interaction"]["bundle_regret"] = sum(float(record.get("bundle_regret", 0.0)) for record in interactions) / len(interactions)
+    evolutions = [record for record in records if record.get("track") == "evolution"]
+    if evolutions:
+        profile["evolution"]["negative_transfer_rate"] = sum(float(record.get("negative_transfer_rate", 0.0)) for record in evolutions) / len(evolutions)
+        latencies = [float(record["drift_recovery_latency"]) for record in evolutions if record.get("drift_recovery_latency") is not None]
+        profile["evolution"]["drift_recovery_latency"] = sum(latencies) / len(latencies) if latencies else None
+        profile["evolution"]["poison_robustness"] = sum(float(record.get("poisoning_survival_rate", 0.0)) for record in evolutions) / len(evolutions)
+        profile["evolution"]["regret"] = evolution_regret(evolutions)
+    profile["efficiency"]["tokens"] = sum(float(record.get("tokens", record.get("prompt_tokens", 0.0))) for record in records)
+    profile["efficiency"]["gpu_time"] = sum(float(record.get("gpu_time", 0.0)) for record in records)
+    profile["efficiency"]["experiment_cost"] = sum(float(record.get("experiment_cost", 0.0)) for record in records)
+    profile["efficiency"]["library_complexity"] = sum(float(record.get("library_complexity", 0.0)) for record in records)
+    return profile
+
+
+def evolution_regret(records: list[dict[str, Any]], lambda_cost: float = 1.0) -> dict[str, float | None]:
+    """Aggregate hindsight-valid utility gaps and experiment cost."""
+    steps = [record for record in records if "oracle_utility" in record and "deployed_utility" in record]
+    if not steps:
+        return {"total": None, "utility_gap": None, "experiment_cost": None}
+    utility_gap = sum(float(item["oracle_utility"]) - float(item["deployed_utility"]) for item in steps)
+    cost = lambda_cost * sum(float(item.get("experiment_cost", 0.0)) for item in steps)
+    return {"total": utility_gap + cost, "utility_gap": utility_gap, "experiment_cost": cost}

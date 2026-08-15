@@ -21,5 +21,7 @@
   "difficulty": "medium",
   "authoring_note": "Baseline wraps a tiny MLP in torch.compile and injects an .item()-dependent graph break; the measurement loop cycles 8 batch sizes, causing repeated recompilation. Oracle removes the graph break and compiles with dynamic=True. Scope is intentionally small so warmup fits the time budget on CPU-only CI.",
   "author": "batch-C prototype agent",
-  "created_utc": "2026-08-14"
+  "created_utc": "2026-08-14",
+  "family_id": "compile",
+  "anchor_instance_id": "CORE-COMPILE-RECOMPILE-04"
 }

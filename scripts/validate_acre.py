@@ -50,7 +50,10 @@ def validate(root: Path = ROOT) -> list[str]:
         return [f"invalid predicate grammar: {exc}"]
     if grammar.max_depth > 3 or grammar.max_literals > 4:
         errors.append("grammar bounds exceed ACRE-v0 limits")
-    for family in ("graph_cache_geometry_motion", "compile_horizon"):
+    # Canonical families are the production BoundaryBench views.  The two
+    # historical names remain covered by benchmark/boundary/test_cegis.py as
+    # compatibility aliases, not as a second source of workload semantics.
+    for family in ("compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"):
         pools = family_cases(family)
         seen: set[str] = set()
         for pool_name, pool in pools.items():

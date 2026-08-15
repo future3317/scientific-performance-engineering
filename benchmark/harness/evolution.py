@@ -35,6 +35,7 @@ from typing import Any
 from . import conditions, miniyaml
 from .evolution_ledger import EvolutionDecisionLedger
 from core import governance
+from benchmark.families import poisoning_transformation, transformation
 
 METRIC_NAMES = (
     "transfer_gain",
@@ -47,6 +48,7 @@ METRIC_NAMES = (
     "conflict_rate",
     "drift_recovery_latency",
     "poisoning_survival_rate",
+    "evolution_regret",
 )
 
 
@@ -299,6 +301,35 @@ def poisoning_survival_rate(
     return max(0, survived) / len(poison_ids)
 
 
+def evolution_regret(steps: list[dict[str, Any]], lambda_cost: float = 1.0) -> dict[str, float | None]:
+    """Compute lifecycle regret from hindsight oracle and deployed bundles.
+
+    Records may provide ``oracle_utility``/``deployed_utility`` directly and
+    optional decomposed terms.  Missing terms remain ``None`` rather than
+    being silently treated as zero, which keeps pre-recorded legacy episodes
+    honest while allowing richer family-transformation episodes.
+    """
+    if not steps:
+        return {"total": None, "acquisition": None, "negative_transfer": None, "interaction": None, "drift_recovery": None, "experiment_cost": None}
+    utility_gaps = [
+        float(step["oracle_utility"]) - float(step["deployed_utility"])
+        for step in steps
+        if "oracle_utility" in step and "deployed_utility" in step
+    ]
+    if not utility_gaps:
+        return {"total": None, "acquisition": None, "negative_transfer": None, "interaction": None, "drift_recovery": None, "experiment_cost": None}
+    cost = lambda_cost * sum(float(step.get("experiment_cost", 0.0)) for step in steps)
+    components = {
+        "acquisition": sum(float(step.get("acquisition_regret", 0.0)) for step in steps),
+        "negative_transfer": sum(float(step.get("negative_transfer_regret", 0.0)) for step in steps),
+        "interaction": sum(float(step.get("interaction_regret", 0.0)) for step in steps),
+        "drift_recovery": sum(float(step.get("drift_recovery_regret", 0.0)) for step in steps),
+        "experiment_cost": cost,
+    }
+    components["total"] = sum(utility_gaps) + cost
+    return components
+
+
 # ---------------------------------------------------------------------------
 # Episode driver
 # ---------------------------------------------------------------------------
@@ -346,10 +377,19 @@ def run_episode(
     applications: list[dict[str, Any]] = []
     utility_series: list[float] = []
     promoted_total: list[str] = []
+    family_transformations: list[dict[str, Any]] = []
     ledger = EvolutionDecisionLedger()
     drift_start: int | None = None
 
     for phase in episode["phases"]:
+        if phase.get("family_id") and phase.get("transformation"):
+            family_transformations.append(
+                transformation(str(phase["family_id"]), str(phase["transformation"]), **dict(phase.get("transformation_parameters") or {})).__dict__
+            )
+        if phase.get("family_id") and phase.get("poison_operator"):
+            family_transformations.append(
+                poisoning_transformation(str(phase["family_id"]), str(phase["poison_operator"]), **dict(phase.get("poison_parameters") or {})).__dict__
+            )
         written = _apply_phase_injections(store, condition, phase)
         poison_ids.extend(written["poisons"])
         for record in phase.get("results") or []:
@@ -413,6 +453,7 @@ def run_episode(
             if poison_ids
             else None
         ),
+        "evolution_regret": evolution_regret([item for phase in episode["phases"] for item in phase.get("results") or []]),
     }
 
     if condition == "D":
@@ -435,6 +476,7 @@ def run_episode(
             "canonical_rule_ids": canonical_ids,
             "utility_series": utility_series,
             "decision_ledger": ledger.decisions(),
+            "family_transformations": family_transformations,
         },
         "store_manifest": manifest,
     }

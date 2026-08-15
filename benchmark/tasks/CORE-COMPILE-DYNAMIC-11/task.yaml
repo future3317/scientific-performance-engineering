@@ -39,4 +39,6 @@ generator_family_id: GEN-COMPILER-DYNAMIC
 oracle_fix_pattern_id: FIX-COMPILE-DYNAMIC-GUARD
 scientific_contract_id: CONTRACT-COMPILER-CACHE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "1cc98a44f5f7c4210fb0ac3460a811ed8310461be4eedeef7ddf4676a4c55377"
+workspace_ast_skeleton_hash: e4a63bf23d5f4713e1bb2b473c26caa6105a024050df15b2ea72f18044a29f56
+family_id: compile
+anchor_instance_id: CORE-COMPILE-DYNAMIC-11

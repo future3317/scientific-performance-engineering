@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from core.acre.factorial import FactorialBlock, FactorialEngine, simulate_coverage
 import random
+from benchmark.families import family_instances, resolve_family_id
+from benchmark.families.catalog import FAMILY_SPECS
 
 
 _CASES = {
@@ -41,6 +43,44 @@ def generate_interaction_surface(*, count: int = 128, seed: int = 7) -> list[dic
         gates = {arm: not (kind == "semantic_conflict" and arm == "11") for arm in ("00", "10", "01", "11")}
         surface.append({"surface_id": f"interaction-{index:04d}", "kind": kind, "outcomes": outcomes, "scientific_gates": gates, "cost": 1.0 + rng.random() * 4.0})
     return surface
+
+
+def generate_family_interaction_surface(
+    family_ids: tuple[str, ...] = ("h2d_pipeline", "compile"),
+    *,
+    count: int = 32,
+    seed: int = 7,
+) -> list[dict[str, object]]:
+    """Build factorial surfaces from composable canonical family interventions.
+
+    The old ``generate_interaction_surface`` remains a calibration fixture.
+    This path attaches every surface to family instances and derives the four
+    arms from intervention parameters, so hidden interaction views can share
+    the same workload generator as atomic and boundary tasks.
+    """
+    if len(family_ids) != 2 or count < 1:
+        raise ValueError("exactly two families and a positive count are required")
+    resolved = tuple(resolve_family_id(item) for item in family_ids)
+    left = family_instances(resolved[0], count=count, seed=seed)
+    right = family_instances(resolved[1], count=count, seed=seed + 1)
+    surfaces: list[dict[str, object]] = []
+    for index, (a, b) in enumerate(zip(left, right)):
+        # The mechanism score is deliberately bounded and deterministic.  It
+        # is an environment generator, not a relation label supplied to the
+        # estimator; the hidden verifier can recompute the four outcomes.
+        a_effect = 0.08 + (sum(sum(ord(char) for char in str(v)) for v in a.parameters.values()) % 12) / 100.0
+        b_effect = 0.08 + (sum(sum(ord(char) for char in str(v)) for v in b.parameters.values()) % 12) / 100.0
+        interaction = ((index + seed) % 7 - 3) / 100.0
+        outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect + interaction)}
+        surfaces.append({
+            "surface_id": f"{resolved[0]}__{resolved[1]}-{seed:04d}-{index:04d}",
+            "family_ids": list(resolved),
+            "instance_ids": [a.instance_id, b.instance_id],
+            "interventions": [list(FAMILY_SPECS[resolved[0]].interventions), list(FAMILY_SPECS[resolved[1]].interventions)],
+            "outcomes": outcomes,
+            "cost": 1.0 + ((index + seed) % 9) / 2.0,
+        })
+    return surfaces
 
 
 def run_factorial_benchmark(*, blocks: int = 5000, seed: int = 7) -> dict[str, object]:

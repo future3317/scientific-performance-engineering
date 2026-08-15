@@ -1,17 +1,24 @@
 # ACRE-v0 BoundaryBench
 
-This pilot is separate from SPE-EvoBench. It tests deterministic predicate
-synthesis after certified counterexamples in two parameterized families:
+BoundaryBench reuses the canonical generators in `benchmark/families/`. It
+tests deterministic predicate synthesis after certified counterexamples in
+the five pilot families:
+
+- `compile`, `graph_cache`, `h2d_pipeline`, `checkpoint`, and `scalar_sync`.
+
+The historical names below remain calibration aliases for the original ACRE-v0
+tests; they do not define a second workload source:
 
 - `graph_cache_geometry_motion`: graph-cache applicability contracts shrink to
   a low-geometry-motion region.
 - `compile_horizon`: compilation applicability contracts shrink to a sufficiently
   long logical horizon.
 
-Each family has disjoint `representative_pool`, `query_pool`, and
-`sealed_test_pool` records. Query outcomes may falsify a parent predicate but
-never enter the sealed pool. A child predicate is accepted only when it covers
-all positive representative anchors and rejects every certified counterexample.
+Each canonical family has disjoint `representative_pool`, `active_query_pool`,
+and `sealed_boundary_pool` records. Query outcomes may falsify a parent
+predicate but never enter the sealed pool. A child predicate is accepted only
+when it covers all positive representative anchors and rejects every certified
+counterexample.
 Uncertain effects are retained as unresolved evidence and cannot shrink the
 version space.
 

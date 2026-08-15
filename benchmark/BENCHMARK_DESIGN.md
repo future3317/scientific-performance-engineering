@@ -15,6 +15,7 @@ Evolution slots are gated on empirical calibration.
 
 - [1. Purpose and scope](#1-purpose-and-scope)
 - [2. Design principles](#2-design-principles)
+- [2.1 Family views and frozen anchors](#21-family-views-and-frozen-anchors)
 - [3. Tracks](#3-tracks)
 - [4. Task package anatomy](#4-task-package-anatomy)
 - [5. Controlled-mutation taxonomy](#5-controlled-mutation-taxonomy)
@@ -81,6 +82,19 @@ P9. **The harness is immutable and attestable.** Harness files are hashed; the h
     verifier and oracle never enter the agent-visible sandbox.
 P10. **Raw dimensions preserved.** Composite scores are reported *alongside* every raw
     metric; no dimension is hidden by aggregation.
+
+## 2.1 Family views and frozen anchors
+
+`benchmark/families/` is the single workload-family source of truth. A
+`FamilySpec` defines parameter axes, legal interventions, and family
+transformations; `FamilyInstance` is a deterministic point in that space. The
+existing packages under `benchmark/tasks/` are retained as canonical anchor
+instances with their original verifiers and oracle calibration. `taskgen`
+materializes future slots from the same specs, while BoundaryBench derives
+representative, active-query, and sealed-boundary pools and InteractionBench
+combines family interventions into factorial surfaces. Evolution episodes record
+the same family transformations (software, hardware, scale, scientific-regime,
+or harness drift) rather than introducing a separate workload generator.
 
 ## 3. Tracks
 
@@ -359,6 +373,11 @@ Measured per condition over the sequential stream (§10):
   rule library's return to pre-drift utility.
 - `poisoning_survival_rate`: fraction of poisoned/misleading experiences that fail to
   reach canonical status (D) or that cause measurable regressions (C).
+- `evolution_regret`: cumulative hindsight utility gap plus weighted experiment
+  cost, decomposed into acquisition, negative-transfer, interaction, and
+  drift/recovery terms. This longitudinal quantity is reported across the
+  family, boundary, interaction, and evolution views; it is not collapsed into
+  the track score.
 - Evolution results report the raw metric vector; no composite is used as a
   headline until its bounded utility policy and weighting are preregistered.
 - Promotion uses the bounded `normalized_task_utility_v1` policy and a

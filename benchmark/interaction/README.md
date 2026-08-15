@@ -1,6 +1,9 @@
 # ACRE interaction pilot
 
-This directory contains the isolated synthetic experiments for ACRE stages 3--5:
+This directory contains the interaction experiments for ACRE stages 3--5. The
+primary generator is `generate_family_interaction_surface`, which composes two
+canonical workload families into one factorial surface; the older synthetic
+fixture remains a unit/calibration path only:
 
 - `factorial_bench.py` recovers the four 2x2 interaction classes and checks the bounded confidence-interval coverage contract.
 - `acquisition_bench.py` compares random, uncertainty-only, and decision-aware query selection by cost to a fixed edge-identification error.

@@ -99,6 +99,9 @@ python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python t
 - `benchmark/`: SPE-EvoBench's pinned sources, schemas, harness, split policy,
   and runnable prototype tasks for evaluating performance-engineering and
   skill-evolution behavior. Start with [`benchmark/README.md`](benchmark/README.md).
+- `benchmark/families/`: the shared workload-family catalog. Atomic tasks are
+  retained anchor instances; BoundaryBench, InteractionBench, and evolution
+  transformations reuse the same deterministic family generators.
 - `experience/`, `evolution/`, `rules/`, `registry/`: evidence and rule lifecycle.
 - `core/acre/`: the single ACRE method core (`AcreEngine`, evidence policy,
   CEGIS, acquisition, factorial inference, routing, and bundle certificates).

@@ -27,6 +27,7 @@ TESTS = (
     "test_adversarial_boundaries.py",
     "test_formal.py",
     "test_population.py",
+    "test_families.py",
 )
 
 

@@ -41,6 +41,63 @@
     "graph_energy_force": 4,
     "crystal_sampling": 1
   },
+  "family_id_distribution": {
+    "autograd": 1,
+    "checkpoint": 2,
+    "compile": 4,
+    "h2d_pipeline": 2,
+    "repeated_compute": 1,
+    "scalar_sync": 1,
+    "episode": 2,
+    "crystal_generation": 1,
+    "equivariant_head": 1,
+    "graph_cache": 4,
+    "crystal_sampling": 1
+  },
+  "anchor_projection": {
+    "autograd": [
+      "CORE-AUTOGRAD-BATCHED-VJP-15"
+    ],
+    "checkpoint": [
+      "CORE-CHECKPOINT-AMPLE-MEM-14",
+      "CORE-MEM-RETAINED-GRAPH-13"
+    ],
+    "compile": [
+      "CORE-COMPILE-DYNAMIC-11",
+      "CORE-COMPILE-RECOMPILE-04",
+      "CORE-COMPILE-TINY-12",
+      "CORE-KERNEL-FUSION-09"
+    ],
+    "h2d_pipeline": [
+      "CORE-DATALOADER-FANOUT-16",
+      "CORE-H2D-PIPELINE-03"
+    ],
+    "repeated_compute": [
+      "CORE-REPEATED-BACKBONE-02"
+    ],
+    "scalar_sync": [
+      "CORE-SCALAR-SYNC-01"
+    ],
+    "episode": [
+      "EVOL-COMPILER-DRIFT-20",
+      "EVOL-EPISODE-POISON-10"
+    ],
+    "crystal_generation": [
+      "SCIML-CRYSTAL-DIFFUSION-07"
+    ],
+    "equivariant_head": [
+      "SCIML-EQUIV-RECOMPUTE-06"
+    ],
+    "graph_cache": [
+      "SCIML-FORCE-AUTOGRAD-19",
+      "SCIML-GNN-DYNAMIC-GRAPH-18",
+      "SCIML-GNN-RAGGED-05",
+      "SCIML-GNN-STATIC-GRAPH-CACHE-17"
+    ],
+    "crystal_sampling": [
+      "SCIML-GRAPH-REBUILD-08"
+    ]
+  },
   "polarity_distribution": {
     "positive": 15,
     "counterexample": 4,

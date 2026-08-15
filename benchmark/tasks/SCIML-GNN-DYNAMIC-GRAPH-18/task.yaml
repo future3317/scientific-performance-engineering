@@ -39,4 +39,6 @@ generator_family_id: GEN-GNN-DYNAMIC
 oracle_fix_pattern_id: FIX-GNN-DYNAMIC-REBUILD
 scientific_contract_id: CONTRACT-ENERGY-FORCE
 difficulty_tier: hard
-workspace_ast_skeleton_hash: "0061ca3c18386b308957daa0f6232e46bdb8abc3418a7f67bdc1a4f7a8f39a60"
+workspace_ast_skeleton_hash: "575608ad8cdd630584ba0cbeb4421fd020d4ff26b6fe624fb8d1ab8d30ace08c"
+family_id: graph_cache
+anchor_instance_id: SCIML-GNN-DYNAMIC-GRAPH-18

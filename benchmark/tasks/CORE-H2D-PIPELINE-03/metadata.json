@@ -21,5 +21,7 @@
   "difficulty": "medium",
   "authoring_note": "Baseline uses DataLoader(num_workers=0, pin_memory=False) and blocking .to()+synchronize per step. Oracle enables pinned memory, non_blocking copies, a small worker pool, and prefetch. Calibrated on a CUDA host: the speedup is modest but real for this memory-bound pipeline.",
   "author": "batch-C prototype agent",
-  "created_utc": "2026-08-14"
+  "created_utc": "2026-08-14",
+  "family_id": "h2d_pipeline",
+  "anchor_instance_id": "CORE-H2D-PIPELINE-03"
 }

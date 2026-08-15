@@ -21,5 +21,7 @@
     "mechanism": "scalar_sync",
     "source": "synthetic",
     "mutation_template_id": "MT-SCALAR-SYNC-V1"
-  }
+  },
+  "family_id": "scalar_sync",
+  "anchor_instance_id": "CORE-SCALAR-SYNC-01"
 }

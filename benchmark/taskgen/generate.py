@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.harness import miniyaml
+from benchmark.families import resolve_family_id
+from benchmark.families.catalog import FAMILY_SPECS
+from benchmark.families import family_instances
 
 
 NEW_TASKS: tuple[dict[str, Any], ...] = (
@@ -28,6 +31,17 @@ NEW_TASKS: tuple[dict[str, Any], ...] = (
 )
 
 NEW_TASK_IDS = {str(item["task_id"]) for item in NEW_TASKS}
+
+
+def generate_family_slots(family_id: str, *, count: int, seed: int = 0) -> list[dict[str, Any]]:
+    """Return frozen-slot metadata without materializing formal task packages.
+
+    The pilot deliberately calls this only for calibration and view tests. A
+    formal sealed campaign must persist the returned slot metadata once and
+    then use the same instances for A/B/C/D; this helper does not create the
+    remaining v1.0-50 tasks.
+    """
+    return [item.to_dict() for item in family_instances(family_id, count=count, seed=seed)]
 
 
 def ast_skeleton_hash(task_dir: Path) -> str:
@@ -79,6 +93,14 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
         "mutation_seed": int(hashlib.sha256(metadata["task_id"].encode()).hexdigest()[:8], 16),
     }
     spec["generator_family_id"] = metadata["generator"]
+    try:
+        family_id = resolve_family_id(metadata["generator"])
+    except KeyError:
+        family_id = None
+    if family_id is not None:
+        spec["family_id"] = family_id
+        if metadata["task_id"] in FAMILY_SPECS[family_id].anchors:
+            spec["anchor_instance_id"] = metadata["task_id"]
     spec["oracle_fix_pattern_id"] = metadata["fix"]
     spec["scientific_contract_id"] = metadata["contract"]
     spec["difficulty_tier"] = metadata["difficulty"]
@@ -107,6 +129,10 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
                 },
             }
         )
+        if spec.get("family_id"):
+            package_metadata["family_id"] = spec["family_id"]
+        if spec.get("anchor_instance_id"):
+            package_metadata["anchor_instance_id"] = spec["anchor_instance_id"]
         metadata_path.write_text(json.dumps(package_metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     oracle = task_dir / "oracle"
     oracle.mkdir(exist_ok=True)

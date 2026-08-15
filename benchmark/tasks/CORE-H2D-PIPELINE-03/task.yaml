@@ -39,4 +39,6 @@ generator_family_id: GEN-DATA_PIPELINE
 oracle_fix_pattern_id: FIX-CORE-H2D-PIPELINE-03
 scientific_contract_id: CONTRACT-DATA_PIPELINE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "103bab5712e07f6657bf7c8d81eb2d659202bfba74248848139fdb0abbd78331"
+workspace_ast_skeleton_hash: "8619d8ab6cd33cbc070064f2236ffe5faf3246a6ea0a9d27183e377274d1f321"
+family_id: h2d_pipeline
+anchor_instance_id: CORE-H2D-PIPELINE-03

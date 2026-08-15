@@ -33,5 +33,7 @@
   "difficulty": "hard",
   "authoring_note": "Defines the 6-phase sequential episode used by the evolution track. The episode exercises acquisition (scalar_sync, h2d_blocking), same-family transfer (repeated_compute), cross-family transfer (crystal_diffusion), runtime drift (h2d rule specialization), and poisoned experience (graph_rebuild and scalar_sync tempting rules). The task score is the poisoning survival rate under governed condition D vs append-only condition C.",
   "author": "batch-C prototype agent",
-  "created_utc": "2026-08-14"
+  "created_utc": "2026-08-14",
+  "family_id": "episode",
+  "anchor_instance_id": "EVOL-EPISODE-POISON-10"
 }
