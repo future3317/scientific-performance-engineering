@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/relation_state.schema.json",
+  "title": "RelationState",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "relation_id",
+    "version",
+    "estimate"
+  ],
+  "properties": {
+    "relation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "estimate": {
+      "type": "number"
+    },
+    "confidence_sequence": {
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "candidate",
+        "canonical",
+        "retired"
+      ]
+    },
+    "drift_state": {
+      "enum": [
+        "stable",
+        "suspected_drift",
+        "stale",
+        "revalidating"
+      ]
+    },
+    "counterexample_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "last_confirmed": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

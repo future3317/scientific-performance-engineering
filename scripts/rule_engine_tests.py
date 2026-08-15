@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from core.models import EvidenceEvent, RuleSpec, RuleState, TaskContext
+from core.models import EvidenceEvent, RelationSpec, RelationState, RuleSpec, RuleState, TaskContext, normalize_evidence_event
 from core.predicates import match_predicate
 from core.retriever import retrieve_candidates, select_rules
 from core.schema import schemas
@@ -45,6 +45,8 @@ def main() -> None:
         (RuleSpec, "rule_spec.schema.json"),
         (EvidenceEvent, "evidence_event.schema.json"),
         (RuleState, "rule_state.schema.json"),
+        (RelationSpec, "relation_spec.schema.json"),
+        (RelationState, "relation_state.schema.json"),
     ):
         model_schema = schemas()[schema_name]
         assert model_schema["additionalProperties"] is False
@@ -64,6 +66,48 @@ def main() -> None:
         pass
     else:
         raise AssertionError("RuleSpec.from_dict must reject unknown fields")
+
+    legacy_event = {
+        "event_id": "EV-LEGACY-1",
+        "context": {"domain": "runtime"},
+        "rule_id": "PERF-SYNC-004",
+        "rule_version": 2,
+        "assignment": {"arm": "on", "propensity": 0.25},
+        "outcome_vector": {"utility": 0.2},
+        "scientific_gates": {"quality": True},
+        "artifacts": {},
+        "versions": {"pytorch": "2.7"},
+        "source_id": "legacy",
+        "independence_group": "g1",
+        "timestamp": "2026-08-15T00:00:00Z",
+    }
+    normalized = normalize_evidence_event(legacy_event)
+    assert normalized["schema_version"] == 2
+    assert normalized["assignment"]["interventions"] == {"PERF-SYNC-004": 1}
+    assert normalized["context"]["rule_versions"] == {"PERF-SYNC-004": 2}
+    assert EvidenceEvent.from_dict(legacy_event).to_dict() == normalized
+
+    v2_event = dict(normalized)
+    v2_event["evidence_stream"] = "adversarial"
+    v2_event["query_id"] = "Q-1"
+    v2_event["assignment"] = {"interventions": {"A": 1, "B": 0}, "propensity": 0.25, "design_id": "FACT-2X2-v1"}
+    parsed_v2 = EvidenceEvent.from_dict(v2_event)
+    assert parsed_v2.to_dict()["assignment"]["interventions"] == {"A": 1, "B": 0}
+    assert parsed_v2.to_dict()["evidence_stream"] == "adversarial"
+    try:
+        EvidenceEvent.from_dict({**v2_event, "evidence_stream": "unknown"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("EvidenceEvent must reject unknown evidence streams")
+
+    relation = RelationSpec(
+        "REL-A-B", 1, None, ["A", "B"], "synergy", {"all": ["same_batch"]},
+        {"type": "factorial_interaction"}, 0.05, ["quality"], {"required": True}
+    )
+    assert RelationSpec.from_dict(relation.to_dict()) == relation
+    relation_state = RelationState("REL-A-B", 1, estimate=0.1, counterexample_count=0)
+    assert RelationState.from_dict(relation_state.to_dict()) == relation_state
     print("rule engine fixtures: ok")
 
 

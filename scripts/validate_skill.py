@@ -247,7 +247,13 @@ def validate_canonical_model_assets(root: Path) -> None:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     models = importlib.import_module("core.models")
-    for name, cls in (("rule_spec.json", models.RuleSpec), ("evidence_event.json", models.EvidenceEvent), ("rule_state.json", models.RuleState)):
+    for name, cls in (
+        ("rule_spec.json", models.RuleSpec),
+        ("evidence_event.json", models.EvidenceEvent),
+        ("rule_state.json", models.RuleState),
+        ("relation_spec.json", models.RelationSpec),
+        ("relation_state.json", models.RelationState),
+    ):
         value = json.loads((root / "assets" / name).read_text(encoding="utf-8"))
         cls.from_dict(value)
     validator_source = (root / "scripts" / "validate_rule_os.py").read_text(encoding="utf-8")

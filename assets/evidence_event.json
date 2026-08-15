@@ -1,9 +1,10 @@
 {
+  "schema_version": 2,
   "event_id": "EV-2026-08-0001",
   "context": {"domain": "runtime", "hardware": {"gpu": {"duty_cycle": 0.2}}},
-  "rule_id": "PERF-SYNC-004",
-  "rule_version": 1,
-  "assignment": {"arm": "on", "propensity": 0.5},
+  "assignment": {"interventions": {"PERF-SYNC-004": 1}, "propensity": 0.5, "design_id": "single-rule-v1"},
+  "evidence_stream": "representative",
+  "query_id": "EV-2026-08-0001",
   "outcome_vector": {"utility": 0.17, "step_seconds": 51.2},
   "scientific_gates": {"numerical": true, "quality": true, "resume": true},
   "artifacts": {"benchmark": "artifacts/benchmark.json"},

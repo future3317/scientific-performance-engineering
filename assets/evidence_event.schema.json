@@ -5,10 +5,9 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "schema_version",
     "event_id",
     "context",
-    "rule_id",
-    "rule_version",
     "assignment",
     "outcome_vector",
     "scientific_gates",
@@ -16,9 +15,16 @@
     "versions",
     "source_id",
     "independence_group",
-    "timestamp"
+    "timestamp",
+    "evidence_stream",
+    "query_id",
+    "trust_zone",
+    "attacker_controlled_fields"
   ],
   "properties": {
+    "schema_version": {
+      "const": 2
+    },
     "event_id": {
       "type": "string",
       "minLength": 1
@@ -26,24 +32,34 @@
     "context": {
       "type": "object"
     },
-    "rule_id": {
-      "type": "string"
-    },
-    "rule_version": {
-      "type": "integer",
-      "minimum": 1
-    },
     "assignment": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
-        "arm"
+        "interventions",
+        "propensity",
+        "design_id"
       ],
       "properties": {
-        "arm": {
-          "enum": [
-            "on",
-            "off"
-          ]
+        "interventions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          }
+        },
+        "propensity": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "design_id": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -60,19 +76,35 @@
       "type": "object"
     },
     "source_id": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "independence_group": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "timestamp": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_stream": {
+      "enum": [
+        "representative",
+        "adversarial"
+      ]
+    },
+    "query_id": {
+      "type": "string",
+      "minLength": 1
     },
     "trust_zone": {
       "type": "string"
     },
     "attacker_controlled_fields": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

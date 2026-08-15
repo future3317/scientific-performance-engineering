@@ -1,0 +1,12 @@
+{
+  "relation_id": "REL-PERF-SYNC-DATA",
+  "version": 1,
+  "parent": null,
+  "rule_ids": ["PERF-SYNC-004", "PERF-DATA-001"],
+  "kind": "context_dependent_interaction",
+  "applicability": {"all": ["cuda_pipeline", "large_batch"]},
+  "contrast_definition": {"type": "factorial_interaction", "arms": ["00", "10", "01", "11"]},
+  "practical_margin": 0.05,
+  "scientific_invariants": ["quality", "resume"],
+  "provenance_policy": {"required": true}
+}

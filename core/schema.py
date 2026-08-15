@@ -6,9 +6,9 @@ from dataclasses import MISSING, fields
 from typing import Any
 
 try:
-    from .models import EvidenceEvent, RuleSpec, RuleState
+    from .models import EvidenceEvent, RelationSpec, RelationState, RuleSpec, RuleState
 except ImportError:  # validate_skill.py executes this module as a source projection
-    from core.models import EvidenceEvent, RuleSpec, RuleState
+    from core.models import EvidenceEvent, RelationSpec, RelationState, RuleSpec, RuleState
 
 
 BASE = "https://github.com/future3317/scientific-performance-engineering/"
@@ -46,7 +46,15 @@ def schemas() -> dict[str, dict[str, Any]]:
         },
         "evidence_event.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "evidence_event.schema.json", "title": "EvidenceEvent", "type": "object",
-            **_object(EvidenceEvent, {"event_id": {"type": "string", "minLength": 1}, "context": {"type": "object"}, "rule_id": {"type": "string"}, "rule_version": {"type": "integer", "minimum": 1}, "assignment": {"type": "object", "required": ["arm"], "properties": {"arm": {"enum": ["on", "off"]}}}, "outcome_vector": {"type": "object"}, "scientific_gates": {"type": "object"}, "artifacts": {"type": "object"}, "versions": {"type": "object"}, "source_id": {"type": "string"}, "independence_group": {"type": "string"}, "timestamp": {"type": "string"}, "trust_zone": {"type": "string"}, "attacker_controlled_fields": {"type": "array"}}),
+            **_object(EvidenceEvent, {"schema_version": {"const": 2}, "event_id": {"type": "string", "minLength": 1}, "context": {"type": "object"}, "assignment": {"type": "object", "additionalProperties": False, "required": ["interventions", "propensity", "design_id"], "properties": {"interventions": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "enum": [0, 1]}}, "propensity": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "design_id": {"type": "string", "minLength": 1}}}, "outcome_vector": {"type": "object"}, "scientific_gates": {"type": "object"}, "artifacts": {"type": "object"}, "versions": {"type": "object"}, "source_id": {"type": "string", "minLength": 1}, "independence_group": {"type": "string", "minLength": 1}, "timestamp": {"type": "string", "minLength": 1}, "evidence_stream": {"enum": ["representative", "adversarial"]}, "query_id": {"type": "string", "minLength": 1}, "trust_zone": {"type": "string"}, "attacker_controlled_fields": {"type": "array", "items": {"type": "string"}}}),
+        },
+        "relation_spec.schema.json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "relation_spec.schema.json", "title": "RelationSpec", "type": "object",
+            **_object(RelationSpec, {"relation_id": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 1}, "parent": {"type": ["string", "null"]}, "rule_ids": {"type": "array", "minItems": 2, "uniqueItems": True, "items": {"type": "string", "minLength": 1}}, "kind": {"enum": ["synergy", "antagonism", "independence", "prerequisite", "redundancy", "semantic_conflict", "context_dependent_interaction"]}, "applicability": {"type": "object", "minProperties": 1}, "contrast_definition": {"type": "object", "minProperties": 1}, "practical_margin": {"type": "number", "minimum": 0}, "scientific_invariants": {"type": "array", "items": {"type": "string"}}, "provenance_policy": {"type": "object"}}),
+        },
+        "relation_state.schema.json": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "relation_state.schema.json", "title": "RelationState", "type": "object",
+            **_object(RelationState, {"relation_id": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 1}, "estimate": {"type": "number"}, "confidence_sequence": {"type": "object"}, "status": {"enum": ["candidate", "canonical", "retired"]}, "drift_state": {"enum": ["stable", "suspected_drift", "stale", "revalidating"]}, "counterexample_count": {"type": "integer", "minimum": 0}, "last_confirmed": {"type": ["string", "null"]}}),
         },
         "rule_state.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "rule_state.schema.json", "title": "RuleState", "type": "object",

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/future3317/scientific-performance-engineering/relation_spec.schema.json",
+  "title": "RelationSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "relation_id",
+    "version",
+    "parent",
+    "rule_ids",
+    "kind",
+    "applicability",
+    "contrast_definition",
+    "practical_margin",
+    "scientific_invariants",
+    "provenance_policy"
+  ],
+  "properties": {
+    "relation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "parent": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rule_ids": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "kind": {
+      "enum": [
+        "synergy",
+        "antagonism",
+        "independence",
+        "prerequisite",
+        "redundancy",
+        "semantic_conflict",
+        "context_dependent_interaction"
+      ]
+    },
+    "applicability": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "contrast_definition": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "practical_margin": {
+      "type": "number",
+      "minimum": 0
+    },
+    "scientific_invariants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "provenance_policy": {
+      "type": "object"
+    }
+  }
+}
