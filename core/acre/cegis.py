@@ -54,7 +54,6 @@ class StatisticalCEGIS:
         self.grammar = grammar
         self.epsilon_true = epsilon_true
         self.epsilon_false = epsilon_false
-        self._hypothesis_space: tuple[dict[str, Any], ...] | None = None
 
     def synthesize(
         self,
@@ -78,11 +77,16 @@ class StatisticalCEGIS:
         if any(_key(item.context) in anchor_keys for item in certified):
             return SynthesisResult("unsynthesizable_boundary", None, counterexample_ids, anchor_ids, provenance=provenance)
         contexts = [item.context for item in anchors] + [item.context for item in certified]
-        if self._hypothesis_space is None:
-            self._hypothesis_space = tuple(self.grammar.candidates(contexts, parent_predicate=parent_predicate))
+        # The finite vocabulary is rebuilt from the complete observed
+        # decision context set on every call.  This is an explicit sequential
+        # expansion policy: a newly observed boundary value can introduce a
+        # new threshold instead of being filtered against a stale first-round
+        # hypothesis space.
+        vocabulary_contexts = contexts + list(decision_contexts or [])
+        hypothesis_space = tuple(self.grammar.candidates(vocabulary_contexts, parent_predicate=parent_predicate))
         consistent = [
             predicate
-            for predicate in self._hypothesis_space
+            for predicate in hypothesis_space
             if all(match_predicate(predicate, item.context) for item in anchors)
             and all(not match_predicate(predicate, item.context) for item in certified)
         ]
@@ -100,6 +104,7 @@ class StatisticalCEGIS:
         provenance["certified_evidence"] = list(counterexample_ids)
         provenance["positive_anchors"] = list(anchor_ids)
         provenance["complexity"] = predicate_complexity(predicate)
+        provenance["hypothesis_vocabulary_context_count"] = len(vocabulary_contexts)
         # A consistent predicate is identified only when every remaining
         # hypothesis makes the same deploy/no-deploy decision on the
         # observable decision contexts.  The sealed pool is deliberately not

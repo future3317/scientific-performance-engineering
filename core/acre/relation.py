@@ -39,7 +39,14 @@ class RelationIdentifier:
         if not estimates:
             raise ValueError("at least one context estimate is required")
         decisions = {name: self._identify_local(estimate) for name, estimate in estimates.items()}
-        resolved = {decision for decision in decisions.values() if decision != "unresolved"}
+        # A global relation is not identified while any registered,
+        # decision-relevant context remains unresolved.  This makes the result
+        # independent of mapping insertion order and prevents a resolved
+        # context from masking missing evidence elsewhere.
+        unresolved = {decision for decision in decisions.values() if decision in {"unresolved", "underidentified_context_relation"}}
+        if unresolved:
+            return RelationIdentification("underidentified_context_relation", decisions)
+        resolved = set(decisions.values())
         if len(resolved) > 1:
             return RelationIdentification(
                 "context_dependent_relation", decisions,

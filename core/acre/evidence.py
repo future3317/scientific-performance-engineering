@@ -34,9 +34,15 @@ def _utility(event: EvidenceEvent) -> float | None:
 class EvidenceAssessment:
     representative_count: int
     adversarial_count: int
-    promotion_lcb: float | None
+    utility_effect_lcb: float | None
+    promotion_probability_lcb: float | None
     falsifying_event_ids: tuple[str, ...]
     specialization_event_ids: tuple[str, ...]
+
+    @property
+    def promotion_lcb(self) -> float | None:
+        """Compatibility view; routing must use ``utility_effect_lcb``."""
+        return self.utility_effect_lcb
 
 
 def assess(events: Iterable[EvidenceEvent], *, delta: float = 0.05) -> EvidenceAssessment:
@@ -52,9 +58,16 @@ def assess(events: Iterable[EvidenceEvent], *, delta: float = 0.05) -> EvidenceA
     adv = adversarial_events(canonical)
     values = [value for event in reps if (value := _utility(event)) is not None]
     if values:
-        mean = sum(values) / len(values)
-        radius = math.sqrt(2.0 * math.log(2.0 / delta) / len(values))
-        lcb = max(-1.0, mean - radius)
+        # Allocate confidence over all prefixes so callers may inspect the
+        # stream after any stopping time without reusing a fixed-sample bound.
+        lcb = None
+        for count in range(1, len(values) + 1):
+            prefix = values[:count]
+            mean = sum(prefix) / count
+            prefix_delta = delta / (count * (count + 1))
+            radius = math.sqrt(2.0 * math.log(2.0 / prefix_delta) / count)
+            bound = max(-1.0, mean - radius)
+            lcb = bound if lcb is None else max(lcb, bound)
     else:
         lcb = None
     falsifying = tuple(event.event_id for event in adv if not all(event.scientific_gates.values()))
@@ -63,4 +76,4 @@ def assess(events: Iterable[EvidenceEvent], *, delta: float = 0.05) -> EvidenceA
         for event in adv
         if event.outcome_vector.get("counterexample") is True or event.event_id in falsifying
     )
-    return EvidenceAssessment(len(reps), len(adv), lcb, falsifying, specializing)
+    return EvidenceAssessment(len(reps), len(adv), lcb, None, falsifying, specializing)

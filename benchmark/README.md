@@ -83,6 +83,11 @@ interaction report uses `wrong_relation_rate_among_resolved`, `unresolved_rate`,
 and `total_identification_failure_rate`; unresolved decisions are not counted as
 wrong relations.
 
+Formal result claims require a separate `calibration_approval.json` beside the
+population report. The approval records digests of the population and empirical
+calibration artifacts plus the governing review policy; a writable report alone
+cannot open the claim gate.
+
 ## Layout
 
 ```

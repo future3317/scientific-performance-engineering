@@ -169,7 +169,10 @@ class ConservativeCausalRouter:
                 reasons.add("relation_overlap_conflict")
             relation = matches[0] if len(matches) == 1 else None
             if relation is None:
-                if left.scientific_invariants and right.scientific_invariants:
+                # One scientifically sensitive endpoint is sufficient to
+                # make an unknown joint deployment unsafe.  The absence of a
+                # certificate is not evidence of independence.
+                if left.scientific_invariants or right.scientific_invariants:
                     reasons.add("unknown_scientific_interaction")
                 continue
             if relation.kind == "semantic_conflict":
@@ -213,17 +216,31 @@ class ConservativeCausalRouter:
             raise ValueError("rule states must cover every rule spec")
         relation_map = self._relation_map(relation_specs)
         context_map = self._context(context)
-        applicable = [
-            spec for spec in rule_specs
-            if (state := rule_states[spec.rule_id]).status == "canonical"
-            and state.drift_state == "stable"
-            and match_predicate(spec.applicability, context_map)
-        ]
+        context_domain = context_map.get("domain")
+
+        def domain_matches(spec: RuleSpec) -> bool:
+            # ``runtime`` is the historical default for cards authored before
+            # domain-aware routing; an explicit non-default domain must match
+            # the full TaskContext root.
+            return context_domain is None or spec.domain in {"runtime", str(context_domain)}
+
+        def eligible(spec: RuleSpec, state: RuleState) -> bool:
+            if state.status != "canonical" or state.drift_state != "stable":
+                return False
+            if not domain_matches(spec) or not match_predicate(spec.applicability, context_map):
+                return False
+            return not (spec.abstain_conditions and match_predicate(spec.abstain_conditions, context_map))
+
+        applicable = [spec for spec in rule_specs if eligible(spec, rule_states[spec.rule_id])]
         rejected: dict[str, set[str]] = {spec.rule_id: set() for spec in rule_specs}
         for spec in rule_specs:
             state = rule_states[spec.rule_id]
             if state.status != "canonical" or state.drift_state != "stable":
                 rejected[spec.rule_id].add("rule_state_ineligible")
+            elif not domain_matches(spec):
+                rejected[spec.rule_id].add("domain_mismatch")
+            elif spec.abstain_conditions and match_predicate(spec.abstain_conditions, context_map):
+                rejected[spec.rule_id].add("abstain_condition")
         valid: list[tuple[tuple[RuleSpec, ...], float]] = []
         for width in range(0, len(applicable) + 1):
             for selected in itertools.combinations(applicable, width):
@@ -242,7 +259,7 @@ class ConservativeCausalRouter:
         bundle, objective = max(valid, key=lambda item: (item[1], tuple(spec.rule_id for spec in item[0])))
         selected_ids = {spec.rule_id for spec in bundle}
         for spec in rule_specs:
-            if spec.rule_id not in selected_ids and not match_predicate(spec.applicability, context_map):
+            if spec.rule_id not in selected_ids and not eligible(spec, rule_states[spec.rule_id]):
                 rejected[spec.rule_id].add("not_applicable")
         evidence = dict(higher_order_evidence or {})
         if len(bundle) < 3:

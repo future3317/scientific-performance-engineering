@@ -83,6 +83,15 @@ def test_relation_report_labels_share_one_canonical_namespace():
     assert canonical_relation_label("context_dependent_interaction") == "context_dependent_relation"
 
 
+def test_relation_identifier_does_not_depend_on_context_insertion_order():
+    unresolved = _factorial({"00": 0.0, "10": 0.0, "01": 0.0, "11": 0.0}, blocks=1).estimate()
+    strong = _factorial({"00": 0.0, "10": 0.1, "01": 0.1, "11": 0.9}, blocks=4096).estimate()
+    identifier = RelationIdentifier(practical_margin=0.1)
+    first = identifier.identify({"unresolved": unresolved, "strong": strong})
+    second = identifier.identify({"strong": strong, "unresolved": unresolved})
+    assert first.decision == second.decision == "underidentified_context_relation"
+
+
 def test_three_way_oracle_hits_requested_residual_exactly():
     cells = build_three_way_oracle(residual=0.24)
     raw = cells["111"] - cells["110"] - cells["101"] - cells["011"] + cells["100"] + cells["010"] + cells["001"] - cells["000"]

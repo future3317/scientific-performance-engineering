@@ -175,6 +175,12 @@ class EvidenceEvent:
         if isinstance(propensity, bool) or not isinstance(propensity, (int, float)) or not 0.0 < float(propensity) <= 1.0:
             raise ValueError("assignment.propensity must be in (0, 1]")
         _nonempty(self.assignment.get("design_id"), "assignment.design_id")
+        utility = self.outcome_vector.get("utility")
+        if utility is not None and (
+            isinstance(utility, bool) or not isinstance(utility, (int, float))
+            or not math.isfinite(float(utility)) or not -1.0 <= float(utility) <= 1.0
+        ):
+            raise ValueError("outcome_vector.utility must be bounded in [-1, 1]")
         if self.evidence_stream not in {"representative", "adversarial"}:
             raise ValueError("evidence_stream must be representative or adversarial")
         validate_identifier(self.query_id, "query_id")

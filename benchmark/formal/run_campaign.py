@@ -9,6 +9,7 @@ solution workspace for each task and then invokes the immutable verifier.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -440,7 +441,7 @@ def _experiment_manifest(
 
 
 def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], report_path: Path) -> bool:
-    """Allow a claim only after the frozen schedule and calibration gate pass."""
+    """Allow a claim only after an attested calibration approval."""
     if campaign.get("status") != "complete" or not records:
         return False
     if any(record.get("validity") != "valid" for record in records):
@@ -453,7 +454,37 @@ def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], 
     except (OSError, json.JSONDecodeError):
         return False
     calibration = report.get("empirical_calibration", {})
-    return calibration.get("calibration_gate") == "passed"
+    if calibration.get("calibration_gate") != "passed":
+        return False
+    approval_path = report_path.with_name("calibration_approval.json")
+    try:
+        approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(approval, dict) or approval.get("schema_version") != 1 or approval.get("approved") is not True:
+        return False
+    body = {key: value for key, value in approval.items() if key != "approval_digest"}
+    expected = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    if approval.get("approval_digest") != expected:
+        return False
+    report_digest = hashlib.sha256(
+        json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    if approval.get("population_report_digest") != report_digest:
+        return False
+    source = calibration.get("source")
+    if not source:
+        return False
+    try:
+        empirical = json.loads(Path(source).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    empirical_digest = hashlib.sha256(
+        json.dumps(empirical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return approval.get("empirical_report_digest") == empirical_digest
 
 
 def run_campaign(args: argparse.Namespace) -> dict[str, Any]:

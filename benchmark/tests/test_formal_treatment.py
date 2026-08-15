@@ -172,3 +172,21 @@ def test_executor_receipt_requires_network_and_mount_attestation(tmp_path: Path)
     _, errors = _read_executor_receipt(receipt, "a" * 64)
     assert "external executor must declare network_mode=none" in errors
     assert any("mount_allowlist" in error for error in errors)
+
+
+def test_evidence_utility_is_bounded_for_confidence_accounting() -> None:
+    from core.models import EvidenceEvent
+
+    payload = {
+        "schema_version": 2,
+        "event_id": "E-1",
+        "context": {"domain": "runtime"},
+        "assignment": {"interventions": {"R1": 1}, "propensity": 0.5, "design_id": "D-1"},
+        "outcome_vector": {"utility": 1.1},
+        "scientific_gates": {"ok": True},
+        "artifacts": {}, "versions": {}, "source_id": "S-1", "independence_group": "G-1",
+        "timestamp": "2026-01-01T00:00:00Z", "evidence_stream": "representative", "query_id": "Q-1",
+        "trust_zone": "local", "attacker_controlled_fields": [],
+    }
+    with pytest.raises(ValueError, match="bounded"):
+        EvidenceEvent.from_dict(payload)

@@ -562,6 +562,11 @@ fail the calibration gate are retired or rewritten before any v1.0-50 task is
 generated. The frozen v1.0-50 slot manifest records only track quotas and
 public/sealed allocation; it intentionally contains no sealed task content.
 
+Formal result claims additionally require a digest-attested
+`calibration_approval.json` beside the population report. The approval binds
+the population artifact, empirical calibration artifact, and review policy;
+editing the report alone cannot satisfy the claim gate.
+
 ## 13. Reproducibility and environment
 
 - Python ≥ 3.10, torch ≥ 2.7 (CI floor 2.7.1 CPU); PyG optional with fallback.

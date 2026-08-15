@@ -83,3 +83,27 @@ def test_router_emits_higher_order_residual_certificate_for_large_bundle() -> No
     assert decision.bundle_certificate is not None
     assert decision.bundle_certificate.status == "higher_order_suspected"
     assert not decision.bundle_certificate.bounded_auto_allowed
+
+
+def test_unknown_pair_blocks_when_one_endpoint_is_scientifically_sensitive() -> None:
+    specs = [rule("sensitive", 0.8, sensitive=True), rule("ordinary", 0.7)]
+    decision = ConservativeCausalRouter(token_budget=4).route(
+        specs, states({"sensitive": 0.8, "ordinary": 0.7}), [], {}, {}
+    )
+    assert decision.selected_rule_ids == ("sensitive",)
+    assert "unknown_scientific_interaction" in decision.rejected_reasons["ordinary"]
+
+
+def test_router_applies_domain_and_abstain_gates() -> None:
+    scoped = RuleSpec(
+        rule_id="scoped", version=1, parent=None, applicability={"all": []},
+        intervention={"action": "scoped"}, expected_mechanism="mechanism",
+        evidence_requirements=["evidence"], scientific_invariants=[],
+        abstain_conditions={"equals": {"workload.mode": "unsafe"}}, relations={},
+        runtime_cost={"tokens": 1.0}, provenance_policy={"required": True}, domain="scientific",
+    )
+    state = RuleState("scoped", 1, status="canonical", effect={"lower_utility": 1.0})
+    decision = ConservativeCausalRouter(token_budget=2).route(
+        [scoped], {"scoped": state}, [], {}, TaskContext("runtime", {"mode": "unsafe"}, {}, {}, {}),
+    )
+    assert decision.selected_rule_ids == ()

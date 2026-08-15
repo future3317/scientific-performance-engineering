@@ -118,6 +118,9 @@ def store_digest(condition_dir: str | Path) -> str:
 def refresh_attestation(condition_dir: str | Path) -> dict[str, Any]:
     """Advance the store attestation after an allowed maintenance transition."""
     condition_dir = Path(condition_dir)
+    policy_ok, policy_errors = verify_condition_policy(condition_dir)
+    if not policy_ok:
+        raise ValueError("cannot refresh attestation for an unauthorized transition: " + "; ".join(policy_errors))
     manifest_path = condition_dir / "condition_manifest.json"
     try:
         previous = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -237,9 +240,13 @@ def verify_condition_policy(condition_dir: str | Path) -> tuple[bool, list[str]]
     current = set(current_files)
     additions = sorted(current - baseline)
     changed = sorted(path for path in baseline & current if baseline_files[path] != current_files[path])
-    if changed:
-        return False, [f"condition store modified attested file: {path}" for path in changed]
+    deleted = sorted(baseline - current)
     if condition in {"C", "C_STRESS"}:
+        if changed or deleted:
+            return False, [
+                *[f"{condition} store modified attested file: {path}" for path in changed],
+                *[f"{condition} store deleted attested file: {path}" for path in deleted],
+            ]
         forbidden = [path for path in additions if not path.startswith("experience/inbox/")]
         if forbidden:
             return False, [f"{condition} store wrote outside experience/inbox: {path}" for path in forbidden]
@@ -254,15 +261,22 @@ def verify_condition_policy(condition_dir: str | Path) -> tuple[bool, list[str]]
                     return False, [f"C raw experience contains governed-rule structure: {relative}"]
     elif condition == "D":
         mutable_prefixes = (
-            "experience/", "evolution/", "rules/", "registry/", "tests/rule_cases/"
+            "experience/", "evolution/", "rules/", "relations/", "relation_states/",
+            "registry/", "tests/rule_cases/"
         )
         forbidden_additions = [path for path in additions if not path.startswith(mutable_prefixes)]
         forbidden_changes = [path for path in changed if not path.startswith(mutable_prefixes)]
-        if forbidden_additions or forbidden_changes:
+        forbidden_deletions = [path for path in deleted if not path.startswith(mutable_prefixes)]
+        if forbidden_additions or forbidden_changes or forbidden_deletions:
             return False, [
                 *[f"D store wrote outside governance state: {path}" for path in forbidden_additions],
                 *[f"D store modified immutable skill state: {path}" for path in forbidden_changes],
+                *[f"D store deleted immutable skill state: {path}" for path in forbidden_deletions],
             ]
-    elif condition == "B" and additions:
-        return False, [f"frozen B store changed: {path}" for path in additions]
+    elif condition == "B" and (additions or changed or deleted):
+        return False, [
+            *[f"frozen B store changed: {path}" for path in additions],
+            *[f"frozen B store modified: {path}" for path in changed],
+            *[f"frozen B store deleted: {path}" for path in deleted],
+        ]
     return True, []

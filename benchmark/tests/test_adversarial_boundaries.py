@@ -47,6 +47,21 @@ def main() -> None:
         ok, errors = conditions.verify_condition_policy(c_store)
         assert not ok and any("outside experience/inbox" in item for item in errors), errors
 
+        # D governance may update relation state and registries, but an
+        # immutable skill file must never be re-baselined as part of that
+        # transition.
+        d_store = root / "d"
+        conditions.materialize_condition("D", bundle, d_store)
+        relation_dir = d_store / "relations"
+        relation_dir.mkdir(parents=True, exist_ok=True)
+        (relation_dir / "relation.json").write_text("{}\n", encoding="utf-8")
+        ok, errors = conditions.verify_condition_policy(d_store)
+        assert ok, errors
+        conditions.refresh_attestation(d_store)
+        (d_store / "SKILL.md").write_text("tampered\n", encoding="utf-8")
+        ok, errors = conditions.verify_condition_policy(d_store)
+        assert not ok and any("immutable skill state" in item for item in errors), errors
+
         # A field-only manifest edit is detected even when file hashes are unchanged.
         b_store = root / "b"
         conditions.materialize_condition("B", bundle, b_store)
