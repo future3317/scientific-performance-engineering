@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmark.formal import aggregate, attest, budget, run_campaign, schedule
+from benchmark.harness import conditions
 
 
 def main() -> None:
@@ -51,12 +52,51 @@ def main() -> None:
     assert attest.validate_experiment(manifest) == []
 
     records = []
-    for condition, score in (("B", 0.40), ("C", 0.50), ("D", 0.70)):
-        records.append({"task_id": "T1", "family": "compiler", "condition": condition, "context_mode": "reset", "outer_trial_id": "outer-000", "score": score, "kind": "positive"})
+    for condition, score, speedup in (("B", 0.40, 1.10), ("C", 0.50, 1.20), ("D", 0.70, 1.50)):
+        records.append({"task_id": "T1", "family": "compiler", "lineage_id": "L1", "condition": condition, "context_mode": "reset", "outer_trial_id": "outer-000", "score": score, "median_speedup": speedup, "kind": "positive"})
     summary = aggregate.aggregate_trials(records)
     assert math.isclose(summary["paired_effects"]["D-C"]["estimate"], 0.20)
     assert math.isclose(summary["paired_effects"]["D-B"]["estimate"], 0.30)
     assert summary["family_stratified"]["compiler"]["D-C"]["n"] == 1
+    assert math.isclose(summary["paired_log_speedups"]["D-C"]["estimate"], math.log(1.5) - math.log(1.2))
+    assert math.isclose(summary["task_score_effects"]["D-C"]["estimate"], 0.20)
+    assert summary["hierarchical_effects"]["D-C"]["n"] == 1
+    invalid_summary = aggregate.aggregate_trials(records + [{"task_id": "T1", "family": "compiler", "condition": "D", "outer_trial_id": "outer-001", "score": 1.0, "validity": "invalid"}])
+    assert invalid_summary["num_invalid_records"] == 1
+    assert invalid_summary["paired_effects"]["D-C"]["n"] == 1
+    semantic_invalid = {"task_id": "T1", "family": "compiler", "condition": "D", "outer_trial_id": "outer-002", "score": {"task_score": 0.9, "gates_passed": False, "verified_speedup": {"median_speedup": 4.0}}}
+    assert aggregate.aggregate_trials(records + [semantic_invalid])["paired_log_speedups"]["D-C"]["n"] == 1
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "skill"
+        root.mkdir()
+        (root / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+        bundle = Path(tmp) / "bundle"
+        from scripts.render_skill_view import render_skill_view
+        render_skill_view(root, bundle)
+        store = Path(tmp) / "store"
+        attest_store = conditions.materialize_condition("C", bundle, store, context_mode="reset")
+        transition = run_campaign.post_task_update(
+            condition="C",
+            store=store,
+            task_id="T1",
+            result={"verdict": "pass", "task_id": "T1"},
+            scored={"task_score": 0.5},
+            core_repo=repo_root,
+            out_dir=Path(tmp),
+        )
+        assert transition["pre_store_digest"] != transition["post_store_digest"]
+        assert transition["added_experience_ids"] == ["EXP-T1"]
+        assert conditions.verify_attestation(store)[0]
+
+    frozen_budget = budget.parse_budget({"tokens": 100, "tool_calls": 2, "wall_time_s": 5})
+    assert any("missing" in item for item in frozen_budget.validate_usage({}))
+    assert frozen_budget.validate_usage({"input_tokens": 40, "output_tokens": 40, "tool_calls": 2, "wall_time_s": 1}) == []
+    assert any("tokens exceeded" in item for item in frozen_budget.validate_usage({"input_tokens": 80, "output_tokens": 40, "tool_calls": 2, "wall_time_s": 1}))
+    timed_out = run_campaign._run_agent(
+        f'"{sys.executable}" -c "import time; time.sleep(0.1)"', {}, repo_root, 0.01
+    )
+    assert timed_out["returncode"] == 124
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "dry-run"

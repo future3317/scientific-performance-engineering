@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.harness import conditions, miniyaml, scoring, verifier
+from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
@@ -35,20 +36,114 @@ def _copy_workspace(task_dir: Path, destination: Path) -> None:
 
 def _run_agent(command_template: str, env: dict[str, str], cwd: Path, timeout: float) -> dict[str, Any]:
     command = command_template.format(**env)
-    completed = subprocess.run(
-        command,
-        shell=True,
-        cwd=str(cwd),
-        env={**os.environ, **env},
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            shell=True,
+            cwd=str(cwd),
+            env={**os.environ, **env},
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "command": command,
+            "returncode": 124,
+            "stdout": exc.stdout or "",
+            "stderr": (exc.stderr or "") + "timeout",
+        }
     return {
         "command": command,
         "returncode": completed.returncode,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
+    }
+
+
+def post_task_update(
+    *,
+    condition: str,
+    store: Path,
+    task_id: str,
+    result: dict[str, Any],
+    scored: dict[str, Any],
+    core_repo: Path,
+    out_dir: Path,
+    context_mode: str = "reset",
+    ledger: EvolutionDecisionLedger | None = None,
+    allow_maintenance: bool = True,
+) -> dict[str, Any]:
+    """Run the explicit execute -> evidence -> maintenance -> attest transition."""
+    condition = condition.upper()
+    pre_digest = conditions.store_digest(store)
+    evidence_id = f"EXP-{task_id}"
+    added_experience_ids: list[str] = []
+    promoted_rule_ids: list[str] = []
+    if condition in {"C", "C_STRESS", "D"}:
+        evidence = {
+            "id": evidence_id,
+            "task_id": task_id,
+            "condition": condition,
+            "context_mode": context_mode,
+            "verdict": result.get("verdict"),
+            "task_score": scored.get("task_score"),
+            "scientific_gates": result.get("scientific_gates", {}),
+            "measurement": result.get("measurement", {}),
+        }
+        inbox = store / "experience" / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        evidence_path = inbox / f"{evidence_id}.json"
+        if not evidence_path.exists():
+            evidence_path.write_text(json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            added_experience_ids.append(evidence_id)
+
+    if condition == "D" and allow_maintenance:
+        valid, policy_errors = conditions.verify_condition_policy(store)
+        if not valid:
+            raise ValueError("governed transition failed store policy: " + "; ".join(policy_errors))
+        active_ledger = ledger or EvolutionDecisionLedger()
+        candidates_dir = store / "evolution" / "candidates"
+        candidates = []
+        for path in sorted(candidates_dir.glob("*.json")):
+            candidate = json.loads(path.read_text(encoding="utf-8"))
+            if candidate.get("cases") and candidate.get("status") == "candidate":
+                candidates.append(candidate)
+        if candidates:
+            promoted_rule_ids = _promote_via_replay(store, candidates, core_repo, out_dir, active_ledger)
+        from scripts.validate_evolution import audit
+
+        errors = audit(store, schema_root=core_repo)
+        if errors:
+            raise ValueError("D maintenance transition failed validation: " + "; ".join(errors))
+        transition = "governed_maintenance"
+    elif condition == "D":
+        valid, policy_errors = conditions.verify_condition_policy(store)
+        if not valid:
+            raise ValueError("governed transition failed store policy: " + "; ".join(policy_errors))
+        from scripts.validate_evolution import audit
+
+        errors = audit(store, schema_root=core_repo)
+        if errors:
+            raise ValueError("D maintenance transition failed validation: " + "; ".join(errors))
+        transition = "maintenance_blocked"
+    elif condition in {"C", "C_STRESS"}:
+        valid, errors = conditions.verify_condition_policy(store)
+        if not valid:
+            raise ValueError("raw-experience transition failed policy validation: " + "; ".join(errors))
+        transition = "raw_experience_capture"
+    else:
+        transition = "no_op"
+
+    if condition in {"C", "C_STRESS", "D"}:
+        conditions.refresh_attestation(store)
+    post_digest = conditions.store_digest(store)
+    return {
+        "status": transition,
+        "pre_store_digest": pre_digest,
+        "post_store_digest": post_digest,
+        "added_experience_ids": added_experience_ids,
+        "promoted_rule_ids": promoted_rule_ids,
     }
 
 
@@ -143,6 +238,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     stores: dict[str, Path] = {}
     context_paths: dict[str, Path] = {}
+    ledgers: dict[str, EvolutionDecisionLedger] = {}
     for item in plan:
         stream_id = str(item["stream_id"])
         task_id = str(item["task_id"])
@@ -179,10 +275,19 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "SPE_CONDITION_STORE": str(store),
             "SPE_CONTEXT_STATE": str(state_path),
             "SPE_RESULT_PATH": str(trial_dir / "result.json"),
+            "SPE_AGENT_USAGE_PATH": str(trial_dir / "agent_usage.json"),
             "SPE_BUDGET_JSON": json.dumps(budgets.as_dict(), sort_keys=True),
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
         }
         agent = _run_agent(args.agent_command, env, repo_root, budgets.wall_time_s)
+        usage_path = trial_dir / "agent_usage.json"
+        try:
+            usage = json.loads(usage_path.read_text(encoding="utf-8")) if usage_path.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            usage = {}
+        budget_errors = budgets.validate_usage(usage)
+        if agent["returncode"] != 0:
+            budget_errors.append(f"agent command failed with return code {agent['returncode']}")
         result = verifier.verify_task(
             tasks_root / task_id,
             solution_dir,
@@ -191,7 +296,24 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             context_mode=str(item["context_mode"]),
             seed=int(item["outer_trial_index"]),
         )
+        result.setdefault("cost", {}).update({
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+            "tool_calls": usage.get("tool_calls"),
+        })
         scored = scoring.score_task(result)
+        transition = post_task_update(
+            condition=str(item["condition"]),
+            store=store,
+            task_id=task_id,
+            result=result,
+            scored=scored,
+            core_repo=repo_root,
+            out_dir=trial_dir,
+            context_mode=str(item["context_mode"]),
+            ledger=ledgers.setdefault(stream_id, EvolutionDecisionLedger()),
+            allow_maintenance=not budget_errors,
+        )
         record = {
             "experiment": manifest,
             "task_id": task_id,
@@ -202,13 +324,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "outer_trial_id": item["outer_trial_id"],
             "phase": item["phase"],
             "agent": agent,
-            "budget_errors": budgets.check_cost(result.get("cost", {})),
+            "agent_usage": usage,
+            "budget_errors": budget_errors,
+            "validity": "invalid" if budget_errors else "valid",
+            "transition": transition,
             "score": scored,
         }
         (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
         records.append(record)
     campaign["status"] = "complete"
-    campaign["results_claimed"] = bool(records)
+    campaign["results_claimed"] = any(record.get("validity") == "valid" for record in records)
     campaign["aggregate"] = aggregate.aggregate_trials(records)
     (out_dir / "campaign.json").write_text(json.dumps(campaign, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
     return campaign

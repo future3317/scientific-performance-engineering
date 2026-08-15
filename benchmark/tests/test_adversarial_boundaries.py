@@ -73,6 +73,8 @@ def main() -> None:
         ledger = EvolutionDecisionLedger()
         ledger.record("r1", 1, "digest", "candidate")
         assert ledger.has("r1", 1)
+        assert ledger.has_replay("r1", 1, "digest")
+        assert not ledger.has_replay("r1", 1, "other-digest")
         assert not ledger.has("r2", 1)
 
     print("test_adversarial_boundaries: OK")

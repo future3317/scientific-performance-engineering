@@ -33,6 +33,9 @@ from typing import Any
 from . import anticheat
 
 CONDITIONS = ("A", "B", "C", "C_STRESS", "D")
+_RAW_EXPERIENCE_FORBIDDEN_KEYS = {
+    "rulespec", "rule_spec", "promotion", "replay_manifest", "specialization", "retirement"
+}
 
 # Pipeline dirs that must exist in the governed (D) store, per the core layout.
 PIPELINE_DIRS = (
@@ -77,6 +80,7 @@ def _attest(out_dir: Path, condition: str, policy: dict[str, Any], snapshot_dir:
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "files": anticheat.hash_tree(out_dir),
     }
+    manifest["files"].pop("condition_manifest.json", None)
     body = {key: value for key, value in manifest.items() if key != "manifest_digest"}
     manifest["manifest_digest"] = hashlib.sha256(
         json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -85,6 +89,43 @@ def _attest(out_dir: Path, condition: str, policy: dict[str, Any], snapshot_dir:
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return manifest
+
+
+def _raw_experience_forbidden(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            str(key).lower() in _RAW_EXPERIENCE_FORBIDDEN_KEYS or _raw_experience_forbidden(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_raw_experience_forbidden(item) for item in value)
+    return False
+
+
+def store_digest(condition_dir: str | Path) -> str:
+    """Digest the attested store contents, excluding its mutable manifest."""
+    files = anticheat.hash_tree(Path(condition_dir))
+    files.pop("condition_manifest.json", None)
+    return hashlib.sha256(
+        json.dumps(files, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def refresh_attestation(condition_dir: str | Path) -> dict[str, Any]:
+    """Advance the store attestation after an allowed maintenance transition."""
+    condition_dir = Path(condition_dir)
+    manifest_path = condition_dir / "condition_manifest.json"
+    try:
+        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid condition manifest: {exc}") from exc
+    return _attest(
+        condition_dir,
+        str(previous["condition"]),
+        dict(previous["injection_policy"]),
+        previous.get("source_snapshot"),
+        str(previous.get("context_mode", "reset")),
+    )
 
 
 def materialize_condition(
@@ -198,6 +239,26 @@ def verify_condition_policy(condition_dir: str | Path) -> tuple[bool, list[str]]
         forbidden = [path for path in additions if not path.startswith("experience/inbox/")]
         if forbidden:
             return False, [f"{condition} store wrote outside experience/inbox: {path}" for path in forbidden]
+        if condition == "C":
+            for relative in additions:
+                path = condition_dir / relative
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if _raw_experience_forbidden(record):
+                    return False, [f"C raw experience contains governed-rule structure: {relative}"]
+    elif condition == "D":
+        mutable_prefixes = (
+            "experience/", "evolution/", "rules/", "registry/", "tests/rule_cases/"
+        )
+        forbidden_additions = [path for path in additions if not path.startswith(mutable_prefixes)]
+        forbidden_changes = [path for path in changed if not path.startswith(mutable_prefixes)]
+        if forbidden_additions or forbidden_changes:
+            return False, [
+                *[f"D store wrote outside governance state: {path}" for path in forbidden_additions],
+                *[f"D store modified immutable skill state: {path}" for path in forbidden_changes],
+            ]
     elif condition == "B" and additions:
         return False, [f"frozen B store changed: {path}" for path in additions]
     return True, []

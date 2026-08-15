@@ -49,6 +49,48 @@ sources:
     large_download_required: false
     notes: "E:/CODE/SPE-EvoBench/notes/skillsbench.md"
 
+  - id: skilllearnbench
+    name: "SkillLearnBench"
+    upstream_url: "not pinned; literature reference"
+    paper: "SkillLearnBench (2025)"
+    pinned_version: null
+    license: "paper only"
+    purpose: "skill learning and reuse evaluation"
+    expected_size: "paper only"
+    selected_subset: "paper only"
+    checksum: null
+    cache_location: "not cached"
+    large_download_required: false
+    notes: "No code or data consumed."
+
+  - id: swe-skills-bench
+    name: "SWE-Skills-Bench"
+    upstream_url: "not pinned; literature reference"
+    paper: "SWE-Skills-Bench (2026)"
+    pinned_version: null
+    license: "paper only"
+    purpose: "repository-level skill evaluation"
+    expected_size: "paper only"
+    selected_subset: "paper only"
+    checksum: null
+    cache_location: "not cached"
+    large_download_required: false
+    notes: "No code or data consumed."
+
+  - id: msce
+    name: "MSCE"
+    upstream_url: "not pinned; literature reference"
+    paper: "MSCE (2026)"
+    pinned_version: null
+    license: "paper only"
+    purpose: "continual memory and skill evolution"
+    expected_size: "paper only"
+    selected_subset: "paper only"
+    checksum: null
+    cache_location: "not cached"
+    large_download_required: false
+    notes: "No code or data consumed."
+
   - id: continualskillbench
     name: "ContinualSkillBench: Can LLM Agents Truly Evolve Their Capabilities?"
     upstream_url: "https://github.com/gtynnn060110-hash/continual-skill-bench-final"
@@ -76,6 +118,34 @@ sources:
     cache_location: "$SPE_BENCH_CACHE/refs/kernelbench"
     large_download_required: false
     notes: "E:/CODE/SPE-EvoBench/notes/kernelbench.md"
+
+  - id: sequential-mixture-cs
+    name: "Estimating Means of Bounded Random Variables by Betting"
+    upstream_url: "https://arxiv.org/abs/2010.09686"
+    paper: "arXiv:2010.09686 (2020)"
+    pinned_version: null
+    license: "paper only"
+    purpose: "time-uniform e-process construction for optional replay inspection"
+    expected_size: "paper only"
+    selected_subset: "paper only"
+    checksum: null
+    cache_location: "not cached"
+    large_download_required: false
+    notes: "No code or data consumed."
+
+  - id: performance-effect-uncertainty
+    name: "Quantifying Performance Changes with Effect Size Confidence Intervals"
+    upstream_url: "https://arxiv.org/abs/2007.10899"
+    paper: "arXiv:2007.10899 (2020)"
+    pinned_version: null
+    license: "paper only"
+    purpose: "effect-size uncertainty and clustered performance analysis"
+    expected_size: "paper only"
+    selected_subset: "paper only"
+    checksum: null
+    cache_location: "not cached"
+    large_download_required: false
+    notes: "No code or data consumed."
 
   - id: mlperf-hpc
     name: "MLPerf Training: HPC (MLCommons; retired Jan 2025)"

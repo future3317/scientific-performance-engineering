@@ -50,6 +50,11 @@ class EvolutionDecisionLedger:
     def has(self, rule_id: str, version: int) -> bool:
         return any(item.rule_id == str(rule_id) and item.version == int(version) for item in self._decisions.values())
 
+    def has_replay(self, rule_id: str, version: int, replay_digest: str) -> bool:
+        """Return whether this exact rule revision/replay has already advanced."""
+        key = (str(rule_id), int(version), str(replay_digest))
+        return key in self._decisions
+
     def count(self, *statuses: str) -> int:
         return sum(item.status in statuses for item in self._decisions.values())
 

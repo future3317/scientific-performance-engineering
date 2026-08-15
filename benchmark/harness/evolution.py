@@ -178,9 +178,9 @@ def _promote_via_replay(
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         rule_id = payload["rule_id"]
         version = int(candidate.get("version", 1))
-        if ledger.has(rule_id, version):
+        replay_digest = f"{manifest['case_bundle_sha256']}:{manifest['result_digest']}"
+        if ledger.has_replay(rule_id, version, replay_digest):
             continue
-        replay_digest = str(manifest["result_digest"])
         try:
             ledger.record(rule_id, version, replay_digest, "candidate")
             ledger.record(rule_id, version, replay_digest, "evaluated", float(manifest["result"].get("mean_effect", 0.0)))

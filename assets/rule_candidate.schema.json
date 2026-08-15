@@ -31,7 +31,7 @@
       "type": "object",
       "required": ["method", "prior_alpha", "prior_beta", "successes", "failures", "p_min", "delta", "posterior_probability", "effective_samples"],
       "properties": {
-        "method": {"enum": ["beta-binomial-mixture-cs", "beta-binomial", "anytime-hoeffding-union-bound"]},
+        "method": {"enum": ["beta-binomial-mixture-e-process", "beta-binomial-mixture-cs", "beta-binomial", "anytime-hoeffding-union-bound"]},
         "prior_alpha": {"type": "integer", "minimum": 1},
         "prior_beta": {"type": "integer", "minimum": 1},
         "successes": {"type": "integer", "minimum": 0},

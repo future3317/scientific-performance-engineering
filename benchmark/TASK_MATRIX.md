@@ -75,12 +75,12 @@ appears in both phase 1 and any later phase. `check-leakage` enforces this.
 
 | Track | Frozen total | In v1.0-20 pilot | Remaining after pilot |
 |---|---:|---:|---:|
-| SPE-Core | 24 | 11 | 19 |
-| SciML | 20 | 7 | 16 |
-| Evolution | 6 | 2 | 5 |
-| **Total** | **50** | **20** | **40** |
+| SPE-Core | 24 | 11 | 13 |
+| SciML | 20 | 7 | 13 |
+| Evolution | 6 | 2 | 4 |
+| **Total** | **50** | **20** | **30** |
 
-The remaining **19 Core, 16 SciML, and 5 Evolution** tasks are intentionally
+The remaining **13 Core, 13 SciML, and 4 Evolution** slots are intentionally
 not generated in this pilot. They may be generated only after the population
 validator is green and the 20-task difficulty/noise calibration gate is
 reviewed. The slot quotas and public/sealed allocation are frozen separately

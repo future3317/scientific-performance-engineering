@@ -7,8 +7,9 @@ Status: **v1.0-20 population-validity pilot implemented** (18 atomic tasks plus
 2 evolution episodes). The formal-eval driver supports a reproducible dry-run
 and explicit agent-command execution, but no formal A/B/C/D result is claimed
 by this repository. The formal target is frozen as SPE-EvoBench v1.0-50
-(24 SPE-Core + 20 SciML + 6 Evolution); the remaining 19 Core + 16 SciML + 5
-Evolution tasks are gated on empirical calibration.
+(24 SPE-Core + 20 SciML + 6 Evolution). The current pilot contains 11 Core,
+7 SciML, and 2 Evolution tasks; the remaining 13 Core, 13 SciML, and 4
+Evolution slots are gated on empirical calibration.
 
 ## Contents
 
@@ -255,6 +256,9 @@ S6 verdict        -> emit result.json (schema/result.schema.json): gates, verifi
   control measurement run on the same host.
 - **Verified speedup** = CI lower bound ≥ `max(min_improvement_percent,
   noise_floor_percent)`. Otherwise `inconclusive` (not zero-speedup).
+- Formal campaign aggregation keeps this task-level measurement separate from
+  evolution promotion: performance effects use paired log ratios of raw median
+  speedups, while task-score effects remain linear differences.
 - `speedup_tripwire`: verified speedup above the tripwire is flagged for audit
   (possible semantic skip) — flagged results are excluded from headline aggregates
   unless the audit trail explains them.
@@ -327,6 +331,9 @@ formal runs; the static scan is defense-in-depth, not a proof.
   all tasks.
 - `verified_speedup_geomean` remains a secondary diagnostic over verified positives;
   it is never the sole headline because it is vulnerable to survivorship bias.
+- `paired_log_speedup_effect` = `log(s_on) - log(s_off)` for paired raw median
+  speedups; confidence intervals resample family/lineage, then task, then outer
+  trial. Invalid trials are excluded before aggregation.
 - `mean_time_to_quality` ratio vs baseline (SciML generation tasks).
 - `diagnosis_accuracy`, `mean_cost`, `inconclusive_rate`.
 - Secondary composite = `pass_rate × verified_speedup_geomean`, reported with the raw
@@ -352,8 +359,12 @@ Measured per condition over the sequential stream (§10):
   rule library's return to pre-drift utility.
 - `poisoning_survival_rate`: fraction of poisoned/misleading experiences that fail to
   reach canonical status (D) or that cause measurable regressions (C).
-- Headline evolution score: normalized composite of the above; raw vector always
-  reported.
+- Evolution results report the raw metric vector; no composite is used as a
+  headline until its bounded utility policy and weighting are preregistered.
+- Promotion uses the bounded `normalized_task_utility_v1` policy and a
+  Beta--Binomial mixture e-process. A candidate is eligible only when the
+  one-sided lower confidence sequence clears `p_min` under optional inspection;
+  a fixed-sample posterior interval is not treated as a confidence sequence.
 
 ## 9. Experimental conditions A–D
 
@@ -449,6 +460,12 @@ allowlisted skill-view and task-manifest digests, model/configuration,
 condition, `context_mode`, task order, outer-trial ID, budgets, and hardware /
 software fingerprints. Inner baseline/candidate repetitions remain verifier
 measurements and are not substituted for independent outer trials.
+After verification, the driver performs an explicit post-task transition:
+evidence capture, condition-specific maintenance, policy validation, and store
+attestation. C can append only raw experience; D alone can invoke replay and
+governance. Agent-backed trials must emit `agent_usage.json` with input/output
+tokens, tool calls, and wall time; missing or over-budget receipts are invalid
+and excluded from headline aggregates.
 
 CLI:
 

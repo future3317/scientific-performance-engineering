@@ -87,8 +87,8 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
     if card.get("collector_confidence") not in {"low", "medium", "high"}:
         errors.append("collector_confidence must be low, medium, or high")
     confidence = card.get("confidence")
-    if not isinstance(confidence, dict) or confidence.get("method") not in {"anytime-hoeffding-union-bound", "beta-binomial", "beta-binomial-mixture-cs"}:
-        errors.append("confidence.method must be beta-binomial-mixture-cs or a legacy method")
+    if not isinstance(confidence, dict) or confidence.get("method") not in {"anytime-hoeffding-union-bound", "beta-binomial", "beta-binomial-mixture-cs", "beta-binomial-mixture-e-process"}:
+        errors.append("confidence.method must be beta-binomial-mixture-e-process or a legacy method")
     else:
         for key in ("prior_alpha", "prior_beta", "successes", "failures"):
             if not isinstance(confidence.get(key), int) or confidence[key] < 0:
@@ -96,7 +96,7 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
         for key in ("p_min", "delta", "posterior_probability", "effective_samples"):
             if not isinstance(confidence.get(key), (int, float)):
                 errors.append(f"confidence.{key} must be numeric")
-        if confidence.get("method") in {"anytime-hoeffding-union-bound", "beta-binomial-mixture-cs"} and not isinstance(confidence.get("promotion_probability_lower_bound"), (int, float)):
+        if confidence.get("method") in {"anytime-hoeffding-union-bound", "beta-binomial-mixture-cs", "beta-binomial-mixture-e-process"} and not isinstance(confidence.get("promotion_probability_lower_bound"), (int, float)):
             errors.append("anytime confidence requires promotion_probability_lower_bound")
     promotion = card.get("promotion")
     if not isinstance(promotion, dict) or promotion.get("replay_status") not in {"pending", "passed", "failed"} or not isinstance(promotion.get("human_review"), bool):
@@ -284,7 +284,7 @@ def validate_replay_manifest(card: dict[str, Any], root: Path) -> list[str]:
                 errors.append(f"{path}: replay result differs from card confidence: {key}")
         if result.get("mean_effect", float("-inf")) <= result.get("epsilon", float("inf")) or not result.get("scientific_gates_passed", False):
             errors.append(f"{path}: replay result does not clear paired utility/scientific gates")
-        if result.get("confidence_method") in {"anytime-hoeffding-union-bound", "beta-binomial-mixture-cs"} and result.get("promotion_probability_lower_bound", 0.0) < result.get("p_min", 1.0):
+        if result.get("confidence_method") in {"anytime-hoeffding-union-bound", "beta-binomial-mixture-cs", "beta-binomial-mixture-e-process"} and result.get("promotion_probability_lower_bound", 0.0) < result.get("p_min", 1.0):
             errors.append(f"{path}: replay result does not clear the anytime-valid promotion gate")
         if result.get("utility_policy_id") != "normalized_task_utility_v1":
             errors.append(f"{path}: replay result must declare utility_policy_id=normalized_task_utility_v1")
@@ -341,9 +341,10 @@ def validate_registry(registry: Any, cards: dict[str, dict[str, Any]]) -> list[s
     return errors
 
 
-def audit(root: Path) -> list[str]:
-    schema = load_schema(root / "assets" / "rule_candidate.schema.json")
-    regression_schema = load_schema(root / "assets" / "rule_regression_case.schema.json")
+def audit(root: Path, schema_root: Path | None = None) -> list[str]:
+    schema_root = schema_root or root
+    schema = load_schema(schema_root / "assets" / "rule_candidate.schema.json")
+    regression_schema = load_schema(schema_root / "assets" / "rule_regression_case.schema.json")
     errors: list[str] = []
     cards: dict[str, dict[str, Any]] = {}
     regression_cases: dict[str, dict[str, Any]] = {}

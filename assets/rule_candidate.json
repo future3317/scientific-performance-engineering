@@ -18,7 +18,7 @@
   "owner": "runtime",
   "collector_confidence": "medium",
   "confidence": {
-    "method": "beta-binomial",
+    "method": "beta-binomial-mixture-e-process",
     "prior_alpha": 1,
     "prior_beta": 1,
     "successes": 0,
@@ -26,6 +26,7 @@
     "p_min": 0.8,
     "delta": 0.05,
     "posterior_probability": 0.0,
+    "promotion_probability_lower_bound": 0.0,
     "effective_samples": 0.0
   },
   "promotion": {"replay_status": "pending", "human_review": false}

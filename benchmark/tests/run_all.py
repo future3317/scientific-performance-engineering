@@ -13,6 +13,7 @@ from pathlib import Path
 TESTS = (
     "test_miniyaml.py",
     "test_stats.py",
+    "test_sequential_stats.py",
     "test_scoring.py",
     "test_anticheat.py",
     "test_split_conditions.py",

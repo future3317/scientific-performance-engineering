@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://spe-evobench/schema/agent-usage.schema.json",
+  "title": "SPE-EvoBench agent usage receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["input_tokens", "output_tokens", "tool_calls", "wall_time_s"],
+  "properties": {
+    "input_tokens": {"type": "integer", "minimum": 0},
+    "output_tokens": {"type": "integer", "minimum": 0},
+    "tool_calls": {"type": "integer", "minimum": 0},
+    "wall_time_s": {"type": "number", "minimum": 0}
+  }
+}

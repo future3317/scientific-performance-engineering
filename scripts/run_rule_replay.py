@@ -37,17 +37,10 @@ def beta_tail_probability(alpha: int, beta: int, threshold: float) -> float:
 
 
 def anytime_lower_bound(successes: int, trials: int, delta: float) -> float:
-    """A time-uniform Hoeffding bound via a summable alpha schedule.
-
-    Using alpha_n = delta/(n(n+1)) makes the bound valid at every inspected
-    sample count by a union bound; it avoids optional-stopping claims based on
-    a fixed-n normal interval.
-    """
+    """Compatibility name for the active Beta-Binomial mixture boundary."""
     if trials < 1 or not 0 < delta < 1:
         raise ValueError("trials must be positive and delta must be in (0, 1)")
-    alpha_n = delta / (trials * (trials + 1))
-    radius = math.sqrt(math.log(2.0 / alpha_n) / (2.0 * trials))
-    return max(0.0, successes / trials - radius)
+    return mixture_lower_bound(successes, trials, delta)
 
 
 def betting_lower_bound(successes: int, trials: int, delta: float) -> float:
@@ -71,7 +64,10 @@ def evaluate_cases(
         for case in cases
     ]
     scientific_ok = all(bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)) for case in cases)
-    successes = sum(effect > epsilon for effect in effects)
+    successes = sum(
+        effect > epsilon and bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))
+        for effect, case in zip(effects, cases)
+    )
     failures = len(effects) - successes
     alpha = 1 + successes
     beta = 1 + failures
@@ -82,10 +78,9 @@ def evaluate_cases(
         standard_error = math.sqrt(variance / len(effects))
     else:
         standard_error = 0.0
-    # The mixture boundary is valid when the maintainer checks the stream after
-    # any number of replay cases and is tighter than the old union-bound gate.
-    effect_radius = math.sqrt(math.log(2.0 * len(effects) * (len(effects) + 1) / delta) / (2.0 * len(effects)))
-    lower_confidence_bound = mean_effect - effect_radius
+    # This descriptive interval is not used for promotion; promotion uses the
+    # time-uniform Bernoulli boundary below.
+    lower_confidence_bound = mean_effect - 1.96 * standard_error
     promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), delta)
     outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
     return {
@@ -103,7 +98,7 @@ def evaluate_cases(
         "delta": delta,
         "posterior_probability": posterior_probability,
         "promotion_probability_lower_bound": promotion_probability_lower_bound,
-        "confidence_method": "beta-binomial-mixture-cs",
+        "confidence_method": "beta-binomial-mixture-e-process",
         "scientific_gates_passed": scientific_ok,
         "outcome": outcome,
     }

@@ -28,6 +28,8 @@ def main() -> None:
         records = experience_retrieval.retrieve_raw_experiences(c, query="cache", token_budget=4096)
         assert records == [{"case_id": "EXP-1", "lesson": "cache"}]
         assert not any("RuleSpec" in str(record) for record in records)
+        (inbox / "bad.json").write_text(json.dumps({"rule_spec": {"rule_id": "R"}}), encoding="utf-8")
+        assert conditions.verify_condition_policy(c)[0] is False
 
     assert conditions.INJECTION_POLICIES["C_STRESS"]["mode"] == "inbox_any"
     assert conditions.INJECTION_POLICIES["C"]["retrieval_budget_tokens"] == conditions.INJECTION_POLICIES["D"]["retrieval_budget_tokens"]

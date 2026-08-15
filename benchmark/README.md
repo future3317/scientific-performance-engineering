@@ -13,8 +13,16 @@ workarounds for core-skill gaps (no core file is ever modified).
 2 evolution episodes. The formal-eval driver is available for a dry-run or an
 explicit agent command, but this repository claims no formal A/B/C/D results.
 The target remains frozen as SPE-EvoBench v1.0-50 (24 SPE-Core + 20 SciML + 6
-Evolution); the remaining work is exactly 19 Core + 16 SciML + 5 Evolution
-tasks, and is gated on pilot calibration.
+Evolution). The current pilot contains 11 Core, 7 SciML, and 2 Evolution
+tasks; 13 Core, 13 SciML, and 4 Evolution slots remain ungenerated and are
+gated on pilot calibration.
+
+Agent-backed trials must write `agent_usage.json` at the path supplied by
+`SPE_AGENT_USAGE_PATH` with `input_tokens`, `output_tokens`, `tool_calls`, and
+`wall_time_s`. The driver treats a missing, malformed, or over-budget receipt as
+an invalid trial. After verification, each task records an explicit evidence,
+maintenance, and store-attestation transition; C remains raw-experience-only,
+while D is the only condition allowed to promote governed rules.
 
 ## Layout
 

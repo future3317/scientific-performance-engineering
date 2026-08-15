@@ -77,6 +77,8 @@
       "required": ["wall_time_s"],
       "properties": {
         "wall_time_s": {"type": "number", "minimum": 0},
+        "input_tokens": {"type": ["integer", "null"], "minimum": 0},
+        "output_tokens": {"type": ["integer", "null"], "minimum": 0},
         "tokens": {"type": ["integer", "null"], "description": "Filled by the outer agent driver."},
         "tool_calls": {"type": ["integer", "null"], "description": "Filled by the outer agent driver."},
         "retries": {"type": "integer", "minimum": 0}

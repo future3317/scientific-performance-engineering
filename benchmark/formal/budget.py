@@ -30,6 +30,32 @@ class Budget:
             errors.append(f"wall_time_s exceeded: {wall} > {self.wall_time_s}")
         return errors
 
+    def validate_usage(self, usage: dict[str, Any]) -> list[str]:
+        """Validate the required machine-readable usage receipt for a trial."""
+        if not isinstance(usage, dict):
+            return ["agent_usage must be an object"]
+        required = ("input_tokens", "output_tokens", "tool_calls", "wall_time_s")
+        errors = [f"agent_usage missing {key}" for key in required if key not in usage]
+        if errors:
+            return errors
+        for key in ("input_tokens", "output_tokens", "tool_calls"):
+            value = usage[key]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                errors.append(f"agent_usage {key} must be a non-negative integer")
+        wall = usage["wall_time_s"]
+        if isinstance(wall, bool) or not isinstance(wall, (int, float)) or float(wall) < 0:
+            errors.append("agent_usage wall_time_s must be a non-negative number")
+        if errors:
+            return errors
+        total_tokens = int(usage["input_tokens"]) + int(usage["output_tokens"])
+        if total_tokens > self.tokens:
+            errors.append(f"tokens exceeded: {total_tokens} > {self.tokens}")
+        if int(usage["tool_calls"]) > self.tool_calls:
+            errors.append(f"tool_calls exceeded: {usage['tool_calls']} > {self.tool_calls}")
+        if float(usage["wall_time_s"]) > self.wall_time_s:
+            errors.append(f"wall_time_s exceeded: {usage['wall_time_s']} > {self.wall_time_s}")
+        return errors
+
 
 def parse_budget(value: dict[str, Any] | None) -> Budget:
     value = value or {}
