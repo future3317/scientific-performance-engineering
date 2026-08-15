@@ -57,7 +57,8 @@ python benchmark/tests/run_all.py
 python -m benchmark.harness.cli validate-task benchmark/tasks/<task_id>
 python -m benchmark.harness.cli run-task benchmark/tasks/<task_id> --solution DIR --out result.json \
     [--predict-mechanism scalar_sync,h2d_blocking] [--seed 0]
-python -m benchmark.harness.cli materialize-condition {A,B,C,D} --snapshot DIR --out DIR
+python scripts/render_skill_view.py SKILL_ROOT SKILL_VIEW_DIR
+python -m benchmark.harness.cli materialize-condition {A,B,C,D} --snapshot SKILL_VIEW_DIR --out DIR
 python -m benchmark.harness.cli run-episode benchmark/tasks/EVOL-EPISODE-POISON-10/episodes/<id>.yaml --condition {C,D} --out DIR
 python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml [--tasks-root DIR]
 python -m benchmark.harness.cli score-run RUN_DIR --out scores.json

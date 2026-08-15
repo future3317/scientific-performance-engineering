@@ -28,6 +28,7 @@ Episode YAML format (miniyaml subset)::
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -310,7 +311,16 @@ def run_episode(
     snapshot_dir = Path(snapshot_dir) if snapshot_dir else core_repo
 
     store = out_dir / "store"
-    manifest = conditions.materialize_condition(condition, snapshot_dir, store)
+    from scripts.render_skill_view import render_skill_view
+
+    if (snapshot_dir / "skill_view_manifest.json").is_file():
+        skill_view = snapshot_dir
+        manifest = conditions.materialize_condition(condition, skill_view, store)
+    else:
+        with tempfile.TemporaryDirectory(dir=out_dir.parent) as temp:
+            skill_view = Path(temp) / "skill-view"
+            render_skill_view(snapshot_dir, skill_view)
+            manifest = conditions.materialize_condition(condition, skill_view, store)
 
     poison_ids: list[str] = []
     paired_results: list[dict[str, Any]] = []

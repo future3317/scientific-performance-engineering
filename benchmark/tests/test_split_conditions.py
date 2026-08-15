@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmark.harness import conditions, miniyaml, split
+from scripts.render_skill_view import render_skill_view
 
 
 _TASK_TEMPLATE = """
@@ -122,6 +123,8 @@ def main() -> None:
         (snapshot / "rules").mkdir(parents=True)
         (snapshot / "SKILL.md").write_text("# skill\n", encoding="utf-8")
         (snapshot / "rules" / "r1.json").write_text('{"rule_id": "r1"}\n', encoding="utf-8")
+        snapshot_bundle = root / "snapshot-bundle"
+        render_skill_view(snapshot, snapshot_bundle)
 
         out = root / "condA"
         manifest = conditions.materialize_condition("A", None, out)
@@ -129,7 +132,7 @@ def main() -> None:
 
         for cond, mode in (("B", "frozen"), ("C", "inbox_any"), ("D", "canonical_only")):
             out = root / f"cond{cond}"
-            manifest = conditions.materialize_condition(cond, snapshot, out)
+            manifest = conditions.materialize_condition(cond, snapshot_bundle, out)
             assert manifest["injection_policy"]["mode"] == mode
             assert "SKILL.md" in manifest["files"]
             ok, diffs = conditions.verify_attestation(out)
