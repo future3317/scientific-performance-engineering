@@ -70,17 +70,103 @@ def generate_family_interaction_surface(
         # estimator; the hidden verifier can recompute the four outcomes.
         a_effect = 0.08 + (sum(sum(ord(char) for char in str(v)) for v in a.parameters.values()) % 12) / 100.0
         b_effect = 0.08 + (sum(sum(ord(char) for char in str(v)) for v in b.parameters.values()) % 12) / 100.0
-        interaction = ((index + seed) % 7 - 3) / 100.0
-        outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect + interaction)}
+        mode = (index + seed) % 8
+        if mode == 0:  # compositional synergy
+            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect + 0.85)}
+        elif mode == 1:  # destructive interference
+            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": max(-0.95, a_effect + b_effect - 0.75)}
+        elif mode == 2:  # independent additive effects
+            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect)}
+        elif mode == 3:  # B is useful only when A is present
+            outcomes = {"00": 0.0, "10": a_effect, "01": 0.0, "11": min(0.95, a_effect + 0.9)}
+        elif mode == 4:  # A is useful only when B is present
+            outcomes = {"00": 0.0, "10": 0.0, "01": b_effect, "11": min(0.95, b_effect + 0.9)}
+        elif mode == 5:  # redundant interventions
+            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": max(a_effect, b_effect)}
+        elif mode == 6:  # semantic conflict: the joint arm is invalid
+            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": 0.0}
+        else:  # a sign flip is represented by a hidden context variant
+            outcomes = {"00": 0.0, "10": a_effect, "01": b_effect, "11": min(0.95, a_effect + b_effect + 0.45)}
+        relation = (
+            ("synergy", "antagonism", "independence", "prerequisite_a_to_b",
+             "prerequisite_b_to_a", "redundancy", "semantic_conflict",
+             "context_dependent_sign_flip")[mode]
+        )
         surfaces.append({
             "surface_id": f"{resolved[0]}__{resolved[1]}-{seed:04d}-{index:04d}",
             "family_ids": list(resolved),
             "instance_ids": [a.instance_id, b.instance_id],
             "interventions": [list(FAMILY_SPECS[resolved[0]].interventions), list(FAMILY_SPECS[resolved[1]].interventions)],
             "outcomes": outcomes,
+            "hidden_relation": relation,
+            "context_variant": {arm: -value for arm, value in outcomes.items()} if mode == 7 else None,
+            "higher_order_residual": 0.18 if mode == 7 else 0.0,
             "cost": 1.0 + ((index + seed) % 9) / 2.0,
         })
     return surfaces
+
+
+def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: tuple[int, ...] = (8, 16, 32, 64, 128)) -> dict[str, object]:
+    """Run sequential confirmation on family-derived hidden surfaces."""
+    if count < 1 or not blocks or any(item < 2 for item in blocks):
+        raise ValueError("count must be positive and blocks must contain values >= 2")
+    surfaces = generate_family_interaction_surface(("h2d_pipeline", "compile"), count=count, seed=seed)
+    classifications: dict[str, int] = {}
+    hidden_labels: dict[str, str] = {}
+    details: list[dict[str, object]] = []
+    confusion: dict[str, dict[str, int]] = {}
+    for surface in surfaces:
+        values = surface["outcomes"]
+        hidden = str(surface["hidden_relation"])
+        hidden_labels[str(surface["surface_id"])] = hidden
+        rng = random.Random(seed * 1009 + len(details))
+        max_blocks = max(blocks)
+        generated: list[FactorialBlock] = []
+        for block_index in range(max_blocks):
+            outcomes = {arm: max(-1.0, min(1.0, float(value) + rng.uniform(-0.02, 0.02))) for arm, value in values.items()}
+            gates = {arm: not (hidden == "semantic_conflict" and arm == "11") for arm in ("00", "10", "01", "11")}
+            generated.append(FactorialBlock(f"{surface['surface_id']}-{block_index}", outcomes, gates))
+        chosen = None
+        estimates: list[dict[str, object]] = []
+        for block_count in blocks:
+            engine = FactorialEngine(delta=0.2, practical_margin=0.1)
+            for block in generated[:block_count]:
+                engine.add_block(block)
+            estimate = engine.estimate()
+            row = {"blocks": block_count, "decision": estimate.decision, "gamma": estimate.gamma, "gamma_lcb": estimate.gamma_lcb, "gamma_ucb": estimate.gamma_ucb}
+            estimates.append(row)
+            if chosen is None and estimate.decision != "unresolved":
+                chosen = (block_count, estimate)
+        if chosen is None:
+            stopping_blocks, estimate = None, engine.estimate()
+        else:
+            stopping_blocks, estimate = chosen
+        predicted = estimate.decision
+        classifications[predicted] = classifications.get(predicted, 0) + 1
+        confusion.setdefault(hidden, {})[predicted] = confusion.setdefault(hidden, {}).get(predicted, 0) + 1
+        details.append({
+            "surface_id": surface["surface_id"],
+            "hidden_relation": hidden,
+            "predicted_relation": predicted,
+            "gamma": estimate.gamma,
+            "gamma_lcb": estimate.gamma_lcb,
+            "gamma_ucb": estimate.gamma_ucb,
+            "stopping_blocks": stopping_blocks,
+            "experiment_cost": float(surface["cost"]) * float(stopping_blocks or max(blocks)),
+            "estimates": estimates,
+        })
+    return {
+        "surface_count": count,
+        "block_schedule": list(blocks),
+        "classifications": classifications,
+        "hidden_relation_counts": {label: list(hidden_labels.values()).count(label) for label in sorted(set(hidden_labels.values()))},
+        "confusion_matrix": confusion,
+        "surface_results": details,
+        "false_relation_rate": sum(item["predicted_relation"] not in {item["hidden_relation"], "confirmed_independence"} for item in details) / len(details),
+        "unresolved_rate": sum(item["predicted_relation"] == "unresolved" for item in details) / len(details),
+        "median_blocks_to_confirmation": sorted(item["stopping_blocks"] for item in details if item["stopping_blocks"] is not None)[len([item for item in details if item["stopping_blocks"] is not None]) // 2] if any(item["stopping_blocks"] is not None for item in details) else None,
+        "experiment_cost": sum(float(item["experiment_cost"]) for item in details),
+    }
 
 
 def run_factorial_benchmark(*, blocks: int = 5000, seed: int = 7) -> dict[str, object]:

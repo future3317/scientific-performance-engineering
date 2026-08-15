@@ -18,12 +18,12 @@ class BoundaryCase(BoundaryObservation):
     expected_applicable: bool = False
 
 
-def family_cases(family: str, *, surface_count: int | None = None) -> dict[str, list[BoundaryCase]]:
+def family_cases(family: str, *, surface_count: int | None = None, seed: int = 0) -> dict[str, list[BoundaryCase]]:
     # Canonical family views are generated from benchmark/families.  The
     # historical names below remain calibration aliases for ACRE-v0 tests.
     aliases = {"graph_cache_geometry_motion": "graph_cache", "compile_horizon": "compile"}
     if family in aliases:
-        views = family_cases(aliases[family], surface_count=surface_count or 24)
+        views = family_cases(aliases[family], surface_count=surface_count or 24, seed=seed)
         return {
             "representative_pool": views["representative_pool"],
             "query_pool": views["active_query_pool"],
@@ -33,24 +33,20 @@ def family_cases(family: str, *, surface_count: int | None = None) -> dict[str, 
     if family in canonical and surface_count is None:
         surface_count = 24
     if family in canonical and surface_count is not None:
-        views = family_views(family, count=surface_count)
+        views = family_views(family, count=surface_count, seed=seed)
         def convert(item: Any) -> BoundaryCase:
             params = dict(item.parameters)
             if family == "compile":
-                positive = params["logical_steps"] >= 128 and params["dynamic_shape_rate"] <= 0.4
                 mechanism, path = "compile", "logical_steps"
             elif family == "graph_cache":
-                positive = params["geometry_displacement"] <= 0.05
                 mechanism, path = "graph_cache", "geometry_displacement"
             elif family == "h2d_pipeline":
-                positive = params["pin_memory"] and params["worker_count"] <= 4
                 mechanism, path = "h2d_pipeline", "worker_count"
             elif family == "checkpoint":
-                positive = params["memory_pressure"] >= 0.57
                 mechanism, path = "checkpoint", "memory_pressure"
             else:
-                positive = params["scalar_syncs_per_step"] > 8
                 mechanism, path = "scalar_sync", "scalar_syncs_per_step"
+            positive = bool(item.applicable)
             effect = 0.2 if positive else -0.1
             context = {"workload": {"mechanism": mechanism, **params}}
             return BoundaryCase(item.instance_id, context, effect, True, effect - 0.02, effect + 0.02, positive)
@@ -79,10 +75,10 @@ def _grammar_for(family: str) -> PredicateGrammar:
     return PredicateGrammar.from_dict(grammar)
 
 
-def run_boundary_family(family: str) -> dict[str, Any]:
+def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) -> dict[str, Any]:
     canonical_family = {"graph_cache_geometry_motion": "graph_cache", "compile_horizon": "compile"}.get(family, family)
     if canonical_family in {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}:
-        pools = family_cases(canonical_family, surface_count=24)
+        pools = family_cases(canonical_family, surface_count=surface_count, seed=seed)
         path = {
             "compile": "workload.logical_steps",
             "graph_cache": "workload.geometry_displacement",
@@ -99,6 +95,16 @@ def run_boundary_family(family: str) -> dict[str, Any]:
     representative = [item for item in pools["representative_pool"] if item.positive_anchor()]
     query = pools.get("active_query_pool", pools.get("query_pool", []))
     counterexamples = [item for item in query if item.certified_counterexample()]
+    # Fit on a bounded evidence slice; all generated surfaces remain in the
+    # sealed pool.  This keeps grammar enumeration finite as context count
+    # grows from the 24-case calibration to the 100--500 pilot.
+    def fit_slice(items: list[BoundaryCase], limit: int = 16) -> list[BoundaryCase]:
+        if len(items) <= limit:
+            return items
+        return [items[round(index * (len(items) - 1) / (limit - 1))] for index in range(limit)]
+
+    representative = fit_slice(representative)
+    counterexamples = fit_slice(counterexamples)
     parent = {"equals": {"workload.mechanism": mechanism}}
     if canonical_family not in {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}:
         grammar = _grammar_for(family)
@@ -126,6 +132,7 @@ def run_boundary_family(family: str) -> dict[str, Any]:
     return {
         "family": family,
         "status": result.status,
+        "state": result.status,
         "predicate": result.predicate,
         "sealed_errors": errors,
         "result": result.to_dict(),

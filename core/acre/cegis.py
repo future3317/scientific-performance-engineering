@@ -62,6 +62,7 @@ class StatisticalCEGIS:
         positive: list[BoundaryObservation],
         counterexamples: list[BoundaryObservation],
         parent_predicate: dict[str, Any] | None,
+        decision_contexts: list[Mapping[str, Any]] | None = None,
     ) -> SynthesisResult:
         anchors = [item for item in positive if item.positive_anchor(self.epsilon_true)]
         certified = [item for item in counterexamples if item.certified_counterexample(self.epsilon_false)]
@@ -99,4 +100,20 @@ class StatisticalCEGIS:
         provenance["certified_evidence"] = list(counterexample_ids)
         provenance["positive_anchors"] = list(anchor_ids)
         provenance["complexity"] = predicate_complexity(predicate)
-        return SynthesisResult("accepted", predicate, counterexample_ids, anchor_ids, provenance=provenance, version_space=tuple(consistent))
+        # A consistent predicate is identified only when every remaining
+        # hypothesis makes the same deploy/no-deploy decision on the
+        # observable decision contexts.  The sealed pool is deliberately not
+        # accepted here; it is an offline score only.
+        if decision_contexts is None:
+            status = "identified" if len(consistent) == 1 else "underidentified"
+            provenance["decision_context_count"] = 0
+            provenance["decision_equivalence_classes"] = len(consistent)
+        else:
+            signatures = {
+                tuple(bool(match_predicate(candidate, context)) for context in decision_contexts)
+                for candidate in consistent
+            }
+            status = "identified" if len(signatures) == 1 else "underidentified"
+            provenance["decision_context_count"] = len(decision_contexts)
+            provenance["decision_equivalence_classes"] = len(signatures)
+        return SynthesisResult(status, predicate, counterexample_ids, anchor_ids, provenance=provenance, version_space=tuple(consistent))

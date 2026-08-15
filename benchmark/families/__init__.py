@@ -10,6 +10,8 @@ from .catalog import (
     transformation,
     anchor_projection,
     poisoning_transformation,
+    reconstruct_anchor_instance,
+    all_anchor_instances,
 )
 
 __all__ = [
@@ -22,4 +24,16 @@ __all__ = [
     "transformation",
     "anchor_projection",
     "poisoning_transformation",
+    "reconstruct_anchor_instance",
+    "all_anchor_instances",
+    "PILOT_FAMILIES",
+    "validate_cross_view_consistency",
 ]
+
+
+def __getattr__(name: str):
+    if name in {"PILOT_FAMILIES", "validate_cross_view_consistency"}:
+        from .consistency import PILOT_FAMILIES, validate_cross_view_consistency
+
+        return {"PILOT_FAMILIES": PILOT_FAMILIES, "validate_cross_view_consistency": validate_cross_view_consistency}[name]
+    raise AttributeError(name)

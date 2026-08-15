@@ -9,7 +9,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmark.boundary.families import family_cases
-from benchmark.families import family_instances, family_views, poisoning_transformation, transformation
+from benchmark.families import (
+    all_anchor_instances,
+    family_instances,
+    family_views,
+    poisoning_transformation,
+    transformation,
+    validate_cross_view_consistency,
+)
 from benchmark.formal.aggregate import performance_profile
 from benchmark.harness.evolution import evolution_regret
 from benchmark.interaction.factorial_bench import generate_family_interaction_surface
@@ -35,6 +42,9 @@ def main() -> None:
     assert regret["total"] == 2.3 and regret["acquisition"] == 0.1
     profile = performance_profile([{"track": "spe_core", "verified": True, "verified_speedup": {"median_speedup": 1.2}}])
     assert profile["spe_core"]["verified_optimization_rate"] == 1.0
+    anchors = all_anchor_instances()
+    assert len(anchors) == 20 and all(item.anchor_task_id == item.instance_id for item in anchors)
+    assert validate_cross_view_consistency(surface_count=12)["ok"]
     print("test_families: OK")
 
 

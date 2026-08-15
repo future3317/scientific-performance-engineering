@@ -4,21 +4,147 @@ phases:
   - index: 1
     name: acquisition
     tasks: [CORE-COMPILE-RECOMPILE-04, CORE-COMPILE-DYNAMIC-11]
-    inject_experiences: []
+    inject_experiences:
+      - id: compile-cache-rule
+        rule_id: compile-cache-rule
+        schema_version: 1
+        status: candidate
+        severity: P2
+        domain: compiler
+        trigger:
+          all:
+            - equals:
+                workload.mechanism: compile
+        rule:
+          text: Reuse compile artifacts when runtime guards are unchanged.
+        intervention:
+          action: reuse_compile_cache
+        expected_mechanism: reuse compile artifacts when runtime guards are unchanged
+        requires_evidence: [compile_replay]
+        scientific_invariants: [compile_correctness]
+        do_not_apply_when: []
+        risk: low
+        source_cases: [EXP-COMPILE-1, EXP-COMPILE-2]
+        admission_cases: [REG-COMPILE-1]
+        regression_cases: [REG-COMPILE-2]
+        last_verified:
+          pytorch: pinned
+          date: "2026-08-15"
+        owner: compiler
+        collector_confidence: high
+        confidence:
+          method: beta-binomial-mixture-e-process
+          prior_alpha: 1
+          prior_beta: 1
+          successes: 0
+          failures: 0
+          p_min: 0.5
+          delta: 0.05
+          posterior_probability: 0.0
+          effective_samples: 0
+          promotion_probability_lower_bound: 0.0
+        promotion:
+          replay_status: pending
+          human_review: false
+        conflicts_with: []
+        supersedes: []
+        runtime_cost: {}
+        provenance_policy:
+          required: true
+        cases:
+          - case_id: compile-case-1
+            utility_on: 0.80
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+          - case_id: compile-case-2
+            utility_on: 0.81
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+          - case_id: compile-case-3
+            utility_on: 0.82
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+          - case_id: compile-case-4
+            utility_on: 0.79
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+          - case_id: compile-case-5
+            utility_on: 0.83
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+          - case_id: compile-case-6
+            utility_on: 0.80
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+          - case_id: compile-case-7
+            utility_on: 0.81
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+          - case_id: compile-case-8
+            utility_on: 0.82
+            utility_off: 0.60
+            scientific_ok: true
+            quality_ok: true
+        p_min: 0.5
+        epsilon: 0.0
+        delta: 0.05
     inject_poisons: []
-    results: []
+    results:
+      - task_id: CORE-COMPILE-RECOMPILE-04
+        utility_on: 0.80
+        utility_off: 0.60
+        task_score_on: 0.90
+        task_score_off: 0.70
+        delta: 0.20
+        noise_floor: 0.05
+        reused: false
+        oracle_utility: 0.90
+        deployed_utility: 0.80
+        experiment_cost: 2.0
+        failure_source: acquisition
   - index: 2
     name: same_family_transfer
     tasks: [CORE-COMPILE-TINY-12]
     inject_experiences: []
     inject_poisons: []
-    results: []
+    results:
+      - task_id: CORE-COMPILE-TINY-12
+        utility_on: 0.86
+        utility_off: 0.65
+        task_score_on: 0.92
+        task_score_off: 0.70
+        delta: 0.21
+        noise_floor: 0.05
+        reused: true
+        oracle_utility: 0.92
+        deployed_utility: 0.86
+        experiment_cost: 1.0
+        failure_source: negative_transfer
   - index: 3
     name: cross_family_transfer
     tasks: [CORE-KERNEL-FUSION-09]
     inject_experiences: []
     inject_poisons: []
-    results: []
+    results:
+      - task_id: CORE-KERNEL-FUSION-09
+        utility_on: 0.80
+        utility_off: 0.65
+        task_score_on: 0.85
+        task_score_off: 0.70
+        delta: 0.15
+        noise_floor: 0.05
+        reused: true
+        oracle_utility: 0.86
+        deployed_utility: 0.80
+        experiment_cost: 1.5
+        failure_source: negative_transfer
   - index: 4
     name: drift
     family_id: compile
@@ -54,7 +180,19 @@ phases:
         collector_confidence: high
         artifacts: {}
     inject_poisons: []
-    results: []
+    results:
+      - task_id: CORE-COMPILE-DYNAMIC-11
+        utility_on: 0.35
+        utility_off: 0.70
+        task_score_on: 0.40
+        task_score_off: 0.75
+        delta: -0.35
+        noise_floor: 0.05
+        reused: true
+        oracle_utility: 0.75
+        deployed_utility: 0.35
+        experiment_cost: 2.0
+        failure_source: drift
   - index: 5
     name: misleading_experience
     family_id: episode
@@ -95,9 +233,27 @@ phases:
         task_score_on: 0.0
         task_score_off: 0.8
         delta: -0.10
+        noise_floor: 0.05
+        reused: true
+        oracle_utility: 0.75
+        deployed_utility: 0.45
+        experiment_cost: 1.0
+        failure_source: poison
   - index: 6
     name: recovery
     tasks: [CORE-COMPILE-DYNAMIC-11]
     inject_experiences: []
     inject_poisons: []
-    results: []
+    results:
+      - task_id: CORE-COMPILE-DYNAMIC-11
+        utility_on: 0.88
+        utility_off: 0.65
+        task_score_on: 0.93
+        task_score_off: 0.70
+        delta: 0.23
+        noise_floor: 0.05
+        reused: true
+        oracle_utility: 0.93
+        deployed_utility: 0.88
+        experiment_cost: 1.5
+        failure_source: recovery

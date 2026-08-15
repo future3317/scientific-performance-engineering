@@ -32,6 +32,8 @@ class FamilyInstance:
     difficulty_tier: str = "medium"
     anchor_task_id: str | None = None
     lineage: Mapping[str, Any] | None = None
+    applicable: bool = True
+    scientific_truth: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +44,8 @@ class FamilyInstance:
             "difficulty_tier": self.difficulty_tier,
             "anchor_task_id": self.anchor_task_id,
             "lineage": dict(self.lineage or {}),
+            "applicable": self.applicable,
+            "scientific_truth": dict(self.scientific_truth or {}),
         }
 
 
@@ -56,6 +60,12 @@ class FamilySpec:
     transformations: tuple[str, ...]
     generator: Callable[[int, int], Mapping[str, Any]]
     anchors: tuple[str, ...] = ()
+    applicability: Callable[[Mapping[str, Any]], bool] = lambda _parameters: True
+    scientific_truth: Callable[[Mapping[str, Any]], Mapping[str, Any]] = lambda parameters: {
+        "applicable": True,
+        "parameters": dict(parameters),
+    }
+    anchor_applicability: Mapping[str, bool] | None = None
 
     def generate(self, count: int, seed: int = 0) -> list[FamilyInstance]:
         if count < 1:
@@ -73,9 +83,42 @@ class FamilySpec:
                     polarity=polarity,
                     difficulty_tier=difficulty,
                     lineage={"generator_family_id": self.generator_family_id, "seed": seed, "index": index},
+                    applicable=bool(self.applicability(params)),
+                    scientific_truth=dict(self.scientific_truth(params)),
                 )
             )
         return result
+
+    def reconstruct_anchor(self, task_id: str) -> FamilyInstance:
+        """Rebuild a declared anchor from the family generator.
+
+        Anchors are fixed points in the family parameter space.  Their position
+        is the declared order in ``anchors``; using the same generator and seed
+        makes reconstruction deterministic without copying task workspaces.
+        """
+        if task_id not in self.anchors:
+            raise ValueError(f"{task_id} is not a canonical anchor of family {self.family_id}")
+        index = self.anchors.index(task_id)
+        generated = self.generate(index + 1, seed=0)[index]
+        applicable = (
+            bool(self.anchor_applicability[task_id])
+            if self.anchor_applicability is not None and task_id in self.anchor_applicability
+            else generated.applicable
+        )
+        truth = dict(generated.scientific_truth or {})
+        truth["applicable"] = applicable
+        truth["anchor_task_id"] = task_id
+        return FamilyInstance(
+            family_id=self.family_id,
+            instance_id=task_id,
+            parameters=generated.parameters,
+            polarity="positive" if applicable else "counterexample",
+            difficulty_tier=generated.difficulty_tier,
+            anchor_task_id=task_id,
+            lineage={**dict(generated.lineage or {}), "role": "anchor", "anchor_index": index},
+            applicable=applicable,
+            scientific_truth=truth,
+        )
 
 
 def _compile(index: int, seed: int) -> Mapping[str, Any]:
@@ -136,18 +179,63 @@ def _legacy(index: int, seed: int) -> Mapping[str, Any]:
     return {"fixture_index": index, "seed": seed, "difficulty_tier": "medium", "polarity": "positive"}
 
 
+def _truth_from_polarity(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    return {"applicable": parameters.get("polarity", "positive") == "positive", "parameters": dict(parameters)}
+
+
+def _compile_applicability(parameters: Mapping[str, Any]) -> bool:
+    return float(parameters["logical_steps"]) >= 128 and float(parameters["dynamic_shape_rate"]) <= 0.4
+
+
+def _compile_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    applicable = _compile_applicability(parameters)
+    return {"applicable": applicable, "boundary": {"logical_steps": 128, "dynamic_shape_rate": 0.4}}
+
+
+def _graph_applicability(parameters: Mapping[str, Any]) -> bool:
+    return float(parameters["geometry_displacement"]) <= 0.05
+
+
+def _graph_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    return {"applicable": _graph_applicability(parameters), "boundary": {"geometry_displacement": 0.05}}
+
+
+def _h2d_applicability(parameters: Mapping[str, Any]) -> bool:
+    return bool(parameters["pin_memory"]) and int(parameters["worker_count"]) <= 4
+
+
+def _h2d_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    return {"applicable": _h2d_applicability(parameters), "boundary": {"worker_count": 4, "pin_memory": True}}
+
+
+def _checkpoint_applicability(parameters: Mapping[str, Any]) -> bool:
+    return float(parameters["memory_pressure"]) >= 0.57
+
+
+def _checkpoint_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    return {"applicable": _checkpoint_applicability(parameters), "boundary": {"memory_pressure": 0.57}}
+
+
+def _scalar_applicability(parameters: Mapping[str, Any]) -> bool:
+    return int(parameters["scalar_syncs_per_step"]) > 8
+
+
+def _scalar_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    return {"applicable": _scalar_applicability(parameters), "boundary": {"scalar_syncs_per_step": 8}}
+
+
 _SPECS: tuple[FamilySpec, ...] = (
-    FamilySpec("compile", "GEN-COMPILER", "spe_core", "CONTRACT-COMPILER-CACHE", ("logical_steps", "graph_size", "dynamic_shape_rate"), ("compile", "checkpoint"), ("software", "hardware", "scale", "model"), _compile, ("CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-DYNAMIC-11", "CORE-COMPILE-TINY-12", "CORE-KERNEL-FUSION-09")),
-    FamilySpec("graph_cache", "GEN-GRAPH-CACHE", "sciml", "CONTRACT-ENERGY-FORCE", ("geometry_displacement", "skin", "graph_size", "dynamic_rate"), ("graph_cache", "geometry_motion"), ("software", "scale", "scientific_regime"), _graph_cache, ("SCIML-GNN-RAGGED-05", "SCIML-GNN-STATIC-GRAPH-CACHE-17", "SCIML-GNN-DYNAMIC-GRAPH-18", "SCIML-FORCE-AUTOGRAD-19")),
-    FamilySpec("h2d_pipeline", "GEN-H2D-PIPELINE", "spe_core", "CONTRACT-DATA-PIPELINE", ("batch_size", "worker_count", "prefetch_factor", "pin_memory"), ("pin_memory", "non_blocking", "prefetch"), ("hardware", "scale", "harness"), _h2d, ("CORE-H2D-PIPELINE-03", "CORE-DATALOADER-FANOUT-16")),
-    FamilySpec("checkpoint", "GEN-CHECKPOINT", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("memory_pressure", "segment_count", "recompute_ratio"), ("checkpoint", "gradient_accumulation"), ("scale", "hardware", "scientific_regime"), _checkpoint, ("CORE-MEM-RETAINED-GRAPH-13", "CORE-CHECKPOINT-AMPLE-MEM-14")),
-    FamilySpec("scalar_sync", "GEN-SCALAR-SYNC", "spe_core", "CONTRACT-TRAINING-LOOP", ("scalar_syncs_per_step", "metric_cadence"), ("metric_aggregation", "device_sync"), ("scale", "harness"), _scalar_sync, ("CORE-SCALAR-SYNC-01",)),
-    FamilySpec("repeated_compute", "GEN-REPEATED_COMPUTE", "spe_core", "CONTRACT-REPEATED-COMPUTE", ("fixture_index", "seed"), ("backbone_reuse",), ("scale",), _legacy, ("CORE-REPEATED-BACKBONE-02",)),
-    FamilySpec("autograd", "GEN-AUTOGRAD-VJP", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("fixture_index", "seed"), ("batched_vjp",), ("scale",), _legacy, ("CORE-AUTOGRAD-BATCHED-VJP-15",)),
-    FamilySpec("equivariant_head", "GEN-EQUIVARIANT_HEAD", "sciml", "CONTRACT-EQUIVARIANCE", ("fixture_index", "seed"), ("equivariant_recompute",), ("scientific_regime",), _legacy, ("SCIML-EQUIV-RECOMPUTE-06",)),
-    FamilySpec("crystal_generation", "GEN-CRYSTAL_GENERATION", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("fixture_index", "seed"), ("sampling",), ("scale", "scientific_regime"), _legacy, ("SCIML-CRYSTAL-DIFFUSION-07",)),
-    FamilySpec("crystal_sampling", "GEN-CRYSTAL_SAMPLING", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("fixture_index", "seed"), ("graph_rebuild",), ("scale", "scientific_regime"), _legacy, ("SCIML-GRAPH-REBUILD-08",)),
-    FamilySpec("episode", "GEN-EPISODE", "evolution", "CONTRACT-EVOLUTION-GOVERNANCE", ("fixture_index", "seed"), ("rule_update",), ("software", "hardware", "scale", "scientific_regime", "harness"), _legacy, ("EVOL-EPISODE-POISON-10", "EVOL-COMPILER-DRIFT-20")),
+    FamilySpec("compile", "GEN-COMPILER", "spe_core", "CONTRACT-COMPILER-CACHE", ("logical_steps", "graph_size", "dynamic_shape_rate"), ("compile", "checkpoint"), ("software", "hardware", "scale", "model"), _compile, ("CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-DYNAMIC-11", "CORE-COMPILE-TINY-12", "CORE-KERNEL-FUSION-09"), _compile_applicability, _compile_truth, {"CORE-COMPILE-RECOMPILE-04": True, "CORE-COMPILE-DYNAMIC-11": True, "CORE-COMPILE-TINY-12": False, "CORE-KERNEL-FUSION-09": True}),
+    FamilySpec("graph_cache", "GEN-GRAPH-CACHE", "sciml", "CONTRACT-ENERGY-FORCE", ("geometry_displacement", "skin", "graph_size", "dynamic_rate"), ("graph_cache", "geometry_motion"), ("software", "scale", "scientific_regime"), _graph_cache, ("SCIML-GNN-RAGGED-05", "SCIML-GNN-STATIC-GRAPH-CACHE-17", "SCIML-GNN-DYNAMIC-GRAPH-18", "SCIML-FORCE-AUTOGRAD-19"), _graph_applicability, _graph_truth, {"SCIML-GNN-RAGGED-05": True, "SCIML-GNN-STATIC-GRAPH-CACHE-17": True, "SCIML-GNN-DYNAMIC-GRAPH-18": False, "SCIML-FORCE-AUTOGRAD-19": True}),
+    FamilySpec("h2d_pipeline", "GEN-H2D-PIPELINE", "spe_core", "CONTRACT-DATA-PIPELINE", ("batch_size", "worker_count", "prefetch_factor", "pin_memory"), ("pin_memory", "non_blocking", "prefetch"), ("hardware", "scale", "harness"), _h2d, ("CORE-H2D-PIPELINE-03", "CORE-DATALOADER-FANOUT-16"), _h2d_applicability, _h2d_truth, {"CORE-H2D-PIPELINE-03": True, "CORE-DATALOADER-FANOUT-16": True}),
+    FamilySpec("checkpoint", "GEN-CHECKPOINT", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("memory_pressure", "segment_count", "recompute_ratio"), ("checkpoint", "gradient_accumulation"), ("scale", "hardware", "scientific_regime"), _checkpoint, ("CORE-MEM-RETAINED-GRAPH-13", "CORE-CHECKPOINT-AMPLE-MEM-14"), _checkpoint_applicability, _checkpoint_truth, {"CORE-MEM-RETAINED-GRAPH-13": True, "CORE-CHECKPOINT-AMPLE-MEM-14": False}),
+    FamilySpec("scalar_sync", "GEN-SCALAR-SYNC", "spe_core", "CONTRACT-TRAINING-LOOP", ("scalar_syncs_per_step", "metric_cadence"), ("metric_aggregation", "device_sync"), ("scale", "harness"), _scalar_sync, ("CORE-SCALAR-SYNC-01",), _scalar_applicability, _scalar_truth, {"CORE-SCALAR-SYNC-01": True}),
+    FamilySpec("repeated_compute", "GEN-REPEATED_COMPUTE", "spe_core", "CONTRACT-REPEATED-COMPUTE", ("fixture_index", "seed"), ("backbone_reuse",), ("scale",), _legacy, ("CORE-REPEATED-BACKBONE-02",), lambda p: True, _truth_from_polarity, {"CORE-REPEATED-BACKBONE-02": True}),
+    FamilySpec("autograd", "GEN-AUTOGRAD-VJP", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("fixture_index", "seed"), ("batched_vjp",), ("scale",), _legacy, ("CORE-AUTOGRAD-BATCHED-VJP-15",), lambda p: True, _truth_from_polarity, {"CORE-AUTOGRAD-BATCHED-VJP-15": True}),
+    FamilySpec("equivariant_head", "GEN-EQUIVARIANT_HEAD", "sciml", "CONTRACT-EQUIVARIANCE", ("fixture_index", "seed"), ("equivariant_recompute",), ("scientific_regime",), _legacy, ("SCIML-EQUIV-RECOMPUTE-06",), lambda p: True, _truth_from_polarity, {"SCIML-EQUIV-RECOMPUTE-06": True}),
+    FamilySpec("crystal_generation", "GEN-CRYSTAL_GENERATION", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("fixture_index", "seed"), ("sampling",), ("scale", "scientific_regime"), _legacy, ("SCIML-CRYSTAL-DIFFUSION-07",), lambda p: True, _truth_from_polarity, {"SCIML-CRYSTAL-DIFFUSION-07": True}),
+    FamilySpec("crystal_sampling", "GEN-CRYSTAL_SAMPLING", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("fixture_index", "seed"), ("graph_rebuild",), ("scale", "scientific_regime"), _legacy, ("SCIML-GRAPH-REBUILD-08",), lambda p: True, _truth_from_polarity, {"SCIML-GRAPH-REBUILD-08": True}),
+    FamilySpec("episode", "GEN-EPISODE", "evolution", "CONTRACT-EVOLUTION-GOVERNANCE", ("fixture_index", "seed"), ("rule_update",), ("software", "hardware", "scale", "scientific_regime", "harness"), _legacy, ("EVOL-EPISODE-POISON-10", "EVOL-COMPILER-DRIFT-20"), lambda p: True, _truth_from_polarity, {"EVOL-EPISODE-POISON-10": True, "EVOL-COMPILER-DRIFT-20": True}),
 )
 
 FAMILY_SPECS = {spec.family_id: spec for spec in _SPECS}
@@ -210,7 +298,18 @@ def poisoning_transformation(family_id: str, operator: str, **parameters: Any) -
 
 def anchor_projection(task_id: str, family_value: str) -> FamilyInstance:
     family_id = resolve_family_id(family_value)
-    spec = FAMILY_SPECS[family_id]
-    if task_id not in spec.anchors:
-        raise ValueError(f"{task_id} is not a canonical anchor of family {family_id}")
-    return FamilyInstance(family_id, task_id, {}, anchor_task_id=task_id, lineage={"role": "anchor"})
+    return FAMILY_SPECS[family_id].reconstruct_anchor(task_id)
+
+
+def reconstruct_anchor_instance(task_id: str, family_id: str | None = None) -> FamilyInstance:
+    """Rebuild any of the 20 materialized anchors from its FamilySpec."""
+    if family_id is not None:
+        return anchor_projection(task_id, family_id)
+    matches = [spec for spec in FAMILY_SPECS.values() if task_id in spec.anchors]
+    if len(matches) != 1:
+        raise ValueError(f"anchor must belong to exactly one family: {task_id}")
+    return matches[0].reconstruct_anchor(task_id)
+
+
+def all_anchor_instances() -> list[FamilyInstance]:
+    return [spec.reconstruct_anchor(anchor) for spec in FAMILY_SPECS.values() for anchor in spec.anchors]

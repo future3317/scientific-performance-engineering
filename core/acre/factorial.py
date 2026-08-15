@@ -93,7 +93,14 @@ class FactorialEngine:
         means = {arm: sum(samples) / n for arm, samples in values.items()}
         interaction_samples = [block.normalized_interaction for block in self._blocks]
         gamma = sum(interaction_samples) / n
-        radius = min(1.0, _bounded_radius(n, self.delta))
+        # Use the fixed-sample Hoeffding bound as a safety cap, with the
+        # empirical-Bernstein radius when observed block variance is small.
+        # This preserves the bounded contract while making sequential
+        # confirmation sensitive to the actual noise level.
+        variance = sum((value - gamma) ** 2 for value in interaction_samples) / max(1, n - 1)
+        log_term = math.log(3.0 / self.delta)
+        empirical_radius = math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n
+        radius = min(1.0, _bounded_radius(n, self.delta), empirical_radius)
         gamma_lcb, gamma_ucb = max(-1.0, gamma - radius), min(1.0, gamma + radius)
         delta_a_b0 = means["10"] - means["00"]
         delta_a_b1 = means["11"] - means["01"]

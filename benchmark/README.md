@@ -24,6 +24,27 @@ directories under `tasks/` remain materialized canonical anchors; task,
 BoundaryBench, InteractionBench, and evolution views refer back to the same
 family generator instead of maintaining separate synthetic workloads.
 
+Each `FamilySpec` owns the applicability predicate and scientific truth used by
+all views. The 20 materialized tasks are reconstructable anchor instances via
+`reconstruct_anchor_instance`; their task metadata is only a projection. Run
+`python -m benchmark.families.consistency --surface-count 100` to check anchor,
+BoundaryBench, InteractionBench, and evolution lineage agreement. The pilot
+surface runner expands the same five families to 100--500 hidden contexts:
+
+```bash
+python scripts/run_pilot_surface_experiments.py --surface-count 100 \
+  --out benchmark/pilot_surface_report.json
+```
+
+This report is a calibration/diagnostic artifact, not an algorithmic-success claim
+and not a formal-50 result. Active-boundary rows use an observable posterior
+certificate and report multi-seed cost/error curves. Interaction rows use the
+8/16/32/64/128 sequential block schedule and retain surface-level hidden versus
+predicted relations, confidence intervals, and stopping blocks. Evolution rows
+must contain a canonical-rule transfer phase before drift/poison metrics are
+interpreted. Evolution Regret and the vector Performance Profile are aggregated
+only by `benchmark.formal.aggregate`.
+
 Agent-backed trials must write `agent_usage.json` at the path supplied by
 `SPE_AGENT_USAGE_PATH` with `input_tokens`, `output_tokens`, `tool_calls`, and
 `wall_time_s`. The driver treats a missing, malformed, or over-budget receipt as

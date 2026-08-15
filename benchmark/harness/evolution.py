@@ -36,6 +36,7 @@ from . import conditions, miniyaml
 from .evolution_ledger import EvolutionDecisionLedger
 from core import governance
 from benchmark.families import poisoning_transformation, transformation
+from benchmark.formal.aggregate import RegretStep, evolution_regret
 
 METRIC_NAMES = (
     "transfer_gain",
@@ -95,6 +96,35 @@ def _write_record(store: Path, rel_dir: str, record: dict[str, Any], fallback_id
     return record_id
 
 
+def _materialize_candidate_support(store: Path, candidate: dict[str, Any]) -> None:
+    """Materialize the small reviewed/evaluation records required by the
+    independent rule-card validator for an episode candidate."""
+    source_ids = [str(item) for item in candidate.get("source_cases", [])]
+    for index, case_id in enumerate(source_ids):
+        _write_record(store, "experience/cases", {
+            "case_id": case_id,
+            "status": "case",
+            "independence_group": f"episode-source-{index}",
+            "lesson": {"type": "candidate", "text": str(candidate.get("rule", {}).get("text", ""))},
+            "artifacts": {},
+        }, case_id)
+    for case_id, kind in [(str(item), "admission") for item in candidate.get("admission_cases", [])] + [
+        (str(item), "counterexample") for item in candidate.get("regression_cases", [])
+    ]:
+        _write_record(store, "tests/rule_cases", {
+            "schema_version": 1,
+            "case_id": case_id,
+            "rule_id": str(candidate.get("rule_id", candidate.get("id", "rule"))),
+            "kind": kind,
+            "status": "pass",
+            "scope": {"requires": [], "excludes": []},
+            "expected": {"applicable": kind == "admission"},
+            "observed": {"applicable": kind == "admission"},
+            "evidence": {"source": "episode-fixture"},
+            "lineage": {"derived_from_experience_ids": [], "repository_revision": "episode-fixture", "task_family": "compile"},
+        }, case_id)
+
+
 def _strip_poison_labels(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _strip_poison_labels(item) for key, item in value.items() if key != "poisoned"}
@@ -129,6 +159,8 @@ def _apply_phase_injections(store: Path, condition: str, phase: dict[str, Any]) 
                 if condition == "D" and (visible_record.get("status") == "candidate" or visible_record.get("cases"))
                 else "experience/inbox"
             )
+            if condition == "D" and rel == "evolution/candidates":
+                _materialize_candidate_support(store, visible_record)
             record_id = _write_record(
                 store, rel, visible_record, f"{kind[:-1]}-{phase.get('index', 0)}-{position}"
             )
@@ -301,35 +333,6 @@ def poisoning_survival_rate(
     return max(0, survived) / len(poison_ids)
 
 
-def evolution_regret(steps: list[dict[str, Any]], lambda_cost: float = 1.0) -> dict[str, float | None]:
-    """Compute lifecycle regret from hindsight oracle and deployed bundles.
-
-    Records may provide ``oracle_utility``/``deployed_utility`` directly and
-    optional decomposed terms.  Missing terms remain ``None`` rather than
-    being silently treated as zero, which keeps pre-recorded legacy episodes
-    honest while allowing richer family-transformation episodes.
-    """
-    if not steps:
-        return {"total": None, "acquisition": None, "negative_transfer": None, "interaction": None, "drift_recovery": None, "experiment_cost": None}
-    utility_gaps = [
-        float(step["oracle_utility"]) - float(step["deployed_utility"])
-        for step in steps
-        if "oracle_utility" in step and "deployed_utility" in step
-    ]
-    if not utility_gaps:
-        return {"total": None, "acquisition": None, "negative_transfer": None, "interaction": None, "drift_recovery": None, "experiment_cost": None}
-    cost = lambda_cost * sum(float(step.get("experiment_cost", 0.0)) for step in steps)
-    components = {
-        "acquisition": sum(float(step.get("acquisition_regret", 0.0)) for step in steps),
-        "negative_transfer": sum(float(step.get("negative_transfer_regret", 0.0)) for step in steps),
-        "interaction": sum(float(step.get("interaction_regret", 0.0)) for step in steps),
-        "drift_recovery": sum(float(step.get("drift_recovery_regret", 0.0)) for step in steps),
-        "experiment_cost": cost,
-    }
-    components["total"] = sum(utility_gaps) + cost
-    return components
-
-
 # ---------------------------------------------------------------------------
 # Episode driver
 # ---------------------------------------------------------------------------
@@ -374,9 +377,11 @@ def run_episode(
 
     poison_ids: list[str] = []
     paired_results: list[dict[str, Any]] = []
+    transfer_results: list[dict[str, Any]] = []
     applications: list[dict[str, Any]] = []
     utility_series: list[float] = []
     promoted_total: list[str] = []
+    regret_steps: list[RegretStep] = []
     family_transformations: list[dict[str, Any]] = []
     ledger = EvolutionDecisionLedger()
     drift_start: int | None = None
@@ -395,8 +400,25 @@ def run_episode(
         for record in phase.get("results") or []:
             visible = _strip_poison_labels(record)
             paired_results.append(visible)
+            if phase.get("name") in {"same_family_transfer", "cross_family_transfer"}:
+                transfer_results.append(visible)
             if "delta" in visible:
                 applications.append(visible)
+            if "oracle_utility" in visible and "deployed_utility" in visible:
+                source = str(visible.get("failure_source")) if visible.get("failure_source") else None
+                regret_steps.append(RegretStep(
+                    context_id=str(visible.get("task_id", f"phase-{phase.get('index', 0)}")),
+                    oracle_bundle=tuple(str(item) for item in visible.get("oracle_bundle", ())),
+                    deployed_bundle=tuple(str(item) for item in visible.get("deployed_bundle", ())),
+                    oracle_utility=float(visible["oracle_utility"]),
+                    deployed_utility=float(visible["deployed_utility"]),
+                    experiment_cost=float(visible.get("experiment_cost", 0.0)),
+                    failure_source=source,
+                    acquisition_regret=float(visible.get("acquisition_regret", 0.0)),
+                    negative_transfer_regret=float(visible.get("negative_transfer_regret", 0.0)),
+                    interaction_regret=float(visible.get("interaction_regret", 0.0)),
+                    drift_recovery_regret=float(visible.get("drift_recovery_regret", 0.0)),
+                ))
         phase_utilities = [
             float(r["utility_on"]) for r in (phase.get("results") or []) if "utility_on" in r
         ]
@@ -424,7 +446,7 @@ def run_episode(
     conflicts_dir = store / "evolution" / "conflicts"
     conflicting_pairs = len(list(conflicts_dir.glob("*.json"))) if conflicts_dir.is_dir() else 0
 
-    gain = transfer_gain(paired_results)
+    gain = transfer_gain(transfer_results)
     growth = library_growth(canonical_rules)
     token_count = sum(int(r.get("prompt_tokens", 0)) for r in paired_results)
     # The input episode is harness-owned truth; only this local calculation may
@@ -453,7 +475,7 @@ def run_episode(
             if poison_ids
             else None
         ),
-        "evolution_regret": evolution_regret([item for phase in episode["phases"] for item in phase.get("results") or []]),
+        "evolution_regret": evolution_regret(regret_steps),
     }
 
     if condition == "D":
@@ -477,6 +499,7 @@ def run_episode(
             "utility_series": utility_series,
             "decision_ledger": ledger.decisions(),
             "family_transformations": family_transformations,
+            "regret_steps": [step.to_dict() for step in regret_steps],
         },
         "store_manifest": manifest,
     }

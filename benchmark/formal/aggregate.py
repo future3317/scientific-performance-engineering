@@ -10,8 +10,41 @@ from __future__ import annotations
 
 import math
 import random
+from dataclasses import dataclass
 from collections import defaultdict
 from typing import Any
+
+
+@dataclass(frozen=True)
+class RegretStep:
+    """Canonical longitudinal record shared by all benchmark views."""
+
+    context_id: str
+    oracle_bundle: tuple[str, ...]
+    deployed_bundle: tuple[str, ...]
+    oracle_utility: float
+    deployed_utility: float
+    experiment_cost: float = 0.0
+    failure_source: str | None = None
+    acquisition_regret: float = 0.0
+    negative_transfer_regret: float = 0.0
+    interaction_regret: float = 0.0
+    drift_recovery_regret: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "context_id": self.context_id,
+            "oracle_bundle": list(self.oracle_bundle),
+            "deployed_bundle": list(self.deployed_bundle),
+            "oracle_utility": self.oracle_utility,
+            "deployed_utility": self.deployed_utility,
+            "experiment_cost": self.experiment_cost,
+            "failure_source": self.failure_source,
+            "acquisition_regret": self.acquisition_regret,
+            "negative_transfer_regret": self.negative_transfer_regret,
+            "interaction_regret": self.interaction_regret,
+            "drift_recovery_regret": self.drift_recovery_regret,
+        }
 
 
 def _ci(values: list[float], seed: int = 0, samples: int = 2000) -> dict[str, float | None]:
@@ -207,11 +240,31 @@ def performance_profile(records: list[dict[str, Any]]) -> dict[str, Any]:
     return profile
 
 
-def evolution_regret(records: list[dict[str, Any]], lambda_cost: float = 1.0) -> dict[str, float | None]:
-    """Aggregate hindsight-valid utility gaps and experiment cost."""
-    steps = [record for record in records if "oracle_utility" in record and "deployed_utility" in record]
+def evolution_regret(records: list[RegretStep | dict[str, Any]], lambda_cost: float = 1.0) -> dict[str, float | None]:
+    """Canonical lifecycle regret used by formal and episode aggregation.
+
+    The utility gap is hindsight-valid and the experiment cost is reported in
+    the same record.  Component regrets are optional but, when present, are
+    kept separate so profiles cannot hide acquisition, interaction, or drift
+    costs inside one scalar.
+    """
+    steps = []
+    for record in records:
+        value = record.to_dict() if isinstance(record, RegretStep) else record
+        if "oracle_utility" in value and "deployed_utility" in value:
+            steps.append(value)
     if not steps:
-        return {"total": None, "utility_gap": None, "experiment_cost": None}
+        return {
+            "total": None, "utility_gap": None, "acquisition": None,
+            "negative_transfer": None, "interaction": None,
+            "drift_recovery": None, "experiment_cost": None,
+        }
     utility_gap = sum(float(item["oracle_utility"]) - float(item["deployed_utility"]) for item in steps)
     cost = lambda_cost * sum(float(item.get("experiment_cost", 0.0)) for item in steps)
-    return {"total": utility_gap + cost, "utility_gap": utility_gap, "experiment_cost": cost}
+    components = {
+        "acquisition": sum(float(item.get("acquisition_regret", 0.0)) for item in steps),
+        "negative_transfer": sum(float(item.get("negative_transfer_regret", 0.0)) for item in steps),
+        "interaction": sum(float(item.get("interaction_regret", 0.0)) for item in steps),
+        "drift_recovery": sum(float(item.get("drift_recovery_regret", 0.0)) for item in steps),
+    }
+    return {"total": utility_gap + cost, "utility_gap": utility_gap, **components, "experiment_cost": cost}

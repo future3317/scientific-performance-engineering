@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -99,6 +101,10 @@ def apply_promotion(
         "replay_status": "passed",
         "human_review": False,
         "replay_manifest": dict(replay_manifest, path=replay_path),
+        "review_commit": "0000000",
+        "reviewer": "bounded-auto",
+        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+        "review_diff_hash": hashlib.sha256(json.dumps(card, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest(),
     })
     card["promotion"] = promotion
     if decision.subject_type == "relation":
@@ -107,6 +113,10 @@ def apply_promotion(
         target = store / "rules" / f"{decision.subject_id}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(card, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # Promotion is a state transition, not a second copy of the candidate.
+    candidate_path = store / "evolution" / "candidates" / f"{decision.subject_id}.json"
+    if candidate_path.is_file():
+        candidate_path.unlink()
 
     registry_name = "relations.json" if decision.subject_type == "relation" else "rules.json"
     registry_path = store / "registry" / registry_name

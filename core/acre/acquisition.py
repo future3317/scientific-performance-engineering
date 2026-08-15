@@ -45,6 +45,7 @@ class AcquisitionResult:
     stopped_by_policy: bool
     posterior: Mapping[str, Mapping[str, float]]
     selection_trace: tuple[dict[str, object], ...]
+    identification_certificate: bool = False
 
     @property
     def total_cost(self) -> float:
@@ -59,6 +60,34 @@ class OfflineEvaluation:
     error_trajectory: tuple[float, ...]
 
 
+@dataclass(frozen=True)
+class IdentificationCertificate:
+    """Observable stopping certificate; it never contains hidden truth."""
+
+    certified: bool
+    covered_edges: tuple[str, ...]
+    min_confidence: float
+    observations: int
+
+
+def _certificate(
+    observations: Mapping[str, list[bool]],
+    edge_ids: set[str],
+    confidence_target: float,
+) -> IdentificationCertificate:
+    covered = tuple(sorted(
+        edge_id for edge_id in edge_ids
+        if observations.get(edge_id) and _posterior(observations, edge_id)[1] >= confidence_target
+    ))
+    confidences = [_posterior(observations, edge_id)[1] for edge_id in edge_ids]
+    return IdentificationCertificate(
+        certified=bool(edge_ids) and len(covered) == len(edge_ids),
+        covered_edges=covered,
+        min_confidence=min(confidences) if confidences else 0.0,
+        observations=sum(len(values) for values in observations.values()),
+    )
+
+
 def _posterior(observations: Mapping[str, list[bool]], edge_id: str) -> tuple[float, float]:
     values = observations.get(edge_id, [])
     if not values:
@@ -67,7 +96,10 @@ def _posterior(observations: Mapping[str, list[bool]], edge_id: str) -> tuple[fl
     # latter is deliberately derived only from revealed observations; hidden
     # truth is never used as a stopping signal.
     mean = (1.0 + sum(values)) / (2.0 + len(values))
-    confidence = max(sum(values), len(values) - sum(values)) / len(values)
+    agreement = max(sum(values), len(values) - sum(values)) / len(values)
+    # A single observation is not a certificate.  The shrinkage term keeps
+    # confidence observable while requiring repeated evidence before stopping.
+    confidence = agreement * len(values) / (len(values) + 2.0)
     return mean, confidence
 
 
@@ -158,11 +190,10 @@ def run_acquisition(
     rng = random.Random(seed)
     cost = 0.0
     stopped_by_policy = False
+    certificate = _certificate(observations, edge_ids, confidence_target)
     while available:
-        if observations and all(
-            edge_id in observations and _posterior(observations, edge_id)[1] >= confidence_target
-            for edge_id in edge_ids
-        ):
+        certificate = _certificate(observations, edge_ids, confidence_target)
+        if certificate.certified:
             stopped_by_policy = True
             break
         frontier = [
@@ -186,12 +217,15 @@ def run_acquisition(
             "risk": query.risk,
             "provenance_novelty": query.provenance_novelty,
             "cost": query.cost,
+            "certificate_min_confidence": _certificate(observations, edge_ids, confidence_target).min_confidence,
+            "certificate_covered_edges": list(_certificate(observations, edge_ids, confidence_target).covered_edges),
         })
     posterior = {
         edge_id: {"mean": _posterior(observations, edge_id)[0], "confidence": _posterior(observations, edge_id)[1]}
         for edge_id in sorted(edge_ids)
     }
-    return AcquisitionResult(policy.value, tuple(selected), tuple(cumulative), stopped_by_policy, posterior, tuple(trace))
+    certificate = _certificate(observations, edge_ids, confidence_target)
+    return AcquisitionResult(policy.value, tuple(selected), tuple(cumulative), stopped_by_policy, posterior, tuple(trace), certificate.certified)
 
 
 def evaluate_trajectory(

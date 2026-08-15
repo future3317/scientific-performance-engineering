@@ -67,7 +67,7 @@ def validate(root: Path = ROOT) -> list[str]:
         second = run_boundary_family(family)
         if first != second:
             errors.append(f"{family}: synthesis is not deterministic")
-        if first["status"] != "accepted" or first["sealed_errors"]:
+        if first["status"] not in {"identified", "underidentified"} or first["sealed_errors"]:
             errors.append(f"{family}: boundary synthesis failed: {first}")
         if first["result"]["synthesizer_version"] != SYNTHESIZER_VERSION:
             errors.append(f"{family}: missing synthesizer provenance")

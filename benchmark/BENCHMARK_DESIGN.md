@@ -3,10 +3,10 @@
 A paper-grade benchmark for **S**cientific **P**erformance **E**ngineering agents and for the
 **evolution** of the `scientific-performance-engineering` skill itself.
 
-Status: **v1.0-20 population-validity pilot implemented** (18 atomic tasks plus
-2 evolution episodes). The formal-eval driver supports a reproducible dry-run
-and explicit agent-command execution, but no formal A/B/C/D result is claimed
-by this repository. The formal target is frozen as SPE-EvoBench v1.0-50
+Status: **v1.0-20 population-validity and calibration pilot implemented** (18
+atomic tasks plus 2 evolution episodes). The formal-eval driver supports a
+reproducible dry-run and explicit agent-command execution, but no formal A/B/C/D
+result or algorithmic-success claim is made by this repository. The formal target is frozen as SPE-EvoBench v1.0-50
 (24 SPE-Core + 20 SciML + 6 Evolution). The current pilot contains 11 Core,
 7 SciML, and 2 Evolution tasks; the remaining 13 Core, 13 SciML, and 4
 Evolution slots are gated on empirical calibration.
@@ -88,6 +88,11 @@ P10. **Raw dimensions preserved.** Composite scores are reported *alongside* eve
 `benchmark/families/` is the single workload-family source of truth. A
 `FamilySpec` defines parameter axes, legal interventions, and family
 transformations; `FamilyInstance` is a deterministic point in that space. The
+spec also owns the applicability predicate and scientific-truth projection used
+by every view. `reconstruct_anchor_instance` rebuilds each of the 20 anchors
+from its declared family rather than copying a second workload definition. A
+cross-view validator checks the anchor, boundary, interaction, and evolution
+lineage before pilot experiments are run.
 existing packages under `benchmark/tasks/` are retained as canonical anchor
 instances with their original verifiers and oracle calibration. `taskgen`
 materializes future slots from the same specs, while BoundaryBench derives
@@ -95,6 +100,12 @@ representative, active-query, and sealed-boundary pools and InteractionBench
 combines family interventions into factorial surfaces. Evolution episodes record
 the same family transformations (software, hardware, scale, scientific-regime,
 or harness drift) rather than introducing a separate workload generator.
+The pilot surface runner expands the five pilot families to 100--500 hidden
+contexts for calibration. Active-boundary stopping is certificate-based and
+truth-blind during acquisition; InteractionBench is sequential over
+8/16/32/64/128 blocks; evolution episodes require canonical transfer evidence
+before drift/poison metrics are interpreted. These surfaces are not formal-50
+slots or formal results.
 
 ## 3. Tracks
 

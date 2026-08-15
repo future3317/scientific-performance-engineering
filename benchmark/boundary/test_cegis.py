@@ -45,7 +45,7 @@ def main() -> None:
         counterexamples=[BoundaryObservation("c", contexts[1], -0.1, True, -0.3, -0.05)],
         parent_predicate=None,
     )
-    assert result.status == "accepted", result
+    assert result.status in {"identified", "underidentified"}, result
     assert result.predicate is not None
     assert match_predicate(result.predicate, contexts[0])
     assert not match_predicate(result.predicate, contexts[1])
@@ -57,7 +57,7 @@ def main() -> None:
         counterexamples=[BoundaryObservation("c", contexts[1], -0.1, True, -0.3, -0.05), second_counterexample],
         parent_predicate=None,
     )
-    assert narrowed.status == "accepted"
+    assert narrowed.status in {"identified", "underidentified"}
     assert 0 < len(narrowed.version_space) < len(result.version_space)
 
     uncertain = synthesizer.synthesize(
@@ -78,7 +78,7 @@ def main() -> None:
 
     for family in ("graph_cache_geometry_motion", "compile_horizon"):
         report = run_boundary_family(family)
-        assert report["status"] == "accepted", report
+        assert report["status"] in {"identified", "underidentified"}, report
         assert report["sealed_errors"] == 0, report
         pools = family_cases(family)
         ids = [item.observation_id for pool in pools.values() for item in pool]
