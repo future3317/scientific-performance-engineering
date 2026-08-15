@@ -39,6 +39,8 @@ from benchmark.families import poisoning_transformation, transformation
 from benchmark.formal.aggregate import RegretStep, evolution_regret
 from core.acre.engine import AcreEngine
 from core.models import RuleSpec, RuleState, TaskContext
+from benchmark.families import FamilyEnvironment
+from .experience_retrieval import RawExperienceRetriever
 
 METRIC_NAMES = (
     "transfer_gain",
@@ -154,27 +156,22 @@ def _environment_result(condition: str, phase: dict[str, Any], raw: dict[str, An
             continue
     mechanism = "compile" if "COMPILE" in str(raw.get("task_id", "")) else "runtime"
     context = TaskContext(domain="runtime", workload={"workload": {"mechanism": mechanism}}, hardware={}, software={}, evidence={}, token_budget=4096)
-    routed = AcreEngine(rule_specs=specs, rule_states=states).route(context)
-    deployed = list(routed.selected_rule_ids)
-    phase_name = str(phase.get("name", ""))
-    if phase_name == "drift":
-        deployed_utility = 0.35 if deployed else 0.70
-        oracle_utility = 0.75
-        source = "drift"
-    elif phase_name == "misleading_experience":
-        deployed_utility = 0.45 if deployed else 0.55
-        oracle_utility = 0.75
-        source = "poison"
-    elif phase_name == "recovery":
-        deployed_utility = 0.88 if deployed else 0.65
-        oracle_utility = 0.93
-        source = "recovery"
+    environment = FamilyEnvironment(str(phase.get("family_id", "compile")))
+    if condition == "C":
+        deployed = RawExperienceRetriever(store, token_budget=context.token_budget).propose_interventions(query=mechanism)
+        deployed_ids = list(deployed)
     else:
-        deployed_utility = 0.80 if deployed else 0.60
-        oracle_utility = 0.90 if deployed else 0.70
-        source = "acquisition" if phase_name == "acquisition" else "negative_transfer"
-    baseline = 0.60 if phase_name == "acquisition" else 0.65
-    return {**raw, "task_id": str(raw.get("task_id", f"phase-{phase.get('index', 0)}")), "utility_on": deployed_utility, "utility_off": baseline, "task_score_on": deployed_utility, "task_score_off": baseline, "delta": deployed_utility - baseline, "noise_floor": 0.05, "reused": bool(deployed), "oracle_bundle": ["compile-cache-rule"] if oracle_utility > baseline else [], "deployed_bundle": deployed, "oracle_utility": oracle_utility, "deployed_utility": deployed_utility, "experiment_cost": 1.0, "failure_source": source}
+        routed = AcreEngine(rule_specs=specs, rule_states=states).route(context)
+        selected = {spec.rule_id: spec for spec in specs}
+        deployed_ids = [str(selected[item].intervention.get("action", item)) for item in routed.selected_rule_ids if item in selected]
+    transformation_state = dict(phase.get("transformation_parameters") or {})
+    transformation_state["drifted"] = phase.get("name") == "drift"
+    transformation_state["poison"] = phase.get("name") == "misleading_experience"
+    deployed_outcome = environment.evaluate(context.workload, deployed_ids, transformation_state)
+    oracle_outcome = environment.oracle(context.workload, transformation_state)
+    baseline_outcome = environment.evaluate(context.workload, (), transformation_state)
+    source = "drift" if phase.get("name") == "drift" else "poison" if phase.get("name") == "misleading_experience" else "recovery" if phase.get("name") == "recovery" else "acquisition" if phase.get("name") == "acquisition" else "negative_transfer"
+    return {**raw, "task_id": str(raw.get("task_id", f"phase-{phase.get('index', 0)}")), "utility_on": deployed_outcome.utility, "utility_off": baseline_outcome.utility, "task_score_on": deployed_outcome.utility, "task_score_off": baseline_outcome.utility, "delta": deployed_outcome.utility - baseline_outcome.utility, "noise_floor": 0.05, "reused": bool(deployed_ids), "oracle_bundle": list(deployed_outcome.oracle_bundle), "deployed_bundle": deployed_ids, "oracle_utility": oracle_outcome.utility, "deployed_utility": deployed_outcome.utility, "scientific_gates": dict(deployed_outcome.scientific_gates), "experiment_cost": 1.0, "failure_source": source}
 
 
 def _has_poison_label(value: Any) -> bool:

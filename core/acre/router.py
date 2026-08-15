@@ -141,6 +141,7 @@ class ConservativeCausalRouter:
         relation_specs: Sequence[RelationSpec],
         relation_states: Mapping[str, RelationState],
         context: TaskContext | Mapping[str, Any],
+        higher_order_evidence: Mapping[str, float] | None = None,
     ) -> RoutingDecision:
         by_id = {spec.rule_id: spec for spec in rule_specs}
         if len(by_id) != len(rule_specs):
@@ -168,15 +169,16 @@ class ConservativeCausalRouter:
         for spec in rule_specs:
             if spec.rule_id not in selected_ids and not match_predicate(spec.applicability, context_map):
                 rejected[spec.rule_id].add("not_applicable")
+        evidence = dict(higher_order_evidence or {})
+        if len(bundle) < 3:
+            certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, 0.0, 0.0, "not_applicable")
+        elif "lcb" in evidence and "ucb" in evidence:
+            certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, float(evidence["lcb"]), float(evidence["ucb"]), "certified" if float(evidence["lcb"]) > 0.0 or float(evidence["ucb"]) < 0.0 else "unresolved")
+        else:
+            certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, -1.0, 1.0, "higher_order_suspected")
         return RoutingDecision(
             selected_rule_ids=tuple(spec.rule_id for spec in bundle),
             objective=objective,
             rejected_reasons={rule_id: tuple(sorted(reasons)) for rule_id, reasons in rejected.items() if reasons},
-            bundle_certificate=BundleCertificate(
-                bundle_ids=tuple(spec.rule_id for spec in bundle),
-                context_predicate={"context": dict(context_map)},
-                residual_lcb=0.0 if len(bundle) < 3 else -1.0,
-                residual_ucb=0.0 if len(bundle) < 3 else 1.0,
-                status="not_applicable" if len(bundle) < 3 else "higher_order_suspected",
-            ),
+            bundle_certificate=certificate,
         )

@@ -6,6 +6,8 @@ from .factorial import CoverageResult, FactorialBlock, FactorialEngine, Factoria
 from .acquisition import AcquisitionPolicy, AcquisitionQuery, AcquisitionResult, run_acquisition
 from .router import BundleCertificate, ConservativeCausalRouter, RoutingDecision
 from .engine import AcreEngine
+from .relation import RelationIdentifier, RelationIdentification
+from .factorial import HigherOrderEstimate, ThreeWayBlock, estimate_higher_order
 from core.governance import EvolutionDecision
 from .evidence import EvidenceAssessment, adversarial_events, assess, representative_events
 from .controller import AcreController
@@ -15,7 +17,7 @@ __all__ = [
     "CoverageResult", "FactorialBlock", "FactorialEngine", "FactorialEstimate", "simulate_coverage",
     "AcquisitionPolicy", "AcquisitionQuery", "AcquisitionResult", "run_acquisition",
     "ConservativeCausalRouter", "RoutingDecision", "BundleCertificate",
-    "AcreEngine", "EvolutionDecision",
+    "AcreEngine", "EvolutionDecision", "RelationIdentifier", "RelationIdentification", "HigherOrderEstimate", "ThreeWayBlock", "estimate_higher_order",
     "EvidenceAssessment", "representative_events", "adversarial_events", "assess",
     "AcreController",
 ]

@@ -32,3 +32,25 @@ def retrieve_raw_experiences(store: str | Path, query: str = "", token_budget: i
         records.append(record)
         used += cost
     return records
+
+
+class RawExperienceRetriever:
+    """Matched-budget C adapter; returns actions, never typed rule objects."""
+
+    def __init__(self, store: str | Path, *, token_budget: int = 4096) -> None:
+        self.store = Path(store)
+        self.token_budget = token_budget
+
+    def retrieve(self, query: str = "") -> list[dict[str, Any]]:
+        return retrieve_raw_experiences(self.store, query=query, token_budget=self.token_budget)
+
+    def propose_interventions(self, query: str = "") -> list[str]:
+        actions: list[str] = []
+        for record in self.retrieve(query):
+            intervention = record.get("intervention")
+            if isinstance(intervention, dict) and intervention.get("action"):
+                actions.append(str(intervention["action"]))
+            lesson = record.get("lesson")
+            if isinstance(lesson, dict) and lesson.get("text") and not actions:
+                actions.append(str(lesson["text"]))
+        return actions

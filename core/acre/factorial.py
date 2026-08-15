@@ -9,9 +9,10 @@ from typing import Mapping
 
 
 _ARMS = ("00", "10", "01", "11")
+_THREE_WAY_ARMS = tuple(f"{a}{b}{c}" for a in (0, 1) for b in (0, 1) for c in (0, 1))
 CANONICAL_RELATIONS = (
     "unresolved", "confirmed_synergy", "confirmed_antagonism", "confirmed_independence",
-    "prerequisite_a_to_b", "prerequisite_b_to_a", "semantic_conflict",
+    "prerequisite_a_to_b", "prerequisite_b_to_a", "confirmed_redundancy", "context_dependent_relation", "semantic_conflict",
 )
 
 
@@ -57,6 +58,7 @@ class FactorialEstimate:
     scientific_10: bool
     scientific_01: bool
     scientific_11: bool
+    utility_intervals: Mapping[str, tuple[float, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,47 @@ class CoverageResult:
     coverage: float
     covered: int
     repetitions: int
+
+
+@dataclass(frozen=True)
+class HigherOrderEstimate:
+    residual: float
+    residual_lcb: float
+    residual_ucb: float
+    blocks: int
+    status: str
+
+
+@dataclass(frozen=True)
+class ThreeWayBlock:
+    block_id: str
+    outcomes: Mapping[str, float]
+
+    def __post_init__(self) -> None:
+        if set(self.outcomes) != set(_THREE_WAY_ARMS):
+            raise ValueError("a three-way block must contain all 2^3 arms")
+        if any(not isinstance(value, (int, float)) or isinstance(value, bool) or not -1.0 <= float(value) <= 1.0 for value in self.outcomes.values()):
+            raise ValueError("three-way outcomes must be finite and bounded in [-1, 1]")
+
+
+def estimate_higher_order(blocks: list[ThreeWayBlock], *, delta: float = 0.05, look_count: int = 1, practical_margin: float = 0.05) -> HigherOrderEstimate:
+    if not blocks:
+        raise ValueError("at least one three-way block is required")
+    if not 0.0 < delta < 1.0 or look_count < 1:
+        raise ValueError("invalid confidence configuration")
+    residuals = []
+    for block in blocks:
+        u = block.outcomes
+        residuals.append(u["111"] - u["110"] - u["101"] - u["011"] + u["100"] + u["010"] + u["001"] - u["000"])
+    n = len(residuals)
+    residual = sum(residuals) / n
+    look_delta = delta / look_count
+    variance = sum((value - residual) ** 2 for value in residuals) / max(1, n - 1)
+    log_term = math.log(3.0 / look_delta)
+    radius = min(_bounded_radius(n, look_delta), math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n)
+    lcb, ucb = max(-1.0, residual - radius), min(1.0, residual + radius)
+    status = "confirmed_nonzero" if lcb > practical_margin or ucb < -practical_margin else "unresolved"
+    return HigherOrderEstimate(residual, lcb, ucb, n, status)
 
 
 def _bounded_radius(n: int, delta: float) -> float:
@@ -132,6 +175,7 @@ class FactorialEngine:
         empirical_radius = math.sqrt(2.0 * variance * log_term / n) + 3.0 * log_term / n
         radius = min(1.0, _bounded_radius(n, look_delta), empirical_radius)
         gamma_lcb, gamma_ucb = max(-1.0, gamma - radius), min(1.0, gamma + radius)
+        utility_intervals = {arm: (max(-1.0, means[arm] - radius), min(1.0, means[arm] + radius)) for arm in _ARMS}
         delta_a_b0 = means["10"] - means["00"]
         delta_a_b1 = means["11"] - means["01"]
         delta_b_a0 = means["01"] - means["00"]
@@ -181,6 +225,7 @@ class FactorialEngine:
             scientific_10=scientific["10"],
             scientific_01=scientific["01"],
             scientific_11=scientific["11"],
+            utility_intervals=utility_intervals,
         )
 
 

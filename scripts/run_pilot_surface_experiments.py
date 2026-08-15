@@ -20,7 +20,7 @@ from benchmark.boundary.families import family_cases, run_boundary_family
 from benchmark.families import PILOT_FAMILIES, validate_cross_view_consistency
 from benchmark.harness.evolution import run_episode
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
-from benchmark.interaction.factorial_bench import run_family_factorial_benchmark
+from benchmark.interaction.factorial_bench import run_family_factorial_benchmark, run_higher_order_benchmark
 from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
 
 
@@ -58,7 +58,7 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
             for query_id in noisy_labels:
                 if noise_rng.random() < 0.02:
                     noisy_labels[query_id] = not noisy_labels[query_id]
-            trajectory = run_acquisition(queries, noisy_labels, policy, confidence_target=0.5, seed=trial_seed)
+            trajectory = run_acquisition(queries, noisy_labels, policy, seed=trial_seed)
             evaluation = evaluate_trajectory(trajectory, queries, noisy_labels, truths, target_error=0.0)
             curve = evaluation.error_trajectory
             auc = sum((curve[i - 1] + curve[i]) / 2.0 for i in range(1, len(curve))) if len(curve) > 1 else (curve[0] if curve else 0.0)
@@ -118,6 +118,7 @@ def run_pilot(*, root: Path, surface_count: int = 100, seed: int = 7) -> dict[st
         "active_boundary": active_boundary,
         "boundary_cegis": boundaries,
         "causal_interaction": interactions,
+        "higher_order_interaction": run_higher_order_benchmark(count=max(20, surface_count // 5), seed=seed),
         "drift_poison": run_drift_poison(root=root),
         "legacy_acquisition_calibration": run_acquisition_benchmark(seed=seed),
     }

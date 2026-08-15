@@ -5,6 +5,7 @@ import math
 import pytest
 
 from core.acre.factorial import FactorialBlock, FactorialEngine, simulate_coverage
+from core.acre.relation import RelationIdentifier
 from benchmark.interaction.factorial_bench import generate_interaction_surface
 
 
@@ -87,3 +88,14 @@ def test_parameterized_interaction_surface_is_deterministic_and_stratified() -> 
         "synergy", "antagonism", "independence", "prerequisite_a_to_b",
         "prerequisite_b_to_a", "redundancy", "semantic_conflict", "context_dependent_interaction",
     }
+
+
+def test_relation_identifier_detects_context_dependent_sign() -> None:
+    estimates = {}
+    for name, value in (("baseline", {"00": -0.3, "10": -0.2, "01": -0.2, "11": 0.9}), ("shifted", {"00": -0.3, "10": -0.2, "01": -0.2, "11": -0.9})):
+        engine = FactorialEngine(delta=0.05, practical_margin=0.05)
+        for index in range(5000):
+            engine.add_block(block(value, f"{name}-{index}"))
+        estimates[name] = engine.estimate()
+    result = RelationIdentifier(practical_margin=0.05).identify(estimates)
+    assert result.decision == "context_dependent_relation"

@@ -77,15 +77,10 @@ class IdentificationCertificate:
 def _certificate(
     observations: Mapping[str, list[bool]],
     edge_ids: set[str],
-    confidence_target: float,
     delta_family: float = 0.05,
 ) -> IdentificationCertificate:
     intervals = {edge_id: _confidence_sequence(observations.get(edge_id, []), delta_family / max(1, len(edge_ids))) for edge_id in edge_ids}
     covered_set = {edge_id for edge_id, (lower, upper) in intervals.items() if lower > 0.5 or upper < 0.5}
-    # ``confidence_target<=0.5`` is retained only for the historical
-    # calibration fixture; production/default runs use the CS decision above.
-    if confidence_target <= 0.5:
-        covered_set.update(edge_id for edge_id in edge_ids if _posterior(observations, edge_id)[1] >= confidence_target)
     covered = tuple(sorted(covered_set))
     confidences = [1.0 - min(1.0, 2.0 * (delta_family / max(1, len(edge_ids))) / (len(observations.get(edge_id, [])) * (len(observations.get(edge_id, [])) + 1))) for edge_id in edge_ids if observations.get(edge_id)]
     return IdentificationCertificate(
@@ -243,9 +238,9 @@ def run_acquisition(
     rng = random.Random(seed)
     cost = 0.0
     stopped_by_policy = False
-    certificate = _certificate(observations, edge_ids, confidence_target, delta_family)
+    certificate = _certificate(observations, edge_ids, delta_family)
     while available:
-        certificate = _certificate(observations, edge_ids, confidence_target, delta_family)
+        certificate = _certificate(observations, edge_ids, delta_family)
         if certificate.certified:
             stopped_by_policy = True
             break
@@ -261,7 +256,7 @@ def run_acquisition(
         selected.append(query.query_id)
         cost += query.cost
         cumulative.append(cost)
-        current_certificate = _certificate(observations, edge_ids, confidence_target, delta_family)
+        current_certificate = _certificate(observations, edge_ids, delta_family)
         trace.append({
             "query_id": query.query_id,
             "edge_id": query.edge_id,
@@ -279,7 +274,7 @@ def run_acquisition(
         edge_id: {"mean": _posterior(observations, edge_id)[0], "confidence": _posterior(observations, edge_id)[1]}
         for edge_id in sorted(edge_ids)
     }
-    certificate = _certificate(observations, edge_ids, confidence_target, delta_family)
+    certificate = _certificate(observations, edge_ids, delta_family)
     return AcquisitionResult(policy.value, tuple(selected), tuple(cumulative), stopped_by_policy, posterior, tuple(trace), certificate.certified)
 
 

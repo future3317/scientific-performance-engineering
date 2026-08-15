@@ -48,7 +48,13 @@ class InteractionOracle:
         left_active, right_active = left.applicable, right.applicable
         # The relation is a consequence of regime and parameter interaction;
         # no surface index or pre-assigned relation is consulted.
-        if ctx.get("semantic_conflict"):
+        if ctx.get("force_synergy"):
+            relation = "synergy"
+        elif ctx.get("force_antagonism"):
+            relation = "antagonism"
+        elif ctx.get("redundancy"):
+            relation = "redundancy"
+        elif ctx.get("semantic_conflict"):
             relation = "semantic_conflict"
         elif ctx.get("sign_flip"):
             relation = "antagonism" if left_active and right_active else "independence"
@@ -62,13 +68,16 @@ class InteractionOracle:
             relation = "independence"
         a = min(0.35, 0.08 + abs(left_score) % 0.2)
         b = min(0.35, 0.08 + abs(right_score) % 0.2)
-        interaction = {"synergy": 0.55, "antagonism": -0.55, "independence": 0.0, "prerequisite_a_to_b": 0.55, "prerequisite_b_to_a": 0.55, "semantic_conflict": 0.0}[relation]
+        if relation == "redundancy":
+            a, b = 0.48, 0.42
+        interaction = {"synergy": 0.55, "antagonism": -0.55, "independence": 0.0, "redundancy": 0.0, "prerequisite_a_to_b": 0.55, "prerequisite_b_to_a": 0.55, "semantic_conflict": 0.0}[relation]
         if ctx.get("sign_flip"):
             interaction = -interaction if interaction else -0.12
         baseline = -0.35 if relation in {"synergy", "antagonism", "prerequisite_a_to_b", "prerequisite_b_to_a"} else 0.0
         outcomes = {"00": baseline, "10": baseline + a, "01": baseline + b, "11": max(-0.95, min(0.95, baseline + a + b + 4.0 * interaction))}
         if relation == "prerequisite_a_to_b": outcomes["01"] = baseline
         if relation == "prerequisite_b_to_a": outcomes["10"] = baseline
+        if relation == "redundancy": outcomes["11"] = max(outcomes["10"], outcomes["01"])
         gates = {arm: True for arm in ("00", "10", "01", "11")}
         if relation == "semantic_conflict":
             gates["11"] = False

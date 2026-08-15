@@ -14,8 +14,11 @@ def test_acquisition_certificate_is_observable_and_requires_repeated_evidence():
     ]
     labels = {query.query_id: True for query in queries}
     result = run_acquisition(queries, labels, AcquisitionPolicy.UNCERTAINTY_ONLY, confidence_target=0.5)
-    assert result.identification_certificate
-    assert len(result.selected_query_ids) == 2
+    # Four observations are intentionally insufficient for the formal
+    # time-uniform CS; no posterior heuristic may certify this trajectory.
+    assert not result.identification_certificate
+    assert result.selection_trace[-1]["confidence_sequence"]["edge"][0] < 0.5
+    assert len(result.selected_query_ids) == 4
     assert all("certificate_min_confidence" in item for item in result.selection_trace)
 
 

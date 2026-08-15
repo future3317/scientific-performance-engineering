@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from core.acre.factorial import FactorialBlock, FactorialEngine, simulate_coverage
+from core.acre.factorial import FactorialBlock, FactorialEngine, ThreeWayBlock, estimate_higher_order, simulate_coverage
+from core.acre.relation import RelationIdentifier
 import random
 from benchmark.families import family_instances, resolve_family_id
 from benchmark.families.catalog import FAMILY_SPECS, CompositionSpec, InteractionOracle
@@ -69,14 +70,19 @@ def generate_family_interaction_surface(
     for index, (a, b) in enumerate(zip(left, right)):
         sign_flip = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) > 0.5
         semantic_conflict = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) <= 0.5
-        context = {"sign_flip": sign_flip, "semantic_conflict": semantic_conflict, "higher_order_residual": 0.18 if (index % 5 == 0) else 0.0}
-        result = oracle.evaluate(a, b, context)
+        redundancy = a.parameters.get("worker_count", 0) <= 4 and b.parameters.get("dynamic_shape_rate", 0) <= 0.2
+        context = {"sign_flip": sign_flip, "semantic_conflict": semantic_conflict, "redundancy": redundancy, "higher_order_residual": 0.18 if (index % 5 == 0) else 0.0}
+        base_context = dict(context)
+        base_context["sign_flip"] = False
+        base_context["force_synergy"] = sign_flip
+        result = oracle.evaluate(a, b, base_context)
         outcomes = result["outcomes"]
         relation = result["hidden_relation"]
         contexts = [{"name": "baseline", "outcomes": outcomes}]
         if context["sign_flip"]:
-            shifted = oracle.evaluate(a, b, {"sign_flip": True})
+            shifted = oracle.evaluate(a, b, {"sign_flip": False, "force_antagonism": True})
             contexts.append({"name": "shifted", "outcomes": shifted["outcomes"], "hidden_relation": shifted["hidden_relation"]})
+            relation = "context_dependent_relation"
         surfaces.append({
             "surface_id": f"{resolved[0]}__{resolved[1]}-{seed:04d}-{index:04d}",
             "family_ids": list(resolved),
@@ -109,31 +115,44 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         hidden_labels[str(surface["surface_id"])] = hidden
         rng = random.Random(seed * 1009 + len(details))
         max_blocks = max(blocks)
-        generated: list[FactorialBlock] = []
-        for block_index in range(max_blocks):
-            outcomes = {arm: max(-1.0, min(1.0, float(value) + rng.uniform(-0.02, 0.02))) for arm, value in values.items()}
-            gates = {arm: not (hidden == "semantic_conflict" and arm == "11") for arm in ("00", "10", "01", "11")}
-            generated.append(FactorialBlock(f"{surface['surface_id']}-{block_index}", outcomes, gates))
+        context_rows = surface.get("contexts") or [{"name": "baseline", "outcomes": values}]
+        generated_by_context: dict[str, list[FactorialBlock]] = {}
+        for context_index, context_row in enumerate(context_rows):
+            context_name = str(context_row.get("name", f"context-{context_index}"))
+            context_values = context_row["outcomes"]
+            generated: list[FactorialBlock] = []
+            for block_index in range(max_blocks):
+                outcomes = {arm: max(-1.0, min(1.0, float(value) + rng.uniform(-0.02, 0.02))) for arm, value in context_values.items()}
+                gates = dict(surface.get("scientific_gates") or {arm: True for arm in ("00", "10", "01", "11")})
+                generated.append(FactorialBlock(f"{surface['surface_id']}-{context_name}-{block_index}", outcomes, gates))
+            generated_by_context[context_name] = generated
         chosen = None
         estimates: list[dict[str, object]] = []
         for block_count in blocks:
-            engine = FactorialEngine(delta=0.05, practical_margin=0.15, look_count=len(blocks))
-            for block in generated[:block_count]:
-                engine.add_block(block)
-            estimate = engine.estimate()
+            context_estimates = {}
+            for context_name, generated in generated_by_context.items():
+                engine = FactorialEngine(delta=0.05, practical_margin=0.15, look_count=len(blocks))
+                for block in generated[:block_count]:
+                    engine.add_block(block)
+                context_estimates[context_name] = engine.estimate()
+            estimate = context_estimates["baseline"]
+            identified = RelationIdentifier(practical_margin=0.08, equivalence_margin=0.35).identify(context_estimates)
             row = {"blocks": block_count, "decision": estimate.decision, "gamma": estimate.gamma, "gamma_lcb": estimate.gamma_lcb, "gamma_ucb": estimate.gamma_ucb}
+            row["relation_identifier"] = identified.decision
+            row["context_decisions"] = dict(identified.context_decisions)
             estimates.append(row)
-            if chosen is None and estimate.decision != "unresolved":
-                chosen = (block_count, estimate)
+            if chosen is None and identified.decision != "unresolved":
+                chosen = (block_count, estimate, identified)
         if chosen is None:
-            stopping_blocks, estimate = None, engine.estimate()
+            stopping_blocks, estimate = None, context_estimates["baseline"]
+            identified = RelationIdentifier(practical_margin=0.08, equivalence_margin=0.35).identify(context_estimates)
         else:
-            stopping_blocks, estimate = chosen
-        predicted = estimate.decision
+            stopping_blocks, estimate, identified = chosen
+        predicted = identified.decision
         classifications[predicted] = classifications.get(predicted, 0) + 1
         hidden_canonical = {
             "synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism",
-            "independence": "confirmed_independence",
+            "independence": "confirmed_independence", "redundancy": "confirmed_redundancy",
         }.get(hidden, hidden)
         confusion.setdefault(hidden_canonical, {})[predicted] = confusion.setdefault(hidden_canonical, {}).get(predicted, 0) + 1
         details.append({
@@ -143,12 +162,20 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             "gamma": estimate.gamma,
             "gamma_lcb": estimate.gamma_lcb,
             "gamma_ucb": estimate.gamma_ucb,
+            "context_decisions": dict(identified.context_decisions),
+            "applicability_predicate": identified.applicability_predicate,
             "stopping_blocks": stopping_blocks,
             "experiment_cost": float(surface["cost"]) * float(stopping_blocks or max(blocks)),
             "contexts": surface.get("contexts", []),
             "higher_order_residual": surface.get("higher_order_residual", 0.0),
             "estimates": estimates,
         })
+    false_by_relation: dict[str, list[bool]] = {}
+    unresolved_by_relation: dict[str, list[bool]] = {}
+    for item in details:
+        canonical_hidden = {"synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism", "independence": "confirmed_independence", "redundancy": "confirmed_redundancy"}.get(item["hidden_relation"], item["hidden_relation"])
+        false_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] != canonical_hidden)
+        unresolved_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] == "unresolved")
     return {
         "surface_count": count,
         "block_schedule": list(blocks),
@@ -156,11 +183,35 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         "hidden_relation_counts": {label: list(hidden_labels.values()).count(label) for label in sorted(set(hidden_labels.values()))},
         "confusion_matrix": confusion,
         "surface_results": details,
-        "false_relation_rate": sum(item["predicted_relation"] not in ({"synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism", "independence": "confirmed_independence"}.get(item["hidden_relation"], item["hidden_relation"])) for item in details) / len(details),
+        "false_relation_rate": sum(item["predicted_relation"] not in ({"synergy": "confirmed_synergy", "antagonism": "confirmed_antagonism", "independence": "confirmed_independence", "redundancy": "confirmed_redundancy"}.get(item["hidden_relation"], item["hidden_relation"])) for item in details) / len(details),
+        "false_relation_rate_by_relation": {key: sum(values) / len(values) for key, values in false_by_relation.items()},
+        "unresolved_rate_by_relation": {key: sum(values) / len(values) for key, values in unresolved_by_relation.items()},
         "unresolved_rate": sum(item["predicted_relation"] == "unresolved" for item in details) / len(details),
         "median_blocks_to_confirmation": sorted(item["stopping_blocks"] for item in details if item["stopping_blocks"] is not None)[len([item for item in details if item["stopping_blocks"] is not None]) // 2] if any(item["stopping_blocks"] is not None for item in details) else None,
         "experiment_cost": sum(float(item["experiment_cost"]) for item in details),
     }
+
+
+def run_higher_order_benchmark(*, count: int = 20, seed: int = 7, blocks: tuple[int, ...] = (8, 16, 32, 64, 128)) -> dict[str, object]:
+    """Measure a genuine 2^3 residual over three composable interventions."""
+    if count < 1:
+        raise ValueError("count must be positive")
+    rng = random.Random(seed)
+    details: list[dict[str, object]] = []
+    for index in range(count):
+        residual = 0.24 if index % 2 == 0 else -0.24
+        latent = {"000": -0.1, "100": 0.05, "010": 0.04, "001": 0.03, "110": 0.12, "101": 0.10, "011": 0.09, "111": 0.12 + residual}
+        chosen = None
+        estimates = []
+        for block_count in blocks:
+            sample = [ThreeWayBlock(f"three-{index}-{j}", {arm: max(-1.0, min(1.0, value + rng.uniform(-0.01, 0.01))) for arm, value in latent.items()}) for j in range(block_count)]
+            estimate = estimate_higher_order(sample, delta=0.05, look_count=len(blocks), practical_margin=0.05)
+            estimates.append({"blocks": block_count, "residual": estimate.residual, "residual_lcb": estimate.residual_lcb, "residual_ucb": estimate.residual_ucb, "status": estimate.status})
+            if chosen is None and estimate.status != "unresolved":
+                chosen = estimate
+        final = chosen or estimate
+        details.append({"surface_id": f"three-way-{index:04d}", "hidden_residual": residual, "predicted_residual": final.residual, "residual_lcb": final.residual_lcb, "residual_ucb": final.residual_ucb, "bundle_certificate": {"residual_lcb": final.residual_lcb, "residual_ucb": final.residual_ucb, "status": final.status}, "stopping_blocks": final.blocks if chosen else None, "estimates": estimates})
+    return {"surface_count": count, "block_schedule": list(blocks), "results": details, "confirmed_rate": sum(item["stopping_blocks"] is not None for item in details) / count}
 
 
 def run_factorial_benchmark(*, blocks: int = 5000, seed: int = 7) -> dict[str, object]:

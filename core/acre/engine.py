@@ -54,8 +54,8 @@ class AcreEngine:
             return EvolutionDecision(subject_type, subject_id, "REVALIDATE", "review_required", "human-review", "subject drift requires revalidation", evidence_ids)
         return EvolutionDecision(subject_type, subject_id, "NO_OP", "approved", "bounded-auto", "subject state is stable", evidence_ids)
 
-    def route(self, context: TaskContext | Mapping[str, Any], token_budget: int | None = None) -> RoutingDecision:
+    def route(self, context: TaskContext | Mapping[str, Any], token_budget: int | None = None, higher_order_evidence: Mapping[str, float] | None = None) -> RoutingDecision:
         budget = token_budget if token_budget is not None else (context.token_budget if isinstance(context, TaskContext) else 4096)
         return ConservativeCausalRouter(token_budget=budget).route(
-            self.rule_specs, self.rule_states, self.relation_specs, self.relation_states, context
+            self.rule_specs, self.rule_states, self.relation_specs, self.relation_states, context, higher_order_evidence
         )
