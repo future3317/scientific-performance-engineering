@@ -166,8 +166,20 @@ def _read_executor_receipt(path: Path, skill_digest: str | None) -> tuple[dict[s
         errors.append("executor receipt mode mismatch")
     if receipt.get("network_mode") != "none":
         errors.append("external executor must declare network_mode=none")
-    if not isinstance(receipt.get("mount_allowlist"), list) or not receipt.get("mount_allowlist"):
+    mounts = receipt.get("mount_allowlist")
+    if not isinstance(mounts, list) or not mounts:
         errors.append("executor receipt mount_allowlist must be non-empty")
+    else:
+        allowed_mounts = {"task", "solution", "skill_view", "retrieved_context", "result", "executor_receipt"}
+        unexpected = sorted(set(str(item) for item in mounts) - allowed_mounts)
+        if unexpected:
+            errors.append(f"executor receipt contains disallowed mounts: {unexpected}")
+        required_mounts = {"task", "solution", "retrieved_context", "result", "executor_receipt"}
+        if skill_digest is not None:
+            required_mounts.add("skill_view")
+        missing_mounts = sorted(required_mounts - set(str(item) for item in mounts))
+        if missing_mounts:
+            errors.append(f"executor receipt missing required mounts: {missing_mounts}")
     for key in ("executor_digest", "worker_uid"):
         if not isinstance(receipt.get(key), str) or not receipt.get(key):
             errors.append(f"executor receipt {key} must be non-empty")
