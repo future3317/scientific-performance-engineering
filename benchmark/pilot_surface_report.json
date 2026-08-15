@@ -99,8 +99,8 @@
           "median_experiments_to_certificate": 143,
           "median_experiment_cost": 196.5,
           "median_cost_to_target": 4.8,
-          "harmful_fp_during_learning": 0.020833333333333332,
-          "learning_curve_auc": 3.310546875
+          "harmful_fp_during_learning": 0.041666666666666664,
+          "learning_curve_auc": 3.533203125
         }
       },
       "certificate": "time-uniform-bernoulli-cs"
@@ -133,8 +133,8 @@
           "median_experiments_to_certificate": 146.5,
           "median_experiment_cost": 242.49999999999997,
           "median_cost_to_target": 4.8,
-          "harmful_fp_during_learning": 0.025,
-          "learning_curve_auc": 3.2109375
+          "harmful_fp_during_learning": 0.03125,
+          "learning_curve_auc": 3.2578125
         }
       },
       "certificate": "time-uniform-bernoulli-cs"
@@ -168,7 +168,7 @@
           "median_experiment_cost": 203.2,
           "median_cost_to_target": 4.8,
           "harmful_fp_during_learning": 0.018750000000000003,
-          "learning_curve_auc": 3.1875
+          "learning_curve_auc": 3.23828125
         }
       },
       "certificate": "time-uniform-bernoulli-cs"
@@ -201,8 +201,8 @@
           "median_experiments_to_certificate": 146.5,
           "median_experiment_cost": 189.79999999999995,
           "median_cost_to_target": 4.8,
-          "harmful_fp_during_learning": 0.05,
-          "learning_curve_auc": 3.357421875
+          "harmful_fp_during_learning": 0.05625,
+          "learning_curve_auc": 3.412109375
         }
       },
       "certificate": "time-uniform-bernoulli-cs"
@@ -235,8 +235,8 @@
           "median_experiments_to_certificate": 146.5,
           "median_experiment_cost": 242.49999999999997,
           "median_cost_to_target": 4.8,
-          "harmful_fp_during_learning": 0.05,
-          "learning_curve_auc": 3.23828125
+          "harmful_fp_during_learning": 0.08125,
+          "learning_curve_auc": 3.4609375
         }
       },
       "certificate": "time-uniform-bernoulli-cs"
