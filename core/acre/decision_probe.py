@@ -12,7 +12,12 @@ from .engine import AcreEngine
 
 
 def decision_sensitivity_callback(queries: list[AcquisitionQuery]) -> Any:
-    """Return a callback that compares router-facing bundles after two outcomes."""
+    """Return the bounded decision-surrogate used by pilot acquisition.
+
+    The callback replays the finite predicate probe and production router on
+    both hypothetical outcomes.  It is intentionally named/documented as a
+    surrogate until a campaign supplies the full family grammar and budget.
+    """
     edge_order = tuple(sorted({query.edge_id for query in queries}))
     grammar = PredicateGrammar.from_dict({
         "schema_version": 1,

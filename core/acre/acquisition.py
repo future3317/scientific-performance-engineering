@@ -263,6 +263,7 @@ def run_acquisition(
             "uncertainty": uncertainty,
             "information_gain": information_gain,
             "decision_sensitivity": decision,
+            "decision_model": "bounded_decision_surrogate" if decision_sensitivity_fn else "none",
             "risk": query.risk,
             "provenance_novelty": query.provenance_novelty,
             "cost": query.cost,

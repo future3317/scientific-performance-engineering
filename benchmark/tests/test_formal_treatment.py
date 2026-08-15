@@ -67,6 +67,27 @@ def test_engine_from_store_reads_relation_state_pipeline_dir(tmp_path: Path) -> 
     assert [spec.relation_id for spec in engine.relation_specs] == ["REL-A-B"]
 
 
+def test_relation_promotion_round_trips_as_spec_state_and_record(tmp_path: Path) -> None:
+    from core.governance import apply_promotion
+
+    candidate = RelationSpec(
+        relation_id="REL-X-Y", version=1, parent=None,
+        endpoints={"left": "X", "right": "Y"}, orientation="symmetric", kind="synergy",
+        applicability={"all": []}, contrast_definition={"gamma": "cs"}, practical_margin=0.05,
+        scientific_invariants=[], provenance_policy={"required": True},
+    ).to_dict()
+    replay = {
+        "evidence_type": "factorial_contrast", "outcome": "passed",
+        "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3,
+                   "promotion_probability_lower_bound": 0.9},
+    }
+    decision = apply_promotion(tmp_path, candidate, replay, replay_path="evolution/contrast.json")
+    assert decision.allowed
+    engine = AcreEngine.from_store(tmp_path)
+    assert engine.relation_states["REL-X-Y"].status == "canonical"
+    assert (tmp_path / "evolution" / "promotions").is_dir()
+
+
 def test_condition_adapter_reads_canonical_store_without_fake_state(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     bundle.mkdir()
