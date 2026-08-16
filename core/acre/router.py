@@ -115,6 +115,12 @@ class ConservativeCausalRouter:
             candidate_ids = certificate.get("bundle_ids") or certificate.get("rule_ids")
             if not isinstance(candidate_ids, list) or frozenset(str(item) for item in candidate_ids) != ids:
                 continue
+            versions = certificate.get("bundle_versions") or certificate.get("rule_versions")
+            if not isinstance(versions, Mapping):
+                continue
+            expected = {spec.rule_id: int(spec.version) for spec in bundle}
+            if {str(key): int(value) for key, value in versions.items()} != expected:
+                continue
             predicate = certificate.get("context_predicate") or certificate.get("applicability") or {"all": []}
             if match_predicate(predicate, context):
                 return certificate

@@ -64,17 +64,37 @@ def evaluate_cases(
             raise ValueError("replay cases must be objects")
         if not case.get("paired_replay"):
             raise ValueError("replay cases must be harness-owned paired interventions")
-        if float(case.get("utility_off", 0.0)) == 0.0:
-            raise ValueError("paired replay requires a measured non-zero control utility")
         if case.get("paired_replay") and not case.get("same_fixture_id"):
             raise ValueError("paired replay case must identify its shared fixture")
-        if "utility_on" not in case or "utility_off" not in case:
-            raise ValueError("paired replay case must contain both measured arms")
+        measured = case.get("intervention_measurements")
+        control = case.get("baseline_measurements")
+        if measured is not None or control is not None:
+            if not isinstance(measured, list) or not isinstance(control, list) or not measured or not control:
+                raise ValueError("paired replay measured arms must be non-empty lists")
+            if len(measured) != len(control):
+                raise ValueError("paired replay measured arms must have equal length")
+            if case.get("control_measured") is not True:
+                raise ValueError("paired replay control_measured attestation is required")
+        elif "utility_on" not in case or "utility_off" not in case:
+            raise ValueError("paired replay case must contain measured arms")
+        elif float(case.get("utility_off", 0.0)) == 0.0:
+            # Scalar-only legacy payloads cannot establish a control arm.  A
+            # measured baseline may legitimately be zero and is accepted above.
+            raise ValueError("paired replay requires a non-zero control for legacy scalar cases; measured arms may be zero")
     validate_policy(utility_policy_id)
-    effects = [
-        normalized_delta(float(case["utility_on"]), float(case["utility_off"]), scale=utility_scale)
-        for case in cases
-    ]
+    effects = []
+    for case in cases:
+        intervention = case.get("intervention_measurements")
+        baseline = case.get("baseline_measurements")
+        if isinstance(intervention, list) and isinstance(baseline, list):
+            higher_is_better = bool(case.get("higher_is_better", True))
+            for on, off in zip(intervention, baseline):
+                on_value, off_value = float(on), float(off)
+                if not higher_is_better:
+                    on_value, off_value = -on_value, -off_value
+                effects.append(normalized_delta(on_value, off_value, scale=float(case.get("utility_scale", utility_scale))))
+        else:
+            effects.append(normalized_delta(float(case["utility_on"]), float(case["utility_off"]), scale=utility_scale))
     scientific_ok = all(bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)) for case in cases)
     successes = sum(
         effect > epsilon and bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))

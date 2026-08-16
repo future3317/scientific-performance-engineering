@@ -170,5 +170,18 @@
     "difficulty_tier": {"type": "string", "enum": ["easy", "medium", "hard"]}
     ,"family_id": {"type": "string", "minLength": 1}
     ,"anchor_instance_id": {"type": "string", "minLength": 1}
+    ,"family_parameters": {"type": "object"}
+    ,"family_instance_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    ,"public_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "domain": {"type": "string"},
+        "workload": {"type": "object"},
+        "hardware": {"type": "object"},
+        "software": {"type": "object"},
+        "evidence": {"type": "object"}
+      }
+    }
   }
 }

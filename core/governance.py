@@ -55,12 +55,19 @@ def _validate_promotion_record(manifest: dict[str, Any]) -> str | None:
         return "promotion requires at least two independent representative groups"
     if not isinstance(record["heldout_regression_digest"], str) or not record["heldout_regression_digest"]:
         return "held-out regression digest is required"
+    empty_digest = hashlib.sha256(b"[]").hexdigest()
+    if record["heldout_regression_digest"] == empty_digest:
+        return "held-out regression evidence cannot be empty"
     if not isinstance(record["poison_gate"], dict) or record["poison_gate"].get("passed") is not True:
         return "poisoning gate did not pass"
     if not isinstance(record["utility_effect_cs"], dict) or not {"lcb", "ucb"}.issubset(record["utility_effect_cs"]):
         return "utility effect confidence sequence is required"
     if not isinstance(record["replay_manifest_digest"], str) or not record["replay_manifest_digest"]:
         return "replay manifest digest is required"
+    if "validation_artifact_digest" in record and not isinstance(record["validation_artifact_digest"], str):
+        return "validation artifact digest must be a string"
+    if "validation_artifact_path" in record and not isinstance(record["validation_artifact_path"], str):
+        return "validation artifact path must be a string"
     result = manifest.get("result") if isinstance(manifest.get("result"), dict) else {}
     if float(record["promotion_probability_lcb"]) < float(result.get("p_min", 1.0)):
         return "promotion probability gate is below p_min"
@@ -111,7 +118,21 @@ def evaluate_candidate(candidate: dict[str, Any], replay_manifest: dict[str, Any
             if not required_certificate.issubset(certificate):
                 return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", "relation evidence certificate is incomplete")
             relation_fields = RelationSpec.__dataclass_fields__
-            RelationSpec.from_dict({key: candidate[key] for key in relation_fields if key in candidate})
+            relation_spec = RelationSpec.from_dict({key: candidate[key] for key in relation_fields if key in candidate})
+            from core.acre.factorial import RelationEvidenceCertificate
+            cert_obj = RelationEvidenceCertificate(
+                contrast_cs=certificate["contrast_cs"],
+                alpha_budget=float(certificate["alpha_budget"]),
+                look_schedule=tuple(int(item) for item in certificate["look_schedule"]),
+                scientific_arm_gates=certificate["scientific_arm_gates"],
+                applicability_provenance=certificate["applicability_provenance"],
+                endpoint_versions={str(key): int(value) for key, value in certificate["endpoint_versions"].items()},
+            )
+            endpoint_states = replay_manifest.get("endpoint_states") or {
+                endpoint: {"version": cert_obj.endpoint_versions.get(endpoint)}
+                for endpoint in relation_spec.endpoints.values()
+            }
+            cert_obj.validate_for(relation_spec, endpoint_states)
         else:
             RuleSpec.from_dict({key: value for key, value in candidate.items() if key in RuleSpec.__dataclass_fields__ or key in {"trigger", "requires_evidence", "do_not_apply_when", "conflicts_with", "supersedes", "rule"}})
     except (TypeError, ValueError, KeyError) as exc:
@@ -142,6 +163,25 @@ def apply_promotion(
     if not decision.allowed:
         return decision
     store = Path(store)
+    record = _promotion_record(replay_manifest) or {}
+    validation_path_value = record.get("validation_artifact_path")
+    validation_digest_value = record.get("validation_artifact_digest")
+    if validation_path_value or validation_digest_value:
+        if not isinstance(validation_path_value, str) or not isinstance(validation_digest_value, str):
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact reference is incomplete")
+        relative_validation = Path(validation_path_value)
+        if relative_validation.is_absolute() or ".." in relative_validation.parts:
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact path must be store-relative")
+        validation_path = store / validation_path_value
+        try:
+            validation_value = json.loads(validation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact is missing or invalid")
+        actual_digest = hashlib.sha256(json.dumps(validation_value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+        if actual_digest != validation_digest_value:
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact digest mismatch")
+        if not validation_value.get("heldout_regression_cases") or not validation_value.get("poison_probe_cases"):
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact is empty")
     if decision.subject_type == "relation":
         spec = RelationSpec.from_dict({key: value for key, value in candidate.items() if key in RelationSpec.__dataclass_fields__})
         for endpoint in spec.endpoints.values():
@@ -165,7 +205,7 @@ def apply_promotion(
         "review_diff_hash": hashlib.sha256(json.dumps(card, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest(),
         "record": dict(_promotion_record(replay_manifest) or {}),
     }
-    promotion_path = store / "evolution" / "promotions" / f"{identifier_digest(decision.subject_id)}.json"
+    promotion_path = store / "evolution" / "promotions" / identifier_digest(decision.subject_id) / f"v{int(card.get('version', 1)):04d}.json"
     if decision.subject_type == "relation":
         target = _versioned_path(store, "relations", decision.subject_id, int(card.get("version", 1)))
         state = RelationState(

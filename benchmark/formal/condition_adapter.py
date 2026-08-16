@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 from typing import Any, Mapping
 
 from benchmark.harness.experience_retrieval import RawExperienceRetriever
 from core.acre.engine import AcreEngine
 from core.models import TaskContext
+
+
+def _canonical_public_context(value: Mapping[str, Any]) -> dict[str, Any]:
+    result = {
+        key: dict(value[key]) if isinstance(value.get(key), dict) else value[key]
+        for key in ("domain", "workload", "hardware", "software", "evidence")
+        if key in value
+    }
+    workload = result.setdefault("workload", {})
+    nested = workload.pop("family_parameters", None)
+    if isinstance(nested, dict):
+        result["workload"] = {**nested, **workload}
+    return result
 
 
 class FormalConditionAdapter:
@@ -27,24 +41,26 @@ class FormalConditionAdapter:
     def _task_context(context: TaskContext | Mapping[str, Any]) -> TaskContext:
         if isinstance(context, TaskContext):
             return context
-        workload = context.get("workload") if isinstance(context.get("workload"), dict) else dict(context)
+        public = _canonical_public_context(context)
+        workload = public.get("workload") if isinstance(public.get("workload"), dict) else dict(public)
         return TaskContext(
-            domain=str(context.get("domain", "scientific-performance")),
+            domain=str(public.get("domain", "scientific-performance")),
             workload=workload,
-            hardware=dict(context.get("hardware", {})),
-            software=dict(context.get("software", {})),
-            evidence=dict(context.get("evidence", {})),
+            hardware=dict(public.get("hardware", {})),
+            software=dict(public.get("software", {})),
+            evidence=dict(public.get("evidence", {})),
             token_budget=int(context.get("token_budget", 4096)),
         )
 
     def retrieved_context(self, context: TaskContext | Mapping[str, Any]) -> dict[str, Any]:
         typed_context = self._task_context(context)
         if self.condition in {"C", "C_STRESS"}:
+            query = json.dumps(typed_context.workload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
             experiences = RawExperienceRetriever(self.store, token_budget=self.token_budget).retrieve(
-                query=str(typed_context.workload.get("mechanism", ""))
+                query=query
             )
             actions = RawExperienceRetriever(self.store, token_budget=self.token_budget).propose_interventions(
-                query=str(typed_context.workload.get("mechanism", ""))
+                query=query
             )
             return {
                 "schema_version": 1,

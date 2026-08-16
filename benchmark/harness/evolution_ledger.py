@@ -86,7 +86,14 @@ class CandidateEvidenceLedger:
 
     def append(self, subject_id: str, version: int, case: dict[str, Any]) -> dict[str, Any] | None:
         digest = self.context_digest(case)
-        record = {"subject_id": str(subject_id), "version": int(version), "replay_context_digest": digest, "case_id": case.get("case_id")}
+        case_for_hash = {key: value for key, value in case.items() if key != "case_path"}
+        case_bytes = json.dumps(case_for_hash, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        record = {
+            "subject_id": str(subject_id), "version": int(version),
+            "replay_context_digest": digest, "case_id": case.get("case_id"),
+            "case_sha256": hashlib.sha256(case_bytes).hexdigest(),
+            "case_path": str(case.get("case_path", "")),
+        }
         existing: set[tuple[str, int, str]] = set()
         if self.path.is_file():
             for line in self.path.read_text(encoding="utf-8").splitlines():
@@ -103,3 +110,17 @@ class CandidateEvidenceLedger:
         with self.path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
         return record
+
+    def members(self, subject_id: str, version: int) -> list[dict[str, Any]]:
+        """Return immutable evidence memberships for a candidate revision."""
+        if not self.path.is_file():
+            return []
+        values: list[dict[str, Any]] = []
+        for line in self.path.read_text(encoding="utf-8").splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict) and str(value.get("subject_id")) == str(subject_id) and int(value.get("version", 0)) == int(version):
+                values.append(value)
+        return values

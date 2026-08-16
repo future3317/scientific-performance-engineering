@@ -42,6 +42,40 @@ class RelationEvidenceCertificate:
             "applicability_provenance": dict(self.applicability_provenance), "endpoint_versions": dict(self.endpoint_versions),
         }
 
+    def validate_for(self, relation_spec: object, endpoint_states: Mapping[str, object]) -> None:
+        """Validate that a certificate actually supports its typed relation."""
+        endpoints = getattr(relation_spec, "endpoints", {})
+        if not isinstance(endpoints, Mapping) or set(endpoints) != {"left", "right"}:
+            raise ValueError("relation certificate endpoints are invalid")
+        expected_versions = {}
+        for rule_id, state in endpoint_states.items():
+            version = getattr(state, "version", None)
+            if version is None and isinstance(state, Mapping):
+                version = state.get("version")
+            if version is not None:
+                expected_versions[str(rule_id)] = int(version)
+        if any(self.endpoint_versions.get(rule_id) != expected_versions.get(rule_id) for rule_id in endpoints.values()):
+            raise ValueError("relation certificate endpoint versions do not match current endpoints")
+        if not self.applicability_provenance.get("source"):
+            raise ValueError("relation certificate applicability provenance is required")
+        if not all(self.scientific_arm_gates.values()):
+            raise ValueError("relation certificate scientific arm gates must pass")
+        kind = str(getattr(relation_spec, "kind", ""))
+        required = {"gamma"}
+        if kind == "prerequisite":
+            required |= {"delta_a_given_b0", "delta_a_given_b1", "delta_b_given_a0", "delta_b_given_a1"}
+        if kind == "redundancy":
+            required.add("redundancy")
+        missing = required - set(self.contrast_cs)
+        if missing:
+            raise ValueError("relation certificate missing contrasts: " + ", ".join(sorted(missing)))
+        for name, interval in self.contrast_cs.items():
+            if not isinstance(interval, Mapping) or not {"lcb", "ucb"}.issubset(interval):
+                raise ValueError(f"relation certificate contrast {name} needs lcb and ucb")
+            lcb, ucb = float(interval["lcb"]), float(interval["ucb"])
+            if not math.isfinite(lcb) or not math.isfinite(ucb) or lcb > ucb:
+                raise ValueError(f"relation certificate contrast {name} interval is invalid")
+
 
 def canonical_relation_label(value: str) -> str:
     """Normalize estimator labels and typed relation-kind labels for reports."""

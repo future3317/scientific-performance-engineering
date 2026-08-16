@@ -421,7 +421,7 @@ Harness support: `harness/conditions.py materialize A|B|C|C_STRESS|D` builds an 
 copy per condition from a pinned snapshot, with the appropriate read-only/writable
 bits and injection policy; rule injection into the agent context is performed by the
 harness from the condition's store (the core skill has no runtime retrieval interface
-— see `INTEGRATION_REQUIREMENTS.md` R1). All condition copies are hash-attested so a
+— see `INTEGRATION_REQUIREMENTS.md`). All condition copies are hash-attested so a
 run can prove which skill bits were visible.
 
 Equal-budget controls: identical max tool calls/tokens/wall time per task; C and D get

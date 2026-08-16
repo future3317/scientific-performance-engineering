@@ -3,8 +3,20 @@
   "features": [
     {"path": "workload.geometry_displacement", "type": "numeric"},
     {"path": "workload.logical_steps", "type": "numeric"},
-    {"path": "workload.mechanism", "type": "categorical"}
+    {"path": "workload.mechanism", "type": "categorical"},
+    {"path": "workload.graph_size", "type": "numeric"},
+    {"path": "workload.dynamic_shape_rate", "type": "numeric"},
+    {"path": "workload.memory_pressure", "type": "numeric"},
+    {"path": "workload.scalar_syncs_per_step", "type": "numeric"}
   ],
   "max_depth": 3,
-  "max_literals": 4
+  "max_literals": 4,
+  "threshold_universe": {
+    "workload.geometry_displacement": [0.02, 0.05, 0.08],
+    "workload.logical_steps": [64, 128, 192, 256],
+    "workload.graph_size": [64, 96, 128, 320],
+    "workload.dynamic_shape_rate": [0.2, 0.3, 0.6, 0.8],
+    "workload.memory_pressure": [0.4, 0.57, 0.7],
+    "workload.scalar_syncs_per_step": [8, 12]
+  }
 }

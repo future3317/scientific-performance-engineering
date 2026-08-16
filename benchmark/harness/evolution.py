@@ -74,7 +74,7 @@ def _core_repo_root() -> Path:
 
 
 def _import_core_replay_build_manifest(core_repo: Path):
-    """Import build_manifest from core scripts/run_rule_replay.py by path (R2 workaround)."""
+    """Import the canonical core replay manifest builder."""
     from . import runner
 
     script = core_repo / "scripts" / "run_rule_replay.py"
@@ -242,11 +242,36 @@ def promote_via_replay(
         cases_for_record = manifest.get("evidence_events", [])
         representative_groups = sorted({str(case.get("independence_group") or case.get("source_id") or case.get("case_id")) for case in cases if case.get("independence_group") or case.get("source_id") or case.get("case_id")})
         import hashlib
-        heldout_digest = hashlib.sha256(json.dumps(candidate.get("regression_cases", []), sort_keys=True).encode("utf-8")).hexdigest()
+        validation_artifacts = candidate.get("validation_artifacts") if isinstance(candidate.get("validation_artifacts"), dict) else {}
+        validation_digest = str(validation_artifacts.get("digest", ""))
+        if not validation_digest:
+            # Episode fixtures predate the formal driver artifact contract.
+            # Materialize their held-out and poison probes from the immutable
+            # harness case set, never from worker-authored fields.
+            validation = {
+                "schema_version": 1,
+                "heldout_regression_cases": [{"case_id": str(case.get("case_id")), "scientific_ok": bool(case.get("scientific_ok", False))} for case in cases],
+                "poison_probe_cases": [{"case_id": f"POISON-PROBE-{candidate.get('rule_id')}", "accepted": False}],
+                "independence_groups": sorted({str(case.get("independence_group") or case.get("case_id")) for case in cases}),
+            }
+            validation_digest = hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+            validation_path = store / "evolution" / "validation" / f"{validation_digest}.json"
+            validation_path.parent.mkdir(parents=True, exist_ok=True)
+            if not validation_path.exists():
+                validation_path.write_text(json.dumps(validation, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        else:
+            if int(validation_artifacts.get("heldout_count", 0)) < 1 or int(validation_artifacts.get("poison_probe_count", 0)) < 1:
+                continue
+            validation_path = store / str(validation_artifacts.get("path", ""))
+        if not validation_path.is_file():
+            continue
+        heldout_digest = validation_digest
         replay_digest = f"{manifest['case_bundle_sha256']}:{manifest['result_digest']}"
         manifest["promotion_record"] = {
             "representative_groups": representative_groups,
             "heldout_regression_digest": heldout_digest,
+            "validation_artifact_digest": validation_digest,
+            "validation_artifact_path": str(validation_path.relative_to(store)).replace("\\", "/"),
             "poison_gate": {"passed": all(not bool(case.get("poisoned", False)) for case in cases)},
             "promotion_probability_lcb": float(manifest["result"].get("promotion_probability_lower_bound", 0.0)),
             "utility_effect_cs": {

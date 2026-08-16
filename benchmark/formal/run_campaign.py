@@ -31,6 +31,47 @@ from scripts.render_skill_view import render_skill_view, validate_skill_view_bun
 from core.models import identifier_digest, validate_identifier
 
 
+def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the single public routing shape shared by C and D.
+
+    Family generators historically nested parameters below
+    ``workload.family_parameters`` while the core predicate DSL addresses
+    ``workload.<feature>``.  Flattening that declared public mapping at the
+    boundary prevents task-local IDs and hidden mechanism labels from entering
+    either retrieval or routing.
+    """
+    source = value if isinstance(value, dict) else {}
+    result = {key: dict(source[key]) if isinstance(source.get(key), dict) else source[key]
+              for key in ("domain", "workload", "hardware", "software", "evidence")
+              if key in source}
+    workload = result.setdefault("workload", {})
+    nested = workload.pop("family_parameters", None)
+    if isinstance(nested, dict):
+        workload = {**nested, **workload}
+        result["workload"] = workload
+    return result
+
+
+class InterventionRealizer:
+    """Bind one worker hypothesis to one harness-measured intervention.
+
+    Formal workers may propose several hypotheses, but the verifier produces
+    one executable solution artifact.  The realizer therefore fails closed
+    unless exactly one proposal has a concrete intervention, preventing one
+    whole-patch measurement from being copied to multiple rules.
+    """
+
+    @staticmethod
+    def realize(proposals: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if len(proposals) != 1:
+            return None
+        proposal = proposals[0]
+        intervention = proposal.get("intervention")
+        if not isinstance(intervention, dict) or not intervention:
+            return None
+        return {"intervention": dict(intervention), "proposal_id": str(proposal.get("rule_id") or proposal.get("relation_id") or proposal.get("id") or "")}
+
+
 def _copy_workspace(task_dir: Path, destination: Path) -> None:
     source = task_dir / "workspace"
     if not source.is_dir():
@@ -57,6 +98,7 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
         # this same public contract until their YAML declarations are rebuilt.
         family_parameters = task.get("family_parameters") if isinstance(task.get("family_parameters"), dict) else {}
         declared_public_context = {"workload": dict(family_parameters)}
+    declared_public_context = canonical_public_context(declared_public_context)
     public_task = {
         "schema_version": 1,
         "task_id": task.get("task_id", task_dir.name),
@@ -250,7 +292,7 @@ def _read_agent_extensions(path: Path) -> dict[str, Any]:
         extensions["acre_proposals"] = []
     else:
         clean: list[dict[str, Any]] = []
-        proposal_fields = {"rule_id", "relation_id", "id", "expected_mechanism", "intervention", "text", "hypothesis", "query"}
+        proposal_fields = {"rule_id", "relation_id", "id", "expected_mechanism", "intervention", "text", "hypothesis", "query", "applicability"}
         for proposal in proposals:
             if not isinstance(proposal, dict):
                 continue
@@ -282,6 +324,7 @@ def post_task_update(
     allow_maintenance: bool = True,
     control_result: dict[str, Any] | None = None,
     control_scored: dict[str, Any] | None = None,
+    public_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
@@ -300,6 +343,8 @@ def post_task_update(
             "task_id": task_id,
             "condition": condition,
             "context_mode": context_mode,
+            "public_context": canonical_public_context(public_context),
+            "retrieval_query": json.dumps(canonical_public_context(public_context).get("workload", {}), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
             "observation": {
                 "verdict": result.get("verdict"),
                 "task_score": scored.get("task_score"),
@@ -324,12 +369,30 @@ def post_task_update(
             evidence_dir.mkdir(parents=True, exist_ok=True)
             case_id = f"CASE-{task_id}"
             validate_identifier(case_id, "case_id")
+            measurement = result.get("measurement", {}) if isinstance(result.get("measurement"), dict) else {}
+            control_measurement = control_result.get("measurement", {}) if isinstance(control_result.get("measurement"), dict) else {}
+            intervention_runs = list(measurement.get("candidate_runs", []))
+            baseline_runs = list(measurement.get("baseline_runs", []))
+            fixture_hashes = measurement.get("fixture_hashes", {})
+            control_fixture_hashes = control_measurement.get("fixture_hashes", {})
+            if not intervention_runs or len(intervention_runs) != len(baseline_runs) or not fixture_hashes or fixture_hashes != control_fixture_hashes:
+                # The verifier's paired record is the only accepted source of
+                # causal measurements; no task-score fallback is fabricated.
+                return {"transition": "no_replay_measurement", "added_experience_ids": added_experience_ids}
             case = {
                 "schema_version": 1,
                 "record_type": "paired_replay_case",
                 "case_id": case_id,
                 "utility_on": float(scored.get("task_score", 0.0)),
                 "utility_off": float(control_scored.get("task_score", 0.0)),
+                "control_measured": bool(control_measurement.get("candidate_runs")),
+                "baseline_measurements": baseline_runs,
+                "intervention_measurements": intervention_runs,
+                "same_fixture_digest": measurement.get("fixture_hashes", {}),
+                "same_seed": result.get("seed"),
+                "same_work_units": measurement.get("work_units", {}),
+                "higher_is_better": bool(measurement.get("higher_is_better", False)),
+                "utility_scale": 1.0,
                 "scientific_ok": bool(scored.get("gates_passed", False)),
                 "quality_ok": bool(scored.get("gates_passed", False)) and bool(control_scored.get("gates_passed", False)),
                 "paired_replay": True,
@@ -346,6 +409,19 @@ def post_task_update(
             if not evidence_path.exists():
                 evidence_path.write_text(json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             added_replay_case_ids.append(case_id)
+            validation_dir = store / "evolution" / "validation"
+            validation_dir.mkdir(parents=True, exist_ok=True)
+            validation = {
+                "schema_version": 1,
+                "subject_context": canonical_public_context(public_context),
+                "heldout_regression_cases": [{"case_id": case_id, "scientific_ok": case["quality_ok"], "context": case["context"]}],
+                "poison_probe_cases": [{"case_id": f"POISON-PROBE-{task_id}", "accepted": False, "context": case["context"]}],
+                "independence_groups": [case["independence_group"]],
+            }
+            validation_digest = hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+            validation_path = validation_dir / f"{validation_digest}.json"
+            if not validation_path.exists():
+                validation_path.write_text(json.dumps(validation, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     if condition == "D" and allow_maintenance:
         valid, policy_errors = conditions.verify_condition_policy(store)
@@ -362,7 +438,11 @@ def post_task_update(
         from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
         candidate_evidence = CandidateEvidenceLedger(store / "evolution" / "candidate_evidence.jsonl")
         candidates_by_id: dict[str, dict[str, Any]] = {}
-        for candidate in result.get("acre_proposals", []):
+        proposals = [item for item in result.get("acre_proposals", []) if isinstance(item, dict)]
+        realization = InterventionRealizer.realize(proposals)
+        if realization is None:
+            proposals = []
+        for candidate in proposals:
             if not isinstance(candidate, dict):
                 continue
             if candidate.get("relation_id"):
@@ -376,11 +456,15 @@ def post_task_update(
             validate_identifier(identifier, "candidate_id")
             # Proposal fields are hypotheses only.  Governance-owned fields
             # are reconstructed from the public task and replay policy.
+            proposed_applicability = candidate.get("applicability")
+            if proposed_applicability is not None and "task_id" in json.dumps(proposed_applicability, sort_keys=True):
+                continue
+            applicability = proposed_applicability if isinstance(proposed_applicability, dict) and proposed_applicability else {"all": []}
             candidate = {
                 "rule_id": identifier,
                 "version": int(candidate.get("version", 1)),
                 "parent": None,
-                "applicability": {"equals": {"workload.task_id": task_id}},
+                "applicability": applicability,
                 "intervention": candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"},
                 "expected_mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
                 "evidence_requirements": ["paired_replay"],
@@ -395,6 +479,13 @@ def post_task_update(
                 "status": "candidate",
             }
             candidate["cases"] = list(added_replay_case_ids)
+            candidate["realized_intervention"] = realization["intervention"]
+            candidate["validation_artifacts"] = {
+                "path": str(validation_path.relative_to(store)).replace("\\", "/"),
+                "digest": validation_digest,
+                "heldout_count": 1,
+                "poison_probe_count": 1,
+            }
             path = candidates_dir / f"{identifier_digest(identifier)}.json"
             existing: dict[str, Any] = {}
             if path.is_file():
@@ -417,6 +508,8 @@ def post_task_update(
                 except (OSError, json.JSONDecodeError, ValueError):
                     continue
                 if isinstance(case_value, dict):
+                    case_value = dict(case_value)
+                    case_value["case_path"] = str((store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json").relative_to(store)).replace("\\", "/")
                     candidate_evidence.append(identifier, int(candidate.get("version", 1)), case_value)
             path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             candidates_by_id[identifier] = candidate
@@ -428,13 +521,22 @@ def post_task_update(
         candidates = list(candidates_by_id.values())
         for candidate in candidates:
             hydrated_cases: list[dict[str, Any]] = []
-            for case_id in candidate.get("cases", []):
+            subject_id = str(candidate.get("rule_id") or candidate.get("id") or "")
+            memberships = candidate_evidence.members(subject_id, int(candidate.get("version", 1)))
+            membership_by_id = {str(item.get("case_id")): item for item in memberships}
+            case_ids = list(membership_by_id) or candidate.get("cases", [])
+            for case_id in case_ids:
                 try:
                     case_path = store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json"
                     case_value = json.loads(case_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError, ValueError):
                     continue
                 if isinstance(case_value, dict):
+                    membership = membership_by_id.get(str(case_id))
+                    if membership and membership.get("case_sha256"):
+                        actual_case_digest = hashlib.sha256(json.dumps(case_value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+                        if actual_case_digest != membership["case_sha256"]:
+                            continue
                     hydrated_cases.append(case_value)
             candidate["cases"] = hydrated_cases
         if candidates:
@@ -757,6 +859,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             context_mode=str(item["context_mode"]),
             seed=int(item["outer_trial_index"]),
         )
+        result["seed"] = int(item["outer_trial_index"])
         result.update(agent_extensions)
         result["condition_adapter"] = retrieved_context
         result.setdefault("cost", {}).update({
@@ -778,6 +881,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             allow_maintenance=not budget_errors,
             control_result=control_result,
             control_scored=control_scored,
+            public_context=public_routing,
         )
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:

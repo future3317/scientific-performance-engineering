@@ -428,7 +428,9 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                     errors.extend(f"{path}: {error}" for error in validate_provenance_diversity(card, experiences))
                     errors.extend(f"{path}: {error}" for error in validate_replay_manifest(card, root))
                 else:
-                    promotion_path = root / "evolution" / "promotions" / f"{identifier_digest(card['rule_id'])}.json"
+                    promotion_dir = root / "evolution" / "promotions" / identifier_digest(card['rule_id'])
+                    promotion_paths = sorted(promotion_dir.glob("v*.json"))
+                    promotion_path = promotion_paths[-1] if promotion_paths else root / "evolution" / "promotions" / f"{identifier_digest(card['rule_id'])}.json"
                     if card_status == "canonical" and not promotion_path.is_file():
                         errors.append(f"{path}: canonical RuleSpec missing promotion record")
                     elif card_status == "canonical" and promotion_path.is_file():
