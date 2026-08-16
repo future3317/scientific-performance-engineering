@@ -47,7 +47,7 @@ def relation_candidate() -> dict:
 
 
 def main() -> None:
-    passed = {"outcome": "passed", "result_digest": "d" * 64, "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3, "promotion_probability_lower_bound": 0.9}}
+    passed = {"outcome": "passed", "result_digest": "d" * 64, "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3, "promotion_probability_lower_bound": 0.9, "p_min": 0.8}, "promotion_record": {"representative_groups": ["g1", "g2"], "heldout_regression_digest": "h", "poison_gate": {"passed": True}, "promotion_probability_lcb": 0.9, "utility_effect_cs": {"lcb": 0.1, "ucb": 0.3}, "replay_manifest_digest": "m"}}
     assert evaluate_candidate(candidate("P1"), passed).status == "review_required"
     assert evaluate_candidate(candidate("P2"), passed).allowed
     assert not evaluate_candidate(candidate("P2"), {"outcome": "failed"}).allowed
@@ -72,15 +72,21 @@ def main() -> None:
         assert decision.allowed
         import hashlib
         rule_digest = hashlib.sha256(b"PERF-TEST-001").hexdigest()
-        card = json.loads((root / "rules" / f"{rule_digest}.json").read_text(encoding="utf-8"))
+        card = json.loads((root / "rules" / rule_digest / "v0001.json").read_text(encoding="utf-8"))
         promotion = json.loads((root / "evolution" / "promotions" / f"{rule_digest}.json").read_text(encoding="utf-8"))
         assert card["rule_id"] == "PERF-TEST-001" and promotion["mode"] == "bounded-auto"
         relation_passed = dict(passed, evidence_type="factorial_contrast")
+        for endpoint in ("RULE-A", "RULE-B"):
+            endpoint_dir = root / "rules" / hashlib.sha256(endpoint.encode()).hexdigest()
+            endpoint_dir.mkdir(parents=True)
+            endpoint_dir.joinpath("v0001.json").write_text(json.dumps({**candidate("P2"), "rule_id": endpoint}), encoding="utf-8")
+            endpoint_dir.joinpath("v0001.state.json").write_text(json.dumps({"rule_id": endpoint, "version": 1, "status": "canonical"}), encoding="utf-8")
+        relation_passed["relation_evidence_certificate"] = {"contrast_cs": {"gamma": {"lcb": 0.1, "ucb": 0.3}}, "alpha_budget": 0.05, "look_schedule": [8, 16], "scientific_arm_gates": {"00": True, "01": True, "10": True, "11": True}, "applicability_provenance": {"source": "test"}, "endpoint_versions": {"RULE-A": 1, "RULE-B": 1}}
         relation_decision = apply_promotion(root, relation_candidate(), relation_passed, replay_path="evolution/relation.json")
         assert relation_decision.allowed and relation_decision.subject_type == "relation"
         import hashlib
         relation_digest = hashlib.sha256(b"REL-TEST-001").hexdigest()
-        relation_card = json.loads((root / "relations" / f"{relation_digest}.json").read_text(encoding="utf-8"))
+        relation_card = json.loads((root / "relations" / relation_digest / "v0001.json").read_text(encoding="utf-8"))
         relation_registry = json.loads((root / "registry" / "relations.json").read_text(encoding="utf-8"))
         assert relation_card["relation_id"] == "REL-TEST-001"
         assert relation_registry["relations"][0]["relation_id"] == "REL-TEST-001"

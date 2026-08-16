@@ -116,11 +116,19 @@ def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) 
             features.append({"path": "workload.dynamic_rate", "type": "numeric"})
         if family == "h2d_pipeline":
             features.append({"path": "workload.pin_memory", "type": "categorical"})
+        public_lattice = {
+            "workload.logical_steps": [32, 64, 96, 128, 192, 256, 384],
+            "workload.geometry_displacement": [0.0, 0.01, 0.02, 0.03, 0.05, 0.08, 0.12],
+            "workload.worker_count": [1, 2, 3, 4, 8],
+            "workload.memory_pressure": [0.25, 0.33, 0.41, 0.49, 0.53, 0.57, 0.65, 0.73, 0.81, 0.89, 0.97],
+            "workload.scalar_syncs_per_step": list(range(1, 33)),
+        }
         grammar = PredicateGrammar.from_dict({
             "schema_version": 1,
             "features": features,
             "max_depth": 2,
             "max_literals": 3,
+            "threshold_universe": {grammar_path: public_lattice.get(grammar_path, [])},
         })
     result = StatisticalCEGIS(grammar).synthesize(
         positive=representative,

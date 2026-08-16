@@ -59,6 +59,17 @@ def evaluate_cases(
 ) -> dict[str, Any]:
     if not cases:
         raise ValueError("replay requires at least one paired case")
+    for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("replay cases must be objects")
+        if not case.get("paired_replay"):
+            raise ValueError("replay cases must be harness-owned paired interventions")
+        if float(case.get("utility_off", 0.0)) == 0.0:
+            raise ValueError("paired replay requires a measured non-zero control utility")
+        if case.get("paired_replay") and not case.get("same_fixture_id"):
+            raise ValueError("paired replay case must identify its shared fixture")
+        if "utility_on" not in case or "utility_off" not in case:
+            raise ValueError("paired replay case must contain both measured arms")
     validate_policy(utility_policy_id)
     effects = [
         normalized_delta(float(case["utility_on"]), float(case["utility_off"]), scale=utility_scale)

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from typing import Any
+import json
+from pathlib import Path
+import hashlib
 
 
 _TRANSITIONS = {
@@ -62,3 +65,41 @@ class EvolutionDecisionLedger:
         admitted = self.count("evaluated", "promoted", "revalidating", "retired", "rejected")
         survived = self.count("promoted", "revalidating")
         return survived / admitted if admitted else None
+
+
+class CandidateEvidenceLedger:
+    """Append-only evidence index for a candidate revision.
+
+    Candidate cards are mutable workflow projections; this ledger is the
+    durable record that prevents a later task from replacing earlier paired
+    evidence.  The identity includes the replay context digest, so repeated
+    submissions of the same context are idempotent while new tasks append.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+
+    @staticmethod
+    def context_digest(case: dict[str, Any]) -> str:
+        body = {key: case.get(key) for key in ("same_fixture_id", "context", "source_id", "independence_group")}
+        return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def append(self, subject_id: str, version: int, case: dict[str, Any]) -> dict[str, Any] | None:
+        digest = self.context_digest(case)
+        record = {"subject_id": str(subject_id), "version": int(version), "replay_context_digest": digest, "case_id": case.get("case_id")}
+        existing: set[tuple[str, int, str]] = set()
+        if self.path.is_file():
+            for line in self.path.read_text(encoding="utf-8").splitlines():
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(value, dict):
+                    existing.add((str(value.get("subject_id")), int(value.get("version", 0)), str(value.get("replay_context_digest"))))
+        key = (record["subject_id"], record["version"], digest)
+        if key in existing:
+            return None
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
+        return record

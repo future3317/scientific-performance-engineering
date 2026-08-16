@@ -75,18 +75,20 @@ def _hierarchical_ci(
     rng = random.Random(seed)
     bootstrap_means: list[float] = []
     for _ in range(samples):
-        sampled_values: list[float] = []
+        sampled_family_means: list[float] = []
         for _family_draw in families:
             family = rng.choice(families)
             lineages = sorted(hierarchy[family])
-            for _lineage_draw in lineages:
+            family_values: list[float] = []
+            for _lineage_draw in range(len(lineages)):
                 lineage = rng.choice(lineages)
                 tasks = sorted(hierarchy[family][lineage])
-                for _task_draw in tasks:
+                for _task_draw in range(len(tasks)):
                     task = rng.choice(tasks)
                     trials = hierarchy[family][lineage][task]
-                    sampled_values.append(rng.choice(trials))
-        bootstrap_means.append(sum(sampled_values) / len(sampled_values))
+                    family_values.append(rng.choice(trials))
+            sampled_family_means.append(sum(family_values) / len(family_values))
+        bootstrap_means.append(sum(sampled_family_means) / len(sampled_family_means))
     bootstrap_means.sort()
     family_means = []
     for family in families:

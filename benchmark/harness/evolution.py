@@ -213,9 +213,12 @@ def promote_via_replay(
             # Relation promotion requires a factorial contrast certificate; a
             # node replay cannot establish a pairwise causal relation.
             continue
-        cases = candidate.get("cases") or []
+        cases = [dict(case) for case in (candidate.get("cases") or []) if isinstance(case, dict)]
         if not cases:
             continue
+        for case in cases:
+            case.setdefault("paired_replay", True)
+            case.setdefault("same_fixture_id", case.get("case_id", f"fixture-{index}"))
         payload = {
             "rule_id": candidate.get("rule_id") or candidate.get("id", f"rule-{index}"),
             "cases": cases,
@@ -230,13 +233,32 @@ def promote_via_replay(
         case_path = replay_dir / f"{digest}.cases.json"
         manifest_path = replay_dir / f"{digest}.replay.json"
         case_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        manifest = build_manifest(payload, case_path, manifest_path, "benchmark-harness")
+        try:
+            manifest = build_manifest(payload, case_path, manifest_path, "benchmark-harness")
+        except (KeyError, TypeError, ValueError) as exc:
+            # A malformed or non-paired control is a rejected replay, never a
+            # promotion shortcut.
+            continue
+        cases_for_record = manifest.get("evidence_events", [])
+        representative_groups = sorted({str(case.get("independence_group") or case.get("source_id") or case.get("case_id")) for case in cases if case.get("independence_group") or case.get("source_id") or case.get("case_id")})
+        import hashlib
+        heldout_digest = hashlib.sha256(json.dumps(candidate.get("regression_cases", []), sort_keys=True).encode("utf-8")).hexdigest()
+        replay_digest = f"{manifest['case_bundle_sha256']}:{manifest['result_digest']}"
+        manifest["promotion_record"] = {
+            "representative_groups": representative_groups,
+            "heldout_regression_digest": heldout_digest,
+            "poison_gate": {"passed": all(not bool(case.get("poisoned", False)) for case in cases)},
+            "promotion_probability_lcb": float(manifest["result"].get("promotion_probability_lower_bound", 0.0)),
+            "utility_effect_cs": {
+                "lcb": float(manifest["result"].get("utility_effect_lcb", -1.0)),
+                "ucb": float(manifest["result"].get("utility_effect_ucb", 1.0)),
+            },
+            "replay_manifest_digest": replay_digest,
+        }
         # Store-relative paths are required by the independent evolution
         # validator; absolute host paths are not portable evidence.
         manifest["case_bundle_path"] = str(case_path.relative_to(store))
         manifest["command"] = "python scripts/run_rule_replay.py " + str(case_path.relative_to(store)) + " " + str(manifest_path.relative_to(store))
-        import hashlib
-
         body = {key: value for key, value in manifest.items() if key != "attestation"}
         manifest["attestation"] = {
             "algorithm": "sha256",
@@ -247,7 +269,6 @@ def promote_via_replay(
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         rule_id = payload["rule_id"]
         version = int(candidate.get("version", 1))
-        replay_digest = f"{manifest['case_bundle_sha256']}:{manifest['result_digest']}"
         if ledger.has_replay(rule_id, version, replay_digest):
             continue
         try:
@@ -470,7 +491,7 @@ def run_episode(
         if condition == "D":
             candidates = []
             candidates_dir = store / "evolution" / "candidates"
-            for path in sorted(candidates_dir.glob("*.json")):
+            for path in sorted(candidates_dir.rglob("*.json")):
                 record = json.loads(path.read_text(encoding="utf-8"))
                 if record.get("cases") and record.get("status") == "candidate":
                     candidates.append(record)
@@ -479,7 +500,7 @@ def run_episode(
     rules_dir = store / "rules"
     canonical_rules = [
         json.loads(path.read_text(encoding="utf-8"))
-        for path in sorted(rules_dir.glob("*.json"))
+        for path in sorted(rules_dir.rglob("*.json"))
         if not path.name.endswith(".state.json")
     ] if rules_dir.is_dir() else []
     canonical_ids = [str(rule.get("rule_id")) for rule in canonical_rules]

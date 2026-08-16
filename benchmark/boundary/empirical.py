@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import sqrt
-from statistics import mean, stdev
+import random
+from statistics import mean
 from typing import Any, Callable, Mapping, Sequence
 
 
@@ -35,9 +35,10 @@ def run_empirical_boundary(
     for case in cases:
         deltas = [float(evaluator(case.context, True, seed)) - float(evaluator(case.context, False, seed)) for seed in range(repetitions)]
         estimate = mean(deltas)
-        standard_error = stdev(deltas) / sqrt(repetitions) if len(deltas) > 1 else 0.0
-        radius = 1.96 * standard_error
-        lower, upper = estimate - radius, estimate + radius
+        rng = random.Random(f"boundary:{case.context_id}")
+        bootstrap = sorted(sum(deltas[rng.randrange(len(deltas))] for _ in deltas) / len(deltas) for _ in range(2000))
+        lower = bootstrap[int(0.025 * (len(bootstrap) - 1))]
+        upper = bootstrap[int(0.975 * (len(bootstrap) - 1))]
         if upper < noise_floor:
             decision = "not_applicable"
         elif lower > practical_effect:

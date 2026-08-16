@@ -76,10 +76,26 @@ def test_relation_promotion_round_trips_as_spec_state_and_record(tmp_path: Path)
         applicability={"all": []}, contrast_definition={"gamma": "cs"}, practical_margin=0.05,
         scientific_invariants=[], provenance_policy={"required": True},
     ).to_dict()
+    from core.models import identifier_digest
+    for endpoint in ("X", "Y"):
+        rules = tmp_path / "rules" / identifier_digest(endpoint)
+        rules.mkdir(parents=True)
+        (rules / "v0001.json").write_text(json.dumps(_rule(endpoint).to_dict()), encoding="utf-8")
+        (rules / "v0001.state.json").write_text(json.dumps(RuleState(endpoint, 1, "canonical").to_dict()), encoding="utf-8")
     replay = {
         "evidence_type": "factorial_contrast", "outcome": "passed",
         "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3,
-                   "promotion_probability_lower_bound": 0.9},
+                   "promotion_probability_lower_bound": 0.9, "p_min": 0.8},
+        "promotion_record": {
+            "representative_groups": ["g1", "g2"], "heldout_regression_digest": "h",
+            "poison_gate": {"passed": True}, "promotion_probability_lcb": 0.9,
+            "utility_effect_cs": {"lcb": 0.1, "ucb": 0.3}, "replay_manifest_digest": "m",
+        },
+        "relation_evidence_certificate": {
+            "contrast_cs": {"gamma": {"lcb": 0.1, "ucb": 0.3}}, "alpha_budget": 0.05,
+            "look_schedule": [8, 16], "scientific_arm_gates": {"00": True, "01": True, "10": True, "11": True},
+            "applicability_provenance": {"source": "test"}, "endpoint_versions": {"X": 1, "Y": 1},
+        },
     }
     decision = apply_promotion(tmp_path, candidate, replay, replay_path="evolution/contrast.json")
     assert decision.allowed
@@ -193,6 +209,32 @@ def test_executor_receipt_requires_network_and_mount_attestation(tmp_path: Path)
     _, errors = _read_executor_receipt(receipt, "a" * 64)
     assert "external executor must declare network_mode=none" in errors
     assert any("mount_allowlist" in error for error in errors)
+
+
+def test_condition_a_receipt_rejects_skill_mount(tmp_path: Path) -> None:
+    receipt = tmp_path / "executor_receipt.json"
+    receipt.write_text(json.dumps({
+        "mode": "external_namespace_executor", "network_mode": "none",
+        "mount_allowlist": ["task", "solution", "skill_view", "retrieved_context", "result", "executor_receipt"],
+        "executor_digest": "x", "worker_uid": "u", "usage": {}, "skill_view_digest": "x",
+    }), encoding="utf-8")
+    _, errors = _read_executor_receipt(receipt, None)
+    assert "condition A must not mount skill_view" in errors
+
+
+def test_replay_rejects_zero_control_arm() -> None:
+    from scripts import run_rule_replay
+    with pytest.raises(ValueError, match="non-zero control"):
+        run_rule_replay.evaluate_cases([{
+            "case_id": "C-1", "paired_replay": True, "same_fixture_id": "F-1",
+            "utility_on": 0.5, "utility_off": 0.0, "scientific_ok": True,
+        }], 0.05, 0.8, 0.05)
+
+
+def test_missing_promotion_record_gate_is_rejected() -> None:
+    from core.governance import evaluate_candidate
+    decision = evaluate_candidate(_rule("R-GATE").to_dict(), {"outcome": "passed", "result": {"p_min": 0.8}})
+    assert not decision.allowed and "promotion record" in decision.reason
 
 
 def test_evidence_utility_is_bounded_for_confidence_accounting() -> None:

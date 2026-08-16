@@ -223,6 +223,10 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         spec["_task_dir"] = task_dir
         specs.append(spec)
         errors.extend(_metadata_findings(task_dir, spec))
+        public_context = spec.get("public_context")
+        if not isinstance(public_context, dict):
+            if not isinstance(spec.get("family_parameters"), dict) or not spec.get("family_parameters"):
+                errors.append(f"{task_dir.name}: missing public routing context")
         if not spec.get("family_id"):
             errors.append(f"{task_dir.name}: missing family_id anchor projection")
         elif not spec.get("anchor_instance_id"):
@@ -313,6 +317,10 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         },
         "lineage_leakage_checked": True,
         "empirical_calibration": empirical_calibration,
+        "public_context": {
+            str(spec.get("task_id")): spec.get("public_context") or {"workload": dict(spec.get("family_parameters", {}))}
+            for spec in specs
+        },
         "empirical_rejection_flags": empirical_flags,
         "formal_50_task_results": "not_claimed",
     }

@@ -6,16 +6,18 @@ import math
 
 
 def bounded_mean_interval(values: list[float], delta: float) -> tuple[float, float]:
-    """Hoeffding interval for a bounded utility in [-1, 1].
+    """Prefix-uniform Hoeffding interval for bounded utility in ``[-1, 1]``.
 
-    Promotion probability is governed by the time-uniform mixture boundary;
-    this interval is the separate conservative effect estimate consumed by
-    routing.
+    The confidence budget is spent over all prefixes, so a caller may inspect
+    the effect after any replay prefix without turning this interval into a
+    fixed-sample post-selection bound.
     """
     if not values or not 0.0 < delta < 1.0 or any(not -1.0 <= float(value) <= 1.0 for value in values):
         raise ValueError("bounded mean inputs must be non-empty, delta in (0,1), and values in [-1,1]")
     mean = sum(float(value) for value in values) / len(values)
-    radius = math.sqrt(2.0 * math.log(2.0 / delta) / len(values))
+    n = len(values)
+    prefix_delta = delta / (n * (n + 1))
+    radius = math.sqrt(2.0 * math.log(2.0 / prefix_delta) / n)
     return max(-1.0, mean - radius), min(1.0, mean + radius)
 
 

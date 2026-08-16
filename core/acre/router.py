@@ -103,6 +103,24 @@ class ConservativeCausalRouter:
         return {key: tuple(value) for key, value in pairs.items()}
 
     @staticmethod
+    def _certificate(
+        bundle: tuple[RuleSpec, ...],
+        context: Mapping[str, Any],
+        certificates: Mapping[str, Any] | None,
+    ) -> Mapping[str, Any] | None:
+        ids = frozenset(spec.rule_id for spec in bundle)
+        for certificate in (certificates or {}).values():
+            if not isinstance(certificate, Mapping):
+                continue
+            candidate_ids = certificate.get("bundle_ids") or certificate.get("rule_ids")
+            if not isinstance(candidate_ids, list) or frozenset(str(item) for item in candidate_ids) != ids:
+                continue
+            predicate = certificate.get("context_predicate") or certificate.get("applicability") or {"all": []}
+            if match_predicate(predicate, context):
+                return certificate
+        return None
+
+    @staticmethod
     def _active(spec: RelationSpec, states: Mapping[str, RelationState], context: Mapping[str, Any]) -> bool:
         state = states.get(spec.relation_id)
         return state is not None and state.status == "canonical" and state.drift_state == "stable" and match_predicate(spec.applicability, context)
@@ -149,7 +167,7 @@ class ConservativeCausalRouter:
             reasons.add("token_budget")
         if len(bundle) >= 3 and require_higher_order_certificate:
             key = ":".join(sorted(spec.rule_id for spec in bundle))
-            certificate = (higher_order_certificates or {}).get(key)
+            certificate = self._certificate(bundle, context, higher_order_certificates)
             if not isinstance(certificate, Mapping) or certificate.get("status") != "pairwise_certified":
                 reasons.add("higher_order_certificate_required")
         # A directed prerequisite is a closure constraint, not merely a
@@ -264,7 +282,7 @@ class ConservativeCausalRouter:
         evidence = dict(higher_order_evidence or {})
         if len(bundle) < 3:
             certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, 0.0, 0.0, "not_applicable")
-        elif (stored := (higher_order_certificates or {}).get(":".join(sorted(spec.rule_id for spec in bundle)))) is not None:
+        elif (stored := self._certificate(bundle, context_map, higher_order_certificates)) is not None:
             certificate = BundleCertificate(
                 tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)},
                 float(stored.get("residual_lcb", stored.get("lcb", -1.0))),

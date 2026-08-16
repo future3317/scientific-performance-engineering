@@ -56,6 +56,7 @@ class PredicateGrammar:
     features: tuple[dict[str, str], ...]
     max_depth: int = 3
     max_literals: int = 4
+    threshold_universe: dict[str, tuple[float, ...]] | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "PredicateGrammar":
@@ -78,7 +79,15 @@ class PredicateGrammar:
         max_literals = int(value.get("max_literals", 4))
         if not 1 <= max_depth <= 3 or not 1 <= max_literals <= 4:
             raise ValueError("predicate grammar bounds must be max_depth<=3 and max_literals<=4")
-        return cls(1, tuple(features), max_depth=max_depth, max_literals=max_literals)
+        raw_thresholds = value.get("threshold_universe", {})
+        if raw_thresholds is not None and not isinstance(raw_thresholds, dict):
+            raise ValueError("threshold_universe must be a mapping")
+        threshold_universe = {
+            str(path): tuple(sorted({float(item) for item in values}))
+            for path, values in (raw_thresholds or {}).items()
+            if isinstance(values, list) and values
+        }
+        return cls(1, tuple(features), max_depth=max_depth, max_literals=max_literals, threshold_universe=threshold_universe)
 
     def _within_bounds(self, predicate: dict[str, Any]) -> bool:
         complexity = predicate_complexity(predicate)
@@ -91,8 +100,10 @@ class PredicateGrammar:
             values = [_lookup(context, path) for context in contexts]
             values = [value for value in values if value is not None]
             if kind == "numeric":
+                configured = (self.threshold_universe or {}).get(path)
                 numeric = sorted({float(value) for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)})
-                for threshold in sorted({(left + right) / 2.0 for left, right in zip(numeric, numeric[1:])}):
+                thresholds = configured if configured else sorted({(left + right) / 2.0 for left, right in zip(numeric, numeric[1:])})
+                for threshold in thresholds:
                     atoms.extend(({"compare": {path: {"lte": threshold}}}, {"compare": {path: {"gte": threshold}}}))
             elif kind == "version":
                 atoms.extend({"version": {path: value}} for value in sorted(set(values), key=_key))

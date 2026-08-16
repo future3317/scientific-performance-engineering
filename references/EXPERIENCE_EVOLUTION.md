@@ -69,7 +69,8 @@ Prepare a paired replay bundle (the same held-out context measured with the rule
 
 ```json
 {"rule_id":"PERF-SYNC-004","epsilon":0.05,"p_min":0.8,"delta":0.05,
- "cases":[{"case_id":"REG-HELDOUT-001","utility_on":1.17,"utility_off":1.00,
+ "cases":[{"case_id":"REG-HELDOUT-001","paired_replay":true,
+            "same_fixture_id":"fixture-001","utility_on":0.17,"utility_off":0.12,
             "scientific_ok":true,"quality_ok":true}]}
 ```
 

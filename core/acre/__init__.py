@@ -4,7 +4,7 @@ from .predicates import PredicateGrammar, SYNTHESIZER_VERSION, predicate_complex
 from .cegis import BoundaryObservation, StatisticalCEGIS, SynthesisResult
 from .factorial import (
     CoverageResult, FactorialBlock, FactorialEngine, FactorialEstimate,
-    HigherOrderEstimate, ThreeWayBlock, canonical_relation_label,
+    HigherOrderEstimate, ThreeWayBlock, RelationEvidenceCertificate, canonical_relation_label,
     estimate_higher_order, simulate_coverage,
 )
 from .acquisition import AcquisitionPolicy, AcquisitionQuery, AcquisitionResult, run_acquisition
@@ -21,7 +21,7 @@ __all__ = [
     "CoverageResult", "FactorialBlock", "FactorialEngine", "FactorialEstimate", "simulate_coverage",
     "AcquisitionPolicy", "AcquisitionQuery", "AcquisitionResult", "run_acquisition",
     "ConservativeCausalRouter", "RoutingDecision", "BundleCertificate", "validate_relation_nonoverlap", "RelationDecisionPolicy",
-    "AcreEngine", "EvolutionDecision", "RelationIdentifier", "RelationIdentification", "relational_cegis", "HigherOrderEstimate", "ThreeWayBlock", "estimate_higher_order", "canonical_relation_label",
+    "AcreEngine", "EvolutionDecision", "RelationIdentifier", "RelationIdentification", "relational_cegis", "HigherOrderEstimate", "ThreeWayBlock", "RelationEvidenceCertificate", "estimate_higher_order", "canonical_relation_label",
     "EvidenceAssessment", "representative_events", "adversarial_events", "assess",
     "AcreController",
 ]

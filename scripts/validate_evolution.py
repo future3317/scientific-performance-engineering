@@ -397,7 +397,7 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                 errors.append(f"duplicate regression case_id: {case['case_id']}")
             regression_cases[case["case_id"]] = case
     for directory, expected_status in ((root / "evolution" / "candidates", "candidate"), (root / "rules", "canonical"), (root / "evolution" / "retired", "retired")):
-        for path in sorted(directory.glob("*.json")):
+        for path in sorted(directory.rglob("*.json")):
             if path.name.endswith(".state.json"):
                 continue
             try:
@@ -431,6 +431,14 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                     promotion_path = root / "evolution" / "promotions" / f"{identifier_digest(card['rule_id'])}.json"
                     if card_status == "canonical" and not promotion_path.is_file():
                         errors.append(f"{path}: canonical RuleSpec missing promotion record")
+                    elif card_status == "canonical" and promotion_path.is_file():
+                        try:
+                            promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+                        except (OSError, json.JSONDecodeError):
+                            promotion = {}
+                        record = promotion.get("record") if isinstance(promotion, dict) else None
+                        if not isinstance(record, dict):
+                            errors.append(f"{path}: canonical RuleSpec missing PromotionRecord")
     errors.extend(validate_rule_graph(cards))
     registry_path = root / "registry" / "rules.json"
     if registry_path.exists():
@@ -445,7 +453,7 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
     relation_registry_path = root / "registry" / "relations.json"
     relation_dir = root / "relations"
     relation_cards: dict[str, dict[str, Any]] = {}
-    for path in sorted(relation_dir.glob("*.json")) if relation_dir.is_dir() else []:
+    for path in sorted(relation_dir.rglob("*.json")) if relation_dir.is_dir() else []:
         if path.name.endswith(".state.json"):
             continue
         try:
@@ -458,8 +466,16 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
         errors.extend(f"{path}: {error}" for error in validate_relation_artifact(card, state, "canonical"))
         try:
             relation_id = str(card.get("relation_id"))
-            if not (root / "evolution" / "promotions" / f"{identifier_digest(relation_id)}.json").is_file():
+            promotion_path = root / "evolution" / "promotions" / f"{identifier_digest(relation_id)}.json"
+            if not promotion_path.is_file():
                 errors.append(f"{path}: canonical RelationSpec missing promotion record")
+            elif isinstance(card, dict):
+                try:
+                    promotion = json.loads(promotion_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    promotion = {}
+                if not isinstance(promotion, dict) or not isinstance(promotion.get("record"), dict):
+                    errors.append(f"{path}: canonical RelationSpec missing PromotionRecord")
         except (TypeError, ValueError):
             pass
         if isinstance(card, dict) and isinstance(card.get("relation_id"), str):

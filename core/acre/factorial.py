@@ -16,6 +16,33 @@ CANONICAL_RELATIONS = (
 )
 
 
+@dataclass(frozen=True)
+class RelationEvidenceCertificate:
+    """Typed factorial evidence required before relation promotion."""
+
+    contrast_cs: Mapping[str, Mapping[str, float]]
+    alpha_budget: float
+    look_schedule: tuple[int, ...]
+    scientific_arm_gates: Mapping[str, bool]
+    applicability_provenance: Mapping[str, object]
+    endpoint_versions: Mapping[str, int]
+
+    def __post_init__(self) -> None:
+        if not 0.0 < float(self.alpha_budget) < 1.0 or not self.look_schedule:
+            raise ValueError("relation evidence certificate needs alpha budget and look schedule")
+        if set(self.scientific_arm_gates) != set(_ARMS) or not all(isinstance(value, bool) for value in self.scientific_arm_gates.values()):
+            raise ValueError("relation certificate must gate all factorial arms")
+        if not self.endpoint_versions or any(int(version) < 1 for version in self.endpoint_versions.values()):
+            raise ValueError("relation certificate endpoint versions are required")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "contrast_cs": dict(self.contrast_cs), "alpha_budget": self.alpha_budget,
+            "look_schedule": list(self.look_schedule), "scientific_arm_gates": dict(self.scientific_arm_gates),
+            "applicability_provenance": dict(self.applicability_provenance), "endpoint_versions": dict(self.endpoint_versions),
+        }
+
+
 def canonical_relation_label(value: str) -> str:
     """Normalize estimator labels and typed relation-kind labels for reports."""
     aliases = {

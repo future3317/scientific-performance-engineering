@@ -50,6 +50,13 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
     task = miniyaml.load(str(task_dir / "task.yaml"))
     measurement = task.get("measurement", {}) if isinstance(task, dict) else {}
     correctness = task.get("correctness", {}) if isinstance(task, dict) else {}
+    declared_public_context = task.get("public_context") if isinstance(task.get("public_context"), dict) else None
+    if declared_public_context is None:
+        # Family parameters are observable workload facts, unlike the hidden
+        # mechanism/oracle labels.  Existing anchors are projected through
+        # this same public contract until their YAML declarations are rebuilt.
+        family_parameters = task.get("family_parameters") if isinstance(task.get("family_parameters"), dict) else {}
+        declared_public_context = {"workload": dict(family_parameters)}
     public_task = {
         "schema_version": 1,
         "task_id": task.get("task_id", task_dir.name),
@@ -69,7 +76,7 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
         },
         "correctness_contract": correctness,
         # Only fields explicitly declared public may drive retrieval/routing.
-        "routing_context": dict(task.get("public_context", {})) if isinstance(task.get("public_context", {}), dict) else {},
+        "routing_context": declared_public_context,
     }
     (destination / "public_task.json").write_text(
         json.dumps(public_task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -153,7 +160,28 @@ def _prepare_worker_root(
     return worker_root
 
 
-def _read_executor_receipt(path: Path, skill_digest: str | None) -> tuple[dict[str, Any], list[str]]:
+def _verify_baseline(
+    task_dir: Path,
+    solution_dir: Path,
+    out_path: Path,
+    *,
+    condition: str,
+    context_mode: str,
+    seed: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Score the untouched arm on the same fixture before candidate scoring."""
+    baseline = verifier.verify_task(
+        task_dir,
+        solution_dir,
+        out_path=out_path,
+        condition=condition,
+        context_mode=context_mode,
+        seed=seed,
+    )
+    return baseline, scoring.score_task(baseline)
+
+
+def _read_executor_receipt(path: Path, skill_digest: str | None, context_mode: str = "reset") -> tuple[dict[str, Any], list[str]]:
     try:
         receipt = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -171,13 +199,17 @@ def _read_executor_receipt(path: Path, skill_digest: str | None) -> tuple[dict[s
     if not isinstance(mounts, list) or not mounts:
         errors.append("executor receipt mount_allowlist must be non-empty")
     else:
-        allowed_mounts = {"task", "solution", "skill_view", "retrieved_context", "result", "executor_receipt"}
+        allowed_mounts = {"task", "solution", "skill_view", "retrieved_context", "context_state", "result", "executor_receipt"}
         unexpected = sorted(set(str(item) for item in mounts) - allowed_mounts)
         if unexpected:
             errors.append(f"executor receipt contains disallowed mounts: {unexpected}")
         required_mounts = {"task", "solution", "retrieved_context", "result", "executor_receipt"}
         if skill_digest is not None:
             required_mounts.add("skill_view")
+        elif "skill_view" in set(str(item) for item in mounts):
+            errors.append("condition A must not mount skill_view")
+        if context_mode == "carry":
+            required_mounts.add("context_state")
         missing_mounts = sorted(required_mounts - set(str(item) for item in mounts))
         if missing_mounts:
             errors.append(f"executor receipt missing required mounts: {missing_mounts}")
@@ -186,6 +218,8 @@ def _read_executor_receipt(path: Path, skill_digest: str | None) -> tuple[dict[s
             errors.append(f"executor receipt {key} must be non-empty")
     if skill_digest is not None and receipt.get("skill_view_digest") != skill_digest:
         errors.append("executor receipt skill_view_digest mismatch")
+    if skill_digest is None and receipt.get("skill_view_digest") not in {None, ""}:
+        errors.append("condition A must not attest a skill_view_digest")
     usage = receipt.get("usage")
     if not isinstance(usage, dict):
         errors.append("executor receipt usage must be an object")
@@ -216,6 +250,7 @@ def _read_agent_extensions(path: Path) -> dict[str, Any]:
         extensions["acre_proposals"] = []
     else:
         clean: list[dict[str, Any]] = []
+        proposal_fields = {"rule_id", "relation_id", "id", "expected_mechanism", "intervention", "text", "hypothesis", "query"}
         for proposal in proposals:
             if not isinstance(proposal, dict):
                 continue
@@ -228,7 +263,7 @@ def _read_agent_extensions(path: Path) -> dict[str, Any]:
                 validate_identifier(identifier, "proposal_id")
             except ValueError:
                 continue
-            clean.append(dict(proposal))
+            clean.append({key: value for key, value in proposal.items() if key in proposal_fields})
         extensions["acre_proposals"] = clean
     return extensions
 
@@ -245,6 +280,8 @@ def post_task_update(
     context_mode: str = "reset",
     ledger: EvolutionDecisionLedger | None = None,
     allow_maintenance: bool = True,
+    control_result: dict[str, Any] | None = None,
+    control_scored: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
@@ -280,7 +317,7 @@ def post_task_update(
             experience_path.write_text(json.dumps(experience, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             added_experience_ids.append(experience_id)
 
-        if condition == "D":
+        if condition == "D" and control_result is not None and control_scored is not None:
             # The worker cannot author evidence.  The harness derives paired
             # case records from the verifier-owned outcome below.
             evidence_dir = store / "experience" / "cases"
@@ -292,9 +329,15 @@ def post_task_update(
                 "record_type": "paired_replay_case",
                 "case_id": case_id,
                 "utility_on": float(scored.get("task_score", 0.0)),
-                "utility_off": 0.0,
+                "utility_off": float(control_scored.get("task_score", 0.0)),
                 "scientific_ok": bool(scored.get("gates_passed", False)),
-                "quality_ok": bool(scored.get("gates_passed", False)),
+                "quality_ok": bool(scored.get("gates_passed", False)) and bool(control_scored.get("gates_passed", False)),
+                "paired_replay": True,
+                "same_fixture_id": task_id,
+                "candidate_result_digest": hashlib.sha256(json.dumps(result, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
+                "control_result_digest": hashlib.sha256(json.dumps(control_result, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
+                "scientific_gates_on": dict(result.get("scientific_gates", {})),
+                "scientific_gates_off": dict(control_result.get("scientific_gates", {})),
                 "source_id": f"verifier-{task_id}",
                 "independence_group": f"task-{task_id}",
                 "context": {"task_id": task_id, "context_mode": context_mode},
@@ -316,6 +359,8 @@ def post_task_update(
         active_ledger = ledger or EvolutionDecisionLedger()
         candidates_dir = store / "evolution" / "candidates"
         candidates_dir.mkdir(parents=True, exist_ok=True)
+        from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
+        candidate_evidence = CandidateEvidenceLedger(store / "evolution" / "candidate_evidence.jsonl")
         candidates_by_id: dict[str, dict[str, Any]] = {}
         for candidate in result.get("acre_proposals", []):
             if not isinstance(candidate, dict):
@@ -329,9 +374,50 @@ def post_task_update(
                 continue
             candidate = dict(candidate)
             validate_identifier(identifier, "candidate_id")
-            candidate.setdefault("status", "candidate")
+            # Proposal fields are hypotheses only.  Governance-owned fields
+            # are reconstructed from the public task and replay policy.
+            candidate = {
+                "rule_id": identifier,
+                "version": int(candidate.get("version", 1)),
+                "parent": None,
+                "applicability": {"equals": {"workload.task_id": task_id}},
+                "intervention": candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"},
+                "expected_mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
+                "evidence_requirements": ["paired_replay"],
+                "scientific_invariants": [],
+                "abstain_conditions": {},
+                "relations": {},
+                "runtime_cost": {"tokens": 1.0},
+                "provenance_policy": {"required": True},
+                "severity": "P2",
+                "domain": "runtime",
+                "text": str(candidate.get("text", "")),
+                "status": "candidate",
+            }
             candidate["cases"] = list(added_replay_case_ids)
             path = candidates_dir / f"{identifier_digest(identifier)}.json"
+            existing: dict[str, Any] = {}
+            if path.is_file():
+                try:
+                    existing = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    existing = {}
+            if existing:
+                immutable = ("rule_id", "relation_id", "version", "applicability", "intervention", "expected_mechanism")
+                for field in immutable:
+                    if field in existing and field in candidate and existing[field] != candidate[field]:
+                        raise ValueError(f"candidate immutable field changed for {identifier}: {field}")
+                merged = dict(existing)
+                merged.update({key: value for key, value in candidate.items() if key not in {"cases"}})
+                candidate = merged
+            candidate["cases"] = sorted(set(existing.get("cases", [])) | set(candidate.get("cases", [])))
+            for case_id in candidate.get("cases", []):
+                try:
+                    case_value = json.loads((store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json").read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, ValueError):
+                    continue
+                if isinstance(case_value, dict):
+                    candidate_evidence.append(identifier, int(candidate.get("version", 1)), case_value)
             path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             candidates_by_id[identifier] = candidate
         for path in sorted(candidates_dir.glob("*.json")):
@@ -603,12 +689,20 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             }
         retrieved_context_path.write_text(json.dumps(retrieved_context, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         worker_root = _prepare_worker_root(trial_dir, agent_task_dir, solution_dir, None if item["condition"] == "A" else skill_view)
+        worker_context_state = worker_root / "context_state.json"
+        if item["context_mode"] == "carry" and state_path.is_file():
+            shutil.copy2(state_path, worker_context_state)
+        else:
+            worker_context_state.write_text(json.dumps({"context_mode": item["context_mode"], "trajectory": []}) + "\n", encoding="utf-8")
         worker_task_dir = worker_root / "task"
         worker_solution_dir = worker_root / "solution"
         worker_retrieved_context_path = worker_task_dir / "retrieved_context.json"
         worker_retrieved_context_path.write_text(retrieved_context_path.read_text(encoding="utf-8"), encoding="utf-8")
         worker_result_path = worker_root / "worker_result.json"
-        receipt_path = worker_root / "executor_receipt.json"
+        # The receipt is written by the executor outside the worker namespace;
+        # placing it under worker/ would let the worker author its own trust
+        # metadata.
+        receipt_path = trial_dir / "executor_receipt.json"
         env = {
             "SPE_TASK_ID": task_id,
             "SPE_TASK_DIR": str(worker_task_dir),
@@ -622,12 +716,15 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "SPE_SKILL_VIEW_DIR": str(worker_root / "skill_view") if item["condition"] != "A" else "",
             "SPE_BUDGET_JSON": json.dumps(budgets.as_dict(), sort_keys=True),
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
+            "SPE_CONTEXT_STATE_PATH": str(worker_context_state),
         }
         if not getattr(args, "executor_command", None):
             raise ValueError("formal agent runs require --executor-command with a namespace/container executor")
         agent = _run_isolated_agent(args.agent_command, args.executor_command, env, worker_root, budgets.wall_time_s)
+        if item["context_mode"] == "carry" and worker_context_state.is_file():
+            shutil.copy2(worker_context_state, state_path)
         agent_extensions = _read_agent_extensions(worker_result_path)
-        receipt, receipt_errors = _read_executor_receipt(receipt_path, None if item["condition"] == "A" else skill_digest)
+        receipt, receipt_errors = _read_executor_receipt(receipt_path, None if item["condition"] == "A" else skill_digest, str(item["context_mode"]))
         usage = receipt.get("usage", {})
         if not isinstance(usage, dict):
             usage = {}
@@ -641,9 +738,20 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         attest.write_experiment(trial_dir / "experiment.json", manifest)
         if agent["returncode"] != 0:
             budget_errors.append(f"agent command failed with return code {agent['returncode']}")
+        control_result: dict[str, Any] | None = None
+        control_scored: dict[str, Any] | None = None
+        if str(item["condition"]) == "D":
+            control_result, control_scored = _verify_baseline(
+                tasks_root / task_id,
+                solution_dir,
+                trial_dir / "control-result.json",
+                condition=str(item["condition"]),
+                context_mode=str(item["context_mode"]),
+                seed=int(item["outer_trial_index"]),
+            )
         result = verifier.verify_task(
             tasks_root / task_id,
-            solution_dir,
+            worker_solution_dir,
             out_path=trial_dir / "result.json",
             condition=str(item["condition"]),
             context_mode=str(item["context_mode"]),
@@ -668,6 +776,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             context_mode=str(item["context_mode"]),
             ledger=ledgers.setdefault(stream_id, EvolutionDecisionLedger()),
             allow_maintenance=not budget_errors,
+            control_result=control_result,
+            control_scored=control_scored,
         )
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:

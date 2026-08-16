@@ -49,8 +49,9 @@ class AcreEngine:
                 raise ValueError(f"governed artifact must be an object: {path}")
             return value
 
-        def load_state(directory: Path, identifier: str) -> dict[str, Any]:
+        def load_state(directory: Path, identifier: str, spec_path: Path | None = None) -> dict[str, Any]:
             candidates = (
+                (spec_path.with_name(f"{spec_path.stem}.state.json") if spec_path is not None else directory / "__missing__.state.json"),
                 directory / f"{identifier}.state.json",
                 directory / f"{identifier_digest(identifier)}.state.json",
                 root / "states" / directory.name / f"{identifier}.json",
@@ -62,16 +63,30 @@ class AcreEngine:
                     return read(candidate)
             raise ValueError(f"missing materialized state for {identifier}")
 
+        def latest_paths(paths: list[Path], id_field: str) -> list[Path]:
+            selected: dict[str, tuple[int, Path]] = {}
+            for path in paths:
+                value = read(path)
+                identifier = str(value.get(id_field, ""))
+                version = int(value.get("version", 0))
+                previous = selected.get(identifier)
+                if previous is None or version > previous[0]:
+                    selected[identifier] = (version, path)
+            return [item[1] for item in sorted(selected.values(), key=lambda value: str(value[1]))]
+
         rule_specs: list[RuleSpec] = []
         rule_states: dict[str, RuleState] = {}
         rules_dir = root / "rules"
-        rule_paths = sorted(rules_dir.glob("*.json")) if rules_dir.is_dir() else []
+        rule_paths = latest_paths(sorted(
+            [path for path in rules_dir.glob("*.json") if not path.name.endswith(".state.json")]
+            + [path for path in rules_dir.glob("*/v*.json") if not path.name.endswith(".state.json")]
+        ), "rule_id") if rules_dir.is_dir() else []
         for path in rule_paths:
             if path.name.endswith(".state.json"):
                 continue
             card = read(path)
             spec = RuleSpec.from_dict(card)
-            raw_state = card.get("state") if isinstance(card.get("state"), dict) else load_state(rules_dir, spec.rule_id)
+            raw_state = card.get("state") if isinstance(card.get("state"), dict) else load_state(rules_dir, spec.rule_id, path)
             state = RuleState.from_dict(raw_state.get("state", raw_state))
             if spec.rule_id != state.rule_id or spec.version != state.version:
                 raise ValueError(f"rule spec/state version mismatch: {spec.rule_id}")
@@ -81,13 +96,16 @@ class AcreEngine:
         relation_specs: list[RelationSpec] = []
         relation_states: dict[str, RelationState] = {}
         relations_dir = root / "relations"
-        relation_paths = sorted(relations_dir.glob("*.json")) if relations_dir.is_dir() else []
+        relation_paths = latest_paths(sorted(
+            [path for path in relations_dir.glob("*.json") if not path.name.endswith(".state.json")]
+            + [path for path in relations_dir.glob("*/v*.json") if not path.name.endswith(".state.json")]
+        ), "relation_id") if relations_dir.is_dir() else []
         for path in relation_paths:
             if path.name.endswith(".state.json"):
                 continue
             card = read(path)
             spec = RelationSpec.from_dict(card)
-            raw_state = card.get("state") if isinstance(card.get("state"), dict) else load_state(relations_dir, spec.relation_id)
+            raw_state = card.get("state") if isinstance(card.get("state"), dict) else load_state(relations_dir, spec.relation_id, path)
             state = RelationState.from_dict(raw_state.get("state", raw_state))
             if spec.relation_id != state.relation_id or spec.version != state.version:
                 raise ValueError(f"relation spec/state version mismatch: {spec.relation_id}")
@@ -100,7 +118,9 @@ class AcreEngine:
             for path in sorted(certificate_dir.glob("*.json")):
                 certificate = read(path)
                 bundle_ids = certificate.get("bundle_ids") or certificate.get("rule_ids")
-                key = ":".join(sorted(str(item) for item in bundle_ids)) if isinstance(bundle_ids, list) else path.stem
+                predicate = certificate.get("context_predicate") or certificate.get("applicability") or {}
+                predicate_digest = identifier_digest(path.stem) if not predicate else __import__("hashlib").sha256(json.dumps(predicate, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                key = (":".join(sorted(str(item) for item in bundle_ids)) + ":" + predicate_digest) if isinstance(bundle_ids, list) else path.stem
                 certificates[key] = certificate
         return cls(
             rule_specs=rule_specs,
