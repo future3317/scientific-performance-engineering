@@ -46,3 +46,8 @@ family_parameters:
   fixture_index: 0
   seed: 0
 family_instance_digest: "6446d7bc24750d5c7a312c71299515f08694aa9f2daa62707297f4e44173bc00"
+public_context:
+  workload:
+    family_parameters:
+        fixture_index: 0
+        seed: 0

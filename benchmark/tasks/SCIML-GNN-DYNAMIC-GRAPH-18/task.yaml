@@ -48,3 +48,10 @@ family_parameters:
   graph_size: 96
   dynamic_rate: 0.8
 family_instance_digest: "43c52c91348441943a1a90e8b160c632839a1b22ffcc2c5c8717ffb02165a1c5"
+public_context:
+  workload:
+    family_parameters:
+        geometry_displacement: 0.08
+        skin: 0.6
+        graph_size: 96
+        dynamic_rate: 0.8

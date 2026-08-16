@@ -47,3 +47,9 @@ family_parameters:
   graph_size: 64
   dynamic_shape_rate: 0.8
 family_instance_digest: d38bc66b6b1d84d44e3e7b1282a6dcd5036dd62dc6838b8cbed45addeead4ec1
+public_context:
+  workload:
+    family_parameters:
+        logical_steps: 64
+        graph_size: 64
+        dynamic_shape_rate: 0.8

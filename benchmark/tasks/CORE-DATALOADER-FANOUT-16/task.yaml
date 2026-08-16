@@ -48,3 +48,10 @@ family_parameters:
   prefetch_factor: 4
   pin_memory: true
 family_instance_digest: "2d6de97d06c570b131f824356d09a9062b2e08defc3eb99ab02d97326303a2c4"
+public_context:
+  workload:
+    family_parameters:
+        batch_size: 64
+        worker_count: 3
+        prefetch_factor: 4
+        pin_memory: true

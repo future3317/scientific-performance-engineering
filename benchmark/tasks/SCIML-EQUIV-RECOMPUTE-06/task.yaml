@@ -47,3 +47,9 @@ family_parameters:
   seed: 0
   applicable: false
 family_instance_digest: fa624f95485a95d93d928bd4582b947b49280aa44bf59c4e8504b357894f5f32
+public_context:
+  workload:
+    family_parameters:
+        fixture_index: 0
+        seed: 0
+        applicable: false
