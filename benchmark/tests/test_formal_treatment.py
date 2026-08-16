@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 
 from benchmark.formal.condition_adapter import FormalConditionAdapter
-from benchmark.formal.run_campaign import _read_agent_extensions, _read_executor_receipt, materialize_agent_task
+from benchmark.formal.run_campaign import (
+    InterventionRealizer,
+    _read_agent_extensions,
+    _read_executor_receipt,
+    materialize_agent_task,
+    sanitize_submission,
+    synthesize_applicability,
+)
 from benchmark.harness import conditions
 from core.acre.engine import AcreEngine
 from core.models import RelationSpec, RelationState, RuleSpec, RuleState
@@ -82,15 +89,25 @@ def test_relation_promotion_round_trips_as_spec_state_and_record(tmp_path: Path)
         rules.mkdir(parents=True)
         (rules / "v0001.json").write_text(json.dumps(_rule(endpoint).to_dict()), encoding="utf-8")
         (rules / "v0001.state.json").write_text(json.dumps(RuleState(endpoint, 1, "canonical").to_dict()), encoding="utf-8")
+    validation = {
+        "promotion_case_ids": ["CASE-REL"],
+        "heldout_regression_cases": [{"case_id": "HELDOUT-REL", "executed": True, "execution_source": "verifier"}],
+        "poison_probe_cases": [{"case_id": "POISON-REL", "executed": True, "execution_source": "environment", "accepted": False}],
+    }
+    validation_path = tmp_path / "evolution" / "validation.json"
+    validation_path.parent.mkdir(parents=True)
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    validation_digest = __import__("hashlib").sha256(json.dumps(validation, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     replay = {
         "evidence_type": "factorial_contrast", "outcome": "passed",
         "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3,
                    "promotion_probability_lower_bound": 0.9, "p_min": 0.8},
-        "promotion_record": {
-            "representative_groups": ["g1", "g2"], "heldout_regression_digest": "h",
-            "poison_gate": {"passed": True}, "promotion_probability_lcb": 0.9,
-            "utility_effect_cs": {"lcb": 0.1, "ucb": 0.3}, "replay_manifest_digest": "m",
-        },
+            "promotion_record": {
+                "representative_groups": ["g1", "g2"], "promotion_case_ids": ["CASE-REL"], "heldout_regression_digest": "h",
+                "poison_gate": {"passed": True}, "promotion_probability_lcb": 0.9,
+                "utility_effect_cs": {"lcb": 0.1, "ucb": 0.3}, "replay_manifest_digest": "m",
+                "validation_artifact_path": "evolution/validation.json", "validation_artifact_digest": validation_digest,
+            },
         "relation_evidence_certificate": {
             "contrast_cs": {"gamma": {"lcb": 0.1, "ucb": 0.3}}, "alpha_budget": 0.05,
             "look_schedule": [8, 16], "scientific_arm_gates": {"00": True, "01": True, "10": True, "11": True},
@@ -102,6 +119,24 @@ def test_relation_promotion_round_trips_as_spec_state_and_record(tmp_path: Path)
     engine = AcreEngine.from_store(tmp_path)
     assert engine.relation_states["REL-X-Y"].status == "canonical"
     assert (tmp_path / "evolution" / "promotions").is_dir()
+
+
+def test_relation_certificate_must_support_declared_kind() -> None:
+    from core.acre.factorial import RelationEvidenceCertificate
+
+    relation = RelationSpec(
+        relation_id="REL-KIND", version=1, parent=None,
+        endpoints={"left": "X", "right": "Y"}, orientation="symmetric", kind="synergy",
+        applicability={"all": []}, contrast_definition={"quantity": "gamma"}, practical_margin=0.05,
+        scientific_invariants=[], provenance_policy={"required": True},
+    )
+    certificate = RelationEvidenceCertificate(
+        contrast_cs={"gamma": {"lcb": -0.02, "ucb": 0.02}}, alpha_budget=0.05,
+        look_schedule=(8,), scientific_arm_gates={arm: True for arm in ("00", "10", "01", "11")},
+        applicability_provenance={"source": "test"}, endpoint_versions={"X": 1, "Y": 1},
+    )
+    with pytest.raises(ValueError, match="declared relation kind"):
+        certificate.validate_for(relation, {"X": {"version": 1}, "Y": {"version": 1}})
 
 
 def test_condition_adapter_reads_canonical_store_without_fake_state(tmp_path: Path) -> None:
@@ -129,6 +164,21 @@ def test_task_experience_is_not_causal_intervention(tmp_path: Path) -> None:
     }), encoding="utf-8")
     assert RawExperienceRetriever(tmp_path).propose_interventions() == ["not-a-causal-action"]
     assert "assignment" not in json.loads((inbox / "task.json").read_text(encoding="utf-8"))
+
+
+def test_raw_retrieval_uses_nearest_public_context(tmp_path: Path) -> None:
+    from benchmark.harness.experience_retrieval import RawExperienceRetriever
+
+    inbox = tmp_path / "experience" / "inbox"
+    inbox.mkdir(parents=True)
+    for name, rate, lesson in (("near", 0.2, "near-action"), ("far", 0.9, "far-action")):
+        (inbox / f"{name}.json").write_text(json.dumps({
+            "record_type": "task_experience",
+            "public_context": {"workload": {"dynamic_shape_rate": rate}},
+            "lesson": {"proposed_interventions": [lesson]},
+        }), encoding="utf-8")
+    records = RawExperienceRetriever(tmp_path).retrieve({"workload": {"dynamic_shape_rate": 0.25}})
+    assert records[0]["lesson"]["proposed_interventions"] == ["near-action"]
 
 
 def test_public_task_projection_does_not_copy_hidden_metadata(tmp_path: Path) -> None:
@@ -159,7 +209,117 @@ def test_worker_extensions_cannot_override_scored_result(tmp_path: Path) -> None
     extensions = _read_agent_extensions(result)
     assert set(extensions) == {"lesson", "acre_proposals"}
     assert extensions["acre_proposals"][0]["rule_id"] == "R1"
+    assert "applicability" not in extensions["acre_proposals"][0]
     assert "verdict" not in extensions and "score" not in extensions
+
+
+def test_replay_counts_one_trial_per_independence_group() -> None:
+    from scripts import run_rule_replay
+
+    cases = []
+    for group in ("G-1", "G-2"):
+        cases.append({
+            "case_id": group,
+            "paired_replay": True,
+            "same_fixture_id": group,
+            "independence_group": group,
+            "intervention_measurements": [1.2] * 12,
+            "baseline_measurements": [1.0] * 12,
+            "control_measured": True,
+            "scientific_ok": True,
+            "quality_ok": True,
+        })
+    result = run_rule_replay.evaluate_cases(cases, epsilon=0.05, p_min=0.0, delta=0.05)
+    assert result["n"] == 2
+    assert result["successes"] == 2
+    assert result["failures"] == 0
+
+
+def test_intervention_realizer_materializes_only_the_proposed_patch(tmp_path: Path) -> None:
+    baseline = tmp_path / "baseline"
+    baseline.mkdir()
+    (baseline / "solution.py").write_text("VALUE = 1\n", encoding="utf-8")
+    realized = tmp_path / "realized"
+    proposal = {
+        "rule_id": "RULE-1",
+        "intervention": {
+            "file": "solution.py",
+            "replacements": [{"old": "VALUE = 1", "new": "VALUE = 2"}],
+        },
+    }
+    artifact = InterventionRealizer.realize(baseline, realized, proposal)
+    assert artifact == realized
+    assert (realized / "solution.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_applicability_is_synthesized_from_public_evidence() -> None:
+    from benchmark.formal.run_campaign import synthesize_applicability
+
+    synthesized = synthesize_applicability([
+        {"case_id": "POS", "context": {"workload": {"dynamic_shape_rate": 0.2}}, "utility_on": 0.8, "utility_off": 0.5, "scientific_ok": True, "quality_ok": True},
+        {"case_id": "NEG", "context": {"workload": {"dynamic_shape_rate": 0.8}}, "utility_on": 0.4, "utility_off": 0.5, "scientific_ok": True, "quality_ok": True},
+    ])
+    assert synthesized is not None
+    predicate, provenance = synthesized
+    assert "compare" in predicate
+    assert provenance["source"] == "harness-cegis"
+
+
+def test_formal_promotion_round_trip_routes_and_abstains_by_cegis_boundary(tmp_path: Path) -> None:
+    from core.governance import apply_promotion
+    from core.acre.engine import AcreEngine
+    from core.models import TaskContext
+
+    synthesized = synthesize_applicability([
+        {"case_id": "POS", "context": {"domain": "runtime", "workload": {"dynamic_shape_rate": 0.2}}, "utility_on": 0.8, "utility_off": 0.5, "scientific_ok": True, "quality_ok": True},
+        {"case_id": "NEG", "context": {"domain": "runtime", "workload": {"dynamic_shape_rate": 0.8}}, "utility_on": 0.4, "utility_off": 0.5, "scientific_ok": True, "quality_ok": True},
+    ])
+    assert synthesized is not None
+    predicate, provenance = synthesized
+    candidate = _rule("RULE-CEGIS")
+    candidate = candidate.__class__(**{**candidate.__dict__, "applicability": predicate}).to_dict()
+    validation = {
+        "promotion_case_ids": ["CASE-CEGIS-1", "CASE-CEGIS-2"],
+        "heldout_regression_cases": [{"case_id": "HELDOUT-CEGIS", "executed": True, "execution_source": "verifier"}],
+        "poison_probe_cases": [{"case_id": "POISON-CEGIS", "executed": True, "execution_source": "environment", "accepted": False}],
+    }
+    validation_path = tmp_path / "evolution" / "validation.json"
+    validation_path.parent.mkdir(parents=True)
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    import hashlib
+    validation_digest = hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    replay = {
+        "outcome": "passed",
+        "result": {"mean_effect": 0.3, "utility_effect_lcb": 0.2, "utility_effect_ucb": 0.4, "promotion_probability_lower_bound": 0.9, "p_min": 0.8},
+        "promotion_record": {
+            "representative_groups": ["G1", "G2"], "promotion_case_ids": validation["promotion_case_ids"],
+            "heldout_regression_digest": "heldout", "poison_gate": {"passed": True},
+            "promotion_probability_lcb": 0.9, "utility_effect_cs": {"lcb": 0.2, "ucb": 0.4},
+            "replay_manifest_digest": "replay", "validation_artifact_path": "evolution/validation.json", "validation_artifact_digest": validation_digest,
+        },
+    }
+    assert apply_promotion(tmp_path, candidate, replay, replay_path="evolution/replay.json").allowed
+    engine = AcreEngine.from_store(tmp_path)
+    positive = engine.route(TaskContext("runtime", {"dynamic_shape_rate": 0.2}, {}, {}, {}, 4096))
+    negative = engine.route(TaskContext("runtime", {"dynamic_shape_rate": 0.8}, {}, {}, {}, 4096))
+    assert positive.selected_rule_ids == ("RULE-CEGIS",)
+    assert negative.selected_rule_ids == ()
+
+
+def test_submission_sanitizer_rejects_symlink_and_unallowlisted_files(tmp_path: Path) -> None:
+    source = tmp_path / "worker"
+    source.mkdir()
+    (source / "solution.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (source / "extra.py").write_text("VALUE = 2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="allowlisted"):
+        sanitize_submission(source, tmp_path / "submitted", {"solution.py"})
+    (source / "extra.py").unlink()
+    try:
+        (source / "solution.py.link").symlink_to(source / "solution.py")
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this platform")
+    with pytest.raises(ValueError, match="symlink"):
+        sanitize_submission(source, tmp_path / "submitted", {"solution.py", "solution.py.link"})
 
 
 def test_external_ids_reject_path_traversal() -> None:
@@ -235,6 +395,19 @@ def test_missing_promotion_record_gate_is_rejected() -> None:
     from core.governance import evaluate_candidate
     decision = evaluate_candidate(_rule("R-GATE").to_dict(), {"outcome": "passed", "result": {"p_min": 0.8}})
     assert not decision.allowed and "promotion record" in decision.reason
+
+
+def test_validation_artifact_requires_executed_disjoint_probes() -> None:
+    from core.governance import validate_validation_artifact
+
+    artifact = {
+        "promotion_case_ids": ["CASE-1"],
+        "heldout_regression_cases": [{"case_id": "CASE-1", "executed": True}],
+        "poison_probe_cases": [{"case_id": "POISON-1", "executed": False, "accepted": False}],
+    }
+    errors = validate_validation_artifact(artifact, {"CASE-1"})
+    assert any("disjoint" in error for error in errors)
+    assert any("executed" in error for error in errors)
 
 
 def test_evidence_utility_is_bounded_for_confidence_accounting() -> None:

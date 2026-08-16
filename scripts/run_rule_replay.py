@@ -82,24 +82,33 @@ def evaluate_cases(
             # measured baseline may legitimately be zero and is accepted above.
             raise ValueError("paired replay requires a non-zero control for legacy scalar cases; measured arms may be zero")
     validate_policy(utility_policy_id)
-    effects = []
+    case_effects: list[tuple[str, float, bool]] = []
+    repetition_count = 0
     for case in cases:
+        group_id = str(case.get("independence_group") or case.get("source_id") or case.get("case_id"))
         intervention = case.get("intervention_measurements")
         baseline = case.get("baseline_measurements")
         if isinstance(intervention, list) and isinstance(baseline, list):
             higher_is_better = bool(case.get("higher_is_better", True))
+            repetition_effects = []
             for on, off in zip(intervention, baseline):
                 on_value, off_value = float(on), float(off)
                 if not higher_is_better:
                     on_value, off_value = -on_value, -off_value
-                effects.append(normalized_delta(on_value, off_value, scale=float(case.get("utility_scale", utility_scale))))
+                repetition_effects.append(normalized_delta(on_value, off_value, scale=float(case.get("utility_scale", utility_scale))))
+            repetition_count += len(repetition_effects)
+            case_effect = mean(repetition_effects)
         else:
-            effects.append(normalized_delta(float(case["utility_on"]), float(case["utility_off"]), scale=utility_scale))
-    scientific_ok = all(bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)) for case in cases)
-    successes = sum(
-        effect > epsilon and bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))
-        for effect, case in zip(effects, cases)
-    )
+            repetition_count += 1
+            case_effect = normalized_delta(float(case["utility_on"]), float(case["utility_off"]), scale=utility_scale)
+        case_effects.append((group_id, case_effect, bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))))
+    grouped: dict[str, list[tuple[float, bool]]] = {}
+    for group_id, effect, gates_passed in case_effects:
+        grouped.setdefault(group_id, []).append((effect, gates_passed))
+    effects = [mean(effect for effect, _ in group_cases) for group_cases in grouped.values()]
+    group_quality = [all(gates_passed for _, gates_passed in group_cases) for group_cases in grouped.values()]
+    scientific_ok = all(group_quality)
+    successes = sum(effect > epsilon and gates_passed for effect, gates_passed in zip(effects, group_quality))
     failures = len(effects) - successes
     alpha = 1 + successes
     beta = 1 + failures
@@ -119,6 +128,9 @@ def evaluate_cases(
     outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
     return {
         "n": len(effects),
+        "case_count": len(case_effects),
+        "repetition_count": repetition_count,
+        "independence_group_count": len(effects),
         "mean_effect": mean_effect,
         "utility_policy_id": utility_policy_id,
         "utility_scale": utility_scale,

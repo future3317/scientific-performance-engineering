@@ -47,12 +47,14 @@ def _validate_promotion_record(manifest: dict[str, Any]) -> str | None:
     record = _promotion_record(manifest)
     if record is None:
         return "promotion record is required"
-    required = ("representative_groups", "heldout_regression_digest", "poison_gate", "promotion_probability_lcb", "utility_effect_cs", "replay_manifest_digest")
+    required = ("representative_groups", "promotion_case_ids", "heldout_regression_digest", "poison_gate", "promotion_probability_lcb", "utility_effect_cs", "replay_manifest_digest")
     missing = [key for key in required if key not in record]
     if missing:
         return "promotion record missing: " + ", ".join(missing)
     if not isinstance(record["representative_groups"], list) or len(set(record["representative_groups"])) < 2:
         return "promotion requires at least two independent representative groups"
+    if not isinstance(record["promotion_case_ids"], list) or not record["promotion_case_ids"] or any(not isinstance(item, str) or not item for item in record["promotion_case_ids"]):
+        return "promotion case ids are required"
     if not isinstance(record["heldout_regression_digest"], str) or not record["heldout_regression_digest"]:
         return "held-out regression digest is required"
     empty_digest = hashlib.sha256(b"[]").hexdigest()
@@ -77,6 +79,43 @@ def _validate_promotion_record(manifest: dict[str, Any]) -> str | None:
     if "utility_effect_ucb" in result and abs(float(utility_cs["ucb"]) - float(result["utility_effect_ucb"])) > 1e-12:
         return "promotion utility confidence sequence does not match replay result"
     return None
+
+
+def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[str]) -> list[str]:
+    """Validate executed, promotion-disjoint held-out and poison probes."""
+    errors: list[str] = []
+    if not isinstance(value, dict):
+        return ["validation artifact must be an object"]
+    declared = {str(item) for item in value.get("promotion_case_ids", []) if isinstance(item, str)}
+    if declared != {str(item) for item in promotion_case_ids}:
+        errors.append("validation artifact promotion case membership mismatch")
+    heldout = value.get("heldout_regression_cases")
+    poison = value.get("poison_probe_cases")
+    if not isinstance(heldout, list) or not heldout:
+        errors.append("held-out validation cases are required")
+        heldout = []
+    if not isinstance(poison, list) or not poison:
+        errors.append("poison validation cases are required")
+        poison = []
+    seen: set[str] = set()
+    for label, entries in (("held-out", heldout), ("poison", poison)):
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("case_id"), str) or not entry["case_id"]:
+                errors.append(f"{label} validation case needs case_id")
+                continue
+            case_id = str(entry["case_id"])
+            if case_id in promotion_case_ids:
+                errors.append(f"validation evidence must be disjoint from promotion cases: {case_id}")
+            if case_id in seen:
+                errors.append(f"validation case ids must be unique: {case_id}")
+            seen.add(case_id)
+            if entry.get("executed") is not True:
+                errors.append(f"{label} validation case was not executed: {case_id}")
+            if not isinstance(entry.get("execution_source"), str) or not entry["execution_source"]:
+                errors.append(f"{label} validation case needs execution_source: {case_id}")
+            if label == "poison" and entry.get("accepted") is not False:
+                errors.append(f"poison validation case must be rejected by execution: {case_id}")
+    return errors
 
 
 def _versioned_path(store: Path, directory: str, subject_id: str, version: int) -> Path:
@@ -166,9 +205,9 @@ def apply_promotion(
     record = _promotion_record(replay_manifest) or {}
     validation_path_value = record.get("validation_artifact_path")
     validation_digest_value = record.get("validation_artifact_digest")
-    if validation_path_value or validation_digest_value:
-        if not isinstance(validation_path_value, str) or not isinstance(validation_digest_value, str):
-            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact reference is incomplete")
+    if not isinstance(validation_path_value, str) or not isinstance(validation_digest_value, str):
+        return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact reference is required")
+    else:
         relative_validation = Path(validation_path_value)
         if relative_validation.is_absolute() or ".." in relative_validation.parts:
             return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact path must be store-relative")
@@ -180,8 +219,12 @@ def apply_promotion(
         actual_digest = hashlib.sha256(json.dumps(validation_value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
         if actual_digest != validation_digest_value:
             return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact digest mismatch")
-        if not validation_value.get("heldout_regression_cases") or not validation_value.get("poison_probe_cases"):
-            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact is empty")
+        promotion_case_ids = {str(item) for item in record.get("promotion_case_ids", []) if isinstance(item, str)}
+        validation_errors = validate_validation_artifact(validation_value, promotion_case_ids)
+        if validation_errors:
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "; ".join(validation_errors))
+        if not promotion_case_ids:
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "validation artifact needs promotion case ids")
     if decision.subject_type == "relation":
         spec = RelationSpec.from_dict({key: value for key, value in candidate.items() if key in RelationSpec.__dataclass_fields__})
         for endpoint in spec.endpoints.values():

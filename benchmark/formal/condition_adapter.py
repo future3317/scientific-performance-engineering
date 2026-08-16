@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
 from typing import Any, Mapping
 
 from benchmark.harness.experience_retrieval import RawExperienceRetriever
@@ -55,7 +54,7 @@ class FormalConditionAdapter:
     def retrieved_context(self, context: TaskContext | Mapping[str, Any]) -> dict[str, Any]:
         typed_context = self._task_context(context)
         if self.condition in {"C", "C_STRESS"}:
-            query = json.dumps(typed_context.workload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            query = typed_context.to_dict()
             experiences = RawExperienceRetriever(self.store, token_budget=self.token_budget).retrieve(
                 query=query
             )

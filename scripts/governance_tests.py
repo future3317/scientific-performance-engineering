@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -47,7 +48,7 @@ def relation_candidate() -> dict:
 
 
 def main() -> None:
-    passed = {"outcome": "passed", "result_digest": "d" * 64, "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3, "promotion_probability_lower_bound": 0.9, "p_min": 0.8}, "promotion_record": {"representative_groups": ["g1", "g2"], "heldout_regression_digest": "h", "poison_gate": {"passed": True}, "promotion_probability_lcb": 0.9, "utility_effect_cs": {"lcb": 0.1, "ucb": 0.3}, "replay_manifest_digest": "m"}}
+    passed = {"outcome": "passed", "result_digest": "d" * 64, "result": {"mean_effect": 0.2, "utility_effect_lcb": 0.1, "utility_effect_ucb": 0.3, "promotion_probability_lower_bound": 0.9, "p_min": 0.8}, "promotion_record": {"representative_groups": ["g1", "g2"], "promotion_case_ids": ["CASE-1"], "heldout_regression_digest": "h", "poison_gate": {"passed": True}, "promotion_probability_lcb": 0.9, "utility_effect_cs": {"lcb": 0.1, "ucb": 0.3}, "replay_manifest_digest": "m"}}
     assert evaluate_candidate(candidate("P1"), passed).status == "review_required"
     assert evaluate_candidate(candidate("P2"), passed).allowed
     assert not evaluate_candidate(candidate("P2"), {"outcome": "failed"}).allowed
@@ -68,12 +69,16 @@ def main() -> None:
         root = Path(tmp)
         (root / "registry").mkdir()
         (root / "registry" / "rules.json").write_text(json.dumps({"schema_version": 1, "rules": []}), encoding="utf-8")
+        validation = {"promotion_case_ids": ["CASE-1"], "heldout_regression_cases": [{"case_id": "HELDOUT-1", "executed": True, "execution_source": "verifier"}], "poison_probe_cases": [{"case_id": "POISON-1", "executed": True, "execution_source": "environment", "accepted": False}]}
+        validation_path = root / "evolution" / "validation.json"
+        validation_path.parent.mkdir(parents=True)
+        validation_path.write_text(json.dumps(validation), encoding="utf-8")
+        passed["promotion_record"].update({"validation_artifact_path": "evolution/validation.json", "validation_artifact_digest": hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":")).encode()).hexdigest()})
         decision = apply_promotion(root, candidate("P2"), passed, replay_path="evolution/replay.json")
         assert decision.allowed
-        import hashlib
         rule_digest = hashlib.sha256(b"PERF-TEST-001").hexdigest()
         card = json.loads((root / "rules" / rule_digest / "v0001.json").read_text(encoding="utf-8"))
-        promotion = json.loads((root / "evolution" / "promotions" / f"{rule_digest}.json").read_text(encoding="utf-8"))
+        promotion = json.loads((root / "evolution" / "promotions" / rule_digest / "v0001.json").read_text(encoding="utf-8"))
         assert card["rule_id"] == "PERF-TEST-001" and promotion["mode"] == "bounded-auto"
         relation_passed = dict(passed, evidence_type="factorial_contrast")
         for endpoint in ("RULE-A", "RULE-B"):
@@ -84,7 +89,6 @@ def main() -> None:
         relation_passed["relation_evidence_certificate"] = {"contrast_cs": {"gamma": {"lcb": 0.1, "ucb": 0.3}}, "alpha_budget": 0.05, "look_schedule": [8, 16], "scientific_arm_gates": {"00": True, "01": True, "10": True, "11": True}, "applicability_provenance": {"source": "test"}, "endpoint_versions": {"RULE-A": 1, "RULE-B": 1}}
         relation_decision = apply_promotion(root, relation_candidate(), relation_passed, replay_path="evolution/relation.json")
         assert relation_decision.allowed and relation_decision.subject_type == "relation"
-        import hashlib
         relation_digest = hashlib.sha256(b"REL-TEST-001").hexdigest()
         relation_card = json.loads((root / "relations" / relation_digest / "v0001.json").read_text(encoding="utf-8"))
         relation_registry = json.loads((root / "registry" / "relations.json").read_text(encoding="utf-8"))

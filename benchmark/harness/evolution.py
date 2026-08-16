@@ -245,13 +245,38 @@ def promote_via_replay(
         validation_artifacts = candidate.get("validation_artifacts") if isinstance(candidate.get("validation_artifacts"), dict) else {}
         validation_digest = str(validation_artifacts.get("digest", ""))
         if not validation_digest:
-            # Episode fixtures predate the formal driver artifact contract.
-            # Materialize their held-out and poison probes from the immutable
-            # harness case set, never from worker-authored fields.
+            # Episode maintenance owns its executable probes through the family
+            # environment; it never re-labels promotion cases as validation.
+            family = FamilyEnvironment(str(candidate.get("family_id", "compile")))
+            first_context = dict(cases[0].get("context") or {})
+            action = candidate.get("intervention", {})
+            action_name = action.get("action") if isinstance(action, dict) else None
+            deployed = [str(action_name)] if action_name else []
+            heldout_outcome = family.evaluate(first_context, deployed, EpisodeEnvironmentState())
+            poison_outcome = family.evaluate(
+                first_context,
+                deployed,
+                EpisodeEnvironmentState(active_poison=("validation_probe",)),
+            )
+            baseline_outcome = family.evaluate(first_context, (), EpisodeEnvironmentState(active_poison=("validation_probe",)))
             validation = {
                 "schema_version": 1,
-                "heldout_regression_cases": [{"case_id": str(case.get("case_id")), "scientific_ok": bool(case.get("scientific_ok", False))} for case in cases],
-                "poison_probe_cases": [{"case_id": f"POISON-PROBE-{candidate.get('rule_id')}", "accepted": False}],
+                "promotion_case_ids": [str(case.get("case_id")) for case in cases],
+                "heldout_regression_cases": [{
+                    "case_id": f"HELDOUT-{candidate.get('rule_id')}",
+                    "executed": True,
+                    "execution_source": "family-environment",
+                    "scientific_ok": all(heldout_outcome.scientific_gates.values()),
+                    "utility": heldout_outcome.utility,
+                }],
+                "poison_probe_cases": [{
+                    "case_id": f"POISON-PROBE-{candidate.get('rule_id')}",
+                    "executed": True,
+                    "execution_source": "family-environment",
+                    "accepted": poison_outcome.utility > baseline_outcome.utility + 1e-9 and all(poison_outcome.scientific_gates.values()),
+                    "utility": poison_outcome.utility,
+                    "baseline_utility": baseline_outcome.utility,
+                }],
                 "independence_groups": sorted({str(case.get("independence_group") or case.get("case_id")) for case in cases}),
             }
             validation_digest = hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
@@ -263,16 +288,21 @@ def promote_via_replay(
             if int(validation_artifacts.get("heldout_count", 0)) < 1 or int(validation_artifacts.get("poison_probe_count", 0)) < 1:
                 continue
             validation_path = store / str(validation_artifacts.get("path", ""))
+            try:
+                validation = json.loads(validation_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
         if not validation_path.is_file():
             continue
         heldout_digest = validation_digest
         replay_digest = f"{manifest['case_bundle_sha256']}:{manifest['result_digest']}"
         manifest["promotion_record"] = {
             "representative_groups": representative_groups,
+            "promotion_case_ids": [str(case.get("case_id")) for case in cases],
             "heldout_regression_digest": heldout_digest,
             "validation_artifact_digest": validation_digest,
             "validation_artifact_path": str(validation_path.relative_to(store)).replace("\\", "/"),
-            "poison_gate": {"passed": all(not bool(case.get("poisoned", False)) for case in cases)},
+            "poison_gate": {"passed": all(entry.get("accepted") is False for entry in validation.get("poison_probe_cases", []))},
             "promotion_probability_lcb": float(manifest["result"].get("promotion_probability_lower_bound", 0.0)),
             "utility_effect_cs": {
                 "lcb": float(manifest["result"].get("utility_effect_lcb", -1.0)),

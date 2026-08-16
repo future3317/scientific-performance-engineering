@@ -14,6 +14,7 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -27,8 +28,10 @@ from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from benchmark.harness.evolution import promote_via_replay
+from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier
+from core.utility import normalized_delta
 
 
 def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -53,23 +56,164 @@ def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
 
 
 class InterventionRealizer:
-    """Bind one worker hypothesis to one harness-measured intervention.
-
-    Formal workers may propose several hypotheses, but the verifier produces
-    one executable solution artifact.  The realizer therefore fails closed
-    unless exactly one proposal has a concrete intervention, preventing one
-    whole-patch measurement from being copied to multiple rules.
-    """
+    """Materialize one explicit worker patch as an executable intervention."""
 
     @staticmethod
-    def realize(proposals: list[dict[str, Any]]) -> dict[str, Any] | None:
-        if len(proposals) != 1:
-            return None
-        proposal = proposals[0]
+    def realize(baseline: Path, destination: Path, proposal: dict[str, Any]) -> Path:
+        if not baseline.is_dir():
+            raise ValueError("intervention baseline directory is missing")
+        if not isinstance(proposal, dict):
+            raise ValueError("intervention proposal must be an object")
         intervention = proposal.get("intervention")
         if not isinstance(intervention, dict) or not intervention:
-            return None
-        return {"intervention": dict(intervention), "proposal_id": str(proposal.get("rule_id") or proposal.get("relation_id") or proposal.get("id") or "")}
+            raise ValueError("intervention proposal needs an explicit patch")
+        relative_file = intervention.get("file")
+        replacements = intervention.get("replacements")
+        if not isinstance(relative_file, str) or not relative_file or not isinstance(replacements, list) or not replacements:
+            raise ValueError("intervention patch requires file and replacements")
+        relative = Path(relative_file)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("intervention file must be baseline-relative")
+        source = (baseline / relative).resolve()
+        baseline_root = baseline.resolve()
+        if baseline_root not in source.parents or not source.is_file() or source.is_symlink():
+            raise ValueError("intervention file must be a regular baseline file")
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.copytree(baseline, destination)
+        target = destination / relative
+        content = target.read_text(encoding="utf-8")
+        for replacement in replacements:
+            if not isinstance(replacement, dict) or not isinstance(replacement.get("old"), str) or not isinstance(replacement.get("new"), str):
+                raise ValueError("intervention replacements must contain old and new text")
+            old, new = replacement["old"], replacement["new"]
+            if content.count(old) != 1:
+                raise ValueError("intervention replacement must match exactly once")
+            content = content.replace(old, new, 1)
+        target.write_text(content, encoding="utf-8")
+        return destination
+
+
+def sanitize_submission(
+    source: Path,
+    destination: Path,
+    allowed_files: set[str],
+    *,
+    max_file_bytes: int = 8 * 1024 * 1024,
+    max_total_bytes: int = 32 * 1024 * 1024,
+) -> Path:
+    """Copy only allowlisted regular files out of a worker namespace."""
+    source = Path(source)
+    destination = Path(destination)
+    if not source.is_dir() or source.is_symlink():
+        raise ValueError("worker solution root must be a regular directory")
+    normalized_allowlist = {str(Path(item)) for item in allowed_files}
+    if not normalized_allowlist:
+        raise ValueError("submission allowlist must not be empty")
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    total_bytes = 0
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source)
+        relative_text = str(relative)
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError(f"submission contains symlink: {relative_text}")
+        if stat.S_ISDIR(info.st_mode):
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"submission contains non-regular file: {relative_text}")
+        if relative_text not in normalized_allowlist:
+            raise ValueError(f"submission file is not allowlisted: {relative_text}")
+        if info.st_size > max_file_bytes:
+            raise ValueError(f"submission file exceeds size limit: {relative_text}")
+        total_bytes += info.st_size
+        if total_bytes > max_total_bytes:
+            raise ValueError("submission exceeds total size limit")
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+    missing = sorted(normalized_allowlist - {str(path.relative_to(source)) for path in source.rglob("*") if path.is_file() and not path.is_symlink()})
+    if missing:
+        raise ValueError(f"submission is missing allowlisted files: {missing}")
+    return destination
+
+
+def synthesize_applicability(cases: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Derive a worker rule boundary from harness-owned public observations."""
+    from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
+    from core.acre.predicates import PredicateGrammar
+
+    observations: list[BoundaryObservation] = []
+    for index, case in enumerate(cases):
+        context = case.get("context") if isinstance(case.get("context"), dict) else {}
+        if not context:
+            continue
+        try:
+            on_value = float(case["utility_on"])
+            off_value = float(case["utility_off"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not bool(case.get("higher_is_better", True)):
+            on_value, off_value = -on_value, -off_value
+        effect = normalized_delta(on_value, off_value, scale=float(case.get("utility_scale", 1.0)))
+        observations.append(BoundaryObservation(
+            observation_id=str(case.get("case_id", f"case-{index}")),
+            context=context,
+            effect=effect,
+            gate_passed=bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)),
+            effect_lower=effect,
+            effect_upper=effect,
+        ))
+    if not observations:
+        return None
+    grammar_path = Path(__file__).resolve().parents[2] / "assets" / "predicate_grammar.json"
+    grammar_payload = json.loads(grammar_path.read_text(encoding="utf-8"))
+    observed_paths = set()
+    for observation in observations:
+        for feature in grammar_payload["features"]:
+            value: Any = observation.context
+            for part in feature["path"].split("."):
+                value = value.get(part) if isinstance(value, dict) else None
+            if value is not None:
+                observed_paths.add(feature["path"])
+    grammar_payload["features"] = [feature for feature in grammar_payload["features"] if feature["path"] in observed_paths]
+    grammar_payload["threshold_universe"] = {
+        path: values for path, values in grammar_payload.get("threshold_universe", {}).items() if path in observed_paths
+    }
+    if not grammar_payload["features"]:
+        return None
+    grammar = PredicateGrammar.from_dict(grammar_payload)
+    result = StatisticalCEGIS(grammar, epsilon_true=0.0, epsilon_false=0.0).synthesize(
+        positive=observations,
+        counterexamples=observations,
+        parent_predicate=None,
+        decision_contexts=[item.context for item in observations],
+    )
+    if result.predicate is None:
+        return None
+    return result.predicate, {"source": "harness-cegis", **(result.provenance or {}), "status": result.status}
+
+
+def execute_poison_probe(task_spec: dict[str, Any], public_context: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
+    """Execute a harness-owned adversarial environment probe for one proposal."""
+    family_id = str(task_spec.get("family_id", task_spec.get("family", "compile")))
+    intervention = proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {}
+    action = intervention.get("action")
+    deployed = [str(action)] if isinstance(action, str) and action else []
+    environment = FamilyEnvironment(family_id)
+    state = EpisodeEnvironmentState(active_poison=("formal_validation_probe",))
+    outcome = environment.evaluate(public_context.get("workload", {}), deployed, state)
+    baseline = environment.evaluate(public_context.get("workload", {}), (), state)
+    return {
+        "case_id": f"POISON-PROBE-{task_spec.get('task_id', 'task')}",
+        "executed": True,
+        "execution_source": "family-environment",
+        "accepted": bool(outcome.utility > baseline.utility + 1e-9 and all(outcome.scientific_gates.values())),
+        "utility": outcome.utility,
+        "baseline_utility": baseline.utility,
+    }
 
 
 def _copy_workspace(task_dir: Path, destination: Path) -> None:
@@ -77,6 +221,14 @@ def _copy_workspace(task_dir: Path, destination: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(f"workspace missing: {source}")
     shutil.copytree(source, destination, dirs_exist_ok=True)
+
+
+def _workspace_allowlist(workspace: Path) -> set[str]:
+    return {
+        str(path.relative_to(workspace))
+        for path in workspace.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
 
 
 def materialize_agent_task(task_dir: Path, destination: Path) -> None:
@@ -292,7 +444,7 @@ def _read_agent_extensions(path: Path) -> dict[str, Any]:
         extensions["acre_proposals"] = []
     else:
         clean: list[dict[str, Any]] = []
-        proposal_fields = {"rule_id", "relation_id", "id", "expected_mechanism", "intervention", "text", "hypothesis", "query", "applicability"}
+        proposal_fields = {"rule_id", "relation_id", "id", "expected_mechanism", "intervention", "text", "hypothesis", "query"}
         for proposal in proposals:
             if not isinstance(proposal, dict):
                 continue
@@ -325,6 +477,9 @@ def post_task_update(
     control_result: dict[str, Any] | None = None,
     control_scored: dict[str, Any] | None = None,
     public_context: dict[str, Any] | None = None,
+    causal_result: dict[str, Any] | None = None,
+    causal_scored: dict[str, Any] | None = None,
+    validation_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
@@ -362,14 +517,14 @@ def post_task_update(
             experience_path.write_text(json.dumps(experience, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             added_experience_ids.append(experience_id)
 
-        if condition == "D" and control_result is not None and control_scored is not None:
+        if condition == "D" and causal_result is not None and causal_scored is not None and control_result is not None and control_scored is not None:
             # The worker cannot author evidence.  The harness derives paired
             # case records from the verifier-owned outcome below.
             evidence_dir = store / "experience" / "cases"
             evidence_dir.mkdir(parents=True, exist_ok=True)
             case_id = f"CASE-{task_id}"
             validate_identifier(case_id, "case_id")
-            measurement = result.get("measurement", {}) if isinstance(result.get("measurement"), dict) else {}
+            measurement = causal_result.get("measurement", {}) if isinstance(causal_result.get("measurement"), dict) else {}
             control_measurement = control_result.get("measurement", {}) if isinstance(control_result.get("measurement"), dict) else {}
             intervention_runs = list(measurement.get("candidate_runs", []))
             baseline_runs = list(measurement.get("baseline_runs", []))
@@ -383,27 +538,28 @@ def post_task_update(
                 "schema_version": 1,
                 "record_type": "paired_replay_case",
                 "case_id": case_id,
-                "utility_on": float(scored.get("task_score", 0.0)),
+                "utility_on": float(causal_scored.get("task_score", 0.0)),
                 "utility_off": float(control_scored.get("task_score", 0.0)),
                 "control_measured": bool(control_measurement.get("candidate_runs")),
                 "baseline_measurements": baseline_runs,
                 "intervention_measurements": intervention_runs,
                 "same_fixture_digest": measurement.get("fixture_hashes", {}),
-                "same_seed": result.get("seed"),
+                "same_seed": causal_result.get("seed"),
                 "same_work_units": measurement.get("work_units", {}),
                 "higher_is_better": bool(measurement.get("higher_is_better", False)),
                 "utility_scale": 1.0,
-                "scientific_ok": bool(scored.get("gates_passed", False)),
-                "quality_ok": bool(scored.get("gates_passed", False)) and bool(control_scored.get("gates_passed", False)),
+                "scientific_ok": bool(causal_scored.get("gates_passed", False)),
+                "quality_ok": bool(causal_scored.get("gates_passed", False)) and bool(control_scored.get("gates_passed", False)),
                 "paired_replay": True,
                 "same_fixture_id": task_id,
-                "candidate_result_digest": hashlib.sha256(json.dumps(result, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
+                "candidate_result_digest": hashlib.sha256(json.dumps(causal_result, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
                 "control_result_digest": hashlib.sha256(json.dumps(control_result, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
-                "scientific_gates_on": dict(result.get("scientific_gates", {})),
+                "scientific_gates_on": dict(causal_result.get("scientific_gates", {})),
                 "scientific_gates_off": dict(control_result.get("scientific_gates", {})),
                 "source_id": f"verifier-{task_id}",
                 "independence_group": f"task-{task_id}",
-                "context": {"task_id": task_id, "context_mode": context_mode},
+                "context": canonical_public_context(public_context),
+                "context_mode": context_mode,
             }
             evidence_path = evidence_dir / f"{identifier_digest(case_id)}.json"
             if not evidence_path.exists():
@@ -411,11 +567,14 @@ def post_task_update(
             added_replay_case_ids.append(case_id)
             validation_dir = store / "evolution" / "validation"
             validation_dir.mkdir(parents=True, exist_ok=True)
+            if not isinstance(validation_evidence, dict):
+                return {"transition": "no_independent_validation", "added_experience_ids": added_experience_ids}
             validation = {
                 "schema_version": 1,
                 "subject_context": canonical_public_context(public_context),
-                "heldout_regression_cases": [{"case_id": case_id, "scientific_ok": case["quality_ok"], "context": case["context"]}],
-                "poison_probe_cases": [{"case_id": f"POISON-PROBE-{task_id}", "accepted": False, "context": case["context"]}],
+                "promotion_case_ids": [case_id],
+                "heldout_regression_cases": list(validation_evidence.get("heldout_regression_cases", [])),
+                "poison_probe_cases": list(validation_evidence.get("poison_probe_cases", [])),
                 "independence_groups": [case["independence_group"]],
             }
             validation_digest = hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
@@ -439,8 +598,7 @@ def post_task_update(
         candidate_evidence = CandidateEvidenceLedger(store / "evolution" / "candidate_evidence.jsonl")
         candidates_by_id: dict[str, dict[str, Any]] = {}
         proposals = [item for item in result.get("acre_proposals", []) if isinstance(item, dict)]
-        realization = InterventionRealizer.realize(proposals)
-        if realization is None:
+        if len(proposals) != 1:
             proposals = []
         for candidate in proposals:
             if not isinstance(candidate, dict):
@@ -454,17 +612,13 @@ def post_task_update(
                 continue
             candidate = dict(candidate)
             validate_identifier(identifier, "candidate_id")
-            # Proposal fields are hypotheses only.  Governance-owned fields
-            # are reconstructed from the public task and replay policy.
-            proposed_applicability = candidate.get("applicability")
-            if proposed_applicability is not None and "task_id" in json.dumps(proposed_applicability, sort_keys=True):
-                continue
-            applicability = proposed_applicability if isinstance(proposed_applicability, dict) and proposed_applicability else {"all": []}
+            # Proposal fields are hypotheses only.  Applicability is generated
+            # below by the harness-owned CEGIS pass.
             candidate = {
                 "rule_id": identifier,
                 "version": int(candidate.get("version", 1)),
                 "parent": None,
-                "applicability": applicability,
+                "applicability": {"all": []},
                 "intervention": candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"},
                 "expected_mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
                 "evidence_requirements": ["paired_replay"],
@@ -479,7 +633,6 @@ def post_task_update(
                 "status": "candidate",
             }
             candidate["cases"] = list(added_replay_case_ids)
-            candidate["realized_intervention"] = realization["intervention"]
             candidate["validation_artifacts"] = {
                 "path": str(validation_path.relative_to(store)).replace("\\", "/"),
                 "digest": validation_digest,
@@ -502,15 +655,74 @@ def post_task_update(
                 merged.update({key: value for key, value in candidate.items() if key not in {"cases"}})
                 candidate = merged
             candidate["cases"] = sorted(set(existing.get("cases", [])) | set(candidate.get("cases", [])))
+            # A candidate may accumulate independent replay cases over several
+            # tasks.  Keep the validation artifact aligned with the complete
+            # promotion bundle instead of leaving only the latest case id.
+            validation_sources: list[dict[str, Any]] = []
+            for artifact_owner in (existing, candidate):
+                artifact_ref = artifact_owner.get("validation_artifacts") if isinstance(artifact_owner, dict) else None
+                if not isinstance(artifact_ref, dict):
+                    continue
+                artifact_path = artifact_ref.get("path")
+                if not isinstance(artifact_path, str):
+                    continue
+                try:
+                    artifact_value = json.loads((store / artifact_path).read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if isinstance(artifact_value, dict):
+                    validation_sources.append(artifact_value)
+            if validation_sources:
+                heldout_cases: dict[str, dict[str, Any]] = {}
+                poison_cases: dict[str, dict[str, Any]] = {}
+                independence_groups: set[str] = set()
+                for artifact_value in validation_sources:
+                    groups = artifact_value.get("independence_groups", [])
+                    if isinstance(groups, list):
+                        independence_groups.update(str(group) for group in groups if isinstance(group, str))
+                    for key, target in (("heldout_regression_cases", heldout_cases), ("poison_probe_cases", poison_cases)):
+                        entries = artifact_value.get(key, [])
+                        if not isinstance(entries, list):
+                            continue
+                        for entry in entries:
+                            if isinstance(entry, dict) and isinstance(entry.get("case_id"), str):
+                                target.setdefault(entry["case_id"], entry)
+                merged_validation = dict(validation_sources[-1])
+                merged_validation["promotion_case_ids"] = list(candidate["cases"])
+                merged_validation["heldout_regression_cases"] = list(heldout_cases.values())
+                merged_validation["poison_probe_cases"] = list(poison_cases.values())
+                merged_validation["independence_groups"] = sorted(independence_groups)
+                validation_digest = hashlib.sha256(json.dumps(
+                    merged_validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+                ).encode("utf-8")).hexdigest()
+                validation_path = store / "evolution" / "validation" / f"{validation_digest}.json"
+                validation_path.parent.mkdir(parents=True, exist_ok=True)
+                if not validation_path.exists():
+                    validation_path.write_text(json.dumps(merged_validation, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                candidate["validation_artifacts"] = {
+                    "path": str(validation_path.relative_to(store)).replace("\\", "/"),
+                    "digest": validation_digest,
+                    "heldout_count": len(merged_validation["heldout_regression_cases"]),
+                    "poison_probe_count": len(merged_validation["poison_probe_cases"]),
+                }
+            case_values_for_cegis: list[dict[str, Any]] = []
             for case_id in candidate.get("cases", []):
                 try:
                     case_value = json.loads((store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json").read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError, ValueError):
                     continue
                 if isinstance(case_value, dict):
+                    case_values_for_cegis.append(case_value)
                     case_value = dict(case_value)
                     case_value["case_path"] = str((store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json").relative_to(store)).replace("\\", "/")
                     candidate_evidence.append(identifier, int(candidate.get("version", 1)), case_value)
+            synthesized = synthesize_applicability(case_values_for_cegis)
+            if synthesized is None:
+                continue
+            intervention = candidate.get("intervention")
+            if not isinstance(intervention, dict) or not isinstance(intervention.get("file"), str) or not isinstance(intervention.get("replacements"), list):
+                continue
+            candidate["applicability"], candidate["applicability_provenance"] = synthesized
             path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             candidates_by_id[identifier] = candidate
         for path in sorted(candidates_dir.glob("*.json")):
@@ -840,8 +1052,21 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         attest.write_experiment(trial_dir / "experiment.json", manifest)
         if agent["returncode"] != 0:
             budget_errors.append(f"agent command failed with return code {agent['returncode']}")
+        submitted_solution_dir = trial_dir / "submitted_solution"
+        try:
+            sanitize_submission(
+                worker_solution_dir,
+                submitted_solution_dir,
+                _workspace_allowlist(tasks_root / task_id / "workspace"),
+            )
+        except ValueError as exc:
+            budget_errors.append(f"submission sanitization failed: {exc}")
+            submitted_solution_dir.mkdir(parents=True, exist_ok=True)
         control_result: dict[str, Any] | None = None
         control_scored: dict[str, Any] | None = None
+        causal_result: dict[str, Any] | None = None
+        causal_scored: dict[str, Any] | None = None
+        validation_evidence: dict[str, Any] | None = None
         if str(item["condition"]) == "D":
             control_result, control_scored = _verify_baseline(
                 tasks_root / task_id,
@@ -853,7 +1078,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             )
         result = verifier.verify_task(
             tasks_root / task_id,
-            worker_solution_dir,
+            submitted_solution_dir,
             out_path=trial_dir / "result.json",
             condition=str(item["condition"]),
             context_mode=str(item["context_mode"]),
@@ -868,6 +1093,43 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "tool_calls": usage.get("tool_calls"),
         })
         scored = scoring.score_task(result)
+        if str(item["condition"]) == "D":
+            proposals = [item for item in agent_extensions.get("acre_proposals", []) if isinstance(item, dict)]
+            if len(proposals) == 1:
+                try:
+                    realized_solution = trial_dir / "realized_solution"
+                    InterventionRealizer.realize(solution_dir, realized_solution, proposals[0])
+                    causal_result = verifier.verify_task(
+                        tasks_root / task_id,
+                        realized_solution,
+                        out_path=trial_dir / "causal-result.json",
+                        condition=str(item["condition"]),
+                        context_mode=str(item["context_mode"]),
+                        seed=int(item["outer_trial_index"]),
+                    )
+                    causal_result["seed"] = int(item["outer_trial_index"])
+                    causal_scored = scoring.score_task(causal_result)
+                    heldout_result = verifier.verify_task(
+                        tasks_root / task_id,
+                        realized_solution,
+                        out_path=trial_dir / "heldout-result.json",
+                        condition=str(item["condition"]),
+                        context_mode=str(item["context_mode"]),
+                        seed=int(item["outer_trial_index"]) + 1000003,
+                    )
+                    heldout_scored = scoring.score_task(heldout_result)
+                    validation_evidence = {
+                        "heldout_regression_cases": [{
+                            "case_id": f"HELDOUT-{task_id}",
+                            "executed": True,
+                            "execution_source": "verifier",
+                            "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
+                            "utility": heldout_scored.get("task_score"),
+                        }],
+                        "poison_probe_cases": [execute_poison_probe(task_spec, public_routing, proposals[0])],
+                    }
+                except (OSError, ValueError, TypeError) as exc:
+                    budget_errors.append(f"causal intervention realization failed: {exc}")
         transition = post_task_update(
             condition=str(item["condition"]),
             store=store,
@@ -882,6 +1144,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             control_result=control_result,
             control_scored=control_scored,
             public_context=public_routing,
+            causal_result=causal_result,
+            causal_scored=causal_scored,
+            validation_evidence=validation_evidence,
         )
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:

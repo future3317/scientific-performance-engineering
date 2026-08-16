@@ -75,6 +75,33 @@ class RelationEvidenceCertificate:
             lcb, ucb = float(interval["lcb"]), float(interval["ucb"])
             if not math.isfinite(lcb) or not math.isfinite(ucb) or lcb > ucb:
                 raise ValueError(f"relation certificate contrast {name} interval is invalid")
+        from .policy import RelationDecisionPolicy
+        intervals = {
+            name: (float(value["lcb"]), float(value["ucb"]))
+            for name, value in self.contrast_cs.items()
+        }
+        policy = RelationDecisionPolicy(float(getattr(relation_spec, "practical_margin", 0.05)))
+        kind = str(getattr(relation_spec, "kind", ""))
+        if kind == "context_dependent_interaction":
+            raise ValueError("context-dependent relations require cross-context evidence")
+        decision = policy.decide(intervals, self.scientific_arm_gates, kind_hint=kind)
+        expected = {
+            "synergy": "confirmed_synergy",
+            "antagonism": "confirmed_antagonism",
+            "independence": "confirmed_independence",
+            "redundancy": "confirmed_redundancy",
+            "semantic_conflict": "semantic_conflict",
+        }.get(kind)
+        if kind == "prerequisite":
+            orientation = str(getattr(relation_spec, "orientation", ""))
+            expected = {
+                "left_to_right": "prerequisite_a_to_b",
+                "right_to_left": "prerequisite_b_to_a",
+            }.get(orientation)
+            if expected is None:
+                raise ValueError("prerequisite relation certificate requires directed orientation")
+        if expected is None or decision != expected:
+            raise ValueError(f"relation certificate does not support declared relation kind: {kind} ({decision})")
 
 
 def canonical_relation_label(value: str) -> str:
