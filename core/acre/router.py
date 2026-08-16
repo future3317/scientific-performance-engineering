@@ -12,9 +12,12 @@ from core.predicates import match_predicate
 from core.cost import PromptCostModel
 
 
-def _spec_digest(spec: RuleSpec) -> str:
+def _semantic_spec_digest(spec: RuleSpec) -> str:
     import hashlib, json
     return hashlib.sha256(json.dumps(spec.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+_spec_digest = _semantic_spec_digest
 
 
 @dataclass(frozen=True)
@@ -83,7 +86,7 @@ class PairExperimentRequest:
             raise ValueError("pair experiment endpoints must be distinct")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"left": {"subject_id": self.left.subject_id, "version": self.left.version, "spec_digest": self.left.spec_digest}, "right": {"subject_id": self.right.subject_id, "version": self.right.version, "spec_digest": self.right.spec_digest}}
+        return {"left": {"subject_id": self.left.subject_id, "version": self.left.version, "semantic_spec_digest": self.left.semantic_spec_digest}, "right": {"subject_id": self.right.subject_id, "version": self.right.version, "semantic_spec_digest": self.right.semantic_spec_digest}}
 
 
 def validate_relation_nonoverlap(
@@ -189,6 +192,11 @@ class ConservativeCausalRouter:
             expected = {spec.rule_id: int(spec.version) for spec in bundle}
             if {str(key): int(value) for key, value in versions.items()} != expected:
                 continue
+            gates = certificate.get("scientific_arm_gates")
+            if not isinstance(gates, Mapping) or set(gates) != {"000", "001", "010", "011", "100", "101", "110", "111"} or not all(bool(value) for value in gates.values()):
+                continue
+            if not certificate.get("regime_digest"):
+                continue
             predicate = certificate.get("context_predicate") or certificate.get("applicability") or {"all": []}
             if match_predicate(predicate, context):
                 return certificate
@@ -199,7 +207,7 @@ class ConservativeCausalRouter:
         state = states.get(spec.relation_id)
         # Cross-context parent certificates are audit objects; only typed
         # relational-CEGIS children may enter deployment.
-        return state is not None and state.status == "canonical" and state.drift_state == "stable" and match_predicate(spec.applicability, context)
+        return state is not None and state.status == "canonical" and state.drift_state == "stable" and spec.kind != "context_dependent_interaction" and match_predicate(spec.applicability, context)
 
     @classmethod
     def _matching_relations(

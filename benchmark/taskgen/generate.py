@@ -45,10 +45,23 @@ def generate_family_slots(family_id: str, *, count: int, seed: int = 0) -> list[
 
 
 def ast_skeleton_hash(task_dir: Path) -> str:
+    """Versioned interpreter-independent AST skeleton identity."""
+    def normalize(node: ast.AST) -> Any:
+        fields: list[Any] = [node.__class__.__name__]
+        for name, value in ast.iter_fields(node):
+            if isinstance(value, ast.AST):
+                fields.append((name, normalize(value)))
+            elif isinstance(value, list):
+                fields.append((name, [normalize(item) if isinstance(item, ast.AST) else type(item).__name__ for item in value]))
+            elif name in {"ctx", "type_comment", "kind"}:
+                fields.append((name, type(value).__name__ if value is not None else None))
+            else:
+                fields.append((name, type(value).__name__))
+        return fields
     chunks: list[str] = []
     for path in sorted((task_dir / "workspace").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        chunks.append(path.relative_to(task_dir).as_posix() + "\n" + ast.dump(tree, annotate_fields=False, include_attributes=False))
+        chunks.append(path.relative_to(task_dir).as_posix() + "\n" + json.dumps(normalize(tree), sort_keys=True, separators=(",", ":")))
     return hashlib.sha256("\n".join(chunks).encode("utf-8")).hexdigest()
 
 
@@ -106,11 +119,18 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
             spec["family_instance_digest"] = family_instance_digest(family_id, anchor.parameters)
             spec["public_context"] = {"workload": dict(anchor.parameters)}
     spec["oracle_fix_pattern_id"] = metadata["fix"]
-    spec["scientific_contract_id"] = metadata["contract"]
+    # The family policy is the sole scientific-contract authority.  Legacy
+    # task metadata may carry an older label, but materialized anchors always
+    # project the canonical FamilySpec policy into the task contract.
+    if family_id is not None:
+        spec["scientific_contract_id"] = FAMILY_SPECS[family_id].policy_spec().policy_id
+    else:
+        spec["scientific_contract_id"] = metadata["contract"]
     spec["difficulty_tier"] = metadata["difficulty"]
     if metadata["kind"] in {"counterexample", "do_not_apply"}:
         spec["oracle"]["expected_speedup_range"] = [0.9, 1.1]
     spec["workspace_ast_skeleton_hash"] = ast_skeleton_hash(task_dir)
+    spec["ast_skeleton_version"] = 2
     miniyaml.save(spec, str(task_dir / "task.yaml"))
     metadata_path = task_dir / "metadata.json"
     if metadata_path.is_file():

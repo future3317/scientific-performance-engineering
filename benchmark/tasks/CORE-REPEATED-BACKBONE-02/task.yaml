@@ -37,16 +37,23 @@ oracle:
   expected_speedup_range: [1.8, 2.5]
 generator_family_id: GEN-REPEATED_COMPUTE
 oracle_fix_pattern_id: FIX-CORE-REPEATED-BACKBONE-02
-scientific_contract_id: CONTRACT-REPEATED_COMPUTE
+scientific_contract_id: CONTRACT-REPEATED-COMPUTE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: a8215c57828fc7b1742e240b1b7788fbe12654df614c798350760a9058fddbbd
+workspace_ast_skeleton_hash: "28b9f940356b1e6147c0fe6a28539b223f7b9307af3913c8bc82291ed10adb37"
 family_id: repeated_compute
 anchor_instance_id: CORE-REPEATED-BACKBONE-02
 family_parameters:
+  repeat_count: 4
+  backbone_width: 256
+  batch_size: 32
   fixture_index: 0
   seed: 0
-family_instance_digest: "91f106e7a86a4766d8579a3b31fb96edb4da5acac5757de1ee6d5e3671523996"
+family_instance_digest: "0b7abf18758cfb6f370b7e9b6ab25301ba0adb387455680362e94ef7ea9f4a18"
 public_context:
   workload:
+    repeat_count: 4
+    backbone_width: 256
+    batch_size: 32
     fixture_index: 0
     seed: 0
+ast_skeleton_version: 2

@@ -39,14 +39,21 @@ generator_family_id: GEN-AUTOGRAD-VJP
 oracle_fix_pattern_id: FIX-AUTOGRAD-BATCHED-VJP
 scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
 difficulty_tier: hard
-workspace_ast_skeleton_hash: "261fa176b762391590c2eb2f5460b1f74e2b633a194cc8ea133e390b913e3172"
+workspace_ast_skeleton_hash: baa0e22b04c751293ff2dc543c2d0ccfc920587ccaa0e3e0c411859d3c4a4190
 family_id: autograd
 anchor_instance_id: CORE-AUTOGRAD-BATCHED-VJP-15
 family_parameters:
+  output_count: 8
+  input_dim: 128
+  jacobian_density: 0.5
   fixture_index: 0
   seed: 0
-family_instance_digest: e5521a3dcddc84a259a51995ff2f18bca12927a5848cd37516086f216f9297d3
+family_instance_digest: "5f70a644ecb0f956c74045341aacd6fd7c81c62444d146dc7a2341062fb3e5ac"
 public_context:
   workload:
+    output_count: 8
+    input_dim: 128
+    jacobian_density: 0.5
     fixture_index: 0
     seed: 0
+ast_skeleton_version: 2

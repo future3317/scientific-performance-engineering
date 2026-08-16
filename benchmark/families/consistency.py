@@ -50,9 +50,9 @@ def validate_cross_view_consistency(
             reconstructed_anchors.append(anchor_id)
     for family_id in PILOT_FAMILIES:
         spec = FAMILY_SPECS[family_id]
-        instances = family_instances(family_id, count=surface_count, seed=seed)
-        by_id = {item.instance_id: item for item in instances}
         views = family_views(family_id, count=surface_count, seed=seed)
+        instances = [item for pool in views.values() for item in pool]
+        by_id = {item.instance_id: item for item in instances}
         view_ids: set[str] = set()
         for view_name, pool in views.items():
             for item in pool:

@@ -93,6 +93,14 @@
         "adversarial"
       ]
     },
+    "evidence_role": {
+      "enum": [
+        "synthesis",
+        "promotion_representative",
+        "adversarial",
+        "validation"
+      ]
+    },
     "query_id": {
       "type": "string",
       "minLength": 1

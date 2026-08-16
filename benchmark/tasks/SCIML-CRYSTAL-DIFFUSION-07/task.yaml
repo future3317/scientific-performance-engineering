@@ -37,16 +37,23 @@ oracle:
   expected_speedup_range: [2.0, 25.0]
 generator_family_id: GEN-CRYSTAL_GENERATION
 oracle_fix_pattern_id: FIX-SCIML-CRYSTAL-DIFFUSION-07
-scientific_contract_id: CONTRACT-CRYSTAL_GENERATION
+scientific_contract_id: CONTRACT-CRYSTAL-VALIDITY
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "6e2c73f962313b4dad2ec57a221d4d9adb7a19266812f388de70e0c06e5028f8"
+workspace_ast_skeleton_hash: "5dd31310f8f3e024e08015b64772b6f14ea5b095255176b72037aff47de9e0ed"
 family_id: crystal_generation
 anchor_instance_id: SCIML-CRYSTAL-DIFFUSION-07
 family_parameters:
+  atom_count: 32
+  diffusion_steps: 100
+  guidance_scale: 2.0
   fixture_index: 0
   seed: 0
-family_instance_digest: b801e6858b049706fbec233024b621ac4bd33da9d59cd5f97179f5736e00692b
+family_instance_digest: "4e634b71b0bad4d7dc2593c980f905abdb092eaad8fab064d0ab970525fa5473"
 public_context:
   workload:
+    atom_count: 32
+    diffusion_steps: 100
+    guidance_scale: 2.0
     fixture_index: 0
     seed: 0
+ast_skeleton_version: 2

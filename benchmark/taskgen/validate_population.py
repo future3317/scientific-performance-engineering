@@ -245,6 +245,9 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
                     if anchor_id not in FAMILY_SPECS[family_id].anchors:
                         errors.append(f"{task_dir.name}: task is not a declared anchor of family {family_id}")
                     else:
+                        expected_contract = FAMILY_SPECS[family_id].policy_spec().policy_id
+                        if str(spec.get("scientific_contract_id", "")) != expected_contract:
+                            errors.append(f"{task_dir.name}: scientific_contract_id must match FamilySpec policy {expected_contract}")
                         instance = reconstruct_anchor_instance(anchor_id, family_id)
                         declared_parameters = spec.get("family_parameters")
                         if not isinstance(declared_parameters, dict) or dict(declared_parameters) != dict(instance.parameters):
@@ -262,6 +265,8 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
             actual_hash = ast_skeleton_hash(task_dir)
             if spec.get("workspace_ast_skeleton_hash") != actual_hash:
                 errors.append(f"{task_dir.name}: workspace_ast_skeleton_hash is stale")
+            if int(spec.get("ast_skeleton_version", 0)) != 2:
+                errors.append(f"{task_dir.name}: ast_skeleton_version must be 2")
         errors.extend(f"{task_dir.name}: {item}" for item in _isolated_validate_task(task_dir))
 
     counts = Counter(str(spec.get("track")) for spec in specs)

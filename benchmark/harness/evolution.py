@@ -48,7 +48,11 @@ from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 # Episode replay uses a fixed, preregistered repetition budget. These are
 # performance-style observations, so identical measurements still retain the
 # bounded paired uncertainty required by the promotion contract.
-EPISODE_REPLAY_REPETITIONS = 512
+# The family lattice spends alpha over 264 preregistered contexts.  The
+# episode fixture therefore needs enough paired repetitions for a positive
+# effect to remain certified at the resulting per-context delta; 512 leaves
+# the bounded interval crossing zero even for a noiseless fixture.
+EPISODE_REPLAY_REPETITIONS = 768
 
 METRIC_NAMES = (
     "transfer_gain",
@@ -207,6 +211,16 @@ def _apply_phase_injections(store: Path, condition: str, phase: dict[str, Any]) 
                 else "experience/inbox"
             )
             if condition == "D" and rel == "evolution/candidates":
+                # Candidate projections are persisted at collection time so
+                # later tasks can hydrate the append-only evidence ledger.
+                # The episode fixture may omit these derived identity fields;
+                # the harness, not the worker, supplies them.
+                subject_id = str(visible_record.get("rule_id") or visible_record.get("id") or f"candidate-{phase.get('index', 0)}-{position}")
+                version = int(visible_record.get("version", 1))
+                visible_record.setdefault("rule_id", subject_id)
+                visible_record.setdefault("version", version)
+                visible_record.setdefault("candidate_identity", f"{subject_id}:v{version}")
+                visible_record.setdefault("synthesis_state", {"status": "collecting_evidence", "evidence_ids": []})
                 _materialize_candidate_support(store, visible_record)
             record_id = _write_record(
                 store, rel, visible_record, f"{kind[:-1]}-{phase.get('index', 0)}-{position}"
@@ -661,12 +675,7 @@ def run_episode(
                             workload = dict(context.get("workload", context))
                             deployed = family_environment.evaluate(workload, (action_id,), environment_state)
                             baseline = family_environment.evaluate(workload, (), environment_state)
-                            # Promotion replay consumes representative groups
-                            # whose realized action has a positive paired
-                            # effect.  Negative/boundary contexts remain
-                            # synthesis evidence and are not promotion trials.
-                            if deployed.utility <= baseline.utility + float(record.get("epsilon", 0.0)):
-                                continue
+                            positive = deployed.utility > baseline.utility + float(record.get("epsilon", 0.0))
                             generated_cases.append({
                                 "case_id": f"EPISODE-{scheduled_context.get('context_id', phase.get('index', 0))}",
                                 "context": context,
@@ -680,8 +689,35 @@ def run_episode(
                                 "paired_replay": True,
                                 "same_fixture_id": str(scheduled_context.get("context_id", phase.get("index", 0))),
                                 "independence_group": str(scheduled_context.get("independence_group", phase.get("index", 0))),
+                                "query_type": "representative" if positive else "active_query",
                             })
                         record["cases"] = generated_cases
+                        # Episode calibration uses the same harness-owned CEGIS
+                        # contract as formal maintenance: both positive anchors
+                        # and certified boundary counterexamples are retained,
+                        # while only representative anchors enter promotion.
+                        if generated_cases:
+                            from core.acre.cegis import synthesize_applicability
+                            synthesis = synthesize_applicability(
+                                generated_cases,
+                                family_id=family,
+                                delta=float(record.get("delta", 0.05)),
+                                epsilon_true=float(record.get("epsilon", 0.0)),
+                                epsilon_false=0.0,
+                                require_identified=True,
+                            )
+                            if synthesis.predicate is not None:
+                                record["applicability"] = synthesis.predicate
+                                record["applicability_provenance"] = dict(synthesis.provenance or {})
+                                record["synthesis_state"] = {
+                                    "status": synthesis.status,
+                                    "evidence_ids": [str(case.get("case_id")) for case in generated_cases],
+                                }
+                                certificate = synthesis.certificate.to_dict() if synthesis.certificate else {}
+                                record["promotion_case_ids"] = [
+                                    str(case_id) for case_id in certificate.get("positive_anchor_ids", [])
+                                    if any(str(case.get("case_id")) == str(case_id) and case.get("query_type") == "representative" for case in generated_cases)
+                                ]
                     if record.get("cases"):
                         candidates.append(record)
             promoted_total.extend(promote_via_replay(store, candidates, core_repo, out_dir, ledger))

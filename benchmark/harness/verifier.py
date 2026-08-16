@@ -384,7 +384,22 @@ def verify_task(
         except Exception as exc:
             result["activation"] = {"status": "unavailable", "error": repr(exc)}
     else:
-        result["activation"] = {"status": "not_declared"}
+        # S4 may be supplied by the executable solution through a narrow
+        # instrumentation hook.  Classification remains harness-owned and
+        # requires exactly one registered repair action; no family default is
+        # used as a semantic label.
+        metrics_fn = getattr(solution, "activation_metrics", None)
+        if callable(metrics_fn):
+            try:
+                metrics = runner.call_benchmark_fn(metrics_fn, fixtures=fixtures)
+                from benchmark.families import FAMILY_SPECS, resolve_family_id
+                family_spec = FAMILY_SPECS[resolve_family_id(str(spec.get("family_id", spec.get("family", ""))))]
+                from benchmark.families.activation import classify_activation
+                result["activation"] = classify_activation(family_spec.family_id, family_spec.action_specs, metrics if isinstance(metrics, dict) else {})
+            except Exception as exc:
+                result["activation"] = {"status": "unavailable", "error": repr(exc)}
+        else:
+            result["activation"] = {"status": "not_declared", "required": True}
 
     # --- S5: paired interleaved performance -----------------------------------
     measurement_cfg = spec["measurement"]

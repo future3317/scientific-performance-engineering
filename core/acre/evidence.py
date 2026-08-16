@@ -15,12 +15,20 @@ def _canonical(events: Iterable[EvidenceEvent]) -> tuple[EvidenceEvent, ...]:
 
 def representative_events(events: Iterable[EvidenceEvent]) -> tuple[EvidenceEvent, ...]:
     """Return only evidence allowed to update effect/confidence/promotion state."""
-    return tuple(event for event in _canonical(events) if event.evidence_stream == "representative")
+    return tuple(event for event in _canonical(events) if event.evidence_role == "promotion_representative")
 
 
 def adversarial_events(events: Iterable[EvidenceEvent]) -> tuple[EvidenceEvent, ...]:
     """Return evidence allowed to falsify or quarantine, never to promote."""
-    return tuple(event for event in _canonical(events) if event.evidence_stream == "adversarial")
+    return tuple(event for event in _canonical(events) if event.evidence_role == "adversarial")
+
+
+def synthesis_events(events: Iterable[EvidenceEvent]) -> tuple[EvidenceEvent, ...]:
+    return tuple(event for event in _canonical(events) if event.evidence_role == "synthesis")
+
+
+def validation_events(events: Iterable[EvidenceEvent]) -> tuple[EvidenceEvent, ...]:
+    return tuple(event for event in _canonical(events) if event.evidence_role == "validation")
 
 
 def _utility(event: EvidenceEvent) -> float | None:

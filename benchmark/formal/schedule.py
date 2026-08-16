@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import hashlib
 import random
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import random
 
 from benchmark.harness import miniyaml, split
@@ -80,27 +80,45 @@ class SyntheticFamilyExecutor(FamilyReplayExecutor):
 
 
 class FamilyPairReplayExecutor:
-    """Execute a canonical endpoint pair through the family environment."""
+    """Execute node pairs in one family or a declared cross-family joint fixture."""
 
-    def __init__(self, family_id: str, left_action: str, right_action: str, *, transformation_state: Any = None) -> None:
+    def __init__(self, family_id: str, left_action: str, right_action: str, *, right_family: str | None = None, transformation_state: Any = None) -> None:
         self.family_id = str(family_id)
+        self.left_family = str(family_id)
+        self.right_family = str(right_family or family_id)
         self.left_action = str(left_action)
         self.right_action = str(right_action)
         self.transformation_state = transformation_state
 
-    def execute(self, context: Mapping[str, Any], *, context_id: str, blocks: int = 8) -> list[dict[str, float]]:
+    def execute(self, context: Mapping[str, Any], *, context_id: str, blocks: int = 8) -> list[dict[str, Any]]:
         from benchmark.families.environment import FamilyEnvironment
-        env = FamilyEnvironment(self.family_id)
         workload = context.get("workload", context) if isinstance(context, Mapping) else {}
         outcomes: dict[str, float] = {}
-        for arm, deployed in (
-            ("00", ()),
-            ("10", (self.left_action,)),
-            ("01", (self.right_action,)),
-            ("11", (self.left_action, self.right_action)),
-        ):
-            outcomes[arm] = float(env.evaluate(workload, deployed, self.transformation_state).utility)
-        return [dict(outcomes) for _ in range(int(blocks))]
+        gates_by_arm: dict[str, bool] = {}
+        if self.left_family != self.right_family:
+            from benchmark.families import FAMILY_SPECS, InteractionOracle, CompositionSpec, FamilyInstance
+            left_workload = context.get("left_workload", workload)
+            right_workload = context.get("right_workload", workload)
+            left = FamilyInstance(self.left_family, f"{self.left_family}-{context_id}", dict(left_workload))
+            right = FamilyInstance(self.right_family, f"{self.right_family}-{context_id}", dict(right_workload))
+            oracle = InteractionOracle(CompositionSpec(self.left_family, self.right_family))
+            latent = oracle.evaluate(left, right, context)
+            base_outcomes = dict(latent["outcomes"])
+            gates_by_arm = dict(latent.get("scientific_gates", {}))
+            for arm in ("00", "10", "01", "11"):
+                outcomes[arm] = float(base_outcomes[arm])
+        else:
+            env = FamilyEnvironment(self.family_id)
+            for arm, deployed in (
+                ("00", ()),
+                ("10", (self.left_action,)),
+                ("01", (self.right_action,)),
+                ("11", (self.left_action, self.right_action)),
+            ):
+                outcome = env.evaluate(workload, deployed, self.transformation_state)
+                outcomes[arm] = float(outcome.utility)
+                gates_by_arm[arm] = all(outcome.scientific_gates.values())
+        return [{"outcomes": dict(outcomes), "scientific_gates": dict(gates_by_arm)} for _ in range(int(blocks))]
 
 
 class PromotionReplayScheduler:
@@ -358,6 +376,54 @@ class RelationExperimentScheduler:
             delta=delta,
             practical_margin=practical_margin,
         )
+
+
+def execute_required_experiments(
+    required: Sequence[Mapping[str, Any]],
+    *,
+    executor: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Consume router-owned requests through an executable callback.
+
+    Formal callers must provide an external executor.  Without one the
+    request is recorded as blocked rather than being silently replaced by the
+    synthetic family environment.
+    """
+    results: list[dict[str, Any]] = []
+    for request in required:
+        payload = dict(request)
+        experiment_id = payload.get("experiment_id")
+        arms = payload.get("required_arms")
+        if not isinstance(experiment_id, str) or not experiment_id:
+            raise ValueError("required experiment needs an experiment_id")
+        if not isinstance(arms, list) or not arms or any(not isinstance(arm, str) or not arm for arm in arms):
+            raise ValueError("required experiment needs non-empty required_arms")
+        if executor is None:
+            results.append({**payload, "status": "blocked", "reason": "external_executor_required"})
+            continue
+        outcome = executor(payload)
+        if not isinstance(outcome, Mapping):
+            raise ValueError("required experiment executor must return an object")
+        result = {**payload, **dict(outcome)}
+        if result.get("status") != "executed" or result.get("execution_source") != "external_executor":
+            result["status"] = "blocked"
+            result["reason"] = "required experiment must be executed by external verifier"
+            results.append(result)
+            continue
+        evidence = result.get("arm_evidence")
+        if not isinstance(evidence, Mapping) or any(str(arm) not in evidence for arm in arms):
+            result["status"] = "blocked"
+            result["reason"] = "external result lacks evidence for every required arm"
+            results.append(result)
+            continue
+        gates = result.get("scientific_gates")
+        if not isinstance(gates, Mapping) or any(str(arm) not in gates or gates[str(arm)] is not True for arm in arms):
+            result["status"] = "blocked"
+            result["reason"] = "scientific gates are missing or failed"
+            results.append(result)
+            continue
+        results.append(result)
+    return results
 
 
 def task_order(split_path: str | Path) -> list[tuple[int, str]]:

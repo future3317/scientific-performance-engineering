@@ -7,7 +7,7 @@ from typing import Any
 
 from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
 from core.acre.predicates import PredicateGrammar
-from benchmark.families import family_views
+from benchmark.families import family_views, family_decision_lattice
 from benchmark.families import FAMILY_SPECS, resolve_family_id
 from benchmark.families.environment import FamilyEnvironment
 from core.sequential_stats import paired_repetition_interval
@@ -132,6 +132,7 @@ def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) 
         positive=representative,
         counterexamples=counterexamples,
         parent_predicate=parent,
+        decision_contexts=family_decision_lattice(canonical_family),
     )
     sealed = pools.get("sealed_boundary_pool", pools.get("sealed_test_pool", []))
     errors = sealed_errors(result.predicate, sealed)

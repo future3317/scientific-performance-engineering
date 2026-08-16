@@ -37,9 +37,9 @@ oracle:
   expected_speedup_range: [1.1, 1.5]
 generator_family_id: GEN-DATA_PIPELINE
 oracle_fix_pattern_id: FIX-CORE-H2D-PIPELINE-03
-scientific_contract_id: CONTRACT-DATA_PIPELINE
+scientific_contract_id: CONTRACT-DATA-PIPELINE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "8619d8ab6cd33cbc070064f2236ffe5faf3246a6ea0a9d27183e377274d1f321"
+workspace_ast_skeleton_hash: f86d8ec8ed877ce5c8afa43118d5ebb633ff2099342655b60426e2da9d0a6dff
 family_id: h2d_pipeline
 anchor_instance_id: CORE-H2D-PIPELINE-03
 family_parameters:
@@ -54,3 +54,4 @@ public_context:
     worker_count: 2
     prefetch_factor: 2
     pin_memory: true
+ast_skeleton_version: 2

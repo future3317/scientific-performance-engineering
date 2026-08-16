@@ -1,7 +1,7 @@
 # Scientific Performance Engineering
 
 Evidence-governed performance engineering for PyTorch scientific workloads.
-This is a Codex Skill and a small, executable Rule OS for diagnosing end-to-end
+This is a reusable skill package and a small, executable Rule OS for diagnosing end-to-end
 training/inference bottlenecks while preserving numerical and scientific
 contracts.
 
@@ -71,6 +71,20 @@ context and token budget as D but cannot construct or promote rules and
 relations. D alone performs governed routing and lifecycle transitions. Reset is
 the default context mode; carry is a separate sequential-adaptation analysis.
 
+Formal execution remains fail-closed until an external executor supplies an
+attested no-network namespace receipt. Required pair and three-way experiments
+are router-owned requests; a request is executable only when every declared arm
+has verifier-produced evidence and scientific gates. Synthetic family replay is
+calibration-only and cannot authorize formal promotion. CEGIS retains typed
+statuses (`insufficient_evidence`, `underidentified`, `identified`, and
+`unsynthesizable_boundary`) together with its version space; a predicate is
+materialized only after the preregistered decision lattice is identified.
+Source patches do not inherit a family default action: the verifier must observe
+exactly one registered repair-level `ActionSpec` through activation
+instrumentation before the harness assigns a semantic intervention. Three-way
+certificates likewise require all eight arm outcomes and all eight scientific
+gates; missing gates are an execution failure, not an implicit pass.
+
 ## 中文
 
 这是一个面向 PyTorch 科学训练与推理的证据治理型性能工程 Skill，同时提供一个
@@ -87,8 +101,8 @@ autograd、扩散/流匹配采样、编译、多卡扩展、预计算/缓存成�
 
 ## Install and use
 
-Clone or copy this directory into the Codex skills directory and invoke
-`$scientific-performance-engineering` for a scientific performance task.
+Install this directory in the skills directory used by the host application and
+invoke `scientific-performance-engineering` for a scientific performance task.
 
 ```powershell
 $python = 'D:\Anaconda\envs\EGNN\python.exe'

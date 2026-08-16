@@ -39,7 +39,7 @@ generator_family_id: GEN-GNN-STATIC
 oracle_fix_pattern_id: FIX-GNN-STATIC-CACHE
 scientific_contract_id: CONTRACT-ENERGY-FORCE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "92357f5ba776f61e39c0a9295733bc5c9828527133d36e47d0b95a95f31c69a9"
+workspace_ast_skeleton_hash: "400568be5589bb1f3f40abf018a121a754d98b9a3b92bd38dab99bbe9e0a2ae1"
 family_id: graph_cache
 anchor_instance_id: SCIML-GNN-STATIC-GRAPH-CACHE-17
 family_parameters:
@@ -54,3 +54,4 @@ public_context:
     skin: 0.4
     graph_size: 96
     dynamic_rate: 0.1
+ast_skeleton_version: 2

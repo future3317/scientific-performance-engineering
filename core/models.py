@@ -53,6 +53,11 @@ class RevisionRef:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    @property
+    def semantic_spec_digest(self) -> str:
+        """Canonical digest of the semantic spec (not its JSON artifact bytes)."""
+        return self.spec_digest
+
     @classmethod
     def from_value(cls, value: Any) -> "RevisionRef | None":
         if value is None:
@@ -62,7 +67,7 @@ class RevisionRef:
         if isinstance(value, str):
             return cls(value, 1, "legacy")
         if isinstance(value, dict):
-            return cls(str(value["subject_id"]), int(value["version"]), str(value["spec_digest"]))
+            return cls(str(value["subject_id"]), int(value["version"]), str(value.get("semantic_spec_digest", value.get("spec_digest", ""))))
         raise ValueError("invalid revision reference")
 
 
@@ -76,11 +81,19 @@ class ActionSpec:
     preconditions: dict[str, Any] = field(default_factory=dict)
     preserves: list[str] = field(default_factory=list)
     risk_class: str = "bounded"
+    applicability: dict[str, Any] = field(default_factory=dict)
+    scientific_policy_ref: str = ""
+    activation_validator: str = ""
+    realization_interface: str = ""
 
     def __post_init__(self) -> None:
         validate_identifier(self.action_id, "action_id")
         _nonempty(self.family, "action family")
         _nonempty(self.risk_class, "action risk_class")
+        if self.scientific_policy_ref:
+            validate_identifier(self.scientific_policy_ref, "action scientific_policy_ref")
+        if not isinstance(self.applicability, dict):
+            raise ValueError("action applicability must be an object")
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(asdict(self), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
@@ -292,6 +305,7 @@ def normalize_evidence_event(value: dict[str, Any]) -> dict[str, Any]:
     """Normalize legacy single-rule evidence into the v2 multi-intervention form."""
     payload = deepcopy(value)
     if payload.get("schema_version", 1) == 2 and "interventions" in payload.get("assignment", {}):
+        payload.setdefault("evidence_role", "adversarial" if payload.get("evidence_stream") == "adversarial" else "promotion_representative")
         return payload
     assignment = payload.get("assignment")
     rule_id = payload.get("rule_id")
@@ -331,6 +345,7 @@ def normalize_evidence_event(value: dict[str, Any]) -> dict[str, Any]:
         "timestamp": payload.get("timestamp"),
         "trust_zone": payload.get("trust_zone", "local"),
         "attacker_controlled_fields": list(payload.get("attacker_controlled_fields") or []),
+        "evidence_role": str(payload.get("evidence_role") or ("adversarial" if payload.get("evidence_stream") == "adversarial" else "promotion_representative")),
     }
 
 
@@ -351,6 +366,7 @@ class EvidenceEvent:
     query_id: str
     trust_zone: str
     attacker_controlled_fields: list[str]
+    evidence_role: str = "promotion_representative"
 
     def __post_init__(self) -> None:
         if self.schema_version != 2:
@@ -376,6 +392,12 @@ class EvidenceEvent:
             raise ValueError("outcome_vector.utility must be bounded in [-1, 1]")
         if self.evidence_stream not in {"representative", "adversarial"}:
             raise ValueError("evidence_stream must be representative or adversarial")
+        if self.evidence_role not in {"synthesis", "promotion_representative", "adversarial", "validation"}:
+            raise ValueError("invalid evidence_role")
+        if self.evidence_role == "adversarial" and self.evidence_stream != "adversarial":
+            raise ValueError("adversarial evidence_role requires adversarial evidence_stream")
+        if self.evidence_role in {"synthesis", "promotion_representative", "validation"} and self.evidence_stream != "representative":
+            raise ValueError("non-adversarial evidence_role requires representative evidence_stream")
         validate_identifier(self.query_id, "query_id")
         validate_identifier(self.source_id, "source_id")
         validate_identifier(self.independence_group, "independence_group")

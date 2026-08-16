@@ -39,7 +39,7 @@ generator_family_id: GEN-GNN-FORCE
 oracle_fix_pattern_id: FIX-FORCE-BATCHED-VJP
 scientific_contract_id: CONTRACT-ENERGY-FORCE
 difficulty_tier: hard
-workspace_ast_skeleton_hash: cf5aa366fe8c26c242531cf63ac7470960499ec8975c320a61f6daea0912320a
+workspace_ast_skeleton_hash: "400568be5589bb1f3f40abf018a121a754d98b9a3b92bd38dab99bbe9e0a2ae1"
 family_id: graph_cache
 anchor_instance_id: SCIML-FORCE-AUTOGRAD-19
 family_parameters:
@@ -54,3 +54,4 @@ public_context:
     skin: 0.8
     graph_size: 128
     dynamic_rate: 0.3
+ast_skeleton_version: 2

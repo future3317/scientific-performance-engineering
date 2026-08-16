@@ -9,15 +9,6 @@ import hashlib
 import json
 
 
-_FAMILY_ACTIONS = {
-    "compile": "reuse_compile_cache",
-    "graph_cache": "reuse_graph_cache",
-    "h2d_pipeline": "pin_memory_pipeline",
-    "checkpoint": "checkpoint_recompute",
-    "scalar_sync": "aggregate_scalars",
-}
-
-
 class RealizationValidator:
     """Validate that a proposal names one registered semantic action.
 
@@ -57,8 +48,10 @@ def action_from_proposal(family_id: str | None, proposal: Mapping[str, Any]) -> 
         action_id = "patch-" + hashlib.sha256(json.dumps(patch, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
         parameters = patch
     else:
-        action_id = str(explicit.get("action") or _FAMILY_ACTIONS.get(str(family_id or ""), "measure"))
-        parameters = dict(explicit.get("parameters") or {})
+        # A family default is a workload-level prior, not observed activation
+        # evidence.  Treating it as the classified intervention would let a
+        # raw patch enter the causal ledger without an S4 action certificate.
+        raise ValueError("proposal must provide an explicit action_spec or source intervention")
     action = ActionSpec(action_id=action_id, family=str(family_id or "runtime"), parameters=parameters)
     return RealizationValidator.validate(family_id, action)
 

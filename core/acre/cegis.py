@@ -12,6 +12,7 @@ from core.sequential_stats import paired_repetition_interval
 from core.utility import UTILITY_LOG_SCALE, utility_effect
 
 from .predicates import PredicateGrammar, SYNTHESIZER_VERSION, _key, predicate_complexity
+from .budget import StatisticalBudget
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,10 @@ class SynthesisResult:
             "certificate": self.certificate.to_dict() if self.certificate else None,
         }
 
+    @property
+    def decision_context_count(self) -> int:
+        return int((self.provenance or {}).get("decision_context_count", 0))
+
 
 @dataclass(frozen=True)
 class SynthesisCertificate:
@@ -85,7 +90,6 @@ class SynthesisCertificate:
             "practical_threshold": self.practical_threshold,
             "synthesizer_version": self.synthesizer_version,
         }
-
 
 class StatisticalCEGIS:
     def __init__(self, grammar: PredicateGrammar, *, epsilon_true: float = 0.0, epsilon_false: float = 0.0, delta: float = 0.05) -> None:
@@ -144,7 +148,7 @@ class StatisticalCEGIS:
         certified = [item for item in counterexamples if item.certified_counterexample(self.epsilon_false)]
         anchor_ids = tuple(item.observation_id for item in anchors)
         counterexample_ids = tuple(item.observation_id for item in certified)
-        provenance = {"parent_predicate": parent_predicate, "grammar_version": 2}
+        provenance = {"source": "harness-cegis", "method_owner": "core", "parent_predicate": parent_predicate, "grammar_version": 2}
         if not anchors:
             cert = self._certificate(status="insufficient_evidence", predicate=None, anchors=anchor_ids, counterexamples=counterexample_ids, observation_ids=tuple(item.observation_id for item in positive + counterexamples), decision_contexts=decision_contexts)
             provenance["certificate"] = cert.to_dict()
@@ -269,22 +273,23 @@ def synthesize_applicability(
     epsilon_true: float = 0.0,
     epsilon_false: float = 0.0,
     require_identified: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any]] | None:
+) -> SynthesisResult:
     """Core-owned CEGIS adapter over verifier-produced paired cases."""
     if family_id is None:
         family_id = "compile"
-    from benchmark.families import family_predicate_grammar, family_instances
+    from benchmark.families import family_decision_lattice, family_predicate_grammar
     try:
-        lattice = list(decision_contexts or [{"workload": dict(item.parameters)} for item in family_instances(family_id, count=24, seed=0)])
+        lattice = list(decision_contexts or family_decision_lattice(family_id))
     except (KeyError, ValueError):
-        return None
+        return SynthesisResult("unavailable", None, (), (), provenance={"reason": "unknown_family"})
     if require_identified and not lattice:
-        return None
+        return SynthesisResult("unavailable", None, (), (), provenance={"reason": "empty_decision_lattice"})
     grammar_payload = family_predicate_grammar(family_id)
     if not grammar_payload:
-        return None
+        return SynthesisResult("unavailable", None, (), (), provenance={"reason": "family_has_no_predicate_grammar"})
     observations: list[BoundaryObservation] = []
-    context_delta = float(delta) / max(1, len(lattice))
+    budget = StatisticalBudget(delta_total=float(delta))
+    context_delta = budget.lattice_delta(max(1, len(lattice)))
     for index, case in enumerate(cases):
         context = case.get("context") if isinstance(case.get("context"), dict) else {}
         if not context:
@@ -299,7 +304,7 @@ def synthesize_applicability(
             lower, upper,
         ))
     if not observations:
-        return None
+        return SynthesisResult("insufficient_evidence", None, (), (), provenance={"reason": "no_certified_observations"})
     observed_paths: set[str] = set()
     for observation in observations:
         for feature in grammar_payload["features"]:
@@ -311,11 +316,9 @@ def synthesize_applicability(
     grammar_payload["features"] = [feature for feature in grammar_payload["features"] if feature["path"] in observed_paths]
     grammar_payload["threshold_universe"] = {path: values for path, values in grammar_payload.get("threshold_universe", {}).items() if path in observed_paths}
     if not grammar_payload["features"]:
-        return None
+        return SynthesisResult("insufficient_evidence", None, (), (), provenance={"reason": "no_observed_public_features"})
     result = synthesize_boundary(
         observations, grammar_payload, decision_contexts=lattice,
         delta=delta, epsilon_true=epsilon_true, epsilon_false=epsilon_false,
     )
-    if result.predicate is None or (require_identified and result.status != "identified"):
-        return None
-    return result.predicate, {"source": "harness-cegis", "method_owner": "core", **(result.provenance or {})}
+    return result

@@ -297,8 +297,9 @@ def test_applicability_is_synthesized_from_public_evidence() -> None:
         {"case_id": "POS", "context": {"workload": {"dynamic_shape_rate": 0.2}}, "intervention_measurements": [0.8] * 256, "baseline_measurements": [0.5] * 256, "higher_is_better": True, "utility_scale": 0.5, "control_measured": True, "scientific_ok": True, "quality_ok": True},
         {"case_id": "NEG", "context": {"workload": {"dynamic_shape_rate": 0.8}}, "intervention_measurements": [0.4] * 256, "baseline_measurements": [0.5] * 256, "higher_is_better": True, "utility_scale": 0.5, "control_measured": True, "scientific_ok": True, "quality_ok": True},
     ])
-    assert synthesized is not None
-    predicate, provenance = synthesized
+    assert synthesized.status in {"identified", "underidentified"}
+    assert synthesized.predicate is not None
+    predicate, provenance = synthesized.predicate, synthesized.provenance or {}
     assert "compare" in predicate
     assert provenance["source"] == "harness-cegis"
 
@@ -324,7 +325,7 @@ def test_applicability_waits_for_certified_repeated_effects() -> None:
             "control_measured": True,
         },
     ]
-    assert synthesize_applicability(cases, family_id="compile") is None
+    assert synthesize_applicability(cases, family_id="compile").status == "insufficient_evidence"
 
 
 def test_applicability_uses_preregistered_family_lattice() -> None:
@@ -349,8 +350,9 @@ def test_applicability_uses_preregistered_family_lattice() -> None:
         },
     ]
     synthesized = synthesize_applicability(cases, family_id="compile")
-    assert synthesized is not None
-    assert synthesized[1]["decision_context_count"] > len(cases)
+    assert synthesized.status in {"identified", "underidentified"}
+    assert synthesized.predicate is not None
+    assert synthesized.decision_context_count > len(cases)
 
 
 def test_formal_promotion_round_trip_routes_and_abstains_by_cegis_boundary(tmp_path: Path) -> None:
@@ -362,8 +364,9 @@ def test_formal_promotion_round_trip_routes_and_abstains_by_cegis_boundary(tmp_p
         {"case_id": "POS", "context": {"domain": "runtime", "workload": {"dynamic_shape_rate": 0.2}}, "intervention_measurements": [0.8] * 256, "baseline_measurements": [0.5] * 256, "higher_is_better": True, "utility_scale": 0.5, "control_measured": True, "scientific_ok": True, "quality_ok": True},
         {"case_id": "NEG", "context": {"domain": "runtime", "workload": {"dynamic_shape_rate": 0.8}}, "intervention_measurements": [0.4] * 256, "baseline_measurements": [0.5] * 256, "higher_is_better": True, "utility_scale": 0.5, "control_measured": True, "scientific_ok": True, "quality_ok": True},
     ])
-    assert synthesized is not None
-    predicate, provenance = synthesized
+    assert synthesized.status in {"identified", "underidentified"}
+    assert synthesized.predicate is not None
+    predicate, provenance = synthesized.predicate, synthesized.provenance or {}
     candidate = _rule("RULE-CEGIS")
     candidate = candidate.__class__(**{**candidate.__dict__, "applicability": predicate}).to_dict()
     validation = {
@@ -655,7 +658,7 @@ def test_formal_identification_requires_a_nonempty_decision_lattice() -> None:
         }],
         family_id="missing-family",
         require_identified=True,
-    ) is None
+    ).status == "unavailable"
 
 
 def test_evidence_utility_is_bounded_for_confidence_accounting() -> None:

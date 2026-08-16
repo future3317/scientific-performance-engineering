@@ -163,6 +163,16 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
                 errors.append(f"{label} validation case was not executed: {case_id}")
             if not isinstance(entry.get("execution_source"), str) or not entry["execution_source"]:
                 errors.append(f"{label} validation case needs execution_source: {case_id}")
+            if value.get("scope") == "formal":
+                holdout_class = str(entry.get("holdout_class", entry.get("validation_kind", "replication")))
+                allowed_sources = {
+                    "replication": {"verifier", "external_executor"},
+                    "transfer": {"external_executor"},
+                    "boundary": {"external_executor"},
+                    "adversarial": {"external_executor"},
+                }.get(holdout_class, set())
+                if str(entry.get("execution_source")) not in allowed_sources:
+                    errors.append(f"formal {holdout_class} validation requires external executable evidence: {case_id}")
             try:
                 typed = ValidationCertificate.from_dict({
                     **entry,
@@ -479,12 +489,16 @@ def apply_promotion(
     id_key = "relation_id" if decision.subject_type == "relation" else "rule_id"
     directory = "relations" if decision.subject_type == "relation" else "rules"
     entries = [entry for entry in registry.get(key, []) if entry.get(id_key) != decision.subject_id]
+    semantic_payload = json.dumps(card, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    artifact_digest = hashlib.sha256(target.read_bytes()).hexdigest()
     entries.append({
         id_key: decision.subject_id,
         "path": str(target.relative_to(store)).replace("\\", "/"),
         "status": "canonical",
         "version": int(card.get("version", 1)),
-        "spec_digest": hashlib.sha256(target.read_bytes()).hexdigest(),
+        "semantic_spec_digest": hashlib.sha256(semantic_payload).hexdigest(),
+        "artifact_digest": artifact_digest,
+        "spec_digest": artifact_digest,
     })
     registry[key] = entries
     registry_path.parent.mkdir(parents=True, exist_ok=True)

@@ -352,6 +352,9 @@
   "public_context": {
     "CORE-AUTOGRAD-BATCHED-VJP-15": {
       "workload": {
+        "output_count": 8,
+        "input_dim": 128,
+        "jacobian_density": 0.5,
         "fixture_index": 0,
         "seed": 0
       }
@@ -416,6 +419,9 @@
     },
     "CORE-REPEATED-BACKBONE-02": {
       "workload": {
+        "repeat_count": 4,
+        "backbone_width": 256,
+        "batch_size": 32,
         "fixture_index": 0,
         "seed": 0
       }
@@ -428,27 +434,38 @@
     },
     "EVOL-COMPILER-DRIFT-20": {
       "workload": {
+        "runtime_version": "B",
+        "context_width": 3,
+        "drift_rate": 0.25,
         "fixture_index": 1,
         "seed": 0
       }
     },
     "EVOL-EPISODE-POISON-10": {
       "workload": {
+        "runtime_version": "A",
+        "context_width": 2,
+        "drift_rate": 0.05,
         "fixture_index": 0,
         "seed": 0
       }
     },
     "SCIML-CRYSTAL-DIFFUSION-07": {
       "workload": {
+        "atom_count": 32,
+        "diffusion_steps": 100,
+        "guidance_scale": 2.0,
         "fixture_index": 0,
         "seed": 0
       }
     },
     "SCIML-EQUIV-RECOMPUTE-06": {
       "workload": {
+        "irrep_order": 2,
+        "node_count": 64,
+        "recompute_rate": 0.5,
         "fixture_index": 0,
-        "seed": 0,
-        "applicable": false
+        "seed": 0
       }
     },
     "SCIML-FORCE-AUTOGRAD-19": {
@@ -485,9 +502,11 @@
     },
     "SCIML-GRAPH-REBUILD-08": {
       "workload": {
+        "neighbor_count": 12,
+        "sample_count": 24,
+        "geometry_variation": 0.3,
         "fixture_index": 0,
-        "seed": 0,
-        "applicable": false
+        "seed": 0
       }
     }
   },

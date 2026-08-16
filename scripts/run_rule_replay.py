@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 from core.sequential_stats import bounded_mean_interval, mixture_lower_bound, minimum_all_successes, paired_repetition_interval
 from core.models import validate_identifier
 from core.utility import UTILITY_LOG_SCALE, UTILITY_POLICY_ID, utility_effect, validate_policy
+from core.acre.budget import StatisticalBudget
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ def paired_group_effects(
     cases: list[dict[str, Any]],
     *,
     utility_scale: float = UTILITY_LOG_SCALE,
+    statistical_budget: StatisticalBudget | None = None,
 ) -> list[dict[str, Any]]:
     """Reduce repetitions and cases to one bounded effect per independence group."""
     grouped: dict[str, list[tuple[float, bool, str, int]]] = {}
@@ -106,7 +108,8 @@ def paired_group_effects(
         gates_passed = bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))
         grouped.setdefault(group_id, []).append((case_effect, gates_passed, str(case.get("case_id", index)), repetition_count))
     results: list[dict[str, Any]] = []
-    for group_id, entries in grouped.items():
+    budget = statistical_budget or StatisticalBudget()
+    for group_index, (group_id, entries) in enumerate(grouped.items(), start=1):
         effects = [entry[0] for entry in entries]
         effects_for_interval = []
         for entry in entries:
@@ -125,7 +128,7 @@ def paired_group_effects(
             # uncertainty for timing/performance measurements.  Every
             # non-deterministic observable therefore uses the predeclared
             # paired interval, including zero empirical-variance samples.
-            lcb, ucb = paired_repetition_interval(effects_for_interval, 0.05)
+            lcb, ucb = paired_repetition_interval(effects_for_interval, budget.group_delta(group_index))
         else:
             lcb, ucb = -1.0, 1.0
         results.append({
@@ -174,7 +177,8 @@ def evaluate_cases(
             # measured baseline may legitimately be zero and is accepted above.
             raise ValueError("paired replay requires a non-zero control for legacy scalar cases; measured arms may be zero")
     validate_policy(utility_policy_id)
-    group_effects = paired_group_effects(cases, utility_scale=utility_scale)
+    budget = StatisticalBudget(delta_total=float(delta))
+    group_effects = paired_group_effects(cases, utility_scale=utility_scale, statistical_budget=budget)
     effects = [float(item["effect"]) for item in group_effects]
     group_quality = [bool(item["scientific_ok"]) for item in group_effects]
     repetition_count = sum(int(item["repetition_count"]) for item in group_effects)
@@ -199,8 +203,8 @@ def evaluate_cases(
     # time-uniform Bernoulli boundary below.
     lower_confidence_bound = mean_effect - 1.96 * standard_error
     upper_confidence_bound = mean_effect + 1.96 * standard_error
-    utility_effect_lcb, utility_effect_ucb = bounded_mean_interval(effects, delta)
-    promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), delta)
+    utility_effect_lcb, utility_effect_ucb = bounded_mean_interval(effects, budget.mix)
+    promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), budget.mix)
     minimum_replay_groups = minimum_all_successes(p_min, delta) if p_min > 0.0 else 1
     outcome = "passed" if (
         scientific_ok
@@ -243,6 +247,7 @@ def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
     grouped = paired_group_effects(
         payload["cases"],
         utility_scale=float(payload.get("utility_scale", UTILITY_LOG_SCALE)),
+        statistical_budget=StatisticalBudget(delta_total=float(payload.get("delta", 0.05))),
     )
     cases_by_group = {
         str(case.get("independence_group") or case.get("source_id") or case.get("case_id") or f"group-{index}"): case
@@ -262,7 +267,9 @@ def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "schema_version": 2,
                 "event_id": f"{group['independence_group']}-{arm}", "context": common,
                 "assignment": {"interventions": {payload["rule_id"]: int(arm == "on")}, "propensity": float(case.get("propensity", 0.5)), "design_id": "paired-replay-v2"},
-                "evidence_stream": "representative", "query_id": str(case.get("query_id", group["independence_group"])),
+                "evidence_stream": "adversarial" if str(case.get("query_type", "representative")) == "adversarial" else "representative",
+                "evidence_role": {"active_query": "synthesis", "representative": "promotion_representative", "adversarial": "adversarial", "validation": "validation"}.get(str(case.get("query_type", "representative")), "promotion_representative"),
+                "query_id": str(case.get("query_id", group["independence_group"])),
                 "outcome_vector": {"utility": float(case.get("utility_on", 0.0)) if arm == "on" else float(case.get("utility_off", 0.0)), "paired_effect": float(group["effect"]), "contrast": "on-minus-off"},
                 "scientific_gates": {"scientific_ok": bool(group["scientific_ok"]), "quality_ok": bool(group["scientific_ok"])},
                 "artifacts": {**dict(case.get("artifacts", {})), "paired_contrast": {"effect": float(group["effect"]), "lcb": float(group["lcb"]), "ucb": float(group["ucb"]), "n_repetitions": int(group["repetition_count"])}}, "versions": case.get("versions", {}),

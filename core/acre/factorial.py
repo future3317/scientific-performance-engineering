@@ -6,6 +6,7 @@ import math
 import random
 from dataclasses import dataclass, field, replace
 from typing import Mapping
+from .budget import StatisticalBudget
 
 
 _ARMS = ("00", "10", "01", "11")
@@ -202,6 +203,7 @@ class HigherOrderCertificate:
     normalized_residual: float
     raw_residual: float
     status: str
+    scientific_arm_gates: Mapping[str, bool] = field(default_factory=lambda: {arm: True for arm in _THREE_WAY_ARMS})
     estimator_version: str = "higher-order-cs-v1"
 
     def __post_init__(self) -> None:
@@ -211,6 +213,10 @@ class HigherOrderCertificate:
             raise ValueError("invalid higher-order certificate status")
         if not -1.0 <= self.residual_lcb <= self.residual_ucb <= 1.0:
             raise ValueError("higher-order residual interval must be normalized and bounded")
+        if set(self.scientific_arm_gates) != set(_THREE_WAY_ARMS) or any(not isinstance(value, bool) for value in self.scientific_arm_gates.values()):
+            raise ValueError("higher-order certificates require all eight scientific arm gates")
+        if not all(self.scientific_arm_gates.values()) and self.status == "pairwise_certified":
+            raise ValueError("scientific failure cannot be pairwise_certified")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -224,6 +230,7 @@ class HigherOrderCertificate:
             "normalized_residual": self.normalized_residual,
             "raw_residual": self.raw_residual,
             "status": self.status,
+            "scientific_arm_gates": dict(self.scientific_arm_gates),
             "estimator_version": self.estimator_version,
         }
 
@@ -232,12 +239,15 @@ class HigherOrderCertificate:
 class ThreeWayBlock:
     block_id: str
     outcomes: Mapping[str, float]
+    scientific_gates: Mapping[str, bool] = field(default_factory=lambda: {arm: True for arm in _THREE_WAY_ARMS})
 
     def __post_init__(self) -> None:
         if set(self.outcomes) != set(_THREE_WAY_ARMS):
             raise ValueError("a three-way block must contain all 2^3 arms")
         if any(not isinstance(value, (int, float)) or isinstance(value, bool) or not -1.0 <= float(value) <= 1.0 for value in self.outcomes.values()):
             raise ValueError("three-way outcomes must be finite and bounded in [-1, 1]")
+        if set(self.scientific_gates) != set(_THREE_WAY_ARMS) or any(not isinstance(value, bool) for value in self.scientific_gates.values()):
+            raise ValueError("three-way scientific_gates must cover all arms")
 
 
 def estimate_higher_order(blocks: list[ThreeWayBlock], *, delta: float = 0.05, look_count: int = 1, practical_margin: float = 0.05) -> HigherOrderEstimate:
@@ -261,7 +271,10 @@ def estimate_higher_order(blocks: list[ThreeWayBlock], *, delta: float = 0.05, l
     # interval until a separate joint-coverage result is available.
     radius = _bounded_radius(n, look_delta)
     lcb, ucb = max(-1.0, residual - radius), min(1.0, residual + radius)
-    if lcb > practical_margin or ucb < -practical_margin:
+    all_scientific = all(all(block.scientific_gates.values()) for block in blocks)
+    if not all_scientific:
+        status = "unresolved"
+    elif lcb > practical_margin or ucb < -practical_margin:
         status = "confirmed_nonzero"
     elif lcb >= -practical_margin and ucb <= practical_margin:
         status = "confirmed_negligible"
@@ -300,12 +313,13 @@ def _kl_radius(samples: list[float], delta: float) -> float:
 
 
 class FactorialEngine:
-    def __init__(self, *, delta: float = 0.05, practical_margin: float = 0.05, look_count: int = 1) -> None:
+    def __init__(self, *, delta: float = 0.05, practical_margin: float = 0.05, look_count: int = 1, statistical_budget: StatisticalBudget | None = None) -> None:
         if not 0.0 < delta < 1.0:
             raise ValueError("delta must be in (0, 1)")
         if practical_margin < 0.0 or practical_margin > 1.0:
             raise ValueError("practical_margin must be in [0, 1]")
         self.delta = delta
+        self.statistical_budget = statistical_budget or StatisticalBudget(delta_total=float(delta))
         self.practical_margin = practical_margin
         if look_count < 1:
             raise ValueError("look_count must be positive")
@@ -336,9 +350,9 @@ class FactorialEngine:
             "redundancy": [(block.outcomes["11"] - max(block.outcomes["10"], block.outcomes["01"])) / 2.0 for block in self._blocks],
         }
         contrast_intervals: dict[str, tuple[float, float]] = {}
-        contrast_delta = self.delta / (self.look_count * len(contrast_samples))
-        for name, samples in contrast_samples.items():
+        for contrast_index, (name, samples) in enumerate(contrast_samples.items(), start=1):
             mean = sum(samples) / n
+            contrast_delta = self.statistical_budget.group_delta(contrast_index) / self.look_count
             radius = _bounded_radius(n, contrast_delta)
             # Every decision contrast is normalized to [-1, 1].  In
             # particular, conditional effects and redundancy are divided by
@@ -349,7 +363,7 @@ class FactorialEngine:
         gamma_lcb, gamma_ucb = contrast_intervals["gamma"]
         # Arm intervals are retained for redundancy diagnostics.  They are
         # separate from the decision contrasts above.
-        arm_delta = self.delta / (self.look_count * (len(contrast_samples) + len(_ARMS)))
+        arm_delta = self.statistical_budget.validation / (self.look_count * len(_ARMS))
         utility_intervals = {}
         for arm, samples in values.items():
             mean = means[arm]

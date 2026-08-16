@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 from core.sequential_stats import paired_repetition_interval
 from core.models import EvidenceEvent
 from core.utility import utility_effect
+from .budget import StatisticalBudget
 
 
 class ExperimentExecutor(Protocol):
@@ -22,6 +23,7 @@ class ExperimentPlan:
     contexts: tuple[Mapping[str, Any], ...]
     design: str = "paired"
     max_groups: int = 29
+    statistical_budget: StatisticalBudget = field(default_factory=StatisticalBudget)
 
 
 @dataclass(frozen=True)
@@ -74,10 +76,11 @@ def _paired_effect(on: float, off: float, *, higher_is_better: bool, scale: floa
 class ReplaySequentialCertificate:
     """Group-level sequential certificate for paired replay."""
 
-    def __init__(self, *, minimum_groups: int, max_groups: int | None = None, epsilon: float = 0.0, delta: float = 0.05, p_min: float = 0.8) -> None:
+    def __init__(self, *, minimum_groups: int, max_groups: int | None = None, epsilon: float = 0.0, delta: float = 0.05, p_min: float = 0.8, statistical_budget: StatisticalBudget | None = None) -> None:
         self.minimum_groups = int(minimum_groups)
         self.epsilon = float(epsilon)
         self.delta = float(delta)
+        self.statistical_budget = statistical_budget or StatisticalBudget(delta_total=self.delta)
         if not 0.0 < float(p_min) <= 1.0:
             raise ValueError("p_min must be in (0, 1]")
         self.p_min = float(p_min)
@@ -92,13 +95,13 @@ class ReplaySequentialCertificate:
             grouped.setdefault(group, case)
         representative = list(grouped.values())
         intervals: list[tuple[float, float]] = []
-        for case in representative:
+        for index, case in enumerate(representative, start=1):
             on = case.get("intervention_measurements")
             off = case.get("baseline_measurements")
             if not isinstance(on, list) or not isinstance(off, list) or len(on) != len(off) or not on:
                 continue
             effects = [utility_effect(float(a), float(b), higher_is_better=bool(case.get("higher_is_better", True)), log_scale=float(case.get("utility_scale", 0.5))) for a, b in zip(on, off)]
-            intervals.append(paired_repetition_interval(effects, self.delta))
+            intervals.append(paired_repetition_interval(effects, self.statistical_budget.group_delta(index)))
         successes = 0
         failures = 0
         probability_lcb = None
@@ -108,14 +111,14 @@ class ReplaySequentialCertificate:
             successes = sum(lower > self.epsilon for lower, _ in intervals)
             failures = len(intervals) - successes
             from core.sequential_stats import mixture_lower_bound
-            probability_lcb = mixture_lower_bound(successes, len(intervals), self.delta)
+            probability_lcb = mixture_lower_bound(successes, len(intervals), self.statistical_budget.mix)
             if probability_lcb >= self.p_min:
                 return {"status": "passed", "stop": True, "groups": len(intervals), "successes": successes, "failures": failures, "promotion_probability_lcb": probability_lcb}
             remaining = max(0, self.max_groups - len(intervals))
             # A failed prefix is futile only when even an all-success future
             # at the preregistered maximum cannot clear p_min.
             best_possible = max(
-                mixture_lower_bound(successes + k, len(intervals) + k, self.delta)
+                mixture_lower_bound(successes + k, len(intervals) + k, self.statistical_budget.mix)
                 for k in range(remaining + 1)
             )
             if best_possible < self.p_min:
@@ -166,7 +169,8 @@ def execute_paired_plan(
                 case_context["rule_versions"] = versions
                 case["context"] = case_context
             effects = [_paired_effect(float(a), float(b), higher_is_better=bool(case.get("higher_is_better", True)), scale=float(case.get("utility_scale", 0.5))) for a, b in zip(on["measurements"], off["measurements"])]
-            lcb, ucb = paired_repetition_interval(effects, 0.05)
+            group_index = len([item for item in cases if item.get("independence_group")]) + 1
+            lcb, ucb = paired_repetition_interval(effects, plan.statistical_budget.group_delta(group_index))
             contrast = PairedContrastEvidence(
                 independence_group=group_id,
                 paired_effect=sum(effects) / len(effects),
@@ -188,6 +192,12 @@ def execute_paired_plan(
                 independence_group=group_id,
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 evidence_stream="adversarial" if case["query_type"] == "adversarial" else "representative",
+                evidence_role={
+                    "active_query": "synthesis",
+                    "representative": "promotion_representative",
+                    "adversarial": "adversarial",
+                    "validation": "validation",
+                }.get(str(case["query_type"]), "promotion_representative"),
                 query_id=str(case["context_id"]),
                 trust_zone="harness",
                 attacker_controlled_fields=[],

@@ -86,13 +86,19 @@ class AcreEngine:
                         if isinstance(raw_path, str):
                             path = root / raw_path
                             if path.is_file():
-                                expected_digest = entry.get("spec_digest") or entry.get("digest")
-                                if expected_digest:
+                                expected_artifact_digest = entry.get("artifact_digest") or entry.get("spec_digest") or entry.get("digest")
+                                if expected_artifact_digest:
                                     actual_digest = __import__("hashlib").sha256(
                                         path.read_bytes()
                                     ).hexdigest()
-                                    if actual_digest != str(expected_digest):
+                                    if actual_digest != str(expected_artifact_digest):
                                         raise ValueError(f"registry spec digest mismatch: {raw_path}")
+                                expected_semantic = entry.get("semantic_spec_digest")
+                                if expected_semantic:
+                                    payload = read(path)
+                                    semantic = __import__("hashlib").sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+                                    if semantic != str(expected_semantic):
+                                        raise ValueError(f"registry semantic digest mismatch: {raw_path}")
                                 selected.append(path)
                 if not isinstance(entries, list):
                     raise ValueError(f"active {id_field} registry is invalid: {registry_name}")
@@ -240,6 +246,7 @@ class AcreEngine:
             normalized_residual=float(certificate.get("normalized_residual", 0.0)),
             raw_residual=float(certificate.get("raw_residual", 0.0)),
             status=str(certificate["status"]),
+            scientific_arm_gates={str(key): bool(value) for key, value in (certificate.get("scientific_arm_gates") or {arm: True for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}).items()},
             estimator_version=str(certificate.get("estimator_version", "higher-order-cs-v1")),
         )
         import hashlib

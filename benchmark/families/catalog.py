@@ -158,6 +158,24 @@ class FamilyInstance:
         }
 
 
+@dataclass(frozen=True)
+class FamilySurfaceSpec:
+    """Frozen, disjoint partitions shared by every benchmark view."""
+
+    decision_lattice_id: str
+    synthesis_ids: tuple[str, ...]
+    promotion_ids: tuple[str, ...]
+    validation_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "decision_lattice_id": self.decision_lattice_id,
+            "synthesis_ids": list(self.synthesis_ids),
+            "promotion_ids": list(self.promotion_ids),
+            "validation_ids": list(self.validation_ids),
+        }
+
+
 def family_instance_digest(family_id: str, parameters: Mapping[str, Any]) -> str:
     """Stable identity for a canonical family point."""
     payload = {"family_id": family_id, "parameters": dict(parameters)}
@@ -222,6 +240,9 @@ class FamilySpec:
         declared = self.action_specs[action_id].get("applicability") if isinstance(self.action_specs[action_id], Mapping) else None
         if callable(declared):
             return bool(declared(parameters))
+        if isinstance(declared, Mapping):
+            from core.predicates import match_predicate
+            return bool(match_predicate(dict(declared), {"workload": dict(parameters), **dict(parameters)}))
         selected = self.action_policy.get(regime) or self.action_policy.get("default", "")
         if not selected or selected != action_id:
             return False
@@ -351,6 +372,30 @@ def _legacy(index: int, seed: int) -> Mapping[str, Any]:
     return {"fixture_index": index, "seed": seed, "difficulty_tier": "medium"}
 
 
+def _repeated_compute(index: int, seed: int) -> Mapping[str, Any]:
+    return {"repeat_count": 2 + ((index + seed) % 8), "backbone_width": 128 + ((index + seed) % 4) * 128, "batch_size": 16 + ((index * 3 + seed) % 4) * 16, "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
+
+
+def _autograd(index: int, seed: int) -> Mapping[str, Any]:
+    return {"output_count": 2 + ((index + seed) % 16), "input_dim": 64 + ((index + seed) % 4) * 64, "jacobian_density": 0.2 + ((index * 3 + seed) % 5) * 0.15, "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
+
+
+def _equivariant_head(index: int, seed: int) -> Mapping[str, Any]:
+    return {"irrep_order": 1 + ((index + seed) % 3), "node_count": 32 + ((index + seed) % 4) * 32, "recompute_rate": 0.1 + ((index * 2 + seed) % 7) * 0.1, "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
+
+
+def _crystal_generation(index: int, seed: int) -> Mapping[str, Any]:
+    return {"atom_count": 16 + ((index + seed) % 8) * 8, "diffusion_steps": 50 + ((index + seed) % 4) * 50, "guidance_scale": 1.0 + ((index * 2 + seed) % 4), "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
+
+
+def _crystal_sampling(index: int, seed: int) -> Mapping[str, Any]:
+    return {"neighbor_count": 8 + ((index + seed) % 8) * 4, "sample_count": 16 + ((index + seed) % 8) * 8, "geometry_variation": 0.05 + ((index * 2 + seed) % 8) * 0.1, "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
+
+
+def _episode(index: int, seed: int) -> Mapping[str, Any]:
+    return {"runtime_version": "A" if (index + seed) % 2 == 0 else "B", "context_width": 2 + ((index + seed) % 8), "drift_rate": 0.05 + ((index * 2 + seed) % 8) * 0.1, "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
+
+
 def _truth_from_polarity(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
     return {"applicable": bool(parameters.get("applicable", True)), "parameters": dict(parameters)}
 
@@ -406,12 +451,12 @@ _SPECS: tuple[FamilySpec, ...] = (
     FamilySpec("h2d_pipeline", "GEN-H2D-PIPELINE", "spe_core", "CONTRACT-DATA-PIPELINE", ("batch_size", "worker_count", "prefetch_factor", "pin_memory"), ("pin_memory", "non_blocking", "prefetch"), ("hardware", "scale", "harness"), _h2d, ("CORE-H2D-PIPELINE-03", "CORE-DATALOADER-FANOUT-16"), _h2d_applicability, _h2d_truth, {"CORE-H2D-PIPELINE-03": True, "CORE-DATALOADER-FANOUT-16": True}),
     FamilySpec("checkpoint", "GEN-CHECKPOINT", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("memory_pressure", "segment_count", "recompute_ratio"), ("checkpoint", "gradient_accumulation"), ("scale", "hardware", "scientific_regime"), _checkpoint, ("CORE-MEM-RETAINED-GRAPH-13", "CORE-CHECKPOINT-AMPLE-MEM-14"), _checkpoint_applicability, _checkpoint_truth, {"CORE-MEM-RETAINED-GRAPH-13": True, "CORE-CHECKPOINT-AMPLE-MEM-14": False}),
     FamilySpec("scalar_sync", "GEN-SCALAR-SYNC", "spe_core", "CONTRACT-TRAINING-LOOP", ("scalar_syncs_per_step", "metric_cadence"), ("metric_aggregation", "device_sync"), ("scale", "harness"), _scalar_sync, ("CORE-SCALAR-SYNC-01",), _scalar_applicability, _scalar_truth, {"CORE-SCALAR-SYNC-01": True}),
-    FamilySpec("repeated_compute", "GEN-REPEATED_COMPUTE", "spe_core", "CONTRACT-REPEATED-COMPUTE", ("fixture_index", "seed"), ("backbone_reuse",), ("scale",), _legacy, ("CORE-REPEATED-BACKBONE-02",), lambda p: True, _truth_from_polarity, {"CORE-REPEATED-BACKBONE-02": True}),
-    FamilySpec("autograd", "GEN-AUTOGRAD-VJP", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("fixture_index", "seed"), ("batched_vjp",), ("scale",), _legacy, ("CORE-AUTOGRAD-BATCHED-VJP-15",), lambda p: True, _truth_from_polarity, {"CORE-AUTOGRAD-BATCHED-VJP-15": True}),
-    FamilySpec("equivariant_head", "GEN-EQUIVARIANT_HEAD", "sciml", "CONTRACT-EQUIVARIANCE", ("fixture_index", "seed"), ("equivariant_recompute",), ("scientific_regime",), _legacy, ("SCIML-EQUIV-RECOMPUTE-06",), lambda p: True, _truth_from_polarity, {"SCIML-EQUIV-RECOMPUTE-06": True}),
-    FamilySpec("crystal_generation", "GEN-CRYSTAL_GENERATION", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("fixture_index", "seed"), ("sampling",), ("scale", "scientific_regime"), _legacy, ("SCIML-CRYSTAL-DIFFUSION-07",), lambda p: True, _truth_from_polarity, {"SCIML-CRYSTAL-DIFFUSION-07": True}),
-    FamilySpec("crystal_sampling", "GEN-CRYSTAL_SAMPLING", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("fixture_index", "seed"), ("graph_rebuild",), ("scale", "scientific_regime"), _legacy, ("SCIML-GRAPH-REBUILD-08",), lambda p: True, _truth_from_polarity, {"SCIML-GRAPH-REBUILD-08": True}),
-    FamilySpec("episode", "GEN-EPISODE", "evolution", "CONTRACT-EVOLUTION-GOVERNANCE", ("fixture_index", "seed"), ("rule_update",), ("software", "hardware", "scale", "scientific_regime", "harness"), _legacy, ("EVOL-EPISODE-POISON-10", "EVOL-COMPILER-DRIFT-20"), lambda p: True, _truth_from_polarity, {"EVOL-EPISODE-POISON-10": True, "EVOL-COMPILER-DRIFT-20": True}),
+    FamilySpec("repeated_compute", "GEN-REPEATED_COMPUTE", "spe_core", "CONTRACT-REPEATED-COMPUTE", ("repeat_count", "backbone_width", "batch_size", "fixture_index", "seed"), ("backbone_reuse",), ("scale",), _repeated_compute, ("CORE-REPEATED-BACKBONE-02",), lambda p: int(p["repeat_count"]) >= 4, _truth_from_polarity, {"CORE-REPEATED-BACKBONE-02": {"repeat_count": 4, "backbone_width": 256, "batch_size": 32, "fixture_index": 0, "seed": 0}}),
+    FamilySpec("autograd", "GEN-AUTOGRAD-VJP", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("output_count", "input_dim", "jacobian_density", "fixture_index", "seed"), ("batched_vjp",), ("scale",), _autograd, ("CORE-AUTOGRAD-BATCHED-VJP-15",), lambda p: int(p["output_count"]) >= 8, _truth_from_polarity, {"CORE-AUTOGRAD-BATCHED-VJP-15": {"output_count": 8, "input_dim": 128, "jacobian_density": 0.5, "fixture_index": 0, "seed": 0}}),
+    FamilySpec("equivariant_head", "GEN-EQUIVARIANT_HEAD", "sciml", "CONTRACT-EQUIVARIANCE", ("irrep_order", "node_count", "recompute_rate", "fixture_index", "seed"), ("equivariant_recompute",), ("scientific_regime",), _equivariant_head, ("SCIML-EQUIV-RECOMPUTE-06",), lambda p: int(p["irrep_order"]) < 2, _truth_from_polarity, {"SCIML-EQUIV-RECOMPUTE-06": {"irrep_order": 2, "node_count": 64, "recompute_rate": 0.5, "fixture_index": 0, "seed": 0}}),
+    FamilySpec("crystal_generation", "GEN-CRYSTAL_GENERATION", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("atom_count", "diffusion_steps", "guidance_scale", "fixture_index", "seed"), ("sampling",), ("scale", "scientific_regime"), _crystal_generation, ("SCIML-CRYSTAL-DIFFUSION-07",), lambda p: float(p["guidance_scale"]) <= 3.0, _truth_from_polarity, {"SCIML-CRYSTAL-DIFFUSION-07": {"atom_count": 32, "diffusion_steps": 100, "guidance_scale": 2.0, "fixture_index": 0, "seed": 0}}),
+    FamilySpec("crystal_sampling", "GEN-CRYSTAL_SAMPLING", "sciml", "CONTRACT-CRYSTAL-VALIDITY", ("neighbor_count", "sample_count", "geometry_variation", "fixture_index", "seed"), ("graph_rebuild",), ("scale", "scientific_regime"), _crystal_sampling, ("SCIML-GRAPH-REBUILD-08",), lambda p: float(p["geometry_variation"]) <= 0.35, _truth_from_polarity, {"SCIML-GRAPH-REBUILD-08": {"neighbor_count": 12, "sample_count": 24, "geometry_variation": 0.3, "fixture_index": 0, "seed": 0}}),
+    FamilySpec("episode", "GEN-EPISODE", "evolution", "CONTRACT-EVOLUTION-GOVERNANCE", ("runtime_version", "context_width", "drift_rate", "fixture_index", "seed"), ("rule_update",), ("software", "hardware", "scale", "scientific_regime", "harness"), _episode, ("EVOL-EPISODE-POISON-10", "EVOL-COMPILER-DRIFT-20"), lambda p: float(p["drift_rate"]) <= 0.45, _truth_from_polarity, {"EVOL-EPISODE-POISON-10": {"runtime_version": "A", "context_width": 2, "drift_rate": 0.05, "fixture_index": 0, "seed": 0}, "EVOL-COMPILER-DRIFT-20": {"runtime_version": "B", "context_width": 3, "drift_rate": 0.25, "fixture_index": 1, "seed": 0}}),
 )
 
 # Explicit anchor coordinates are the canonical task truth.  The legacy
@@ -439,12 +484,12 @@ _EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
         "CORE-CHECKPOINT-AMPLE-MEM-14": {"memory_pressure": 0.4, "segment_count": 3, "recompute_ratio": 0.2},
     },
     "scalar_sync": {"CORE-SCALAR-SYNC-01": {"scalar_syncs_per_step": 12, "metric_cadence": 4}},
-    "repeated_compute": {"CORE-REPEATED-BACKBONE-02": {"fixture_index": 0, "seed": 0}},
-    "autograd": {"CORE-AUTOGRAD-BATCHED-VJP-15": {"fixture_index": 0, "seed": 0}},
-    "equivariant_head": {"SCIML-EQUIV-RECOMPUTE-06": {"fixture_index": 0, "seed": 0, "applicable": False}},
-    "crystal_generation": {"SCIML-CRYSTAL-DIFFUSION-07": {"fixture_index": 0, "seed": 0}},
-    "crystal_sampling": {"SCIML-GRAPH-REBUILD-08": {"fixture_index": 0, "seed": 0, "applicable": False}},
-    "episode": {"EVOL-EPISODE-POISON-10": {"fixture_index": 0, "seed": 0}, "EVOL-COMPILER-DRIFT-20": {"fixture_index": 1, "seed": 0}},
+    "repeated_compute": {"CORE-REPEATED-BACKBONE-02": {"repeat_count": 4, "backbone_width": 256, "batch_size": 32, "fixture_index": 0, "seed": 0}},
+    "autograd": {"CORE-AUTOGRAD-BATCHED-VJP-15": {"output_count": 8, "input_dim": 128, "jacobian_density": 0.5, "fixture_index": 0, "seed": 0}},
+    "equivariant_head": {"SCIML-EQUIV-RECOMPUTE-06": {"irrep_order": 2, "node_count": 64, "recompute_rate": 0.5, "fixture_index": 0, "seed": 0}},
+    "crystal_generation": {"SCIML-CRYSTAL-DIFFUSION-07": {"atom_count": 32, "diffusion_steps": 100, "guidance_scale": 2.0, "fixture_index": 0, "seed": 0}},
+    "crystal_sampling": {"SCIML-GRAPH-REBUILD-08": {"neighbor_count": 12, "sample_count": 24, "geometry_variation": 0.7, "fixture_index": 0, "seed": 0}},
+    "episode": {"EVOL-EPISODE-POISON-10": {"runtime_version": "A", "context_width": 2, "drift_rate": 0.05, "fixture_index": 0, "seed": 0}, "EVOL-COMPILER-DRIFT-20": {"runtime_version": "B", "context_width": 3, "drift_rate": 0.25, "fixture_index": 1, "seed": 0}},
 }
 
 _CANONICAL_SPECS: list[FamilySpec] = []
@@ -472,6 +517,36 @@ _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
         {"path": "workload.scalar_syncs_per_step", "type": "numeric"},
         {"path": "workload.metric_cadence", "type": "numeric"},
     ),
+    "repeated_compute": (
+        {"path": "workload.repeat_count", "type": "numeric"},
+        {"path": "workload.backbone_width", "type": "numeric"},
+        {"path": "workload.batch_size", "type": "numeric"},
+    ),
+    "autograd": (
+        {"path": "workload.output_count", "type": "numeric"},
+        {"path": "workload.input_dim", "type": "numeric"},
+        {"path": "workload.jacobian_density", "type": "numeric"},
+    ),
+    "equivariant_head": (
+        {"path": "workload.irrep_order", "type": "numeric"},
+        {"path": "workload.node_count", "type": "numeric"},
+        {"path": "workload.recompute_rate", "type": "numeric"},
+    ),
+    "crystal_generation": (
+        {"path": "workload.atom_count", "type": "numeric"},
+        {"path": "workload.diffusion_steps", "type": "numeric"},
+        {"path": "workload.guidance_scale", "type": "numeric"},
+    ),
+    "crystal_sampling": (
+        {"path": "workload.neighbor_count", "type": "numeric"},
+        {"path": "workload.sample_count", "type": "numeric"},
+        {"path": "workload.geometry_variation", "type": "numeric"},
+    ),
+    "episode": (
+        {"path": "workload.runtime_version", "type": "categorical"},
+        {"path": "workload.context_width", "type": "numeric"},
+        {"path": "workload.drift_rate", "type": "numeric"},
+    ),
 }
 _THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
     "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.2, 0.4, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
@@ -479,6 +554,12 @@ _THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
     "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0), "workload.prefetch_factor": (2.0, 4.0)},
     "checkpoint": {"workload.memory_pressure": (0.4, 0.57, 0.7), "workload.segment_count": (4.0, 6.0), "workload.recompute_ratio": (0.2, 0.5)},
     "scalar_sync": {"workload.scalar_syncs_per_step": (4.0, 8.0, 12.0), "workload.metric_cadence": (4.0, 8.0, 12.0)},
+    "repeated_compute": {"workload.repeat_count": (2.0, 4.0, 8.0), "workload.backbone_width": (128.0, 256.0, 512.0), "workload.batch_size": (16.0, 32.0, 64.0)},
+    "autograd": {"workload.output_count": (2.0, 8.0, 16.0), "workload.input_dim": (64.0, 128.0, 256.0), "workload.jacobian_density": (0.25, 0.5, 0.75)},
+    "equivariant_head": {"workload.irrep_order": (1.0, 2.0, 3.0), "workload.node_count": (32.0, 64.0, 128.0), "workload.recompute_rate": (0.25, 0.5, 0.75)},
+    "crystal_generation": {"workload.atom_count": (16.0, 32.0, 64.0), "workload.diffusion_steps": (50.0, 100.0, 200.0), "workload.guidance_scale": (1.0, 2.0, 4.0)},
+    "crystal_sampling": {"workload.neighbor_count": (8.0, 16.0, 32.0), "workload.sample_count": (16.0, 32.0, 64.0), "workload.geometry_variation": (0.1, 0.3, 0.6)},
+    "episode": {"workload.context_width": (2.0, 4.0, 8.0), "workload.drift_rate": (0.1, 0.3, 0.6)},
 }
 _SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
     "compile": ("compile_correctness",),
@@ -486,34 +567,44 @@ _SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
     "h2d_pipeline": ("batch_semantics_preserved",),
     "checkpoint": ("gradient_equivalence",),
     "scalar_sync": ("metric_semantics_preserved",),
+    "repeated_compute": ("output_equivalence",),
+    "autograd": ("gradient_equivalence",),
+    "equivariant_head": ("equivariance_preserved",),
+    "crystal_generation": ("structure_validity",),
+    "crystal_sampling": ("neighbor_consistency",),
+    "episode": ("state_transition_valid",),
 }
 _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
-        "reuse_compile_cache": {"family": "compile", "risk_class": "bounded"},
-        "revalidate_compile_cache": {"family": "compile", "risk_class": "review"},
+        "reuse_compile_cache": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
+        "stabilize_dynamic_guards": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_dynamic_guard_stability", "realization_interface": "source_patch"},
+        "fuse_pointwise_chain": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-FUSION", "activation_validator": "kernel_fusion_operator_trace", "realization_interface": "source_patch"},
+        "revalidate_compile_cache": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
     },
     "graph_cache": {
-        "reuse_graph_cache": {"family": "graph_cache", "risk_class": "bounded"},
-        "rebuild_graph_cache": {"family": "graph_cache", "risk_class": "bounded"},
+        "reuse_graph_cache": {"family": "graph_cache", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-ENERGY-FORCE", "activation_validator": "graph_cache_hit_without_rebuild", "realization_interface": "source_patch"},
+        "rebuild_graph_cache": {"family": "graph_cache", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-ENERGY-FORCE", "activation_validator": "graph_cache_rebuild_trace", "realization_interface": "source_patch"},
+        "reuse_neighbor_graph": {"family": "graph_cache", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-ENERGY-FORCE", "activation_validator": "neighbor_graph_reuse_trace", "realization_interface": "source_patch"},
+        "batched_force_vjp": {"family": "graph_cache", "risk_class": "review", "scientific_policy_ref": "CONTRACT-ENERGY-FORCE", "activation_validator": "batched_force_vjp_trace", "realization_interface": "source_patch"},
     },
     "h2d_pipeline": {
-        "pin_memory_pipeline": {"family": "h2d_pipeline", "risk_class": "bounded"},
-        "prefetch_pipeline": {"family": "h2d_pipeline", "risk_class": "bounded"},
+        "pin_memory_pipeline": {"family": "h2d_pipeline", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-DATA-PIPELINE", "activation_validator": "h2d_pin_nonblocking_trace", "realization_interface": "source_patch"},
+        "prefetch_pipeline": {"family": "h2d_pipeline", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-DATA-PIPELINE", "activation_validator": "h2d_prefetch_fanout_trace", "realization_interface": "source_patch"},
     },
     "checkpoint": {
-        "checkpoint_recompute": {"family": "checkpoint", "risk_class": "bounded"},
-        "retained_graph": {"family": "checkpoint", "risk_class": "review"},
+        "checkpoint_recompute": {"family": "checkpoint", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-AUTOGRAD-GRAPH", "activation_validator": "checkpoint_recompute_trace", "realization_interface": "source_patch"},
+        "retained_graph": {"family": "checkpoint", "risk_class": "review", "scientific_policy_ref": "CONTRACT-AUTOGRAD-GRAPH", "activation_validator": "retained_graph_trace", "realization_interface": "source_patch"},
     },
     "scalar_sync": {
-        "aggregate_scalars": {"family": "scalar_sync", "risk_class": "bounded"},
-        "defer_scalar_sync": {"family": "scalar_sync", "risk_class": "bounded"},
+        "aggregate_scalars": {"family": "scalar_sync", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-TRAINING-LOOP", "activation_validator": "scalar_aggregation_sync_count", "realization_interface": "source_patch"},
+        "defer_scalar_sync": {"family": "scalar_sync", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-TRAINING-LOOP", "activation_validator": "scalar_deferred_sync_count", "realization_interface": "source_patch"},
     },
-    "repeated_compute": {"reuse_backbone": {"family": "repeated_compute", "risk_class": "bounded"}},
-    "autograd": {"batched_vjp": {"family": "autograd", "risk_class": "bounded"}},
-    "equivariant_head": {"equivariant_recompute": {"family": "equivariant_head", "risk_class": "bounded"}},
-    "crystal_generation": {"sampling": {"family": "crystal_generation", "risk_class": "bounded"}},
-    "crystal_sampling": {"graph_rebuild": {"family": "crystal_sampling", "risk_class": "bounded"}},
-    "episode": {"rule_update": {"family": "episode", "risk_class": "review"}},
+    "repeated_compute": {"reuse_backbone": {"family": "repeated_compute", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-REPEATED-COMPUTE", "activation_validator": "backbone_reuse_trace", "realization_interface": "source_patch"}},
+    "autograd": {"batched_vjp": {"family": "autograd", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-AUTOGRAD-GRAPH", "activation_validator": "batched_vjp_trace", "realization_interface": "source_patch"}},
+    "equivariant_head": {"equivariant_recompute": {"family": "equivariant_head", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-EQUIVARIANCE", "activation_validator": "equivariant_path_trace", "realization_interface": "source_patch"}},
+    "crystal_generation": {"sampling": {"family": "crystal_generation", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-CRYSTAL-VALIDITY", "activation_validator": "crystal_sampling_trace", "realization_interface": "source_patch"}},
+    "crystal_sampling": {"graph_rebuild": {"family": "crystal_sampling", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-CRYSTAL-VALIDITY", "activation_validator": "graph_rebuild_trace", "realization_interface": "source_patch"}},
+    "episode": {"rule_update": {"family": "episode", "risk_class": "review", "scientific_policy_ref": "CONTRACT-EVOLUTION-GOVERNANCE", "activation_validator": "episode_transition_trace", "realization_interface": "source_patch"}},
 }
 _OUTCOME_MODELS: dict[str, Mapping[str, float]] = {
     "compile": {"baseline": 0.60, "preferred": 0.80, "mismatch": 0.35, "poison_penalty": 0.20},
@@ -553,10 +644,9 @@ _LEGAL_COMPOSITIONS: dict[str, tuple[CompositionSpec, ...]] = {
     "scalar_sync": (CompositionSpec("scalar_sync", "h2d_pipeline"), CompositionSpec("scalar_sync", "compile")),
 }
 for _spec in _SPECS:
-    _applicability = _legacy_applicability if _spec.family_id in {"repeated_compute", "autograd", "equivariant_head", "crystal_generation", "crystal_sampling", "episode"} else _spec.applicability
     _CANONICAL_SPECS.append(replace(
         _spec,
-        applicability=_applicability,
+        applicability=_spec.applicability,
         anchor_parameters=_EXPLICIT_ANCHORS[_spec.family_id],
         predicate_features=_PREDICATE_FEATURES.get(_spec.family_id, ()),
         threshold_universe=_THRESHOLDS.get(_spec.family_id, {}),
@@ -607,6 +697,31 @@ def family_instances(family_id: str, *, count: int, seed: int = 0) -> list[Famil
     return FAMILY_SPECS[resolve_family_id(family_id)].generate(count, seed)
 
 
+_SURFACE_CACHE: dict[tuple[str, int], tuple[FamilySurfaceSpec, tuple[FamilyInstance, ...]]] = {}
+
+
+def family_surface(family_id: str, *, seed: int = 0) -> tuple[FamilySurfaceSpec, tuple[FamilyInstance, ...]]:
+    """Return the one frozen lattice and its disjoint view membership."""
+    resolved = resolve_family_id(family_id)
+    key = (resolved, int(seed))
+    if key not in _SURFACE_CACHE:
+        instances = tuple(family_instances(resolved, count=264, seed=int(seed)))
+        surface = FamilySurfaceSpec(
+            decision_lattice_id=f"{resolved}-lattice-{int(seed):04d}",
+            synthesis_ids=tuple(item.instance_id for item in instances[88:176]),
+            promotion_ids=tuple(item.instance_id for item in instances[:88]),
+            validation_ids=tuple(item.instance_id for item in instances[176:]),
+        )
+        _SURFACE_CACHE[key] = (surface, instances)
+    return _SURFACE_CACHE[key]
+
+
+def family_decision_lattice(family_id: str, *, seed: int = 0) -> list[dict[str, Any]]:
+    """Canonical CEGIS lattice; all other views are disjoint partitions."""
+    _surface, instances = family_surface(family_id, seed=seed)
+    return [{"workload": dict(item.parameters), "context_id": item.instance_id} for item in instances]
+
+
 def family_predicate_grammar(family_id: str) -> dict[str, Any]:
     """Return the family-owned typed grammar used by harness CEGIS."""
     spec = FAMILY_SPECS[resolve_family_id(family_id)]
@@ -627,10 +742,15 @@ def family_predicate_grammar(family_id: str) -> dict[str, Any]:
 def family_views(family_id: str, *, count: int = 24, seed: int = 0) -> dict[str, list[FamilyInstance]]:
     if count < 6:
         raise ValueError("count must be at least 6 to form three disjoint pools")
-    instances = family_instances(family_id, count=count, seed=seed)
-    first = count // 3
-    second = 2 * count // 3
-    return {"representative_pool": instances[:first], "active_query_pool": instances[first:second], "sealed_boundary_pool": instances[second:]}
+    surface, instances = family_surface(family_id, seed=seed)
+    per_pool = min(count // 3, len(surface.promotion_ids))
+    sealed_size = min(count - 2 * per_pool, len(surface.validation_ids))
+    by_id = {item.instance_id: item for item in instances}
+    return {
+        "representative_pool": [by_id[item] for item in surface.promotion_ids[:per_pool]],
+        "active_query_pool": [by_id[item] for item in surface.synthesis_ids[:per_pool]],
+        "sealed_boundary_pool": [by_id[item] for item in surface.validation_ids[:sealed_size]],
+    }
 
 
 def transformation(family_id: str, kind: str, **parameters: Any) -> FamilyTransformation:

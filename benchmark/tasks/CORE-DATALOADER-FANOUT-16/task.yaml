@@ -37,9 +37,9 @@ oracle:
   expected_speedup_range: [1.15, 1.5]
 generator_family_id: GEN-DATA-FANOUT
 oracle_fix_pattern_id: FIX-DATALOADER-TOPOLOGY
-scientific_contract_id: CONTRACT-DATA-ORDER
+scientific_contract_id: CONTRACT-DATA-PIPELINE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: e94bc3aa697850f6c1e78e63222eea0388eaff6977628e3b680fc845bceb48a5
+workspace_ast_skeleton_hash: baa0e22b04c751293ff2dc543c2d0ccfc920587ccaa0e3e0c411859d3c4a4190
 family_id: h2d_pipeline
 anchor_instance_id: CORE-DATALOADER-FANOUT-16
 family_parameters:
@@ -54,3 +54,4 @@ public_context:
     worker_count: 3
     prefetch_factor: 4
     pin_memory: true
+ast_skeleton_version: 2

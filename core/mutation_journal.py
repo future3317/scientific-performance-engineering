@@ -80,6 +80,10 @@ class MutationJournal:
         root = Path(store)
         self.verify()
         for entry in self.entries():
+            if entry.artifact_path and not entry.digest:
+                raise ValueError(f"journaled artifact is missing digest: {entry.artifact_path}")
+            if entry.operation in {"add_evidence", "add_v2_spec", "activate_registry", "retire_revision", "update_state"} and not entry.artifact_path:
+                raise ValueError(f"mutation has no artifact path: {entry.operation}:{entry.subject_id}")
             if not entry.artifact_path or not entry.digest:
                 continue
             relative = Path(entry.artifact_path)
@@ -106,6 +110,25 @@ class MutationJournal:
                     raise ValueError(f"mutation transition chain mismatch: {artifact}")
             if entries[-1].digest != hashlib.sha256(path.read_bytes()).hexdigest():
                 raise ValueError(f"journaled artifact digest mismatch: {artifact}")
+
+        # The journal is authoritative for the governed store surfaces.  A
+        # regular JSON artifact under these directories that has no journal
+        # entry is an unrecorded mutation, not harmless bookkeeping.
+        journaled = {
+            str(Path(entry.artifact_path)).replace("\\", "/")
+            for entry in self.entries()
+            if entry.artifact_path
+        }
+        managed_roots = (root / "rules", root / "relations", root / "registry")
+        for managed_root in managed_roots:
+            if not managed_root.exists():
+                continue
+            for artifact in managed_root.rglob("*"):
+                if not artifact.is_file() or artifact.name == "mutation_journal.jsonl":
+                    continue
+                relative = str(artifact.relative_to(root)).replace("\\", "/")
+                if relative not in journaled:
+                    raise ValueError(f"unjournaled governed artifact: {relative}")
 
 
 __all__ = ["Mutation", "MutationJournal"]

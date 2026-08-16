@@ -6,6 +6,8 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -61,7 +63,7 @@ class ReferenceExecutor:
         if not self.available():
             raise RuntimeError(f"reference executor unavailable: {self.executable}")
         root = Path(worker_root).resolve()
-        args = [self.executable, "--die-with-parent", "--unshare-net", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
+        args = [self.executable, "--die-with-parent", "--unshare-all", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
         readonly = ("task", "skill_view", "retrieved_context", "context_state")
         writable = ("solution", "result", "executor_receipt")
         for name in readonly:
@@ -75,18 +77,63 @@ class ReferenceExecutor:
         args.extend(["--chdir", "/worker", "--", *map(str, command)])
         return args
 
+    def _run_isolation_canary(self, worker_root: Path) -> dict[str, bool]:
+        """Probe the same namespace contract used for the worker.
+
+        The receipt is based on observed probe output, not on the presence of
+        bwrap flags.  A failed or unavailable probe is therefore fail-closed.
+        """
+        host_sentinel = Path(tempfile.mkstemp(prefix="acre-host-sentinel-", suffix=".txt")[1])
+        host_sentinel.write_text("host-only", encoding="utf-8")
+        try:
+            probe = f"""
+import json, pathlib, socket
+network = False
+try:
+    socket.create_connection(('1.1.1.1', 53), 1)
+    network = True
+except Exception:
+    pass
+readonly = False
+try:
+    target = pathlib.Path('/worker/task/public_task.json')
+    if not target.is_file():
+        raise RuntimeError('readonly canary target missing')
+    with target.open('a', encoding='utf-8') as handle:
+        handle.write('x')
+    readonly = True
+except Exception:
+    pass
+host_visible = pathlib.Path({str(host_sentinel)!r}).exists()
+print(json.dumps({{'network_blocked': not network, 'readonly_enforced': not readonly, 'host_path_hidden': not host_visible}}))
+"""
+            python = shutil.which("python3") or shutil.which("python") or sys.executable
+            completed = subprocess.run(
+                self.command([python, "-c", probe], worker_root),
+                text=True, capture_output=True, check=False,
+            )
+            if completed.returncode != 0:
+                return {"network_blocked": False, "readonly_enforced": False, "host_path_hidden": False}
+            value = json.loads(completed.stdout.strip().splitlines()[-1])
+            return {key: bool(value.get(key, False)) for key in ("network_blocked", "readonly_enforced", "host_path_hidden")}
+        except (OSError, ValueError, json.JSONDecodeError, IndexError):
+            return {"network_blocked": False, "readonly_enforced": False, "host_path_hidden": False}
+        finally:
+            host_sentinel.unlink(missing_ok=True)
+
     def execute(self, command: Sequence[str], worker_root: Path, *, receipt_path: Path, worker_uid: str = "unknown", include_skill: bool = True) -> subprocess.CompletedProcess[str]:
         """Execute the namespace command and attest only observed properties."""
         argv = self.command(command, worker_root)
         completed = subprocess.run(argv, text=True, capture_output=True, check=False)
+        canary = self._run_isolation_canary(Path(worker_root)) if completed.returncode == 0 else {}
         receipt = ExecutorReceipt(
             "external_namespace_executor", "none",
             tuple(name for name in ("task", "skill_view", "retrieved_context", "context_state", "result", "executor_receipt") if include_skill or name != "skill_view"),
             hashlib.sha256(Path(shutil.which(self.executable)).read_bytes()).hexdigest(),
             worker_uid,
-            network_namespace_attested="--unshare-net" in argv,
-            mount_verified=all(flag in argv for flag in ("--ro-bind", "--bind")),
-            isolation_canary=completed.returncode == 0,
+            network_namespace_attested=bool(canary.get("network_blocked", False)),
+            mount_verified=bool(canary.get("readonly_enforced", False) and canary.get("host_path_hidden", False)),
+            isolation_canary=all(canary.get(key, False) for key in ("network_blocked", "readonly_enforced", "host_path_hidden")),
             usage={"input_tokens": 0, "output_tokens": 0, "tool_calls": 0},
         )
         receipt_path.write_text(json.dumps(receipt.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -36,6 +36,7 @@ from core.sequential_stats import bounded_mean_interval, minimum_all_successes
 from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold
 from scripts.run_rule_replay import evaluate_cases
 from core.acre.cegis import synthesize_applicability, _case_effect_interval
+from core.acre.budget import StatisticalBudget
 
 
 def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -331,26 +332,32 @@ def semantic_action_spec(
     try:
         action = action_from_proposal(resolved_family or None, proposal)
     except ValueError:
-        # A source patch has no worker-controlled semantic label.  The
-        # harness maps it to the single declared default action and keeps the
-        # exact patch digest in parameters, so unrelated patches cannot share
-        # a causal evidence identity without the same realization proof.
         from core.models import ActionSpec
         from benchmark.families.catalog import FAMILY_SPECS
         family_spec = FAMILY_SPECS.get(resolved_family)
         if family_spec is None:
             raise
-        action_id = str(family_spec.action_policy.get("default", ""))
-        if not action_id:
-            raise ValueError(f"family {resolved_family} has no harness action mapping")
-        patch = dict(proposal.get("intervention") or {})
+        if not isinstance(activation_certificate, Mapping) or activation_certificate.get("passed") is not True:
+            raise ValueError("source patch requires a passed activation certificate")
+        metrics = activation_certificate.get("activation_metrics")
+        causal = metrics.get("causal") if isinstance(metrics, Mapping) else None
+        activation = causal.get("activation") if isinstance(causal, Mapping) else None
+        matched = activation.get("matched_actions") if isinstance(activation, Mapping) else None
+        action_id = activation.get("action_id") if isinstance(activation, Mapping) else None
+        if not isinstance(matched, list) or len(matched) != 1:
+            raise ValueError("source patch activation must match exactly one ActionSpec")
+        if action_id is None:
+            action_id = matched[0]
+        if str(action_id) != str(matched[0]) or str(action_id) not in family_spec.action_specs:
+            raise ValueError("activation ActionSpec is not registered for this family")
         action = ActionSpec(
-            action_id=action_id,
+            action_id=str(action_id),
             family=resolved_family,
-            parameters={},
+            parameters=dict(proposal.get("intervention") or {}),
+            scientific_policy_ref=str(family_spec.action_specs[str(action_id)].get("scientific_policy_ref", family_spec.scientific_contract_id)),
+            activation_validator=str(family_spec.action_specs[str(action_id)].get("activation_validator", "")),
+            realization_interface=str(family_spec.action_specs[str(action_id)].get("realization_interface", "source_patch")),
         )
-        if family_id and (not isinstance(activation_certificate, Mapping) or not activation_certificate.get("passed")):
-            raise ValueError("source patch requires a passed harness activation certificate")
     if resolved_family:
         if not isinstance(activation_certificate, Mapping) or activation_certificate.get("passed") is not True:
             raise ValueError("family action requires a passed activation certificate")
@@ -360,7 +367,7 @@ def semantic_action_spec(
         if not isinstance(activation, Mapping) or str(activation.get("status", "")) not in {"passed", "verified"}:
             raise ValueError("activation certificate requires action-specific verifier instrumentation")
         matched = activation.get("matched_actions")
-        if matched is not None and (not isinstance(matched, list) or len(matched) != 1 or str(matched[0]) != action.action_id):
+        if not isinstance(matched, list) or len(matched) != 1 or str(matched[0]) != action.action_id:
             raise ValueError("activation must match exactly one registered ActionSpec")
         matched_id = activation.get("action_id") or activation.get("matched_action_id")
         if matched_id is not None and str(matched_id) != action.action_id:
@@ -371,6 +378,20 @@ def semantic_action_spec(
         family_spec = FAMILY_SPECS.get(resolved_family)
         if family_spec is not None and action.action_id not in family_spec.action_specs:
             raise ValueError(f"action {action.action_id} is not legal for family {resolved_family}")
+        if family_spec is not None:
+            metadata = family_spec.action_specs[action.action_id]
+            action = ActionSpec(
+                action_id=action.action_id,
+                family=action.family,
+                parameters=dict(action.parameters),
+                preconditions=dict(action.preconditions),
+                preserves=list(action.preserves),
+                risk_class=action.risk_class,
+                applicability=dict(metadata.get("applicability") or {}) if isinstance(metadata.get("applicability"), Mapping) else {},
+                scientific_policy_ref=str(metadata.get("scientific_policy_ref", family_spec.scientific_contract_id)),
+                activation_validator=str(metadata.get("activation_validator", "")),
+                realization_interface=str(metadata.get("realization_interface", "source_patch")),
+            )
     return {"action": action.action_id, "action_id": action.action_id, "family": action.family, "parameters": dict(action.parameters), "preconditions": dict(action.preconditions), "preserves": list(action.preserves), "risk_class": action.risk_class}
 
 
@@ -781,13 +802,15 @@ def _read_agent_extensions(path: Path) -> dict[str, Any]:
         extensions["acre_proposals"] = []
     else:
         clean: list[dict[str, Any]] = []
-        proposal_fields = {"rule_id", "relation_id", "id", "expected_mechanism", "intervention", "text", "hypothesis", "query"}
+        proposal_fields = {"rule_id", "id", "expected_mechanism", "intervention", "text", "hypothesis", "query"}
         for proposal in proposals:
             if not isinstance(proposal, dict):
                 continue
             if any(key in proposal for key in ("cases", "confidence", "promotion", "p_min", "delta", "epsilon", "effect", "scientific_gates")):
                 continue
-            identifier = proposal.get("rule_id") or proposal.get("relation_id") or proposal.get("id")
+            if "relation_id" in proposal or "endpoints" in proposal or "endpoint_versions" in proposal or "endpoint_families" in proposal:
+                continue
+            identifier = proposal.get("rule_id") or proposal.get("id")
             if not isinstance(identifier, str):
                 continue
             try:
@@ -833,6 +856,7 @@ def post_task_update(
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
+    statistical_budget = StatisticalBudget()
     pre_digest = conditions.store_digest(store)
     experience_id = f"EXP-{task_id}"
     added_experience_ids: list[str] = []
@@ -869,7 +893,7 @@ def post_task_update(
             experience_path.write_text(json.dumps(experience, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             added_experience_ids.append(experience_id)
             if mutation_journal is not None:
-                mutation_journal.append("add_evidence", experience_id, artifact_path=str(experience_path.relative_to(store)).replace("\\", "/"))
+                mutation_journal.append("add_evidence", experience_id, artifact_path=str(experience_path.relative_to(store)).replace("\\", "/"), digest=hashlib.sha256(experience_path.read_bytes()).hexdigest())
 
         if condition == "D" and causal_result is not None and causal_scored is not None and control_result is not None and control_scored is not None:
             # The worker cannot author evidence.  The harness derives paired
@@ -920,7 +944,7 @@ def post_task_update(
             if not evidence_path.exists():
                 evidence_path.write_text(json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 if mutation_journal is not None:
-                    mutation_journal.append("add_evidence", case_id, artifact_path=str(evidence_path.relative_to(store)).replace("\\", "/"))
+                    mutation_journal.append("add_evidence", case_id, artifact_path=str(evidence_path.relative_to(store)).replace("\\", "/"), digest=hashlib.sha256(evidence_path.read_bytes()).hexdigest())
             added_replay_case_ids.append(case_id)
             validation_dir = store / "evolution" / "validation"
             validation_dir.mkdir(parents=True, exist_ok=True)
@@ -1015,10 +1039,10 @@ def post_task_update(
                     right_action = str(right_spec.intervention.get("action_id") or right_spec.intervention.get("action") or "")
                     if not left_action or not right_action:
                         raise ValueError("relation endpoints lack canonical ActionSpec")
-                    pair_executor = FamilyPairReplayExecutor(relation_family, left_action, right_action)
+                    pair_executor = FamilyPairReplayExecutor(relation_family, left_action, right_action, right_family=str(endpoint_families["right"]))
                     def block_executor(_context: Mapping[str, Any], *, context_id: str) -> list[Any]:
                         from core.acre.factorial import FactorialBlock
-                        return [FactorialBlock(f"{context_id}-{index}", outcomes) for index, outcomes in enumerate(pair_executor.execute(_context.get("workload", _context), context_id=context_id))]
+                        return [FactorialBlock(f"{context_id}-{index}", item.get("outcomes", item), scientific_gates=item.get("scientific_gates", {arm: True for arm in ("00", "10", "01", "11")})) for index, item in enumerate(pair_executor.execute(_context.get("workload", _context), context_id=context_id))]
                     relation_schedule = relation_scheduler.execute(
                         candidate, relation_family,
                         block_executor=block_executor,
@@ -1344,7 +1368,8 @@ def post_task_update(
                         minimum_groups=scheduler.minimum_groups,
                         max_groups=scheduler.max_groups,
                         epsilon=float(practical_epsilon),
-                        delta=0.05,
+                        delta=statistical_budget.delta_total,
+                        statistical_budget=statistical_budget,
                         p_min=scheduler.p_min,
                     )
 
@@ -1357,6 +1382,7 @@ def post_task_update(
                                 subject_id=str(candidate.get("candidate_identity") or identifier),
                                 contexts=tuple(candidate["replay_schedule"]["synthesis_contexts"]),
                                 max_groups=len(candidate["replay_schedule"]["synthesis_contexts"]),
+                                statistical_budget=statistical_budget,
                             ),
                             replay_executor,
                             record_case=record_generated,
@@ -1369,6 +1395,7 @@ def post_task_update(
                             subject_id=str(candidate.get("candidate_identity") or identifier),
                             contexts=tuple(candidate["replay_schedule"]["promotion_contexts"]),
                             max_groups=scheduler.max_groups,
+                            statistical_budget=statistical_budget,
                         ),
                         replay_executor,
                         record_case=record_generated,
@@ -1412,18 +1439,35 @@ def post_task_update(
             synthesized = synthesize_applicability(
                 case_values_for_cegis,
                 family_id=family_id,
-                delta=0.05,
+                delta=statistical_budget.synth,
                 epsilon_true=float(practical_epsilon),
                 epsilon_false=0.0,
                 require_identified=True,
             )
-            if synthesized is None:
+            # Version-space state is durable evidence even before a deployable
+            # predicate is identified.  Persist it immediately so the next
+            # task can hydrate the same candidate and active acquisition can
+            # target the remaining decision-equivalence classes.
+            synthesis_certificate = synthesized.certificate.to_dict() if synthesized.certificate else None
+            candidate["synthesis_state"] = {
+                **dict(candidate.get("synthesis_state") or {}),
+                "status": str(synthesized.status),
+                "predicate": synthesized.predicate,
+                "version_space_digest": (synthesized.provenance or {}).get("version_space_digest"),
+                "version_space": list(synthesized.version_space),
+                "evidence_ids": list(candidate.get("cases", [])),
+                "certificate": synthesis_certificate,
+            }
+            candidate["applicability_provenance"] = dict(synthesized.provenance or {})
+            path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            if synthesized.status not in {"identified", "underidentified"} or synthesized.predicate is None:
                 continue
             intervention = candidate.get("realization") or candidate.get("intervention")
             if not isinstance(intervention, dict) or not isinstance(intervention.get("file"), str) or not isinstance(intervention.get("replacements"), list):
                 continue
-            predicate, provenance = synthesized
-            certificate = provenance.get("certificate") if isinstance(provenance, dict) else None
+            predicate = synthesized.predicate
+            provenance = dict(synthesized.provenance or {})
+            certificate = synthesis_certificate
             promotion_ids = [
                 str(item) for item in (certificate or {}).get("positive_anchor_ids", [])
                 if isinstance(item, str)
@@ -1433,7 +1477,7 @@ def post_task_update(
                 case_id for case_id in promotion_ids
                 if case_by_id.get(case_id, {}).get("query_type", "representative") == "representative"
             ]
-            if not promotion_ids or provenance.get("status") != "identified":
+            if not promotion_ids or synthesized.status != "identified":
                 continue
             if not isinstance(certificate, dict):
                 raise ValueError("synthesis certificate is required")
@@ -1892,6 +1936,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 budget_errors.append("abstain declaration conflicts with submitted artifact or executable proposal")
                 result["validity"] = "invalid"
         result["condition_adapter"] = retrieved_context
+        routing_payload = retrieved_context.get("routing", {}) if isinstance(retrieved_context, Mapping) else {}
+        required_requests = routing_payload.get("required_experiments", []) if isinstance(routing_payload, Mapping) else []
+        if str(item["condition"]) == "D" and isinstance(required_requests, list) and required_requests:
+            # Router-owned requests are consumed by the harness.  A formal
+            # campaign without an external executable callback remains
+            # explicitly blocked; it is never replaced by synthetic replay.
+            result["required_experiments"] = schedule.execute_required_experiments(required_requests, executor=None)
         result.setdefault("cost", {}).update({
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
@@ -1924,20 +1975,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                     causal_result["seed"] = int(item["outer_trial_index"])
                     verifier_digest = hashlib.sha256(json.dumps(causal_result, sort_keys=True, default=str).encode("utf-8")).hexdigest()
                     family_name = str(task_spec.get("family_id", task_spec.get("family", "runtime")))
-                    try:
-                        from benchmark.families import FAMILY_SPECS, resolve_family_id
-                        family_spec = FAMILY_SPECS[resolve_family_id(family_name)]
-                        certified_action_id = str(family_spec.action_policy.get("default", ""))
-                    except (KeyError, ValueError):
-                        certified_action_id = ""
+                    activation = causal_result.get("activation") if isinstance(causal_result, Mapping) else None
+                    activation_passed = isinstance(activation, Mapping) and str(activation.get("status", "")) in {"passed", "verified"} and isinstance(activation.get("matched_actions"), list) and len(activation.get("matched_actions")) == 1
                     activation_certificate = {
-                        "action_id": certified_action_id,
+                        "action_id": str(activation.get("action_id", activation.get("matched_actions", [""])[0])) if isinstance(activation, Mapping) else "",
                         "activation_metrics": {"causal": causal_result, "control": control_result},
                         "expected_signature": "verifier-paired",
                         "observed_signature": verifier_digest,
                         "verifier_artifacts": {"task_id": task_id},
                         "realization_digest": raw_realization.realized_digest,
-                        "passed": causal_result is not None and control_result is not None,
+                        "passed": causal_result is not None and control_result is not None and activation_passed,
                     }
                     action_spec = semantic_action_spec(
                         family_name,
@@ -1984,7 +2031,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
                         "quality_ok": bool(heldout_scored.get("gates_passed", False)) and bool(heldout_control_scored.get("gates_passed", False)),
                     }
-                    heldout_interval = _case_effect_interval(heldout_case, delta=0.05)
+                    heldout_interval = _case_effect_interval(heldout_case, delta=statistical_budget.validation)
                     if heldout_interval is None:
                         raise ValueError("held-out paired effect interval is unavailable")
                     heldout_effect, heldout_lcb, heldout_ucb = heldout_interval

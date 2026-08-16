@@ -18,6 +18,7 @@ from .controller import AcreController
 from .maintainer import AcreMaintainer, MaintenanceInput, MaintenanceTransition
 from .experiments import ExperimentExecutor, ExperimentPlan, ExperimentExecution, PairedContrastEvidence, execute_paired_plan
 from .actions import RealizationValidator
+from .budget import StatisticalBudget
 
 __all__ = [
     "PredicateGrammar", "predicate_complexity", "SynthesisResult", "SynthesisCertificate", "synthesize_boundary", "synthesize_applicability", "StatisticalCEGIS", "BoundaryObservation", "SYNTHESIZER_VERSION",
@@ -26,5 +27,5 @@ __all__ = [
     "ConservativeCausalRouter", "RoutingDecision", "RequiredExperiment", "PairExperimentRequest", "BundleCertificate", "validate_relation_nonoverlap", "RelationDecisionPolicy",
     "AcreEngine", "EvolutionDecision", "RelationIdentifier", "RelationIdentification", "relational_cegis", "HigherOrderEstimate", "HigherOrderCertificate", "ThreeWayBlock", "RelationEvidenceCertificate", "estimate_higher_order", "canonical_relation_label",
     "EvidenceAssessment", "representative_events", "adversarial_events", "assess",
-    "AcreController", "AcreMaintainer", "MaintenanceInput", "MaintenanceTransition", "ExperimentExecutor", "ExperimentPlan", "ExperimentExecution", "PairedContrastEvidence", "execute_paired_plan", "RealizationValidator",
+    "AcreController", "AcreMaintainer", "MaintenanceInput", "MaintenanceTransition", "ExperimentExecutor", "ExperimentPlan", "ExperimentExecution", "PairedContrastEvidence", "execute_paired_plan", "RealizationValidator", "StatisticalBudget",
 ]

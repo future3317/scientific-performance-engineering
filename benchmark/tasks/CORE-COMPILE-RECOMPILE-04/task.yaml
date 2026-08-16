@@ -37,9 +37,9 @@ oracle:
   expected_speedup_range: [1.15, 1.5]
 generator_family_id: GEN-COMPILER
 oracle_fix_pattern_id: FIX-CORE-COMPILE-RECOMPILE-04
-scientific_contract_id: CONTRACT-COMPILER
+scientific_contract_id: CONTRACT-COMPILER-CACHE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: fbe32af784f35c2510b1f2c5f75a48a9da4c6611cd927fad9d7951746a8aaf75
+workspace_ast_skeleton_hash: "3dd177a0ca799ccf2e38096d9a1c4a3e7e962d83a70991bf30fdd38503b42f7d"
 family_id: compile
 anchor_instance_id: CORE-COMPILE-RECOMPILE-04
 family_parameters:
@@ -52,3 +52,4 @@ public_context:
     logical_steps: 128
     graph_size: 64
     dynamic_shape_rate: 0.2
+ast_skeleton_version: 2

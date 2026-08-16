@@ -111,6 +111,18 @@ interaction residuals are reported on a normalized [-1,1] scale alongside their
 raw inclusion--exclusion value. These surfaces are not formal-50 slots or formal
 results.
 
+Formal authority is explicit. Worker submissions contain only solution artifacts
+and typed intervention hypotheses; replay cases, paired effects, scientific
+gates, confidence sequences, applicability predicates, and relation certificates
+are produced by the harness and Core. Boundary counterexamples reduce the CEGIS
+version space but never enter representative promotion evidence. Promotion,
+held-out validation, poisoning probes, and relation endpoints are disjoint and
+are checked against their current canonical revisions. A required pair or
+three-way experiment is blocked unless an external verifier returns every
+declared arm, scientific gate, and an attested execution receipt. Mutation
+journals account for every governed rule, relation, registry, and state artifact;
+an unjournaled store change invalidates the campaign.
+
 ## 3. Tracks
 
 ### 3.1 SPE-Core
@@ -263,7 +275,8 @@ S2 correctness    -> scientific work executed on num_fresh_inputs fresh seeded i
 S3 scientific     -> task-declared gates from scientific_contract.py (energy/force,
                      gradient, equivariance, validity, sampling-law); all must be True
 S4 activation     -> where relevant: compile counters (no fallback), cache-hit evidence,
-                     sync-count evidence; absence = inconclusive, not failure-by-default
+                     sync-count evidence; a source patch must match exactly one
+                     registered repair-level ActionSpec, otherwise attribution is rejected
 S5 performance    -> paired interleaved measurement (§6.1); only runs on the artifact
                      that passed S2–S4
 S6 verdict        -> emit result.json (schema/result.schema.json): gates, verified
@@ -592,9 +605,10 @@ editing the report alone cannot satisfy the claim gate.
   under `$SPE_BENCH_CACHE` (for example, `./.cache/spe-evobench` locally). Download tooling is
   dry-run by default; anything >2 GB requires an explicit `--i-understand-large-download`
   flag and is represented in prototypes by manifests/instructions only.
-- Formal-evaluation hardening (driver responsibilities, documented not implemented in
-  the prototype harness): network disabled, container/VM isolation, read-only harness
-  mount, exported git-less trees, seeded everything.
+- Formal-evaluation hardening: the worker is run through an externally supplied namespace
+  executor with a no-network receipt, read-only task/skill mounts, an observed isolation
+  canary, and harness-owned usage accounting. Without that receipt, required experiments
+  and formal promotion remain blocked.
 
 ## 14. External sources
 
@@ -614,8 +628,8 @@ fixtures; CDVAE's hard validity gates and recall+precision pairing.
   floors; it is not a formal v1.0-50 result.
 - DDP/contention mechanisms are represented by simulated single-process telemetry in
   the prototype; multi-process tasks arrive in the expansion matrix.
-- Subprocess isolation is not a security boundary; formal runs need the driver-level
-  hardening of §13.
+- Local subprocess execution is not a formal security boundary; formal runs require
+  the attested external namespace executor described in §6.1.
 - The formal worker receives only a public task view (contract, workspace, and
   public tests) from an isolated working directory. Oracle, hidden-verifier,
   and repository-root paths are not passed to the worker. Its condition-store

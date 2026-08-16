@@ -39,7 +39,7 @@ generator_family_id: GEN-COMPILER-DYNAMIC
 oracle_fix_pattern_id: FIX-COMPILE-DYNAMIC-GUARD
 scientific_contract_id: CONTRACT-COMPILER-CACHE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: e4a63bf23d5f4713e1bb2b473c26caa6105a024050df15b2ea72f18044a29f56
+workspace_ast_skeleton_hash: baa0e22b04c751293ff2dc543c2d0ccfc920587ccaa0e3e0c411859d3c4a4190
 family_id: compile
 anchor_instance_id: CORE-COMPILE-DYNAMIC-11
 family_parameters:
@@ -52,3 +52,4 @@ public_context:
     logical_steps: 256
     graph_size: 128
     dynamic_shape_rate: 0.3
+ast_skeleton_version: 2

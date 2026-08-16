@@ -78,7 +78,10 @@ def test_higher_order_execution_registers_typed_router_certificate():
     contexts = [{"context_id": f"CTX-3-{index}", "bundle_ids": ["A", "B", "C"], "rule_versions": {"A": 1, "B": 1, "C": 1}} for index in range(1024)]
     cert = engine.maintainer.execute_higher_order_experiment(
         contexts,
-        lambda _context: {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")},
+        lambda _context: {
+            "outcomes": {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")},
+            "scientific_gates": {arm: True for arm in ("000", "001", "010", "011", "100", "101", "110", "111")},
+        },
         practical_margin=0.3,
     )
     assert cert["status"] == "pairwise_certified"

@@ -37,18 +37,23 @@ oracle:
   expected_speedup_range: [0.9, 1.1]
 generator_family_id: GEN-EQUIVARIANT_HEAD
 oracle_fix_pattern_id: FIX-SCIML-EQUIV-RECOMPUTE-06
-scientific_contract_id: CONTRACT-EQUIVARIANT_HEAD
+scientific_contract_id: CONTRACT-EQUIVARIANCE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: b326949aceed06fb8bd39e64a48f5ad4e840233487ec6cf9acc013ade518c1f1
+workspace_ast_skeleton_hash: "19da1b12011670538e7dbfda7fa135c60be7e8019d21f724ae7c7f6643299d30"
 family_id: equivariant_head
 anchor_instance_id: SCIML-EQUIV-RECOMPUTE-06
 family_parameters:
+  irrep_order: 2
+  node_count: 64
+  recompute_rate: 0.5
   fixture_index: 0
   seed: 0
-  applicable: false
-family_instance_digest: fa624f95485a95d93d928bd4582b947b49280aa44bf59c4e8504b357894f5f32
+family_instance_digest: "9ea2031abe0d0369a5954b25deeb013329a5e2928eb3fe37b37960969ab27771"
 public_context:
   workload:
+    irrep_order: 2
+    node_count: 64
+    recompute_rate: 0.5
     fixture_index: 0
     seed: 0
-    applicable: false
+ast_skeleton_version: 2

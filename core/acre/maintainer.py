@@ -123,7 +123,15 @@ class AcreMaintainer:
             outcomes = executor(dict(context))
             if not isinstance(outcomes, Mapping):
                 raise ValueError("higher-order executor must return arm outcomes")
-            blocks.append(ThreeWayBlock(str(context.get("context_id", index)), {str(key): float(value) for key, value in outcomes.items()}))
+            raw_gates = outcomes.get("scientific_gates")
+            required_arms = {"000", "001", "010", "011", "100", "101", "110", "111"}
+            if not isinstance(raw_gates, Mapping) or set(raw_gates) != required_arms:
+                raise ValueError("higher-order executor must return scientific gates for all eight arms")
+            gates = raw_gates
+            cells = outcomes.get("outcomes", outcomes)
+            if not isinstance(cells, Mapping) or set(cells) != required_arms:
+                raise ValueError("higher-order executor must return all eight factorial outcomes")
+            blocks.append(ThreeWayBlock(str(context.get("context_id", index)), {str(key): float(value) for key, value in cells.items()}, scientific_gates={str(key): bool(gates[str(key)]) for key in required_arms}))
         estimate = estimate_higher_order(blocks, delta=delta, look_count=max(1, len(blocks)), practical_margin=practical_margin)
         first_context = contexts[0] if contexts else {}
         context_root = first_context.get("context", first_context) if isinstance(first_context, Mapping) else {}
@@ -140,6 +148,7 @@ class AcreMaintainer:
             normalized_residual=estimate.normalized_residual,
             raw_residual=estimate.raw_residual,
             status=status,
+            scientific_arm_gates={str(key): all(block.scientific_gates[str(key)] for block in blocks) for key in ("000", "001", "010", "011", "100", "101", "110", "111")},
         )
         result = certificate.to_dict()
         self.engine.register_higher_order_certificate(result)
