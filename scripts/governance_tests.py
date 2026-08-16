@@ -69,7 +69,7 @@ def main() -> None:
         root = Path(tmp)
         (root / "registry").mkdir()
         (root / "registry" / "rules.json").write_text(json.dumps({"schema_version": 1, "rules": []}), encoding="utf-8")
-        validation = {"promotion_case_ids": ["CASE-1"], "heldout_regression_cases": [{"case_id": "HELDOUT-1", "executed": True, "execution_source": "verifier"}], "poison_probe_cases": [{"case_id": "POISON-1", "executed": True, "execution_source": "environment", "accepted": False}]}
+        validation = {"promotion_case_ids": ["CASE-1"], "heldout_regression_cases": [{"case_id": "HELDOUT-1", "executed": True, "execution_source": "verifier", "scientific_ok": True, "effect_lcb": 0.1}], "poison_probe_cases": [{"case_id": "POISON-1", "executed": True, "execution_source": "environment", "accepted": False}]}
         validation_path = root / "evolution" / "validation.json"
         validation_path.parent.mkdir(parents=True)
         validation_path.write_text(json.dumps(validation), encoding="utf-8")
@@ -86,6 +86,15 @@ def main() -> None:
             endpoint_dir.mkdir(parents=True)
             endpoint_dir.joinpath("v0001.json").write_text(json.dumps({**candidate("P2"), "rule_id": endpoint}), encoding="utf-8")
             endpoint_dir.joinpath("v0001.state.json").write_text(json.dumps({"rule_id": endpoint, "version": 1, "status": "canonical"}), encoding="utf-8")
+        (root / "registry" / "rules.json").write_text(json.dumps({
+            "schema_version": 1,
+            "rules": [{
+                "rule_id": endpoint,
+                "path": f"rules/{hashlib.sha256(endpoint.encode()).hexdigest()}/v0001.json",
+                "status": "canonical",
+                "version": 1,
+            } for endpoint in ("RULE-A", "RULE-B")],
+        }), encoding="utf-8")
         relation_passed["relation_evidence_certificate"] = {"contrast_cs": {"gamma": {"lcb": 0.1, "ucb": 0.3}}, "alpha_budget": 0.05, "look_schedule": [8, 16], "scientific_arm_gates": {"00": True, "01": True, "10": True, "11": True}, "applicability_provenance": {"source": "test"}, "endpoint_versions": {"RULE-A": 1, "RULE-B": 1}}
         relation_decision = apply_promotion(root, relation_candidate(), relation_passed, replay_path="evolution/relation.json")
         assert relation_decision.allowed and relation_decision.subject_type == "relation"

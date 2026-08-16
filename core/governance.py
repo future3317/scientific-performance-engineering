@@ -91,6 +91,11 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
         errors.append("validation artifact promotion case membership mismatch")
     heldout = value.get("heldout_regression_cases")
     poison = value.get("poison_probe_cases")
+    try:
+        regression_tolerance = float(value.get("regression_tolerance", 0.0))
+    except (TypeError, ValueError):
+        regression_tolerance = 0.0
+        errors.append("regression_tolerance must be numeric")
     if not isinstance(heldout, list) or not heldout:
         errors.append("held-out validation cases are required")
         heldout = []
@@ -113,6 +118,16 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
                 errors.append(f"{label} validation case was not executed: {case_id}")
             if not isinstance(entry.get("execution_source"), str) or not entry["execution_source"]:
                 errors.append(f"{label} validation case needs execution_source: {case_id}")
+            if label == "held-out":
+                if entry.get("scientific_ok") is not True:
+                    errors.append(f"held-out validation case failed scientific gates: {case_id}")
+                try:
+                    effect_lcb = float(entry["effect_lcb"])
+                except (KeyError, TypeError, ValueError):
+                    errors.append(f"held-out validation case needs effect_lcb: {case_id}")
+                else:
+                    if effect_lcb < regression_tolerance:
+                        errors.append(f"held-out validation case regressed below tolerance: {case_id}")
             if label == "poison" and entry.get("accepted") is not False:
                 errors.append(f"poison validation case must be rejected by execution: {case_id}")
     return errors
@@ -134,6 +149,45 @@ def _existing_version(store: Path, directory: str, subject_id: str, version: int
 def _has_any_version(store: Path, directory: str, subject_id: str) -> bool:
     directory_path = store / directory / identifier_digest(subject_id)
     return bool(list(directory_path.glob("v*.json"))) or (store / directory / f"{identifier_digest(subject_id)}.json").is_file()
+
+
+def _canonical_rule_states(store: Path, endpoint_ids: set[str]) -> dict[str, dict[str, Any]]:
+    registry_path = store / "registry" / "rules.json"
+    if not registry_path.is_file():
+        raise ValueError("canonical rule registry is required for relation promotion")
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("canonical rule registry is invalid") from exc
+    entries = registry.get("rules") if isinstance(registry, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("canonical rule registry is invalid")
+    states: dict[str, dict[str, Any]] = {}
+    for endpoint_id in endpoint_ids:
+        matching = [entry for entry in entries if isinstance(entry, dict) and entry.get("rule_id") == endpoint_id and entry.get("status") == "canonical"]
+        if len(matching) != 1:
+            raise ValueError(f"canonical endpoint version is unavailable: {endpoint_id}")
+        relative = Path(str(matching[0].get("path", "")))
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"canonical endpoint path is invalid: {endpoint_id}")
+        state_path = (store / relative).with_name((store / relative).stem + ".state.json")
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"canonical endpoint state is unavailable: {endpoint_id}") from exc
+        try:
+            version_matches = int(state.get("version", 0)) == int(matching[0].get("version", 0))
+        except (AttributeError, TypeError, ValueError):
+            version_matches = False
+        if (
+            not isinstance(state, dict)
+            or state.get("rule_id") != endpoint_id
+            or state.get("status") != "canonical"
+            or not version_matches
+        ):
+            raise ValueError(f"canonical endpoint state is invalid: {endpoint_id}")
+        states[endpoint_id] = state
+    return states
 
 
 def evaluate_candidate(candidate: dict[str, Any], replay_manifest: dict[str, Any]) -> EvolutionDecision:
@@ -167,10 +221,9 @@ def evaluate_candidate(candidate: dict[str, Any], replay_manifest: dict[str, Any
                 applicability_provenance=certificate["applicability_provenance"],
                 endpoint_versions={str(key): int(value) for key, value in certificate["endpoint_versions"].items()},
             )
-            endpoint_states = replay_manifest.get("endpoint_states") or {
-                endpoint: {"version": cert_obj.endpoint_versions.get(endpoint)}
-                for endpoint in relation_spec.endpoints.values()
-            }
+            endpoint_states = replay_manifest.get("endpoint_states")
+            if not isinstance(endpoint_states, dict):
+                return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", "relation endpoint states must be harness supplied")
             cert_obj.validate_for(relation_spec, endpoint_states)
         else:
             RuleSpec.from_dict({key: value for key, value in candidate.items() if key in RuleSpec.__dataclass_fields__ or key in {"trigger", "requires_evidence", "do_not_apply_when", "conflicts_with", "supersedes", "rule"}})
@@ -198,7 +251,14 @@ def apply_promotion(
     replay_path: str,
 ) -> EvolutionDecision:
     """Apply only an approved P2/P3 promotion and update the registry."""
-    decision = evaluate_candidate(candidate, replay_manifest)
+    manifest_for_evaluation = dict(replay_manifest)
+    if candidate.get("relation_id"):
+        try:
+            relation_spec = RelationSpec.from_dict({key: candidate[key] for key in RelationSpec.__dataclass_fields__ if key in candidate})
+            manifest_for_evaluation["endpoint_states"] = _canonical_rule_states(store=Path(store), endpoint_ids=set(relation_spec.endpoints.values()))
+        except (TypeError, ValueError, KeyError) as exc:
+            return EvolutionDecision("relation", str(candidate.get("relation_id", "")), "PROMOTE", "rejected", "none", str(exc))
+    decision = evaluate_candidate(candidate, manifest_for_evaluation)
     if not decision.allowed:
         return decision
     store = Path(store)

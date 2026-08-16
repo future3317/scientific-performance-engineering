@@ -43,8 +43,9 @@ measures utility. The benchmark supplies its own grounded measurements
 
 - Workaround: `benchmark/harness/evolution.py` generates replay case bundles from
   measured paired runs.
-Replay now records `utility_policy_id=normalized_task_utility_v1` and uses the
-bounded paired delta `clamp((utility_on - utility_off) / utility_scale, -1, 1)`.
+Replay now records `utility_policy_id=bounded_log_speedup_v1` and uses the
+bounded dimensionless log-speedup transform, with direction determined by
+`higher_is_better` and a versioned log scale.
 External measurements must provide a positive versioned scale; promotion and
 validation reject other policy IDs or unbounded mean effects.
 

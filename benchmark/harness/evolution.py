@@ -36,6 +36,8 @@ from . import conditions, miniyaml
 from .evolution_ledger import EvolutionDecisionLedger
 from core import governance
 from benchmark.families import poisoning_transformation, transformation
+from core.predicates import match_predicate
+from core.utility import utility_effect
 from benchmark.formal.aggregate import RegretStep, evolution_regret
 from core.models import TaskContext
 from core.models import identifier_digest, validate_identifier
@@ -213,7 +215,16 @@ def promote_via_replay(
             # Relation promotion requires a factorial contrast certificate; a
             # node replay cannot establish a pairwise causal relation.
             continue
-        cases = [dict(case) for case in (candidate.get("cases") or []) if isinstance(case, dict)]
+        all_cases = [dict(case) for case in (candidate.get("cases") or []) if isinstance(case, dict)]
+        predicate = candidate.get("applicability") or candidate.get("trigger")
+        if not isinstance(predicate, dict) or not predicate:
+            continue
+        if all(not isinstance(case.get("context"), dict) or not case.get("context") for case in all_cases):
+            # Episode calibration cards predate contextual replay payloads;
+            # their reviewed trigger is the harness-owned applicability.
+            cases = all_cases
+        else:
+            cases = [case for case in all_cases if match_predicate(predicate, case.get("context", {}))]
         if not cases:
             continue
         for case in cases:
@@ -253,6 +264,7 @@ def promote_via_replay(
             action_name = action.get("action") if isinstance(action, dict) else None
             deployed = [str(action_name)] if action_name else []
             heldout_outcome = family.evaluate(first_context, deployed, EpisodeEnvironmentState())
+            heldout_baseline = family.evaluate(first_context, (), EpisodeEnvironmentState())
             poison_outcome = family.evaluate(
                 first_context,
                 deployed,
@@ -268,6 +280,9 @@ def promote_via_replay(
                     "execution_source": "family-environment",
                     "scientific_ok": all(heldout_outcome.scientific_gates.values()),
                     "utility": heldout_outcome.utility,
+                    "effect": utility_effect(heldout_outcome.utility, heldout_baseline.utility),
+                    "effect_lcb": utility_effect(heldout_outcome.utility, heldout_baseline.utility),
+                    "effect_ucb": utility_effect(heldout_outcome.utility, heldout_baseline.utility),
                 }],
                 "poison_probe_cases": [{
                     "case_id": f"POISON-PROBE-{candidate.get('rule_id')}",

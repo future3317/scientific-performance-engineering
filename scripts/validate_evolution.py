@@ -292,8 +292,8 @@ def validate_replay_manifest(card: dict[str, Any], root: Path) -> list[str]:
             errors.append(f"{path}: replay result does not clear paired utility/scientific gates")
         if result.get("confidence_method") in {"anytime-hoeffding-union-bound", "beta-binomial-mixture-cs", "beta-binomial-mixture-e-process"} and result.get("promotion_probability_lower_bound", 0.0) < result.get("p_min", 1.0):
             errors.append(f"{path}: replay result does not clear the anytime-valid promotion gate")
-        if result.get("utility_policy_id") != "normalized_task_utility_v1":
-            errors.append(f"{path}: replay result must declare utility_policy_id=normalized_task_utility_v1")
+        if result.get("utility_policy_id") != "bounded_log_speedup_v1":
+            errors.append(f"{path}: replay result must declare utility_policy_id=bounded_log_speedup_v1")
         if not -1.0 <= float(result.get("mean_effect", 2.0)) <= 1.0:
             errors.append(f"{path}: normalized mean_effect must be in [-1, 1]")
     attestation = manifest.get("attestation")

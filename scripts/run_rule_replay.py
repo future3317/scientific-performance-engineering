@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from core.sequential_stats import bounded_mean_interval, mixture_lower_bound
 from core.models import validate_identifier
-from core.utility import UTILITY_POLICY_ID, normalized_delta, validate_policy
+from core.utility import UTILITY_LOG_SCALE, UTILITY_POLICY_ID, utility_effect, validate_policy
 
 
 def canonical_json(value: Any) -> bytes:
@@ -55,7 +55,7 @@ def evaluate_cases(
     p_min: float,
     delta: float,
     utility_policy_id: str = UTILITY_POLICY_ID,
-    utility_scale: float = 1.0,
+    utility_scale: float = UTILITY_LOG_SCALE,
 ) -> dict[str, Any]:
     if not cases:
         raise ValueError("replay requires at least one paired case")
@@ -93,14 +93,22 @@ def evaluate_cases(
             repetition_effects = []
             for on, off in zip(intervention, baseline):
                 on_value, off_value = float(on), float(off)
-                if not higher_is_better:
-                    on_value, off_value = -on_value, -off_value
-                repetition_effects.append(normalized_delta(on_value, off_value, scale=float(case.get("utility_scale", utility_scale))))
+                repetition_effects.append(utility_effect(
+                    on_value,
+                    off_value,
+                    higher_is_better=higher_is_better,
+                    log_scale=float(case.get("utility_scale", utility_scale)),
+                ))
             repetition_count += len(repetition_effects)
             case_effect = mean(repetition_effects)
         else:
             repetition_count += 1
-            case_effect = normalized_delta(float(case["utility_on"]), float(case["utility_off"]), scale=utility_scale)
+            case_effect = utility_effect(
+                float(case["utility_on"]),
+                float(case["utility_off"]),
+                higher_is_better=bool(case.get("higher_is_better", True)),
+                log_scale=utility_scale,
+            )
         case_effects.append((group_id, case_effect, bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))))
     grouped: dict[str, list[tuple[float, bool]]] = {}
     for group_id, effect, gates_passed in case_effects:
@@ -164,13 +172,21 @@ def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
         versions = dict(common["rule_versions"])
         versions[payload["rule_id"]] = int(payload.get("rule_version", 1))
         common["rule_versions"] = versions
+        on_value = float(case["utility_on"])
+        off_value = float(case["utility_off"])
+        paired_effect = utility_effect(
+            on_value,
+            off_value,
+            higher_is_better=bool(case.get("higher_is_better", True)),
+            log_scale=float(case.get("utility_scale", UTILITY_LOG_SCALE)),
+        )
         for arm in ("on", "off"):
             events.append({
                 "schema_version": 2,
                 "event_id": f"{case.get('case_id', index)}-{arm}", "context": common,
                 "assignment": {"interventions": {payload["rule_id"]: int(arm == "on")}, "propensity": float(case.get("propensity", 0.5)), "design_id": "paired-replay-v2"},
                 "evidence_stream": "representative", "query_id": str(case.get("query_id", case.get("case_id", index))),
-                "outcome_vector": {"utility": float(case["utility_on"] if arm == "on" else case["utility_off"])},
+                "outcome_vector": {"utility": paired_effect if arm == "on" else 0.0, "paired_effect": paired_effect},
                 "scientific_gates": {"scientific_ok": bool(case.get("scientific_ok", False)), "quality_ok": bool(case.get("quality_ok", True))},
                 "artifacts": case.get("artifacts", {}), "versions": case.get("versions", {}),
                 "source_id": case.get("source_id", f"replay-{index}"), "independence_group": case.get("independence_group", f"replay-{index}"),
@@ -194,7 +210,7 @@ def build_manifest(payload: dict[str, Any], input_path: Path, output_path: Path,
         float(payload.get("p_min", 0.8)),
         float(payload.get("delta", 0.05)),
         str(payload.get("utility_policy_id", UTILITY_POLICY_ID)),
-        float(payload.get("utility_scale", 1.0)),
+        float(payload.get("utility_scale", UTILITY_LOG_SCALE)),
     )
     manifest: dict[str, Any] = {
         "schema_version": 1,

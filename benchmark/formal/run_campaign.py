@@ -28,10 +28,12 @@ from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from benchmark.harness.evolution import promote_via_replay
+from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier
-from core.utility import normalized_delta
+from core.sequential_stats import bounded_mean_interval
+from core.utility import UTILITY_LOG_SCALE, utility_effect
 
 
 def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -99,6 +101,7 @@ def sanitize_submission(
     destination: Path,
     allowed_files: set[str],
     *,
+    baseline: Path | None = None,
     max_file_bytes: int = 8 * 1024 * 1024,
     max_total_bytes: int = 32 * 1024 * 1024,
 ) -> Path:
@@ -125,7 +128,11 @@ def sanitize_submission(
         if not stat.S_ISREG(info.st_mode):
             raise ValueError(f"submission contains non-regular file: {relative_text}")
         if relative_text not in normalized_allowlist:
-            raise ValueError(f"submission file is not allowlisted: {relative_text}")
+            if baseline is None:
+                raise ValueError(f"submission file is not allowlisted: {relative_text}")
+            baseline_path = baseline / relative
+            if not baseline_path.is_file() or baseline_path.read_bytes() != path.read_bytes():
+                raise ValueError(f"submission changes outside public change surface: {relative_text}")
         if info.st_size > max_file_bytes:
             raise ValueError(f"submission file exceeds size limit: {relative_text}")
         total_bytes += info.st_size
@@ -134,13 +141,60 @@ def sanitize_submission(
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
-    missing = sorted(normalized_allowlist - {str(path.relative_to(source)) for path in source.rglob("*") if path.is_file() and not path.is_symlink()})
+    source_files = {str(path.relative_to(source)) for path in source.rglob("*") if path.is_file() and not path.is_symlink()}
+    required_files = normalized_allowlist
+    if baseline is not None:
+        required_files = {
+            str(path.relative_to(baseline))
+            for path in baseline.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+    missing = sorted(required_files - source_files)
     if missing:
         raise ValueError(f"submission is missing allowlisted files: {missing}")
     return destination
 
 
-def synthesize_applicability(cases: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+def _case_effect_interval(case: dict[str, Any], *, delta: float = 0.05) -> tuple[float, float, float] | None:
+    intervention = case.get("intervention_measurements")
+    baseline = case.get("baseline_measurements")
+    higher_is_better = bool(case.get("higher_is_better", True))
+    log_scale = float(case.get("utility_scale", UTILITY_LOG_SCALE))
+    if isinstance(intervention, list) and isinstance(baseline, list):
+        if not intervention or len(intervention) != len(baseline):
+            return None
+        effects = [utility_effect(float(on), float(off), higher_is_better=higher_is_better, log_scale=log_scale) for on, off in zip(intervention, baseline)]
+        lower, upper = bounded_mean_interval(effects, delta)
+        return sum(effects) / len(effects), lower, upper
+    try:
+        effect = utility_effect(
+            float(case["utility_on"]), float(case["utility_off"]),
+            higher_is_better=higher_is_better, log_scale=log_scale,
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    # A scalar score has no sampling uncertainty and cannot certify a boundary
+    # anchor or counterexample.  Formal CEGIS consumes paired repetitions only.
+    return effect, -1.0, 1.0
+
+
+def _family_decision_lattice(family_id: str | None) -> list[dict[str, Any]]:
+    if not family_id:
+        return []
+    try:
+        from benchmark.families import family_instances
+        instances = family_instances(family_id, count=24, seed=0)
+    except (KeyError, ValueError):
+        return []
+    return [{"workload": {"mechanism": family_id, **dict(instance.parameters)}} for instance in instances]
+
+
+def synthesize_applicability(
+    cases: list[dict[str, Any]],
+    *,
+    family_id: str | None = None,
+    decision_contexts: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Derive a worker rule boundary from harness-owned public observations."""
     from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
     from core.acre.predicates import PredicateGrammar
@@ -150,21 +204,17 @@ def synthesize_applicability(cases: list[dict[str, Any]]) -> tuple[dict[str, Any
         context = case.get("context") if isinstance(case.get("context"), dict) else {}
         if not context:
             continue
-        try:
-            on_value = float(case["utility_on"])
-            off_value = float(case["utility_off"])
-        except (KeyError, TypeError, ValueError):
+        interval = _case_effect_interval(case)
+        if interval is None:
             continue
-        if not bool(case.get("higher_is_better", True)):
-            on_value, off_value = -on_value, -off_value
-        effect = normalized_delta(on_value, off_value, scale=float(case.get("utility_scale", 1.0)))
+        effect, effect_lower, effect_upper = interval
         observations.append(BoundaryObservation(
             observation_id=str(case.get("case_id", f"case-{index}")),
             context=context,
             effect=effect,
             gate_passed=bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)),
-            effect_lower=effect,
-            effect_upper=effect,
+            effect_lower=effect_lower,
+            effect_upper=effect_upper,
         ))
     if not observations:
         return None
@@ -185,23 +235,116 @@ def synthesize_applicability(cases: list[dict[str, Any]]) -> tuple[dict[str, Any
     if not grammar_payload["features"]:
         return None
     grammar = PredicateGrammar.from_dict(grammar_payload)
+    lattice = list(decision_contexts or _family_decision_lattice(family_id))
     result = StatisticalCEGIS(grammar, epsilon_true=0.0, epsilon_false=0.0).synthesize(
         positive=observations,
         counterexamples=observations,
         parent_predicate=None,
-        decision_contexts=[item.context for item in observations],
+        decision_contexts=lattice,
     )
     if result.predicate is None:
         return None
     return result.predicate, {"source": "harness-cegis", **(result.provenance or {}), "status": result.status}
 
 
-def execute_poison_probe(task_spec: dict[str, Any], public_context: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
-    """Execute a harness-owned adversarial environment probe for one proposal."""
+def hydrate_candidate_cases(
+    store: Path,
+    candidate: dict[str, Any],
+    ledger: CandidateEvidenceLedger,
+) -> list[dict[str, Any]]:
+    """Rebuild all immutable case payloads recorded for a candidate revision."""
+    subject_id = str(candidate.get("rule_id") or candidate.get("relation_id") or candidate.get("id") or "")
+    version = int(candidate.get("version", 1))
+    case_ids = {str(item) for item in candidate.get("cases", []) if isinstance(item, str)}
+    memberships = ledger.members(subject_id, version)
+    paths: dict[str, Path] = {}
+    for membership in memberships:
+        case_id = membership.get("case_id")
+        case_path = membership.get("case_path")
+        if not isinstance(case_id, str) or not isinstance(case_path, str):
+            continue
+        relative = Path(case_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+        paths[case_id] = store / relative
+        case_ids.add(case_id)
+    for case_id in case_ids:
+        paths.setdefault(case_id, store / "experience" / "cases" / f"{identifier_digest(case_id)}.json")
+    values: list[dict[str, Any]] = []
+    for case_id in sorted(case_ids):
+        try:
+            value = json.loads(paths[case_id].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            values.append(value)
+    return values
+
+
+def persist_collecting_proposals(store: Path, proposals: list[dict[str, Any]], case_ids: list[str]) -> None:
+    """Persist worker hypotheses before a boundary predicate is identifiable."""
+    candidates_dir = Path(store) / "evolution" / "candidates"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    for proposal in proposals:
+        if not isinstance(proposal, dict) or proposal.get("relation_id"):
+            continue
+        identifier = proposal.get("rule_id") or proposal.get("id")
+        if not isinstance(identifier, str):
+            continue
+        try:
+            validate_identifier(identifier, "candidate_id")
+        except ValueError:
+            continue
+        path = candidates_dir / f"{identifier_digest(identifier)}.json"
+        existing: dict[str, Any] = {}
+        if path.is_file():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = {}
+        candidate = {
+            "rule_id": identifier,
+            "version": int(proposal.get("version", existing.get("version", 1))),
+            "parent": None,
+            "applicability": existing.get("applicability", {"all": []}),
+            "intervention": proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {"action": "measure"},
+            "expected_mechanism": str(proposal.get("expected_mechanism") or proposal.get("hypothesis") or "task-local performance mechanism"),
+            "status": "collecting_evidence",
+            "cases": sorted(set(str(item) for item in existing.get("cases", []) if isinstance(item, str)) | set(case_ids)),
+        }
+        path.write_text(json.dumps({**existing, **candidate}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def execute_poison_probe(
+    task_spec: dict[str, Any],
+    public_context: dict[str, Any],
+    proposal: dict[str, Any],
+    realized_solution: Path,
+    baseline_solution: Path,
+) -> dict[str, Any]:
+    """Execute a poison probe against a materialized, non-empty intervention."""
+    changed = False
+    baseline_files = {path.relative_to(baseline_solution) for path in baseline_solution.rglob("*") if path.is_file()}
+    realized_files = {path.relative_to(realized_solution) for path in realized_solution.rglob("*") if path.is_file()}
+    for relative in baseline_files | realized_files:
+        baseline_path, realized_path = baseline_solution / relative, realized_solution / relative
+        if not baseline_path.is_file() or not realized_path.is_file() or baseline_path.read_bytes() != realized_path.read_bytes():
+            changed = True
+            break
+    if not changed:
+        raise ValueError("poison probe requires a realized intervention different from baseline")
     family_id = str(task_spec.get("family_id", task_spec.get("family", "compile")))
-    intervention = proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {}
-    action = intervention.get("action")
-    deployed = [str(action)] if isinstance(action, str) and action else []
+    canonical_actions = {
+        "compile": "reuse_compile_cache",
+        "graph_cache": "reuse_graph_cache",
+        "h2d_pipeline": "pin_memory_pipeline",
+        "checkpoint": "checkpoint_recompute",
+        "scalar_sync": "aggregate_scalars",
+    }
+    intervention_id = canonical_actions.get(family_id)
+    if intervention_id is None:
+        raise ValueError(f"no canonical poison probe intervention for family {family_id}")
+    deployed = [intervention_id]
     environment = FamilyEnvironment(family_id)
     state = EpisodeEnvironmentState(active_poison=("formal_validation_probe",))
     outcome = environment.evaluate(public_context.get("workload", {}), deployed, state)
@@ -213,6 +356,8 @@ def execute_poison_probe(task_spec: dict[str, Any], public_context: dict[str, An
         "accepted": bool(outcome.utility > baseline.utility + 1e-9 and all(outcome.scientific_gates.values())),
         "utility": outcome.utility,
         "baseline_utility": baseline.utility,
+        "intervention_id": intervention_id,
+        "realized_changed": True,
     }
 
 
@@ -221,14 +366,6 @@ def _copy_workspace(task_dir: Path, destination: Path) -> None:
     if not source.is_dir():
         raise FileNotFoundError(f"workspace missing: {source}")
     shutil.copytree(source, destination, dirs_exist_ok=True)
-
-
-def _workspace_allowlist(workspace: Path) -> set[str]:
-    return {
-        str(path.relative_to(workspace))
-        for path in workspace.rglob("*")
-        if path.is_file() and not path.is_symlink()
-    }
 
 
 def materialize_agent_task(task_dir: Path, destination: Path) -> None:
@@ -472,6 +609,7 @@ def post_task_update(
     core_repo: Path,
     out_dir: Path,
     context_mode: str = "reset",
+    family_id: str | None = None,
     ledger: EvolutionDecisionLedger | None = None,
     allow_maintenance: bool = True,
     control_result: dict[str, Any] | None = None,
@@ -533,6 +671,7 @@ def post_task_update(
             if not intervention_runs or len(intervention_runs) != len(baseline_runs) or not fixture_hashes or fixture_hashes != control_fixture_hashes:
                 # The verifier's paired record is the only accepted source of
                 # causal measurements; no task-score fallback is fabricated.
+                persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids)
                 return {"transition": "no_replay_measurement", "added_experience_ids": added_experience_ids}
             case = {
                 "schema_version": 1,
@@ -547,7 +686,7 @@ def post_task_update(
                 "same_seed": causal_result.get("seed"),
                 "same_work_units": measurement.get("work_units", {}),
                 "higher_is_better": bool(measurement.get("higher_is_better", False)),
-                "utility_scale": 1.0,
+                "utility_scale": UTILITY_LOG_SCALE,
                 "scientific_ok": bool(causal_scored.get("gates_passed", False)),
                 "quality_ok": bool(causal_scored.get("gates_passed", False)) and bool(control_scored.get("gates_passed", False)),
                 "paired_replay": True,
@@ -568,6 +707,7 @@ def post_task_update(
             validation_dir = store / "evolution" / "validation"
             validation_dir.mkdir(parents=True, exist_ok=True)
             if not isinstance(validation_evidence, dict):
+                persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids)
                 return {"transition": "no_independent_validation", "added_experience_ids": added_experience_ids}
             validation = {
                 "schema_version": 1,
@@ -716,13 +856,18 @@ def post_task_update(
                     case_value = dict(case_value)
                     case_value["case_path"] = str((store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json").relative_to(store)).replace("\\", "/")
                     candidate_evidence.append(identifier, int(candidate.get("version", 1)), case_value)
-            synthesized = synthesize_applicability(case_values_for_cegis)
+            case_values_for_cegis = hydrate_candidate_cases(store, candidate, candidate_evidence)
+            candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
+            candidate["status"] = "collecting_evidence"
+            path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            synthesized = synthesize_applicability(case_values_for_cegis, family_id=family_id)
             if synthesized is None:
                 continue
             intervention = candidate.get("intervention")
             if not isinstance(intervention, dict) or not isinstance(intervention.get("file"), str) or not isinstance(intervention.get("replacements"), list):
                 continue
             candidate["applicability"], candidate["applicability_provenance"] = synthesized
+            candidate["status"] = "candidate"
             path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             candidates_by_id[identifier] = candidate
         for path in sorted(candidates_dir.glob("*.json")):
@@ -1057,7 +1202,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             sanitize_submission(
                 worker_solution_dir,
                 submitted_solution_dir,
-                _workspace_allowlist(tasks_root / task_id / "workspace"),
+                {str(item) for item in public_task.get("allowed_files", []) if isinstance(item, str)},
+                baseline=solution_dir,
             )
         except ValueError as exc:
             budget_errors.append(f"submission sanitization failed: {exc}")
@@ -1118,6 +1264,19 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         seed=int(item["outer_trial_index"]) + 1000003,
                     )
                     heldout_scored = scoring.score_task(heldout_result)
+                    heldout_control, heldout_control_scored = _verify_baseline(
+                        tasks_root / task_id,
+                        solution_dir,
+                        trial_dir / "heldout-control-result.json",
+                        condition=str(item["condition"]),
+                        context_mode=str(item["context_mode"]),
+                        seed=int(item["outer_trial_index"]) + 1000003,
+                    )
+                    heldout_effect = utility_effect(
+                        float(heldout_scored.get("task_score", 0.0)),
+                        float(heldout_control_scored.get("task_score", 0.0)),
+                        higher_is_better=True,
+                    )
                     validation_evidence = {
                         "heldout_regression_cases": [{
                             "case_id": f"HELDOUT-{task_id}",
@@ -1125,8 +1284,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                             "execution_source": "verifier",
                             "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
                             "utility": heldout_scored.get("task_score"),
+                            "effect": heldout_effect,
+                            "effect_lcb": heldout_effect,
+                            "effect_ucb": heldout_effect,
                         }],
-                        "poison_probe_cases": [execute_poison_probe(task_spec, public_routing, proposals[0])],
+                        "poison_probe_cases": [execute_poison_probe(
+                            task_spec, public_routing, proposals[0], realized_solution, solution_dir
+                        )],
                     }
                 except (OSError, ValueError, TypeError) as exc:
                     budget_errors.append(f"causal intervention realization failed: {exc}")
@@ -1144,6 +1308,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             control_result=control_result,
             control_scored=control_scored,
             public_context=public_routing,
+            family_id=str(task_spec.get("family_id", task_spec.get("family", ""))) or None,
             causal_result=causal_result,
             causal_scored=causal_scored,
             validation_evidence=validation_evidence,

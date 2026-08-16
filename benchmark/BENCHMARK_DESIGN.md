@@ -395,7 +395,7 @@ Measured per condition over the sequential stream (§10):
   the track score.
 - Evolution results report the raw metric vector; no composite is used as a
   headline until its bounded utility policy and weighting are preregistered.
-- Promotion uses the bounded `normalized_task_utility_v1` policy and a
+- Promotion uses the bounded `bounded_log_speedup_v1` policy and a
   Beta--Binomial mixture e-process. A candidate is eligible only when the
   one-sided lower confidence sequence clears `p_min` under optional inspection;
   a fixed-sample posterior interval is not treated as a confidence sequence.
