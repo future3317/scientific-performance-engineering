@@ -90,6 +90,15 @@ cannot open the claim gate.
 
 ## Layout
 
+Promotion evidence is collected independently of boundary evidence. Candidate
+proposals are persisted before they are sufficient for synthesis, and later
+tasks hydrate the append-only ledger before rerunning CEGIS. Only representative
+cases covered by the synthesized predicate enter promotion replay. Held-out
+validation is execution-backed, promotion-disjoint, scientifically valid, and
+must clear the registered regression tolerance; poison probes must execute a
+materialized intervention and be rejected by the observed environment result.
+Replay and routing share the versioned bounded_log_speedup_v1 utility policy.
+
 ```
 benchmark/
   BENCHMARK_DESIGN.md          # normative spec
@@ -151,4 +160,6 @@ Exit codes: `validate-task`/`check-leakage` return 0 when clean, 1 on findings;
 
 Python ≥ 3.10 stdlib + torch. PyG is optional (SciML tasks ship fallback scatter).
 YAML files are restricted to the subset documented in `harness/miniyaml.py`;
-`validate-task` enforces it. No network access, no PyYAML, no pytest.
+`validate-task` enforces it. The standalone benchmark suite uses only the
+standard library; the repository-level pytest suite is optional. Campaign
+workers are expected to run with network disabled.

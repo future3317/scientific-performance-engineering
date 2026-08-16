@@ -55,6 +55,22 @@ promoted cards. This repository therefore provides a governed evolution
 framework and executable benchmark, not a mature self-evolving rule
 ecosystem. Rules enter the registry only after reviewed replay evidence.
 
+The current benchmark evidence is structural and calibration evidence. The
+20-instance population validates family reconstruction, lineage consistency, and
+the executable boundary/interaction/evolution views; it does not support a
+formal A/B/C/D efficacy claim. Promotion evidence is built from independent
+groups under the versioned bounded_log_speedup_v1 utility policy. Boundary
+counterexamples constrain CEGIS but are excluded from representative promotion
+replay. Held-out validation is promotion-disjoint and must pass its scientific
+gates and regression floor; poison validation executes a materialized
+intervention. A formal campaign additionally requires a preregistered
+population, sealed instances, and a valid external-executor receipt.
+
+For the controlled comparison, C retrieves raw experiences with the same public
+context and token budget as D but cannot construct or promote rules and
+relations. D alone performs governed routing and lifecycle transitions. Reset is
+the default context mode; carry is a separate sequential-adaptation analysis.
+
 ## 中文
 
 这是一个面向 PyTorch 科学训练与推理的证据治理型性能工程 Skill，同时提供一个
