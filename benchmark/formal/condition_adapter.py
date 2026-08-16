@@ -13,10 +13,6 @@ from core.models import TaskContext
 from core.cost import BudgetedContextRenderer
 from core.public_context import build_public_context
 
-
-_canonical_public_context = build_public_context
-
-
 class FormalConditionAdapter:
     """Expose C raw retrieval and D governed routing through one interface."""
 
@@ -35,7 +31,7 @@ class FormalConditionAdapter:
     def _task_context(context: TaskContext | Mapping[str, Any]) -> TaskContext:
         if isinstance(context, TaskContext):
             return context
-        public = _canonical_public_context(context)
+        public = build_public_context(context)
         workload = public.get("workload") if isinstance(public.get("workload"), dict) else dict(public)
         return TaskContext(
             domain=str(public.get("domain", "scientific-performance")),

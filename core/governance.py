@@ -487,7 +487,6 @@ def apply_promotion(
     registry = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.is_file() else {"schema_version": 1, default_key: []}
     key = "relations" if decision.subject_type == "relation" else "rules"
     id_key = "relation_id" if decision.subject_type == "relation" else "rule_id"
-    directory = "relations" if decision.subject_type == "relation" else "rules"
     entries = [entry for entry in registry.get(key, []) if entry.get(id_key) != decision.subject_id]
     semantic_payload = json.dumps(card, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     artifact_digest = hashlib.sha256(target.read_bytes()).hexdigest()

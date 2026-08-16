@@ -321,11 +321,10 @@ def promote_via_replay(
         case_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         try:
             manifest = build_manifest(payload, case_path, manifest_path, "benchmark-harness")
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError):
             # A malformed or non-paired control is a rejected replay, never a
             # promotion shortcut.
             continue
-        cases_for_record = manifest.get("evidence_events", [])
         representative_groups = sorted({str(case.get("independence_group") or case.get("source_id") or case.get("case_id")) for case in cases if case.get("independence_group") or case.get("source_id") or case.get("case_id")})
         import hashlib
         validation_artifacts = candidate.get("validation_artifacts") if isinstance(candidate.get("validation_artifacts"), dict) else {}

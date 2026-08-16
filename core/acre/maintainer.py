@@ -6,7 +6,7 @@ remain in core so calibration and evolution use the same sequence.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 from core.models import EvidenceEvent

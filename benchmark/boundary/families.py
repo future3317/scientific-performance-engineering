@@ -10,7 +10,6 @@ from core.acre.predicates import PredicateGrammar
 from benchmark.families import family_views, family_decision_lattice
 from benchmark.families import FAMILY_SPECS, resolve_family_id
 from benchmark.families.environment import FamilyEnvironment
-from core.sequential_stats import paired_repetition_interval
 from .evaluator import sealed_errors
 
 # Boundary observations are performance-style paired measurements.  The
@@ -46,18 +45,6 @@ def family_cases(family: str, *, surface_count: int | None = None, seed: int = 0
         views = family_views(family, count=surface_count, seed=seed)
         def convert(item: Any) -> BoundaryCase:
             params = dict(item.parameters)
-            if family == "compile":
-                mechanism, path = "compile", "logical_steps"
-            elif family == "graph_cache":
-                mechanism, path = "graph_cache", "geometry_displacement"
-            elif family == "h2d_pipeline":
-                mechanism, path = "h2d_pipeline", "worker_count"
-            elif family == "checkpoint":
-                mechanism, path = "checkpoint", "memory_pressure"
-            elif family == "scalar_sync":
-                mechanism, path = "scalar_sync", "scalar_syncs_per_step"
-            else:
-                mechanism, path = family, next(iter(params), "")
             # Boundary evidence is produced by the same paired action
             # evaluator used by evolution.  Hidden applicability is retained
             # only on the sealed FamilyInstance and never enters the public
@@ -104,19 +91,8 @@ def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) 
     canonical_family = {"graph_cache_geometry_motion": "graph_cache", "compile_horizon": "compile"}.get(family, family)
     if canonical_family in {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}:
         pools = family_cases(canonical_family, surface_count=surface_count, seed=seed)
-        path = {
-            "compile": "workload.logical_steps",
-            "graph_cache": "workload.geometry_displacement",
-            "h2d_pipeline": "workload.worker_count",
-            "checkpoint": "workload.memory_pressure",
-            "scalar_sync": "workload.scalar_syncs_per_step",
-        }[canonical_family]
-        mechanism = canonical_family
-        grammar_path = path
     else:
         pools = family_cases(family)
-        grammar_path = "workload.geometry_displacement" if family == "graph_cache_geometry_motion" else "workload.logical_steps"
-        mechanism = "graph_cache" if family.startswith("graph") else "compile"
     representative = [item for item in pools["representative_pool"] if item.positive_anchor()]
     query = pools.get("active_query_pool", pools.get("query_pool", []))
     counterexamples = [item for item in query if item.certified_counterexample()]
@@ -130,8 +106,6 @@ def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) 
 
     representative = fit_slice(representative)
     counterexamples = fit_slice(counterexamples)
-    # ``mechanism`` is harness metadata, not a public feature.  Synthesis
-    # starts from the FamilySpec predicate grammar over the visible workload.
     parent = None
     grammar = _grammar_for(canonical_family)
     result = StatisticalCEGIS(grammar).synthesize(

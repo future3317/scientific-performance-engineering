@@ -16,32 +16,25 @@ import shlex
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from benchmark.harness import conditions, miniyaml, scoring, verifier
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
-from benchmark.formal.condition_adapter import FormalConditionAdapter, build_public_context
+from benchmark.formal.condition_adapter import FormalConditionAdapter
+from core.public_context import build_public_context
 from benchmark.harness.evolution import promote_via_replay
 from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier, ActionSpec, RawRealizationRecord, RealizationRecord
-from core.sequential_stats import bounded_mean_interval, minimum_all_successes
 from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold, utility_effect
-from scripts.run_rule_replay import evaluate_cases
 from core.acre.cegis import synthesize_applicability, _case_effect_interval
 from core.acre.budget import StatisticalBudget
-
-
-def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
-    """Compatibility entry point for the canonical public-context builder."""
-    return build_public_context(value)
 
 
 def _workspace_digest(root: Path) -> str:
@@ -586,7 +579,7 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
         declared_public_context.setdefault("software", dict(task["public_software"]))
     if isinstance(task.get("pre_task_telemetry"), dict):
         declared_public_context.setdefault("evidence", dict(task["pre_task_telemetry"]))
-    declared_public_context = canonical_public_context(declared_public_context)
+    declared_public_context = build_public_context(declared_public_context)
     public_task = {
         "schema_version": 1,
         "task_id": task.get("task_id", task_dir.name),
@@ -876,6 +869,7 @@ def post_task_update(
     causal_scored: dict[str, Any] | None = None,
     validation_evidence: dict[str, Any] | None = None,
     practical_epsilon: float = 0.0,
+    seed: int = 0,
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
@@ -897,8 +891,8 @@ def post_task_update(
             "task_id": task_id,
             "condition": condition,
             "context_mode": context_mode,
-            "public_context": canonical_public_context(public_context),
-            "retrieval_query": json.dumps(canonical_public_context(public_context).get("workload", {}), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+            "public_context": build_public_context(public_context),
+            "retrieval_query": json.dumps(build_public_context(public_context).get("workload", {}), sort_keys=True, separators=(",", ":"), ensure_ascii=False),
             "observation": {
                 "verdict": result.get("verdict"),
                 "task_score": scored.get("task_score"),
@@ -960,7 +954,7 @@ def post_task_update(
                 "scientific_gates_off": dict(control_result.get("scientific_gates", {})),
                 "source_id": f"verifier-{task_id}",
                 "independence_group": f"task-{task_id}",
-                "context": canonical_public_context(public_context),
+                "context": build_public_context(public_context),
                 "context_mode": context_mode,
             }
             evidence_path = evidence_dir / f"{identifier_digest(case_id)}.json"
@@ -977,7 +971,7 @@ def post_task_update(
             validation = {
                 "schema_version": 1,
                 "scope": "formal",
-                "subject_context": canonical_public_context(public_context),
+                "subject_context": build_public_context(public_context),
                 "synthesis_case_ids": [case_id],
                 "promotion_case_ids": [],
                 "heldout_regression_cases": list(validation_evidence.get("heldout_regression_cases", [])),
@@ -1070,7 +1064,7 @@ def post_task_update(
                         candidate, relation_family,
                         block_executor=block_executor,
                         maintainer=engine.maintainer,
-                        seed=int(item["outer_trial_index"]),
+                        seed=int(seed),
                     )
                 except (KeyError, ValueError) as exc:
                     relation_schedule = {
@@ -1346,113 +1340,10 @@ def post_task_update(
                 "pending_contexts": active_pending + representative_pending,
                 "acquisition_context_count": len(active_pending),
             }
-            # Pending representative contexts are executable evidence, not a
-            # promise exposed to the next worker.  The family executor uses
-            # the harness-resolved ActionSpec and the Core paired-plan API.
-            if (
-                candidate["replay_schedule"]["pending_contexts"]
-                and isinstance(candidate.get("intervention"), dict)
-                and getattr(args, "executor_command", None)
-            ):
-                from benchmark.formal.schedule import SyntheticFamilyExecutor
-                from core.acre.experiments import ExperimentPlan, ReplaySequentialCertificate, execute_paired_plan
-                family_name = str(family_id or "compile")
-                action_name = str(candidate["intervention"].get("action_id") or candidate["intervention"].get("action") or "")
-                if action_name:
-                    # The bounded paired interval must clear the practical
-                    # effect threshold; 64 repeats cannot do so for the
-                    # declared Family effects.  Keep repetitions explicit
-                    # and preregistered rather than fabricating certainty.
-                    replay_executor = SyntheticFamilyExecutor(family_name, action_name, repetitions=256, campaign_seed=int(item["outer_trial_index"]))
-                    generated_cases: list[dict[str, Any]] = []
-                    replay_evidence_events = []
-
-                    def record_generated(case: dict[str, Any]) -> None:
-                        case = dict(case)
-                        case.update({
-                            "same_fixture_id": str(case.get("case_id")),
-                            "source_id": "family-replay",
-                            "higher_is_better": True,
-                            "utility_scale": UTILITY_LOG_SCALE,
-                            "quality_ok": bool(case.get("scientific_ok", False)),
-                            "context_mode": context_mode,
-                            "execution_source": getattr(replay_executor, "execution_source", "synthetic_family"),
-                        })
-                        case_id = str(case["case_id"])
-                        evidence_path = store / "experience" / "cases" / f"{identifier_digest(case_id)}.json"
-                        evidence_path.parent.mkdir(parents=True, exist_ok=True)
-                        if not evidence_path.exists():
-                            evidence_path.write_text(json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-                        candidate_evidence.append(
-                            str(candidate.get("candidate_identity") or identifier),
-                            int(candidate.get("version", 1)),
-                            {**case, "case_path": str(evidence_path.relative_to(store)).replace("\\", "/")},
-                            action_digest=str(candidate.get("action_semantic_digest") or candidate.get("intervention_digest", "")),
-                        )
-                        generated_cases.append(case)
-
-                    sequential_certificate = ReplaySequentialCertificate(
-                        minimum_groups=scheduler.minimum_groups,
-                        max_groups=scheduler.max_groups,
-                        epsilon=float(practical_epsilon),
-                        delta=statistical_budget.delta_total,
-                        statistical_budget=statistical_budget,
-                        p_min=scheduler.p_min,
-                    )
-
-                    # Active acquisition observations are written to the
-                    # synthesis ledger but are excluded from promotion by
-                    # ReplaySequentialCertificate's representative filter.
-                    if candidate["replay_schedule"].get("synthesis_contexts"):
-                        active_execution = execute_paired_plan(
-                            ExperimentPlan(
-                                subject_id=str(candidate.get("candidate_identity") or identifier),
-                                contexts=tuple(candidate["replay_schedule"]["synthesis_contexts"]),
-                                max_groups=len(candidate["replay_schedule"]["synthesis_contexts"]),
-                                statistical_budget=statistical_budget,
-                            ),
-                            replay_executor,
-                            record_case=record_generated,
-                            update_certificate=lambda _cases: {"status": "collecting"},
-                        )
-                        replay_evidence_events.extend(active_execution.evidence_events)
-
-                    replay_execution = execute_paired_plan(
-                        ExperimentPlan(
-                            subject_id=str(candidate.get("candidate_identity") or identifier),
-                            contexts=tuple(candidate["replay_schedule"]["promotion_contexts"]),
-                            max_groups=scheduler.max_groups,
-                            statistical_budget=statistical_budget,
-                        ),
-                        replay_executor,
-                        record_case=record_generated,
-                        update_certificate=sequential_certificate.update,
-                    )
-                    replay_evidence_events.extend(replay_execution.evidence_events)
-                    if replay_evidence_events:
-                        # Replay evidence is canonical Core input, not a
-                        # driver-local promotion side channel.
-                        replay_step = engine.maintain(
-                            events=tuple(replay_evidence_events),
-                            subject_ids=(*engine.rule_states, *engine.relation_states),
-                        )
-                        maintenance_decisions.append({
-                            "operation": "REPLAY_OBSERVE",
-                            "observed": replay_step.observed,
-                            "assessment": replay_step.assessment,
-                        })
-                    # Newly executed verifier-owned cases are part of the
-                    # candidate evidence set in the same maintenance pass.
-                    # Rehydrate the append-only ledger before CEGIS so a
-                    # collecting proposal cannot depend on a later task to
-                    # observe its own replay evidence.
-                    case_values_for_cegis = hydrate_candidate_cases(store, candidate, candidate_evidence)
-                    candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
-                    candidate["replay_schedule"]["executed_context_count"] = len(generated_cases)
-                    candidate["replay_schedule"]["experiment_cost"] = float(candidate["replay_schedule"].get("experiment_cost", 0.0) + len(generated_cases))
-                    candidate["replay_schedule"]["promotion_contexts"] = []
-                    candidate["replay_schedule"]["synthesis_contexts"] = []
-                    candidate["replay_schedule"]["pending_contexts"] = []
+            # Formal replay is fail-closed here.  Node promotion evidence must
+            # come from the external experiment executor and verifier; the
+            # calibration-only FamilyEnvironment path is intentionally not
+            # available in this lifecycle transition.
             candidate["replay_schedule"]["experiment_cost"] = float(candidate["replay_schedule"].get("experiment_cost", 0.0))
             candidate["status"] = "collecting_evidence"
             candidate["synthesis_state"] = {
@@ -1766,6 +1657,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         outer_trials=args.outer_trials,
     )
     budgets = budget.parse_budget(json.loads(args.budgets) if args.budgets else None)
+    statistical_budget = StatisticalBudget()
     experiment_executor = _build_required_experiment_executor(
         getattr(args, "experiment_executor_command", None), out_dir,
     )
@@ -2147,7 +2039,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                     {
                         "schema_version": 2,
                         "event_id": f"formal-{task_id}-paired",
-                        "context": canonical_public_context(public_routing),
+                        "context": build_public_context(public_routing),
                         "assignment": {"interventions": {str(task_id): 1}, "propensity": 0.5, "design_id": "formal-verifier-paired-v2"},
                         "evidence_stream": "representative",
                         "evidence_role": "promotion_representative",
@@ -2190,6 +2082,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             practical_epsilon=practical_effect_threshold(
                 float((task_spec.get("measurement") or {}).get("min_improvement_percent", 0.0))
             ),
+            seed=int(item["outer_trial_index"]),
         )
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:

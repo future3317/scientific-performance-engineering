@@ -6,9 +6,8 @@ from pathlib import Path
 import hashlib
 import random
 from typing import Any, Mapping, Sequence
-import random
 
-from benchmark.harness import miniyaml, split
+from benchmark.harness import split
 from core.sequential_stats import minimum_all_successes
 from core.acre.budget import StatisticalBudget
 
@@ -97,7 +96,7 @@ class FamilyPairReplayExecutor:
         outcomes: dict[str, float] = {}
         gates_by_arm: dict[str, bool] = {}
         if self.left_family != self.right_family:
-            from benchmark.families import FAMILY_SPECS, InteractionOracle, CompositionSpec, FamilyInstance
+            from benchmark.families import InteractionOracle, CompositionSpec, FamilyInstance
             left_workload = context.get("left_workload", workload)
             right_workload = context.get("right_workload", workload)
             left = FamilyInstance(self.left_family, f"{self.left_family}-{context_id}", dict(left_workload))
@@ -208,7 +207,6 @@ class SynthesisAcquisitionScheduler:
     """Plan active/boundary contexts used to shrink the CEGIS version space."""
 
     def pending_contexts(self, family_id: str, *, seen_context_ids: set[str] | None = None, seed: int = 0) -> list[dict[str, Any]]:
-        from benchmark.families import family_views
         seen = {str(item) for item in (seen_context_ids or set())}
         from benchmark.families import family_surface
         surface, instances = family_surface(family_id, seed=seed)

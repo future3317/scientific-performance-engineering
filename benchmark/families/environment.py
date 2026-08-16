@@ -99,23 +99,13 @@ class FamilyEnvironment:
         from .catalog import FAMILY_SPECS, resolve_family_id
         try:
             family_spec = FAMILY_SPECS[resolve_family_id(self.family_id)]
-            try:
-                family_applicable = bool(family_spec.applicability(workload))
-            except (KeyError, TypeError, ValueError):
-                # A partial context is still sufficient to expose the family
-                # action policy (for example when computing an oracle bundle
-                # during a drift probe); missing parameters do not fabricate
-                # applicability truth.
-                family_applicable = not bool(workload)
             model = dict(family_spec.outcome_model)
         except (KeyError, TypeError, ValueError):
             family_spec = None
-            family_applicable = True
             model = {"baseline": 0.60, "preferred": 0.80, "mismatch": 0.35, "poison_penalty": 0.20}
         # FamilySpec owns the action semantics.  The environment only maps
         # persistent regime state to the declared policy, so Boundary,
         # Interaction, and Evolution cannot drift into separate action maps.
-        policy = dict(getattr(family_spec, "action_policy", {}) or {})
         shifted = any((
             state.runtime_version != "A",
             state.hardware_regime != "default",
@@ -126,7 +116,6 @@ class FamilyEnvironment:
         # action_policy is retained only as catalog metadata for migration;
         # no family default action is used as semantic truth.  Each declared
         # ActionSpec is evaluated through its own applicability/effect.
-        preferred = ""
         utility = float(model["baseline"])
         if deployed:
             # Evaluate the complete semantic bundle.  Selecting the first

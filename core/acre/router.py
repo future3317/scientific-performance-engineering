@@ -254,7 +254,6 @@ class ConservativeCausalRouter:
         if sum(self._tokens(spec) for spec in bundle) > self.token_budget:
             reasons.add("token_budget")
         if len(bundle) >= 3 and require_higher_order_certificate:
-            key = ":".join(sorted(spec.rule_id for spec in bundle))
             certificate = self._certificate(bundle, context, higher_order_certificates)
             if not isinstance(certificate, Mapping) or certificate.get("status") != "pairwise_certified":
                 reasons.add("higher_order_certificate_required")

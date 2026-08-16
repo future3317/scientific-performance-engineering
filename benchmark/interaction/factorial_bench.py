@@ -6,8 +6,8 @@ from core.acre.factorial import FactorialBlock, FactorialEngine, ThreeWayBlock, 
 from core.acre.relation import RelationIdentifier
 import random
 from benchmark.families import family_instances, resolve_family_id
-from benchmark.families.catalog import FAMILY_SPECS, CompositionSpec, InteractionOracle
-from core.acre.factorial import CANONICAL_RELATIONS, canonical_relation_label
+from benchmark.families.catalog import FAMILY_SPECS, InteractionOracle
+from core.acre.factorial import canonical_relation_label
 
 
 _CASES = {
