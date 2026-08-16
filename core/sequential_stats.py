@@ -29,7 +29,16 @@ def paired_repetition_interval(values: list[float], delta: float) -> tuple[float
     of one fixture; independence groups are the Bernoulli trials used by the
     promotion gate.
     """
-    return bounded_mean_interval(values, delta)
+    if not values or not 0.0 < delta < 1.0 or any(not -1.0 <= float(value) <= 1.0 for value in values):
+        raise ValueError("paired mean inputs must be non-empty, delta in (0,1), and values in [-1,1]")
+    # Repetitions inside one preregistered independence group are a fixed
+    # sample.  The anytime ledger is spent only across groups; applying the
+    # prefix allocation here as well would double-spend alpha and make a
+    # correctly powered replay fail systematically.
+    n = len(values)
+    mean = sum(float(value) for value in values) / n
+    radius = math.sqrt(2.0 * math.log(2.0 / float(delta)) / n)
+    return max(-1.0, mean - radius), min(1.0, mean + radius)
 
 
 def minimum_all_successes(p_min: float, delta: float, *, limit: int = 100_000) -> int:

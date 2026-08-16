@@ -29,9 +29,9 @@ gated on pilot calibration.
 
 ## Family source of truth
 
-The workload source of truth is now the Family catalog. The five pilot families
-(`compile`, `graph_cache`, `h2d_pipeline`, `checkpoint`, and `scalar_sync`)
-define parameter axes, interventions, and legal transformations. Existing
+The workload source of truth is now the Family catalog. All eleven canonical
+families define parameter axes, interventions, scientific policies, and legal
+transformations. Existing
 directories under `tasks/` remain materialized canonical anchors; task,
 BoundaryBench, InteractionBench, and evolution views refer back to the same
 family generator instead of maintaining separate synthetic workloads.
@@ -39,9 +39,10 @@ family generator instead of maintaining separate synthetic workloads.
 Each `FamilySpec` owns the applicability predicate and scientific truth used by
 all views. The 20 materialized tasks are reconstructable anchor instances via
 `reconstruct_anchor_instance`; their task metadata is only a projection. Run
-`python -m benchmark.families.consistency --surface-count 100` to check anchor,
+`python -m benchmark.families.consistency --surface-count 100` to check every
+family anchor,
 BoundaryBench, InteractionBench, and evolution lineage agreement. The pilot
-surface runner expands the same five families to 100--500 hidden contexts:
+surface runner expands the canonical families to 100--500 hidden contexts:
 
 ```bash
 python scripts/run_pilot_surface_experiments.py --surface-count 100 \

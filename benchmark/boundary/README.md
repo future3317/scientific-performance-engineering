@@ -1,10 +1,9 @@
 # ACRE-v0 BoundaryBench
 
 BoundaryBench reuses the canonical generators in `benchmark/families/`. It
-tests deterministic predicate synthesis after certified counterexamples in
-the five pilot families:
-
-- `compile`, `graph_cache`, `h2d_pipeline`, `checkpoint`, and `scalar_sync`.
+tests deterministic predicate synthesis after certified counterexamples across
+all canonical families. The five original families remain the first calibration
+set; the remaining families use the same FamilySpec contract.
 
 The historical names below remain calibration aliases for the original ACRE-v0
 tests; they do not define a second workload source:

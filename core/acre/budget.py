@@ -50,6 +50,11 @@ class StatisticalBudget:
             raise ValueError("lattice_size must be positive")
         return self.synth / lattice_size
 
+    @property
+    def replay_minimum_delta(self) -> float:
+        """Alpha consumed by the across-group promotion mixture gate."""
+        return self.mix
+
     def to_dict(self) -> dict[str, float]:
         return {
             "delta_total": float(self.delta_total),
@@ -57,6 +62,7 @@ class StatisticalBudget:
             "delta_group": self.group,
             "delta_mix": self.mix,
             "delta_validation": self.validation,
+            "replay_minimum_delta": self.replay_minimum_delta,
         }
 
 

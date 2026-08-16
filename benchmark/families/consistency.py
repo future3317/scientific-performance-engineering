@@ -11,7 +11,7 @@ from benchmark.harness import miniyaml
 from .catalog import FAMILY_SPECS, family_instances, family_views, resolve_family_id, transformation, poisoning_transformation, family_instance_digest
 
 
-PILOT_FAMILIES = ("compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync")
+PILOT_FAMILIES = tuple(sorted(FAMILY_SPECS))
 _CONTRACT_ALIASES = {
     "CONTRACT-COMPILER": "CONTRACT-COMPILER-CACHE",
     "CONTRACT-DATA-PIPELINE": "CONTRACT-DATA-PIPELINE",
@@ -75,8 +75,9 @@ def validate_cross_view_consistency(
     # pilot family with a different pilot family so every family participates.
     from benchmark.interaction.factorial_bench import generate_family_interaction_surface
 
-    for index, family_id in enumerate(PILOT_FAMILIES):
-        partner = PILOT_FAMILIES[(index + 1) % len(PILOT_FAMILIES)]
+    for family_id in PILOT_FAMILIES:
+        spec = FAMILY_SPECS[family_id]
+        partner = spec.legal_compositions[0].right_family if spec.legal_compositions else family_id
         surfaces = generate_family_interaction_surface((family_id, partner), count=min(surface_count, 128), seed=seed)
         left = {item.instance_id for item in family_instances(family_id, count=len(surfaces), seed=seed)}
         right = {item.instance_id for item in family_instances(partner, count=len(surfaces), seed=seed + 1)}

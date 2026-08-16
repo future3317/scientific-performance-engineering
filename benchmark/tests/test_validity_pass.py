@@ -77,7 +77,7 @@ def test_power_curve_realizes_requested_gamma_without_clipping() -> None:
 def test_higher_order_null_state_is_distinct_from_unresolved() -> None:
     from core.acre.factorial import ThreeWayBlock, estimate_higher_order
 
-    blocks = [ThreeWayBlock(str(index), {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}) for index in range(2048)]
+    blocks = [ThreeWayBlock(str(index), {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}, scientific_gates={arm: True for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}) for index in range(2048)]
     estimate = estimate_higher_order(blocks, practical_margin=0.05)
     # The formal certificate now uses the coverage-preserving Hoeffding bound;
     # a null point estimate need not be certified inside a narrow margin yet.

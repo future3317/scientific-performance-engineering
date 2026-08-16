@@ -28,6 +28,7 @@ Episode YAML format (miniyaml subset)::
 from __future__ import annotations
 
 import json
+import random
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -44,11 +45,12 @@ from core.models import TaskContext
 from core.models import identifier_digest, validate_identifier
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
+from core.acre.budget import StatisticalBudget
 
 # Episode replay uses a fixed, preregistered repetition budget. These are
 # performance-style observations, so identical measurements still retain the
 # bounded paired uncertainty required by the promotion contract.
-# The family lattice spends alpha over 264 preregistered contexts.  The
+# The family lattice spends alpha over 324 preregistered contexts.  The
 # episode fixture therefore needs enough paired repetitions for a positive
 # effect to remain certified at the resulting per-context delta; 512 leaves
 # the bounded interval crossing zero even for a noiseless fixture.
@@ -241,6 +243,10 @@ def promote_via_replay(
     build_manifest = _import_core_replay_build_manifest(core_repo)
     promoted: list[str] = []
     for index, candidate in enumerate(candidate_results):
+        if str(candidate.get("scope", "calibration")) == "formal":
+            # Formal promotion is external-verifier-only.  Synthetic family
+            # replay remains calibration evidence and cannot enter promotion.
+            continue
         if candidate.get("relation_id"):
             # Relation promotion requires a factorial contrast certificate; a
             # node replay cannot establish a pairwise causal relation.
@@ -285,7 +291,8 @@ def promote_via_replay(
             continue
         p_min = float(candidate.get("p_min", 0.8))
         delta = float(candidate.get("delta", 0.05))
-        minimum_groups = minimum_all_successes(p_min, delta) if p_min > 0.0 else 1
+        budget = StatisticalBudget(delta_total=delta)
+        minimum_groups = minimum_all_successes(p_min, budget.replay_minimum_delta) if p_min > 0.0 else 1
         if len({str(case.get("independence_group") or case.get("source_id") or case.get("case_id")) for case in cases}) < minimum_groups:
             # The pending scheduler will request more family contexts; a
             # partial candidate is never promoted merely because its current
@@ -676,11 +683,13 @@ def run_episode(
                             deployed = family_environment.evaluate(workload, (action_id,), environment_state)
                             baseline = family_environment.evaluate(workload, (), environment_state)
                             positive = deployed.utility > baseline.utility + float(record.get("epsilon", 0.0))
+                            noise_rng = random.Random(f"{scheduled_context.get('context_id', phase.get('index', 0))}|{record.get('seed', 0)}")
+                            shared_noise = [noise_rng.uniform(-0.01, 0.01) for _ in range(EPISODE_REPLAY_REPETITIONS)]
                             generated_cases.append({
                                 "case_id": f"EPISODE-{scheduled_context.get('context_id', phase.get('index', 0))}",
                                 "context": context,
-                                "intervention_measurements": [float(deployed.utility)] * EPISODE_REPLAY_REPETITIONS,
-                                "baseline_measurements": [float(baseline.utility)] * EPISODE_REPLAY_REPETITIONS,
+                                "intervention_measurements": [max(-1.0, min(1.0, float(deployed.utility) + noise)) for noise in shared_noise],
+                                "baseline_measurements": [max(-1.0, min(1.0, float(baseline.utility) + noise)) for noise in shared_noise],
                                 "control_measured": True,
                                 "higher_is_better": True,
                                 "utility_scale": 1.0,
@@ -690,6 +699,7 @@ def run_episode(
                                 "same_fixture_id": str(scheduled_context.get("context_id", phase.get("index", 0))),
                                 "independence_group": str(scheduled_context.get("independence_group", phase.get("index", 0))),
                                 "query_type": "representative" if positive else "active_query",
+                                "sampling_model": "synthetic_bounded_noise_v1",
                             })
                         record["cases"] = generated_cases
                         # Episode calibration uses the same harness-owned CEGIS

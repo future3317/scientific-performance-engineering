@@ -2,6 +2,7 @@
 """Negative tests for the P1 condition, attestation, and evolution boundaries."""
 
 import json
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -11,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmark.harness import conditions, evolution
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from core.models import identifier_digest
+from core.mutation_journal import MutationJournal
 from scripts.render_skill_view import render_skill_view
 
 
@@ -54,7 +56,15 @@ def main() -> None:
         conditions.materialize_condition("D", bundle, d_store)
         relation_dir = d_store / "relations"
         relation_dir.mkdir(parents=True, exist_ok=True)
-        (relation_dir / "relation.json").write_text("{}\n", encoding="utf-8")
+        relation_path = relation_dir / "relation.json"
+        relation_path.write_text("{}\n", encoding="utf-8")
+        MutationJournal(d_store / "evolution" / "mutation_journal.jsonl").append(
+            "add_v2_spec",
+            "relation",
+            version=1,
+            artifact_path="relations/relation.json",
+            digest=hashlib.sha256(relation_path.read_bytes()).hexdigest(),
+        )
         ok, errors = conditions.verify_condition_policy(d_store)
         assert ok, errors
         conditions.refresh_attestation(d_store)

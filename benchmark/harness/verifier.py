@@ -380,26 +380,32 @@ def verify_task(
     activation_fn = getattr(benchmark_module, "run_activation_evidence", None)
     if callable(activation_fn):
         try:
-            result["activation"] = runner.call_benchmark_fn(activation_fn, solution=solution, fixtures=fixtures)
+            baseline_solution = runner.call_benchmark_fn(benchmark_module.load_solution, path=str(baseline_path), device=device)
+            observed = runner.call_benchmark_fn(
+                activation_fn,
+                solution=solution,
+                baseline_solution=baseline_solution,
+                fixtures=fixtures,
+            )
+            if not isinstance(observed, dict):
+                raise ValueError("run_activation_evidence must return candidate_metrics and baseline_metrics")
+            candidate_metrics = observed.get("candidate_metrics", observed.get("metrics"))
+            baseline_metrics = observed.get("baseline_metrics")
+            if not isinstance(candidate_metrics, dict) or not isinstance(baseline_metrics, dict):
+                raise ValueError("activation evidence must include contrastive candidate and baseline traces")
+            from benchmark.families import FAMILY_SPECS, resolve_family_id
+            from benchmark.families.activation import classify_activation
+            family_spec = FAMILY_SPECS[resolve_family_id(str(spec.get("family_id", spec.get("family", ""))))]
+            result["activation"] = classify_activation(
+                family_spec.family_id, family_spec.action_specs, candidate_metrics, baseline_metrics,
+            )
         except Exception as exc:
             result["activation"] = {"status": "unavailable", "error": repr(exc)}
     else:
-        # S4 may be supplied by the executable solution through a narrow
-        # instrumentation hook.  Classification remains harness-owned and
-        # requires exactly one registered repair action; no family default is
-        # used as a semantic label.
-        metrics_fn = getattr(solution, "activation_metrics", None)
-        if callable(metrics_fn):
-            try:
-                metrics = runner.call_benchmark_fn(metrics_fn, fixtures=fixtures)
-                from benchmark.families import FAMILY_SPECS, resolve_family_id
-                family_spec = FAMILY_SPECS[resolve_family_id(str(spec.get("family_id", spec.get("family", ""))))]
-                from benchmark.families.activation import classify_activation
-                result["activation"] = classify_activation(family_spec.family_id, family_spec.action_specs, metrics if isinstance(metrics, dict) else {})
-            except Exception as exc:
-                result["activation"] = {"status": "unavailable", "error": repr(exc)}
-        else:
-            result["activation"] = {"status": "not_declared", "required": True}
+        # Worker-provided activation hooks are not evidence.  A task without
+        # benchmark-owned instrumentation is explicitly unavailable for
+        # formal causal attribution.
+        result["activation"] = {"status": "not_declared", "required": True}
 
     # --- S5: paired interleaved performance -----------------------------------
     measurement_cfg = spec["measurement"]

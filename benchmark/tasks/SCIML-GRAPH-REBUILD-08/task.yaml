@@ -39,7 +39,7 @@ generator_family_id: GEN-CRYSTAL_SAMPLING
 oracle_fix_pattern_id: FIX-SCIML-GRAPH-REBUILD-08
 scientific_contract_id: CONTRACT-CRYSTAL-VALIDITY
 difficulty_tier: medium
-workspace_ast_skeleton_hash: a44bad6c2089250dd8d461a424ae90151852cd1b270e5142bf0b6799d5af2f6e
+workspace_ast_skeleton_hash: "ae932a9a79318368b1c4ed651e7cb4e36b76d19e3a8780d2d203e75f0a1d3894"
 family_id: crystal_sampling
 anchor_instance_id: SCIML-GRAPH-REBUILD-08
 family_parameters:

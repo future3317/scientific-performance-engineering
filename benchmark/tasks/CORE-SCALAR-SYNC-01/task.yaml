@@ -39,7 +39,7 @@ generator_family_id: GEN-TRAINING_LOOP_OVERHEAD
 oracle_fix_pattern_id: FIX-CORE-SCALAR-SYNC-01
 scientific_contract_id: CONTRACT-TRAINING-LOOP
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "2d719be510885da5ddc1b0fcc8ee44c3297879f057a661062bcfe412da90d1f9"
+workspace_ast_skeleton_hash: "0e246e9808840dd3062e963af2249a3b63222a5d5a046216643785b0fdf6dbec"
 family_id: scalar_sync
 anchor_instance_id: CORE-SCALAR-SYNC-01
 family_parameters:

@@ -126,11 +126,9 @@ def refresh_attestation(condition_dir: str | Path) -> dict[str, Any]:
         previous = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid condition manifest: {exc}") from exc
-    if str(previous.get("condition", "")).upper() == "D":
-        from core.mutation_journal import MutationJournal
-        MutationJournal(condition_dir / "evolution" / "mutation_journal.jsonl").append(
-            "update_state", "condition-store", artifact_path="condition_manifest.json"
-        )
+    # condition_manifest.json is an attestation, not a governed semantic
+    # artifact.  It is refreshed from the mutation journal but is never added
+    # to the semantic mutation chain.
     return _attest(
         condition_dir,
         str(previous["condition"]),
@@ -192,6 +190,9 @@ def materialize_condition(
         registry = out_dir / "registry" / "rules.json"
         if not registry.is_file():
             registry.write_text(json.dumps({"schema_version": 1, "rules": []}, indent=2) + "\n", encoding="utf-8")
+        from core.mutation_journal import MutationJournal
+        journal = MutationJournal(out_dir / "evolution" / "mutation_journal.jsonl")
+        journal.initialize_genesis(out_dir)
 
     policy_file = out_dir / "injection_policy.json"
     policy_file.write_text(json.dumps(policy, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

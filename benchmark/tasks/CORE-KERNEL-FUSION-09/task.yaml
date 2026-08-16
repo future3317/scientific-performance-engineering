@@ -39,7 +39,7 @@ generator_family_id: GEN-COMPILER
 oracle_fix_pattern_id: FIX-CORE-KERNEL-FUSION-09
 scientific_contract_id: CONTRACT-COMPILER-CACHE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "8864f82ff20599ed8f784e8b3ff7d0eb893aa335b224d7c6b61c9d25f0420724"
+workspace_ast_skeleton_hash: "ab8c1c293c3242e459b4600a2468b52b6a950035af414d2644d6b62690118071"
 family_id: compile
 anchor_instance_id: CORE-KERNEL-FUSION-09
 family_parameters:

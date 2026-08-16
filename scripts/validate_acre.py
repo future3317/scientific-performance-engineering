@@ -16,7 +16,7 @@ from benchmark.boundary.families import family_cases, run_boundary_family
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
 from benchmark.interaction.factorial_bench import run_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
 from benchmark.interaction.router_bench import run_router_benchmark
-from benchmark.families import family_predicate_grammar
+from benchmark.families import family_predicate_grammar, PILOT_FAMILIES
 from core.acre.predicates import PredicateGrammar, SYNTHESIZER_VERSION
 
 
@@ -62,7 +62,7 @@ def validate_method_ownership(root: Path) -> list[str]:
 def validate(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     errors.extend(validate_method_ownership(root))
-    for family in ("compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"):
+    for family in PILOT_FAMILIES:
         try:
             grammar = PredicateGrammar.from_dict(family_predicate_grammar(family))
         except (KeyError, ValueError) as exc:
@@ -73,7 +73,7 @@ def validate(root: Path = ROOT) -> list[str]:
     # Canonical families are the production BoundaryBench views.  The two
     # historical names remain covered by benchmark/boundary/test_cegis.py as
     # compatibility aliases, not as a second source of workload semantics.
-    for family in ("compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"):
+    for family in PILOT_FAMILIES:
         pools = family_cases(family)
         seen: set[str] = set()
         for pool_name, pool in pools.items():

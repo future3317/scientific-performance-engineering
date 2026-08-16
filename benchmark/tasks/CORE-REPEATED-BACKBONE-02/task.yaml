@@ -39,7 +39,7 @@ generator_family_id: GEN-REPEATED_COMPUTE
 oracle_fix_pattern_id: FIX-CORE-REPEATED-BACKBONE-02
 scientific_contract_id: CONTRACT-REPEATED-COMPUTE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "28b9f940356b1e6147c0fe6a28539b223f7b9307af3913c8bc82291ed10adb37"
+workspace_ast_skeleton_hash: "0aa28077e1daf43705f1528e38b3de600e6c16b999102aaf1c83d57340d09516"
 family_id: repeated_compute
 anchor_instance_id: CORE-REPEATED-BACKBONE-02
 family_parameters:

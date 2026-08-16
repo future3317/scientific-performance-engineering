@@ -39,7 +39,7 @@ generator_family_id: GEN-EQUIVARIANT_HEAD
 oracle_fix_pattern_id: FIX-SCIML-EQUIV-RECOMPUTE-06
 scientific_contract_id: CONTRACT-EQUIVARIANCE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "19da1b12011670538e7dbfda7fa135c60be7e8019d21f724ae7c7f6643299d30"
+workspace_ast_skeleton_hash: "35d0f33097b0643faad3ac39666e1560f08960931b69b2f6009895ae3f393d25"
 family_id: equivariant_head
 anchor_instance_id: SCIML-EQUIV-RECOMPUTE-06
 family_parameters:

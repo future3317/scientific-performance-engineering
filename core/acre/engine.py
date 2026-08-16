@@ -246,7 +246,7 @@ class AcreEngine:
             normalized_residual=float(certificate.get("normalized_residual", 0.0)),
             raw_residual=float(certificate.get("raw_residual", 0.0)),
             status=str(certificate["status"]),
-            scientific_arm_gates={str(key): bool(value) for key, value in (certificate.get("scientific_arm_gates") or {arm: True for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}).items()},
+            scientific_arm_gates={str(key): bool(value) for key, value in (certificate.get("scientific_arm_gates") or {}).items()},
             estimator_version=str(certificate.get("estimator_version", "higher-order-cs-v1")),
         )
         import hashlib

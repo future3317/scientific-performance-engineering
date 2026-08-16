@@ -610,7 +610,7 @@ def test_replay_default_gate_reports_reachable_group_count() -> None:
         "scientific_ok": True, "quality_ok": True,
     }
     result = evaluate_cases([case], epsilon=0.0, p_min=0.8, delta=0.05)
-    assert result["minimum_replay_groups"] == minimum_all_successes(0.8, 0.05) == 29
+    assert result["minimum_replay_groups"] == 36
     assert result["outcome"] == "failed"
 
 

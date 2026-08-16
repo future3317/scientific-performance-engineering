@@ -10,6 +10,7 @@ import random
 
 from benchmark.harness import miniyaml, split
 from core.sequential_stats import minimum_all_successes
+from core.acre.budget import StatisticalBudget
 
 
 class FamilyReplayExecutor:
@@ -124,10 +125,11 @@ class FamilyPairReplayExecutor:
 class PromotionReplayScheduler:
     """Select representative contexts for promotion replay only."""
 
-    def __init__(self, *, p_min: float = 0.8, delta: float = 0.05) -> None:
+    def __init__(self, *, p_min: float = 0.8, delta: float = 0.05, statistical_budget: StatisticalBudget | None = None) -> None:
         self.p_min = float(p_min)
         self.delta = float(delta)
-        self.minimum_groups = minimum_all_successes(self.p_min, self.delta) if self.p_min > 0.0 else 1
+        self.statistical_budget = statistical_budget or StatisticalBudget(delta_total=self.delta)
+        self.minimum_groups = minimum_all_successes(self.p_min, self.statistical_budget.replay_minimum_delta) if self.p_min > 0.0 else 1
         self.max_groups = max(self.minimum_groups * 3, self.minimum_groups + 8)
 
     def pending_contexts(
@@ -208,7 +210,13 @@ class SynthesisAcquisitionScheduler:
     def pending_contexts(self, family_id: str, *, seen_context_ids: set[str] | None = None, seed: int = 0) -> list[dict[str, Any]]:
         from benchmark.families import family_views
         seen = {str(item) for item in (seen_context_ids or set())}
-        pools = family_views(family_id, count=24, seed=seed)
+        from benchmark.families import family_surface
+        surface, instances = family_surface(family_id, seed=seed)
+        by_id = {item.instance_id: item for item in instances}
+        # The frozen synthesis pool is the complete preregistered acquisition
+        # surface.  A count-limited family view silently exhausted the pool
+        # before an underidentified version space could be resolved.
+        pools = {"active_query_pool": [by_id[item] for item in surface.synthesis_ids]}
         return [
             {
                 "context_id": item.instance_id,
@@ -417,11 +425,49 @@ def execute_required_experiments(
             results.append(result)
             continue
         gates = result.get("scientific_gates")
-        if not isinstance(gates, Mapping) or any(str(arm) not in gates or gates[str(arm)] is not True for arm in arms):
+        if not isinstance(gates, Mapping) or any(str(arm) not in gates or not isinstance(gates[str(arm)], bool) for arm in arms):
             result["status"] = "blocked"
-            result["reason"] = "scientific gates are missing or failed"
+            result["reason"] = "scientific gates are missing for one or more executed arms"
             results.append(result)
             continue
+        # Completeness is separate from deployability: a failed joint arm is
+        # valid evidence for semantic_conflict when every arm was executed.
+        from core.acre.factorial import FactorialBlock, ThreeWayBlock, estimate_higher_order
+        if str(result.get("experiment_type", payload.get("experiment_type", ""))) == "pair_factorial":
+            evidence = result.get("arm_evidence")
+            blocks = result.get("blocks")
+            if isinstance(blocks, list):
+                block_values = blocks
+            else:
+                block_values = [evidence]
+            typed_blocks = []
+            for index, block in enumerate(block_values):
+                if not isinstance(block, Mapping) or not all(arm in block for arm in arms):
+                    result["status"] = "blocked"
+                    result["reason"] = "pair factorial evidence lacks a complete arm block"
+                    break
+                outcomes = {str(arm): float(block[arm].get("utility", block[arm]) if isinstance(block[arm], Mapping) else block[arm]) for arm in arms}
+                block_gates = {str(arm): bool(block[arm].get("scientific_ok", gates[str(arm)])) if isinstance(block[arm], Mapping) else bool(gates[str(arm)]) for arm in arms}
+                typed_blocks.append(FactorialBlock(f"{experiment_id}-{index}", outcomes, scientific_gates=block_gates))
+            if result.get("status") == "blocked":
+                results.append(result); continue
+            from core.acre.factorial import FactorialEngine
+            engine = FactorialEngine(delta=float(result.get("delta", 0.05)), practical_margin=float(result.get("practical_margin", 0.05)), look_count=max(1, len(typed_blocks)))
+            for block in typed_blocks:
+                engine.add_block(block)
+            estimate = engine.estimate()
+            result["inference"] = {"decision": estimate.decision, "gamma": estimate.gamma, "gamma_lcb": estimate.gamma_lcb, "gamma_ucb": estimate.gamma_ucb, "contrast_intervals": dict(estimate.contrast_intervals)}
+        elif str(result.get("experiment_type", payload.get("experiment_type", ""))) == "three_way":
+            evidence = result.get("arm_evidence")
+            if not isinstance(evidence, Mapping) or any(arm not in evidence for arm in arms):
+                result["status"] = "blocked"
+                result["reason"] = "three-way evidence lacks a complete arm block"
+                results.append(result); continue
+            cells = {str(arm): float(evidence[arm].get("utility", evidence[arm]) if isinstance(evidence[arm], Mapping) else evidence[arm]) for arm in arms}
+            block = ThreeWayBlock(str(experiment_id), cells, scientific_gates={str(arm): bool(gates[str(arm)]) for arm in arms})
+            estimate = estimate_higher_order([block], delta=float(result.get("delta", 0.05)), practical_margin=float(result.get("practical_margin", 0.05)))
+            result["inference"] = {"status": estimate.status, "raw_residual": estimate.raw_residual, "normalized_residual": estimate.normalized_residual, "residual_lcb": estimate.residual_lcb, "residual_ucb": estimate.residual_ucb}
+        result["experiment_complete"] = True
         results.append(result)
     return results
 

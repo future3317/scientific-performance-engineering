@@ -51,8 +51,8 @@ def test_activation_requires_exactly_one_action() -> None:
         "reuse_compile_cache": {"activation_validator": "compile_cache_guard_hit"},
         "stabilize_dynamic_guards": {"activation_validator": "compile_dynamic_guard_stability"},
     }
-    assert classify_activation("compile", specs, {"compile_cache_hit": True})["status"] == "passed"
-    assert classify_activation("compile", specs, {"compile_cache_hit": True, "dynamic_guard_stable": True})["status"] == "rejected"
+    assert classify_activation("compile", specs, {"compile_cache_hit": True}, {"compile_cache_hit": False})["status"] == "passed"
+    assert classify_activation("compile", specs, {"compile_cache_hit": True, "dynamic_guard_stable": True}, {"compile_cache_hit": False, "dynamic_guard_stable": False})["status"] == "rejected"
 
 
 def test_active_query_is_synthesis_role_not_promotion_role() -> None:

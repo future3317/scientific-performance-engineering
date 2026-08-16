@@ -26,7 +26,7 @@ class Mutation:
     entry_digest: str = ""
 
     def __post_init__(self) -> None:
-        if self.operation not in {"add_evidence", "add_v2_spec", "update_state", "activate_registry", "retire_revision"}:
+        if self.operation not in {"genesis", "add_evidence", "add_v2_spec", "update_state", "activate_registry", "retire_revision"}:
             raise ValueError("unsupported mutation operation")
         validate_identifier(self.subject_id, "mutation subject_id")
         if self.version is not None and self.version < 1:
@@ -51,6 +51,22 @@ class MutationJournal:
             handle.write(json.dumps(asdict(mutation), sort_keys=True, ensure_ascii=False) + "\n")
         return mutation
 
+    def initialize_genesis(self, store: str | Path) -> Mutation:
+        """Record the attested baseline before any governed mutation exists."""
+        if self.entries():
+            raise ValueError("mutation journal genesis already exists")
+        root = Path(store)
+        files: dict[str, str] = {}
+        for managed in (root / "rules", root / "relations", root / "registry"):
+            if not managed.exists():
+                continue
+            for artifact in managed.rglob("*"):
+                if artifact.is_file():
+                    files[str(artifact.relative_to(root)).replace("\\", "/")] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        detail = json.dumps({"kind": "baseline_digest", "files": files}, sort_keys=True, separators=(",", ":"))
+        baseline_digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        return self.append("genesis", "condition-store", digest=baseline_digest, operation_detail=detail)
+
     def entries(self) -> tuple[Mutation, ...]:
         if not self.path.is_file():
             return ()
@@ -66,7 +82,11 @@ class MutationJournal:
     def verify(self) -> None:
         """Verify append order and subject/version consistency."""
         previous = ""
-        for entry in self.entries():
+        entries = self.entries()
+        # Standalone lifecycle tests may use a journal without a store
+        # baseline.  Store-diff verification below is the governed path that
+        # requires a genesis record.
+        for entry in entries:
             if entry.previous_digest != previous:
                 raise ValueError("mutation journal chain is inconsistent")
             payload = {"operation": entry.operation, "subject_id": entry.subject_id, "version": entry.version, "artifact_path": entry.artifact_path, "digest": entry.digest, "old_digest": entry.old_digest, "operation_detail": entry.operation_detail, "previous_digest": entry.previous_digest, "timestamp": entry.timestamp}
@@ -79,6 +99,7 @@ class MutationJournal:
         """Verify that journaled artifact digests match the current store."""
         root = Path(store)
         self.verify()
+        entries = self.entries()
         for entry in self.entries():
             if entry.artifact_path and not entry.digest:
                 raise ValueError(f"journaled artifact is missing digest: {entry.artifact_path}")
@@ -114,11 +135,22 @@ class MutationJournal:
         # The journal is authoritative for the governed store surfaces.  A
         # regular JSON artifact under these directories that has no journal
         # entry is an unrecorded mutation, not harmless bookkeeping.
+        baseline_files: set[str] = set()
+        entries = self.entries()
+        if entries and entries[0].operation == "genesis" and entries[0].operation_detail:
+            try:
+                baseline_files = set(json.loads(entries[0].operation_detail).get("files", {}))
+                baseline_payload = json.loads(entries[0].operation_detail)
+                expected_baseline = hashlib.sha256(json.dumps(baseline_payload.get("files", {}), sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                if entries[0].digest != expected_baseline:
+                    raise ValueError("mutation journal genesis digest is invalid")
+            except (TypeError, json.JSONDecodeError):
+                raise ValueError("mutation journal genesis is invalid")
         journaled = {
             str(Path(entry.artifact_path)).replace("\\", "/")
             for entry in self.entries()
             if entry.artifact_path
-        }
+        } | baseline_files
         managed_roots = (root / "rules", root / "relations", root / "registry")
         for managed_root in managed_roots:
             if not managed_root.exists():

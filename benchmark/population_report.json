@@ -504,7 +504,7 @@
       "workload": {
         "neighbor_count": 12,
         "sample_count": 24,
-        "geometry_variation": 0.3,
+        "geometry_variation": 0.7,
         "fixture_index": 0,
         "seed": 0
       }

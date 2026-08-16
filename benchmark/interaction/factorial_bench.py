@@ -139,7 +139,10 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             generated: list[FactorialBlock] = []
             for block_index in range(max_blocks):
                 outcomes = {arm: max(-1.0, min(1.0, float(value) + rng.uniform(-0.02, 0.02))) for arm, value in context_values.items()}
-                gates = dict(surface.get("scientific_gates") or {arm: True for arm in ("00", "10", "01", "11")})
+                gates = surface.get("scientific_gates")
+                if not isinstance(gates, dict) or set(gates) != {"00", "10", "01", "11"}:
+                    raise ValueError("family interaction surface must provide explicit gates for every arm")
+                gates = dict(gates)
                 generated.append(FactorialBlock(f"{surface['surface_id']}-{context_name}-{block_index}", outcomes, gates))
             generated_by_context[context_name] = generated
         chosen = None
@@ -289,7 +292,11 @@ def run_higher_order_benchmark(*, count: int = 20, seed: int = 7, blocks: tuple[
         chosen = None
         estimates = []
         for block_count in blocks:
-            sample = [ThreeWayBlock(f"three-{index}-{j}", {arm: max(-1.0, min(1.0, value + rng.uniform(-0.01, 0.01))) for arm, value in latent.items()}) for j in range(block_count)]
+            sample = [ThreeWayBlock(
+                f"three-{index}-{j}",
+                {arm: max(-1.0, min(1.0, value + rng.uniform(-0.01, 0.01))) for arm, value in latent.items()},
+                scientific_gates={arm: True for arm in ("000", "001", "010", "011", "100", "101", "110", "111")},
+            ) for j in range(block_count)]
             estimate = estimate_higher_order(sample, delta=0.05, look_count=len(blocks), practical_margin=0.05)
             estimates.append({"blocks": block_count, "raw_residual": estimate.raw_residual, "normalized_residual": estimate.normalized_residual, "residual_lcb": estimate.residual_lcb, "residual_ucb": estimate.residual_ucb, "status": estimate.status})
             if chosen is None and estimate.status != "unresolved":

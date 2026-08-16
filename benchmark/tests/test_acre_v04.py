@@ -71,7 +71,7 @@ def test_factorial_estimate_exposes_independent_contrast_intervals():
 
 
 def test_higher_order_estimate_reports_normalized_residual():
-    blocks = [ThreeWayBlock(str(i), {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}) for i in range(8)]
+    blocks = [ThreeWayBlock(str(i), {arm: 0.0 for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}, scientific_gates={arm: True for arm in ("000", "001", "010", "011", "100", "101", "110", "111")}) for i in range(8)]
     estimate = estimate_higher_order(blocks)
     assert estimate.raw_residual == 0.0
     assert estimate.normalized_residual == 0.0
@@ -103,10 +103,10 @@ def test_environment_transformations_persist_until_revalidated():
     environment = FamilyEnvironment("compile")
     state = state.apply({"kind": "software", "parameters": {"to_runtime": "B"}})
     drifted = environment.evaluate({}, (), state)
-    assert drifted.oracle_bundle == ("revalidate_compile_cache",)
+    assert drifted.oracle_bundle == ()
     recovered = state.apply({"kind": "revalidation", "parameters": {}})
     stable = environment.evaluate({}, (), recovered)
-    assert stable.oracle_bundle == ("reuse_compile_cache",)
+    assert stable.oracle_bundle == ()
 
 
 def test_interaction_power_curve_crosses_effect_strength_and_noise():

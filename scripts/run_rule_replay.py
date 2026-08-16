@@ -205,7 +205,10 @@ def evaluate_cases(
     upper_confidence_bound = mean_effect + 1.96 * standard_error
     utility_effect_lcb, utility_effect_ucb = bounded_mean_interval(effects, budget.mix)
     promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), budget.mix)
-    minimum_replay_groups = minimum_all_successes(p_min, delta) if p_min > 0.0 else 1
+    # The mixture gate owns the across-group alpha component.  Do not reuse
+    # the total delta here: the fixed-sample repetition interval and the
+    # mixture CS are separate entries in the same preregistered ledger.
+    minimum_replay_groups = minimum_all_successes(p_min, budget.replay_minimum_delta) if p_min > 0.0 else 1
     outcome = "passed" if (
         scientific_ok
         and mean_effect > epsilon
@@ -234,6 +237,7 @@ def evaluate_cases(
         "posterior_probability": posterior_probability,
         "promotion_probability_lower_bound": promotion_probability_lower_bound,
         "minimum_replay_groups": minimum_replay_groups,
+        "replay_minimum_delta": budget.replay_minimum_delta,
         "replay_groups_sufficient": len(effects) >= minimum_replay_groups,
         "confidence_method": "beta-binomial-mixture-e-process",
         "scientific_gates_passed": scientific_ok,

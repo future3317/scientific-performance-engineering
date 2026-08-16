@@ -33,7 +33,7 @@ from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier, ActionSpec, RawRealizationRecord, RealizationRecord
 from core.sequential_stats import bounded_mean_interval, minimum_all_successes
-from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold
+from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold, utility_effect
 from scripts.run_rule_replay import evaluate_cases
 from core.acre.cegis import synthesize_applicability, _case_effect_interval
 from core.acre.budget import StatisticalBudget
@@ -353,7 +353,9 @@ def semantic_action_spec(
         action = ActionSpec(
             action_id=str(action_id),
             family=resolved_family,
-            parameters=dict(proposal.get("intervention") or {}),
+            # The source patch is recorded only by RawRealizationRecord.  A
+            # reusable ActionSpec contains registry-owned semantic parameters.
+            parameters=dict(family_spec.action_specs[str(action_id)].get("parameters") or {}),
             scientific_policy_ref=str(family_spec.action_specs[str(action_id)].get("scientific_policy_ref", family_spec.scientific_contract_id)),
             activation_validator=str(family_spec.action_specs[str(action_id)].get("activation_validator", "")),
             realization_interface=str(family_spec.action_specs[str(action_id)].get("realization_interface", "source_patch")),
@@ -383,7 +385,7 @@ def semantic_action_spec(
             action = ActionSpec(
                 action_id=action.action_id,
                 family=action.family,
-                parameters=dict(action.parameters),
+                parameters=dict(metadata.get("parameters") or {}),
                 preconditions=dict(action.preconditions),
                 preserves=list(action.preserves),
                 risk_class=action.risk_class,
@@ -392,7 +394,7 @@ def semantic_action_spec(
                 activation_validator=str(metadata.get("activation_validator", "")),
                 realization_interface=str(metadata.get("realization_interface", "source_patch")),
             )
-    return {"action": action.action_id, "action_id": action.action_id, "family": action.family, "parameters": dict(action.parameters), "preconditions": dict(action.preconditions), "preserves": list(action.preserves), "risk_class": action.risk_class}
+    return action.canonical_dict()
 
 
 def persist_collecting_proposals(
@@ -467,6 +469,7 @@ def persist_collecting_proposals(
             "realization": realization,
             "expected_mechanism": str(proposal.get("expected_mechanism") or proposal.get("hypothesis") or "task-local performance mechanism"),
             "status": "collecting_evidence",
+            "scope": str(existing.get("scope") or ("formal" if family_id else "calibration")),
             "p_min": 0.8,
             "delta": 0.05,
             "cases": sorted(set(str(item) for item in existing.get("cases", []) if isinstance(item, str)) | set(case_ids)),
@@ -685,6 +688,26 @@ def _prepare_worker_root(
     if skill_view is not None:
         shutil.copytree(skill_view, worker_root / "skill_view")
     return worker_root
+
+
+def _build_required_experiment_executor(command_template: str | None, root: Path, timeout: float = 900.0):
+    """Create the explicit external experiment callback used by formal D."""
+    if not command_template:
+        return None
+    def execute(request: Mapping[str, Any]) -> dict[str, Any]:
+        with tempfile.TemporaryDirectory(dir=str(root)) as directory:
+            work = Path(directory)
+            request_path, result_path = work / "request.json", work / "result.json"
+            request_path.write_text(json.dumps(dict(request), ensure_ascii=False), encoding="utf-8")
+            command = command_template.format(request_json=shlex.quote(str(request_path)), result_json=shlex.quote(str(result_path)), work_root=shlex.quote(str(work)))
+            completed = subprocess.run(command, shell=True, cwd=str(root), capture_output=True, text=True, timeout=timeout)
+            if completed.returncode != 0 or not result_path.is_file():
+                return {"status": "blocked", "reason": "external experiment executor failed", "execution_source": "external_executor", "stderr": completed.stderr[-2000:]}
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return {"status": "blocked", "reason": "external experiment result must be an object", "execution_source": "external_executor"}
+            return payload
+    return execute
 
 
 def _verify_baseline(
@@ -1042,7 +1065,7 @@ def post_task_update(
                     pair_executor = FamilyPairReplayExecutor(relation_family, left_action, right_action, right_family=str(endpoint_families["right"]))
                     def block_executor(_context: Mapping[str, Any], *, context_id: str) -> list[Any]:
                         from core.acre.factorial import FactorialBlock
-                        return [FactorialBlock(f"{context_id}-{index}", item.get("outcomes", item), scientific_gates=item.get("scientific_gates", {arm: True for arm in ("00", "10", "01", "11")})) for index, item in enumerate(pair_executor.execute(_context.get("workload", _context), context_id=context_id))]
+                        return [FactorialBlock(f"{context_id}-{index}", item.get("outcomes", item), scientific_gates=item["scientific_gates"]) for index, item in enumerate(pair_executor.execute(_context.get("workload", _context), context_id=context_id))]
                     relation_schedule = relation_scheduler.execute(
                         candidate, relation_family,
                         block_executor=block_executor,
@@ -1326,7 +1349,11 @@ def post_task_update(
             # Pending representative contexts are executable evidence, not a
             # promise exposed to the next worker.  The family executor uses
             # the harness-resolved ActionSpec and the Core paired-plan API.
-            if candidate["replay_schedule"]["pending_contexts"] and isinstance(candidate.get("intervention"), dict):
+            if (
+                candidate["replay_schedule"]["pending_contexts"]
+                and isinstance(candidate.get("intervention"), dict)
+                and getattr(args, "executor_command", None)
+            ):
                 from benchmark.formal.schedule import SyntheticFamilyExecutor
                 from core.acre.experiments import ExperimentPlan, ReplaySequentialCertificate, execute_paired_plan
                 family_name = str(family_id or "compile")
@@ -1439,7 +1466,7 @@ def post_task_update(
             synthesized = synthesize_applicability(
                 case_values_for_cegis,
                 family_id=family_id,
-                delta=statistical_budget.synth,
+                statistical_budget=statistical_budget,
                 epsilon_true=float(practical_epsilon),
                 epsilon_false=0.0,
                 require_identified=True,
@@ -1739,6 +1766,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         outer_trials=args.outer_trials,
     )
     budgets = budget.parse_budget(json.loads(args.budgets) if args.budgets else None)
+    experiment_executor = _build_required_experiment_executor(
+        getattr(args, "experiment_executor_command", None), out_dir,
+    )
     fingerprint = capture_fingerprint()
     campaign = {
         "schema_version": 1,
@@ -1942,7 +1972,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             # Router-owned requests are consumed by the harness.  A formal
             # campaign without an external executable callback remains
             # explicitly blocked; it is never replaced by synthetic replay.
-            result["required_experiments"] = schedule.execute_required_experiments(required_requests, executor=None)
+            result["required_experiments"] = schedule.execute_required_experiments(required_requests, executor=experiment_executor)
         result.setdefault("cost", {}).update({
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
@@ -2104,6 +2134,35 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         pass
                 except (OSError, ValueError, TypeError) as exc:
                     budget_errors.append(f"causal intervention realization failed: {exc}")
+        if str(item["condition"]) == "D" and causal_result is not None and control_result is not None:
+            # The immutable verifier's paired outcome is fed back into the
+            # canonical lifecycle.  Worker result JSON is never treated as an
+            # EvidenceEvent source.
+            measurement = causal_result.get("measurement", {}) if isinstance(causal_result.get("measurement"), dict) else {}
+            control_measurement = control_result.get("measurement", {}) if isinstance(control_result.get("measurement"), dict) else {}
+            on_runs, off_runs = list(measurement.get("candidate_runs", [])), list(control_measurement.get("candidate_runs", []))
+            if on_runs and len(on_runs) == len(off_runs):
+                effects = [utility_effect(float(on), float(off), higher_is_better=bool(measurement.get("higher_is_better", False)), log_scale=UTILITY_LOG_SCALE) for on, off in zip(on_runs, off_runs)]
+                result["evidence_events"] = [
+                    {
+                        "schema_version": 2,
+                        "event_id": f"formal-{task_id}-paired",
+                        "context": canonical_public_context(public_routing),
+                        "assignment": {"interventions": {str(task_id): 1}, "propensity": 0.5, "design_id": "formal-verifier-paired-v2"},
+                        "evidence_stream": "representative",
+                        "evidence_role": "promotion_representative",
+                        "query_id": str(task_id),
+                        "outcome_vector": {"utility": float(sum(effects) / len(effects)), "paired_effect": float(sum(effects) / len(effects)), "contrast": "on-minus-off"},
+                        "scientific_gates": {"candidate": bool(causal_result.get("verdict") == "pass"), "control": bool(control_result.get("verdict") == "pass")},
+                        "artifacts": {"causal_result": hashlib.sha256(json.dumps(causal_result, sort_keys=True, default=str).encode()).hexdigest(), "control_result": hashlib.sha256(json.dumps(control_result, sort_keys=True, default=str).encode()).hexdigest()},
+                        "versions": {str(task_id): "1"},
+                        "source_id": f"formal-verifier-{task_id}",
+                        "independence_group": f"formal-task-{task_id}",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "trust_zone": "harness",
+                        "attacker_controlled_fields": [],
+                    }
+                ]
         transition = post_task_update(
             condition=str(item["condition"]),
             store=store,
@@ -2190,6 +2249,11 @@ def main() -> int:
         help="namespace/container executor template; receives {agent_command}, {worker_root}, {task_dir}, {solution_dir}, {retrieved_context}, {skill_view}, {executor_receipt}",
     )
     parser.add_argument("--executor-digest", default=None, help="allowlisted external executor/image digest")
+    parser.add_argument(
+        "--experiment-executor-command",
+        default=None,
+        help="external node/pair/three-way experiment executor; receives {request_json}, {result_json}, {work_root}",
+    )
     parser.add_argument("--claim-results", action="store_true", help="claim only if the formal calibration gate is passed")
     args = parser.parse_args()
     result = run_campaign(args)

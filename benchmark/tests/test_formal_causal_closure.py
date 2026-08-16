@@ -85,8 +85,9 @@ def test_higher_order_certificate_is_persisted_for_restart(tmp_path: Path):
     certificate = HigherOrderCertificate(
         bundle_versions={"A": 1, "B": 1, "C": 1},
         context_predicate={"all": []}, regime_digest="r",
-        residual_lcb=-0.01, residual_ucb=0.01, normalized_residual=0.0,
-        raw_residual=0.0, status="pairwise_certified",
+            residual_lcb=-0.01, residual_ucb=0.01, normalized_residual=0.0,
+            raw_residual=0.0, status="pairwise_certified",
+            scientific_arm_gates={arm: True for arm in ("000", "001", "010", "011", "100", "101", "110", "111")},
     )
     key = engine.register_higher_order_certificate(certificate.to_dict())
     assert (tmp_path / "evolution" / "certificates" / f"{identifier_digest(key)}.json").is_file()

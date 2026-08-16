@@ -28,13 +28,38 @@ _REQUIRED_METRICS = {
 }
 
 
-def classify_activation(family_id: str, action_specs: Mapping[str, Mapping[str, Any]], metrics: Mapping[str, Any]) -> dict[str, Any]:
-    """Return an S4 certificate only when exactly one action is observed."""
+def _contrastive_observed(validator: str, candidate: Mapping[str, Any], baseline: Mapping[str, Any]) -> bool:
+    """Require an action-specific change relative to the control trace."""
+    metric = _REQUIRED_METRICS.get(validator)
+    if not metric:
+        return False
+    c = candidate.get(metric)
+    b = baseline.get(metric)
+    if isinstance(c, bool) or isinstance(b, bool):
+        return bool(c) and not bool(b)
+    if not isinstance(c, (int, float)) or not isinstance(b, (int, float)):
+        return False
+    if "sync_count" in validator or "deferred_sync" in validator:
+        return float(c) < float(b)
+    if "rebuild" in validator or "operator" in validator or "worker" in validator or "prefetch" in validator:
+        return float(c) > float(b)
+    return float(c) != float(b)
+
+
+def classify_activation(
+    family_id: str,
+    action_specs: Mapping[str, Mapping[str, Any]],
+    metrics: Mapping[str, Any],
+    baseline_metrics: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return an S4 certificate only when one action changes the control trace."""
+    if baseline_metrics is None:
+        return {"status": "rejected", "matched_actions": [], "reason": "contrastive baseline trace is required"}
     matches: list[str] = []
     for action_id, spec in action_specs.items():
         validator = str(spec.get("activation_validator", ""))
         metric = _REQUIRED_METRICS.get(validator)
-        if metric and bool(metrics.get(metric, False)):
+        if metric and _contrastive_observed(validator, metrics, baseline_metrics):
             matches.append(str(action_id))
     if len(matches) != 1:
         return {"status": "rejected", "matched_actions": matches, "reason": "activation must match exactly one registered action"}
@@ -46,6 +71,7 @@ def classify_activation(family_id: str, action_specs: Mapping[str, Mapping[str, 
         "action_id": action_id,
         "validator": validator,
         "metrics": dict(metrics),
+        "baseline_metrics": dict(baseline_metrics),
     }
 
 

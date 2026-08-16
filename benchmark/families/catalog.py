@@ -56,8 +56,13 @@ class InteractionOracle:
         # mechanistic composition; other pairs use the conservative generic
         # applicability/score rule below.
         regime = str(ctx.get("regime", "baseline"))
-        worker_count = int(left.parameters.get("worker_count", -1))
-        dynamic_rate = float(right.parameters.get("dynamic_shape_rate", -1.0))
+        # Normalize parameter ownership before evaluating the composition so
+        # swapping left/right family arguments cannot change hidden truth.
+        by_family = {left.family_id: left.parameters, right.family_id: right.parameters}
+        compile_parameters = by_family.get("compile", {})
+        h2d_parameters = by_family.get("h2d_pipeline", {})
+        worker_count = int(h2d_parameters.get("worker_count", -1))
+        dynamic_rate = float(compile_parameters.get("dynamic_shape_rate", -1.0))
         pair_is_pipeline_compile = {
             self.spec.left_family,
             self.spec.right_family,
@@ -228,6 +233,13 @@ class FamilySpec:
         value = self.scientific_policy or {"policy_id": self.scientific_contract_id, "required_gates": list(self.scientific_invariants)}
         return ScientificPolicySpec(str(value.get("policy_id", self.scientific_contract_id)), tuple(str(item) for item in value.get("required_gates", self.scientific_invariants)), dict(value.get("tolerance", {})))
 
+    def action_policy_spec(self, action_id: str) -> ScientificPolicySpec:
+        metadata = self.action_specs.get(action_id)
+        if not isinstance(metadata, Mapping):
+            raise ValueError(f"unknown action {action_id} for family {self.family_id}")
+        policy_id = str(metadata.get("scientific_policy_ref", self.scientific_contract_id))
+        return ScientificPolicySpec(policy_id, _ACTION_POLICY_GATES.get(policy_id, self.scientific_invariants), {})
+
     def action_applicable(self, action_id: str, parameters: Mapping[str, Any], *, regime: str = "default") -> bool:
         """Return applicability for one declared action, not the family label.
 
@@ -243,9 +255,6 @@ class FamilySpec:
         if isinstance(declared, Mapping):
             from core.predicates import match_predicate
             return bool(match_predicate(dict(declared), {"workload": dict(parameters), **dict(parameters)}))
-        selected = self.action_policy.get(regime) or self.action_policy.get("default", "")
-        if not selected or selected != action_id:
-            return False
         try:
             family_ok = bool(self.applicability(parameters))
         except (KeyError, TypeError, ValueError):
@@ -254,6 +263,24 @@ class FamilySpec:
             # workload lattice point is unavailable.
             family_ok = True
         return family_ok
+
+    def action_bundle_applicable(self, action_ids: tuple[str, ...], parameters: Mapping[str, Any], *, regime: str = "default") -> bool:
+        return bool(action_ids) and all(self.action_applicable(action_id, parameters, regime=regime) for action_id in action_ids)
+
+    def action_bundle_effect(self, action_ids: tuple[str, ...], parameters: Mapping[str, Any], *, regime: str = "default") -> float:
+        if not action_ids:
+            return float(self.outcome_model.get("baseline", 0.0))
+        baseline = float(self.outcome_model.get("baseline", 0.0))
+        if not self.action_bundle_applicable(action_ids, parameters, regime=regime):
+            return float(self.outcome_model.get("mismatch", baseline))
+        # Bundle semantics are additive over independent semantic actions,
+        # with each action's declared effect measured from the same control.
+        # A family may override this by declaring ``bundle_effect`` in its
+        # action metadata; no action is silently replaced by the first item.
+        declared = [self.action_specs[action_id].get("bundle_effect") for action_id in action_ids if isinstance(self.action_specs.get(action_id), Mapping)]
+        if len(action_ids) > 1 and all(isinstance(value, (int, float)) for value in declared):
+            return max(-1.0, min(1.0, float(declared[-1])))
+        return max(-1.0, min(1.0, baseline + sum(self.action_effect(action_id, parameters, regime=regime) - baseline for action_id in action_ids)))
 
     def action_effect(self, action_id: str, parameters: Mapping[str, Any], *, regime: str = "default") -> float:
         """Return the bounded utility for a concrete action in this context."""
@@ -385,7 +412,7 @@ def _equivariant_head(index: int, seed: int) -> Mapping[str, Any]:
 
 
 def _crystal_generation(index: int, seed: int) -> Mapping[str, Any]:
-    return {"atom_count": 16 + ((index + seed) % 8) * 8, "diffusion_steps": 50 + ((index + seed) % 4) * 50, "guidance_scale": 1.0 + ((index * 2 + seed) % 4), "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
+    return {"atom_count": 16 + ((index + seed) % 8) * 8, "diffusion_steps": 50 + ((index + seed) % 4) * 50, "guidance_scale": 1.0 + ((index + seed) % 4), "fixture_index": index, "seed": seed, "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3]}
 
 
 def _crystal_sampling(index: int, seed: int) -> Mapping[str, Any]:
@@ -574,6 +601,18 @@ _SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
     "crystal_sampling": ("neighbor_consistency",),
     "episode": ("state_transition_valid",),
 }
+_ACTION_POLICY_GATES: dict[str, tuple[str, ...]] = {
+    "CONTRACT-COMPILER-CACHE": ("compile_correctness",),
+    "CONTRACT-COMPILER-FUSION": ("finite_output", "output_moment_match"),
+    "CONTRACT-ENERGY-FORCE": ("energy_force_consistency",),
+    "CONTRACT-DATA-PIPELINE": ("batch_semantics_preserved",),
+    "CONTRACT-AUTOGRAD-GRAPH": ("gradient_equivalence",),
+    "CONTRACT-TRAINING-LOOP": ("metric_semantics_preserved",),
+    "CONTRACT-REPEATED-COMPUTE": ("output_equivalence",),
+    "CONTRACT-EQUIVARIANCE": ("equivariance_preserved",),
+    "CONTRACT-CRYSTAL-VALIDITY": ("structure_validity",),
+    "CONTRACT-EVOLUTION-GOVERNANCE": ("state_transition_valid",),
+}
 _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
         "reuse_compile_cache": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
@@ -643,6 +682,12 @@ _LEGAL_COMPOSITIONS: dict[str, tuple[CompositionSpec, ...]] = {
     "checkpoint": (CompositionSpec("checkpoint", "compile"), CompositionSpec("checkpoint", "scalar_sync")),
     "scalar_sync": (CompositionSpec("scalar_sync", "h2d_pipeline"), CompositionSpec("scalar_sync", "compile")),
 }
+_family_order = [spec.family_id for spec in _SPECS]
+for _index, _family_id in enumerate(_family_order):
+    _next = CompositionSpec(_family_id, _family_order[(_index + 1) % len(_family_order)])
+    existing = tuple(_LEGAL_COMPOSITIONS.get(_family_id, ()))
+    if _next.right_family not in {item.right_family for item in existing}:
+        _LEGAL_COMPOSITIONS[_family_id] = existing + (_next,)
 for _spec in _SPECS:
     _CANONICAL_SPECS.append(replace(
         _spec,
@@ -705,21 +750,26 @@ def family_surface(family_id: str, *, seed: int = 0) -> tuple[FamilySurfaceSpec,
     resolved = resolve_family_id(family_id)
     key = (resolved, int(seed))
     if key not in _SURFACE_CACHE:
-        instances = tuple(family_instances(resolved, count=264, seed=int(seed)))
+        # 108 promotion contexts are the minimum needed by the preregistered
+        # p_min=0.8, delta_mix=0.0125 mixture gate.  Keep all three views
+        # equal-sized and frozen so every campaign has enough independent
+        # groups without borrowing from synthesis or validation.
+        instances = tuple(family_instances(resolved, count=324, seed=int(seed)))
         surface = FamilySurfaceSpec(
             decision_lattice_id=f"{resolved}-lattice-{int(seed):04d}",
-            synthesis_ids=tuple(item.instance_id for item in instances[88:176]),
-            promotion_ids=tuple(item.instance_id for item in instances[:88]),
-            validation_ids=tuple(item.instance_id for item in instances[176:]),
+            synthesis_ids=tuple(item.instance_id for item in instances[108:216]),
+            promotion_ids=tuple(item.instance_id for item in instances[:108]),
+            validation_ids=tuple(item.instance_id for item in instances[216:]),
         )
         _SURFACE_CACHE[key] = (surface, instances)
     return _SURFACE_CACHE[key]
 
 
-def family_decision_lattice(family_id: str, *, seed: int = 0) -> list[dict[str, Any]]:
+def family_decision_lattice(family_id: str, *, seed: int = 0, count: int | None = 264) -> list[dict[str, Any]]:
     """Canonical CEGIS lattice; all other views are disjoint partitions."""
     _surface, instances = family_surface(family_id, seed=seed)
-    return [{"workload": dict(item.parameters), "context_id": item.instance_id} for item in instances]
+    selected = instances if count is None else instances[: int(count)]
+    return [{"workload": dict(item.parameters), "context_id": item.instance_id} for item in selected]
 
 
 def family_predicate_grammar(family_id: str) -> dict[str, Any]:

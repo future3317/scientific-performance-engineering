@@ -16,7 +16,11 @@ from .evaluator import sealed_errors
 # Boundary observations are performance-style paired measurements.  The
 # fixed repetition budget is part of the preregistered calibration fixture and
 # is large enough to certify the smallest declared positive action effect.
-BOUNDARY_REPETITIONS = 2048
+# The family environment is a deterministic oracle.  Repeating the same
+# utility value would be pseudo-replication, so calibration records an exact
+# synthetic certificate instead of manufacturing a confidence interval from
+# duplicated observations.
+BOUNDARY_REPETITIONS = 1
 
 
 @dataclass(frozen=True)
@@ -35,7 +39,7 @@ def family_cases(family: str, *, surface_count: int | None = None, seed: int = 0
             "query_pool": views["active_query_pool"],
             "sealed_test_pool": views["sealed_boundary_pool"],
         }
-    canonical = {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}
+    canonical = set(FAMILY_SPECS)
     if family in canonical and surface_count is None:
         surface_count = 24
     if family in canonical and surface_count is not None:
@@ -50,21 +54,23 @@ def family_cases(family: str, *, surface_count: int | None = None, seed: int = 0
                 mechanism, path = "h2d_pipeline", "worker_count"
             elif family == "checkpoint":
                 mechanism, path = "checkpoint", "memory_pressure"
-            else:
+            elif family == "scalar_sync":
                 mechanism, path = "scalar_sync", "scalar_syncs_per_step"
+            else:
+                mechanism, path = family, next(iter(params), "")
             # Boundary evidence is produced by the same paired action
             # evaluator used by evolution.  Hidden applicability is retained
             # only on the sealed FamilyInstance and never enters the public
             # context or the observed effect construction.
             context = {"workload": params}
             spec = FAMILY_SPECS[resolve_family_id(family)]
-            action = str(spec.action_policy.get("default", next(iter(spec.action_specs), "")))
+            action = str(next(iter(spec.action_specs), ""))
             outcome_model = FamilyEnvironment(resolve_family_id(family))
             off = outcome_model.evaluate(context, (), None).utility
             on = outcome_model.evaluate(context, (action,), None).utility
-            repetitions = [float(on - off) for _ in range(BOUNDARY_REPETITIONS)]
+            repetitions = [float(on - off)]
             effect = sum(repetitions) / len(repetitions)
-            lower, upper = paired_repetition_interval(repetitions, 0.05)
+            lower, upper = effect, effect
             scientific_ok = all(outcome_model.evaluate(context, (), None).scientific_gates.values())
             positive = lower > 0.0 and scientific_ok
             return BoundaryCase(item.instance_id, context, effect, scientific_ok, lower, upper, positive)

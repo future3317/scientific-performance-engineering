@@ -100,7 +100,7 @@ representative, active-query, and sealed-boundary pools and InteractionBench
 combines family interventions into factorial surfaces. Evolution episodes record
 the same family transformations (software, hardware, scale, scientific-regime,
 or harness drift) rather than introducing a separate workload generator.
-The pilot surface runner expands the five pilot families to 100--500 hidden
+The pilot surface runner expands all eleven canonical families to 100--500 hidden
 contexts for calibration. Active-boundary stopping uses a time-uniform Bernoulli
 confidence sequence and remains truth-blind during acquisition; InteractionBench
 is sequential over 8/16/32/64/128 blocks with predeclared alpha spending;

@@ -101,6 +101,12 @@ class ActionSpec:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    def canonical_dict(self) -> dict[str, Any]:
+        """Stable semantic projection; realization patches never belong here."""
+        value = self.to_dict()
+        value["parameters"] = dict(value.get("parameters") or {})
+        return value
+
 
 @dataclass(frozen=True)
 class ScientificPolicySpec:

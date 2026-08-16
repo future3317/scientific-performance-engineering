@@ -39,7 +39,7 @@ generator_family_id: GEN-GRAPH_ENERGY_FORCE
 oracle_fix_pattern_id: FIX-SCIML-GNN-RAGGED-05
 scientific_contract_id: CONTRACT-ENERGY-FORCE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "25069f10682871795d65a3b2536bb79a0dd0bafe8ffc626ced423f6e4cd74564"
+workspace_ast_skeleton_hash: "a3ff6962822451fb7005089ac97e0b031d431e4ef2b4e089b617a3db331eaca2"
 family_id: graph_cache
 anchor_instance_id: SCIML-GNN-RAGGED-05
 family_parameters:

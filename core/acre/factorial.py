@@ -203,7 +203,7 @@ class HigherOrderCertificate:
     normalized_residual: float
     raw_residual: float
     status: str
-    scientific_arm_gates: Mapping[str, bool] = field(default_factory=lambda: {arm: True for arm in _THREE_WAY_ARMS})
+    scientific_arm_gates: Mapping[str, bool] | None = None
     estimator_version: str = "higher-order-cs-v1"
 
     def __post_init__(self) -> None:
@@ -213,7 +213,7 @@ class HigherOrderCertificate:
             raise ValueError("invalid higher-order certificate status")
         if not -1.0 <= self.residual_lcb <= self.residual_ucb <= 1.0:
             raise ValueError("higher-order residual interval must be normalized and bounded")
-        if set(self.scientific_arm_gates) != set(_THREE_WAY_ARMS) or any(not isinstance(value, bool) for value in self.scientific_arm_gates.values()):
+        if not isinstance(self.scientific_arm_gates, Mapping) or set(self.scientific_arm_gates) != set(_THREE_WAY_ARMS) or any(not isinstance(value, bool) for value in self.scientific_arm_gates.values()):
             raise ValueError("higher-order certificates require all eight scientific arm gates")
         if not all(self.scientific_arm_gates.values()) and self.status == "pairwise_certified":
             raise ValueError("scientific failure cannot be pairwise_certified")
@@ -239,14 +239,14 @@ class HigherOrderCertificate:
 class ThreeWayBlock:
     block_id: str
     outcomes: Mapping[str, float]
-    scientific_gates: Mapping[str, bool] = field(default_factory=lambda: {arm: True for arm in _THREE_WAY_ARMS})
+    scientific_gates: Mapping[str, bool] | None = None
 
     def __post_init__(self) -> None:
         if set(self.outcomes) != set(_THREE_WAY_ARMS):
             raise ValueError("a three-way block must contain all 2^3 arms")
         if any(not isinstance(value, (int, float)) or isinstance(value, bool) or not -1.0 <= float(value) <= 1.0 for value in self.outcomes.values()):
             raise ValueError("three-way outcomes must be finite and bounded in [-1, 1]")
-        if set(self.scientific_gates) != set(_THREE_WAY_ARMS) or any(not isinstance(value, bool) for value in self.scientific_gates.values()):
+        if not isinstance(self.scientific_gates, Mapping) or set(self.scientific_gates) != set(_THREE_WAY_ARMS) or any(not isinstance(value, bool) for value in self.scientific_gates.values()):
             raise ValueError("three-way scientific_gates must cover all arms")
 
 

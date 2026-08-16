@@ -231,6 +231,7 @@ def synthesize_boundary(
     *,
     decision_contexts: list[Mapping[str, Any]] | None = None,
     delta: float = 0.05,
+    statistical_budget: StatisticalBudget | None = None,
     epsilon_true: float = 0.0,
     epsilon_false: float = 0.0,
 ) -> SynthesisResult:
@@ -238,8 +239,9 @@ def synthesize_boundary(
     grammar = PredicateGrammar.from_dict(dict(grammar_payload))
     positives = [item for item in observations if item.positive_anchor(epsilon_true)]
     negatives = [item for item in observations if item.certified_counterexample(epsilon_false)]
+    alpha = statistical_budget.synth if statistical_budget is not None else float(delta)
     return StatisticalCEGIS(
-        grammar, epsilon_true=epsilon_true, epsilon_false=epsilon_false, delta=delta,
+        grammar, epsilon_true=epsilon_true, epsilon_false=epsilon_false, delta=alpha,
     ).synthesize(
         positive=positives,
         counterexamples=negatives,
@@ -270,6 +272,7 @@ def synthesize_applicability(
     family_id: str | None = None,
     decision_contexts: list[dict[str, Any]] | None = None,
     delta: float = 0.05,
+    statistical_budget: StatisticalBudget | None = None,
     epsilon_true: float = 0.0,
     epsilon_false: float = 0.0,
     require_identified: bool = False,
@@ -277,9 +280,10 @@ def synthesize_applicability(
     """Core-owned CEGIS adapter over verifier-produced paired cases."""
     if family_id is None:
         family_id = "compile"
-    from benchmark.families import family_decision_lattice, family_predicate_grammar
+    from benchmark.families import family_decision_lattice, family_predicate_grammar, family_surface
     try:
-        lattice = list(decision_contexts or family_decision_lattice(family_id))
+        surface, _instances = family_surface(family_id)
+        lattice = list(decision_contexts or family_decision_lattice(family_id, count=len(surface.synthesis_ids) + len(surface.promotion_ids) + len(surface.validation_ids)))
     except (KeyError, ValueError):
         return SynthesisResult("unavailable", None, (), (), provenance={"reason": "unknown_family"})
     if require_identified and not lattice:
@@ -288,7 +292,10 @@ def synthesize_applicability(
     if not grammar_payload:
         return SynthesisResult("unavailable", None, (), (), provenance={"reason": "family_has_no_predicate_grammar"})
     observations: list[BoundaryObservation] = []
-    budget = StatisticalBudget(delta_total=float(delta))
+    # Callers with a campaign ledger pass it through unchanged.  Constructing
+    # a second four-way budget here would silently spend only delta/4 of the
+    # already allocated synthesis component.
+    budget = statistical_budget or StatisticalBudget(delta_total=float(delta))
     context_delta = budget.lattice_delta(max(1, len(lattice)))
     for index, case in enumerate(cases):
         context = case.get("context") if isinstance(case.get("context"), dict) else {}
@@ -319,6 +326,7 @@ def synthesize_applicability(
         return SynthesisResult("insufficient_evidence", None, (), (), provenance={"reason": "no_observed_public_features"})
     result = synthesize_boundary(
         observations, grammar_payload, decision_contexts=lattice,
-        delta=delta, epsilon_true=epsilon_true, epsilon_false=epsilon_false,
+        delta=budget.synth, statistical_budget=budget,
+        epsilon_true=epsilon_true, epsilon_false=epsilon_false,
     )
     return result

@@ -79,7 +79,10 @@ class FamilyEnvironment:
         except KeyError:
             return ((),)
         actions = tuple(spec.action_specs)
-        return ((),) + tuple((action,) for action in actions)
+        bundles: list[tuple[str, ...]] = [()]
+        for action in actions:
+            bundles.extend(bundle + (action,) for bundle in list(bundles) if action not in bundle)
+        return tuple(bundles)
 
     def evaluate(
         self,
@@ -120,34 +123,38 @@ class FamilyEnvironment:
             state.scientific_regime != "default",
             state.harness_regime != "default",
         ))
-        policy_key = "shifted" if shifted else "inapplicable" if not family_applicable else "default"
-        preferred = str(policy.get(policy_key, ""))
-        legal_actions = set(getattr(family_spec, "action_specs", {}) or {})
-        if preferred and preferred not in legal_actions:
-            raise ValueError(f"family {self.family_id} action policy references undeclared action {preferred}")
+        # action_policy is retained only as catalog metadata for migration;
+        # no family default action is used as semantic truth.  Each declared
+        # ActionSpec is evaluated through its own applicability/effect.
+        preferred = ""
         utility = float(model["baseline"])
         if deployed:
-            # Evaluate the concrete action against the FamilySpec action-level
-            # contract.  A family-level applicability label never directly
-            # supplies a utility value.
-            action = sorted(deployed)[0]
+            # Evaluate the complete semantic bundle.  Selecting the first
+            # action would erase same-family factorial cells and make joint
+            # effects indistinguishable from single interventions.
             regime = "shifted" if shifted else "default"
-            if family_spec is not None and family_spec.action_applicable(action, workload, regime=regime):
-                utility = family_spec.action_effect(action, workload, regime=regime)
+            bundle = tuple(sorted(deployed))
+            if family_spec is not None and family_spec.action_bundle_applicable(bundle, workload, regime=regime):
+                utility = family_spec.action_bundle_effect(bundle, workload, regime=regime)
             else:
                 utility = float(model["mismatch"])
             if state.active_poison:
                 utility -= float(model["poison_penalty"])
         if family_spec is not None:
-            invariant_names = tuple(getattr(family_spec, "scientific_invariants", ()) or ("finite_loss",))
+            bundle = tuple(sorted(deployed))
+            invariant_names = tuple(
+                name
+                for action_id in bundle
+                for name in family_spec.action_policy_spec(action_id).required_gates
+            ) or tuple(getattr(family_spec, "scientific_invariants", ()) or ("finite_loss",))
             raw_gates = {
-                name: (not deployed) or (bool(preferred) and action == preferred and math.isfinite(float(utility)) and not state.active_poison)
-                for name in invariant_names
+                name: (not deployed) or (family_spec.action_bundle_applicable(bundle, workload, regime="shifted" if shifted else "default") and math.isfinite(float(utility)) and not state.active_poison)
+                for name in dict.fromkeys(invariant_names)
             }
-            gates = family_spec.policy_spec().evaluate(raw_gates)
+            gates = {name: bool(value) for name, value in raw_gates.items()}
         else:
             gates = {"finite_loss": True}
-        return EnvironmentOutcome(utility, gates, (preferred,) if preferred else ())
+        return EnvironmentOutcome(utility, gates, tuple(sorted(deployed)))
 
     def oracle(self, context: Mapping[str, Any], transformation_state: Mapping[str, Any] | EpisodeEnvironmentState | None = None) -> EnvironmentOutcome:
         """Enumerate legal bundles and select the hindsight-best outcome."""
