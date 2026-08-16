@@ -173,7 +173,9 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
                     errors.append(f"{label} validation case {case_id}: {typed_error}")
             except (TypeError, ValueError, KeyError) as exc:
                 errors.append(f"{label} validation case {case_id}: invalid typed certificate ({exc})")
-            if label == "held-out":
+            holdout_class = str(entry.get("holdout_class", entry.get("validation_kind", "replication")))
+            positive_class = holdout_class in {"replication", "transfer", "heldout", "transfer_holdout"}
+            if label == "held-out" and positive_class:
                 if entry.get("scientific_ok") is not True:
                     errors.append(f"held-out validation case failed scientific gates: {case_id}")
                 try:

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import MISSING, fields
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 from core.models import EvidenceEvent, RelationSpec, RelationState, RuleSpec, RuleState, TaskContext, normalize_evidence_event
 from core.predicates import match_predicate
 from core.retriever import retrieve_candidates, select_rules
-from core.schema import schemas
+from core.schema import canonical_required_fields, canonical_serialized_fields, schemas
 
 
 def main() -> None:
@@ -50,12 +49,8 @@ def main() -> None:
     ):
         model_schema = schemas()[schema_name]
         assert model_schema["additionalProperties"] is False
-        expected_required = {
-            item.name for item in fields(model)
-            if item.default is MISSING and item.default_factory is MISSING
-        }
-        assert set(model_schema["required"]) == expected_required
-        assert set(model_schema["properties"]) == {item.name for item in fields(model)}
+        assert set(model_schema["required"]) == set(canonical_required_fields(model))
+        assert set(model_schema["properties"]) == set(canonical_serialized_fields(model))
 
     rule_schema = schemas()["rule_spec.schema.json"]
     payload = specs[0].to_dict()

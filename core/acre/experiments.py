@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
+from core.sequential_stats import paired_repetition_interval
+from core.utility import utility_effect
+
 
 class ExperimentExecutor(Protocol):
     def execute(self, context: Mapping[str, Any], *, arm: str = "on") -> Mapping[str, Any]: ...
@@ -26,6 +29,29 @@ class ExperimentExecution:
     certificate: Mapping[str, Any] = field(default_factory=dict)
 
 
+class ReplaySequentialCertificate:
+    """Group-level sequential certificate for paired replay."""
+
+    def __init__(self, *, minimum_groups: int, epsilon: float = 0.0, delta: float = 0.05) -> None:
+        self.minimum_groups = int(minimum_groups)
+        self.epsilon = float(epsilon)
+        self.delta = float(delta)
+
+    def update(self, cases: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
+        representative = [case for case in cases if case.get("query_type", "representative") == "representative"]
+        intervals: list[tuple[float, float]] = []
+        for case in representative:
+            on = case.get("intervention_measurements")
+            off = case.get("baseline_measurements")
+            if not isinstance(on, list) or not isinstance(off, list) or len(on) != len(off) or not on:
+                continue
+            effects = [utility_effect(float(a), float(b), higher_is_better=bool(case.get("higher_is_better", True)), log_scale=float(case.get("utility_scale", 0.5))) for a, b in zip(on, off)]
+            intervals.append(paired_repetition_interval(effects, self.delta))
+        if len(intervals) >= self.minimum_groups and all(lower > self.epsilon for lower, _ in intervals):
+            return {"status": "passed", "stop": True, "groups": len(intervals)}
+        return {"status": "collecting", "groups": len(intervals)}
+
+
 def execute_paired_plan(
     plan: ExperimentPlan,
     executor: ExperimentExecutor,
@@ -43,11 +69,14 @@ def execute_paired_plan(
         group_id = str(context.get("independence_group", context.get("context_id", len(cases))))
         case = {
             "case_id": f"{plan.subject_id}:{group_id}",
+            "context_id": str(context.get("context_id", group_id)),
             "context": dict(context.get("context", context)),
             "on": on,
             "off": off,
             "independence_group": group_id,
             "paired_replay": True,
+            "query_type": context.get("query_type", "representative"),
+            "experiment_cost": float(context.get("experiment_cost", 1.0)),
         }
         if isinstance(on.get("measurements"), list) and isinstance(off.get("measurements"), list):
             if len(on["measurements"]) != len(off["measurements"]) or not on["measurements"]:
@@ -65,4 +94,4 @@ def execute_paired_plan(
     return ExperimentExecution(tuple(cases), "plan_exhausted", len(cases), certificate)
 
 
-__all__ = ["ExperimentExecutor", "ExperimentPlan", "ExperimentExecution", "execute_paired_plan"]
+__all__ = ["ExperimentExecutor", "ExperimentPlan", "ExperimentExecution", "ReplaySequentialCertificate", "execute_paired_plan"]

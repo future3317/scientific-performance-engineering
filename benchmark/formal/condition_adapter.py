@@ -59,8 +59,8 @@ class FormalConditionAdapter:
                 "schema_version": 1,
                 "condition": self.condition,
                 "context": typed_context.to_dict(),
-                "retrieved_experiences": experiences,
-                "proposed_interventions": actions,
+                "retrieved_experiences": rendered.get("experiences", []),
+                "proposed_interventions": rendered.get("proposed_interventions", actions),
                 "token_cost": int(rendered["token_cost"]),
                 "renderer": rendered.get("renderer"),
             }

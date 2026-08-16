@@ -508,6 +508,12 @@ _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
         "aggregate_scalars": {"family": "scalar_sync", "risk_class": "bounded"},
         "defer_scalar_sync": {"family": "scalar_sync", "risk_class": "bounded"},
     },
+    "repeated_compute": {"reuse_backbone": {"family": "repeated_compute", "risk_class": "bounded"}},
+    "autograd": {"batched_vjp": {"family": "autograd", "risk_class": "bounded"}},
+    "equivariant_head": {"equivariant_recompute": {"family": "equivariant_head", "risk_class": "bounded"}},
+    "crystal_generation": {"sampling": {"family": "crystal_generation", "risk_class": "bounded"}},
+    "crystal_sampling": {"graph_rebuild": {"family": "crystal_sampling", "risk_class": "bounded"}},
+    "episode": {"rule_update": {"family": "episode", "risk_class": "review"}},
 }
 _OUTCOME_MODELS: dict[str, Mapping[str, float]] = {
     "compile": {"baseline": 0.60, "preferred": 0.80, "mismatch": 0.35, "poison_penalty": 0.20},
@@ -519,6 +525,12 @@ _OUTCOME_MODELS: dict[str, Mapping[str, float]] = {
     "h2d_pipeline": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
     "checkpoint": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
     "scalar_sync": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "repeated_compute": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "autograd": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "equivariant_head": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "crystal_generation": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "crystal_sampling": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "episode": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
 }
 _ACTION_POLICIES: dict[str, Mapping[str, str]] = {
     "compile": {"default": "reuse_compile_cache", "shifted": "revalidate_compile_cache", "inapplicable": ""},
@@ -526,6 +538,12 @@ _ACTION_POLICIES: dict[str, Mapping[str, str]] = {
     "h2d_pipeline": {"default": "pin_memory_pipeline", "shifted": "prefetch_pipeline", "inapplicable": ""},
     "checkpoint": {"default": "checkpoint_recompute", "shifted": "retained_graph", "inapplicable": ""},
     "scalar_sync": {"default": "aggregate_scalars", "shifted": "defer_scalar_sync", "inapplicable": ""},
+    "repeated_compute": {"default": "reuse_backbone", "shifted": "reuse_backbone", "inapplicable": ""},
+    "autograd": {"default": "batched_vjp", "shifted": "batched_vjp", "inapplicable": ""},
+    "equivariant_head": {"default": "equivariant_recompute", "shifted": "equivariant_recompute", "inapplicable": ""},
+    "crystal_generation": {"default": "sampling", "shifted": "sampling", "inapplicable": ""},
+    "crystal_sampling": {"default": "graph_rebuild", "shifted": "graph_rebuild", "inapplicable": ""},
+    "episode": {"default": "rule_update", "shifted": "rule_update", "inapplicable": ""},
 }
 _LEGAL_COMPOSITIONS: dict[str, tuple[CompositionSpec, ...]] = {
     "compile": (CompositionSpec("compile", "h2d_pipeline"), CompositionSpec("compile", "graph_cache"), CompositionSpec("compile", "scalar_sync")),

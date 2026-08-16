@@ -25,12 +25,14 @@ class AcreEngine:
         relation_states: Mapping[str, RelationState] | None = None,
         higher_order_certificates: Mapping[str, Any] | None = None,
         query_proposer: Callable[[TaskContext | Mapping[str, Any], Sequence[EvidenceEvent]], Any] | None = None,
+        mutation_journal: Any | None = None,
     ) -> None:
         self.rule_specs = tuple(rule_specs)
         self.rule_states = dict(rule_states or {})
         self.relation_specs = tuple(relation_specs)
         self.relation_states = dict(relation_states or {})
         self.higher_order_certificates = dict(higher_order_certificates or {})
+        self.mutation_journal = mutation_journal
         self._query_proposer = query_proposer
         self._controller = AcreController()
         self.maintainer = AcreMaintainer(self)
@@ -153,12 +155,15 @@ class AcreEngine:
                 predicate_digest = identifier_digest(path.stem) if not predicate else __import__("hashlib").sha256(json.dumps(predicate, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
                 key = (":".join(sorted(str(item) for item in bundle_ids)) + ":" + predicate_digest) if isinstance(bundle_ids, list) else path.stem
                 certificates[key] = certificate
+        from core.mutation_journal import MutationJournal
+        journal_path = root / "evolution" / "mutation_journal.jsonl"
         return cls(
             rule_specs=rule_specs,
             rule_states=rule_states,
             relation_specs=relation_specs,
             relation_states=relation_states,
             higher_order_certificates=certificates,
+            mutation_journal=MutationJournal(journal_path) if journal_path.is_file() else None,
         )
 
     def observe(self, event: EvidenceEvent | Mapping[str, Any]) -> EvidenceEvent:
@@ -172,13 +177,14 @@ class AcreEngine:
             return None
         return self._query_proposer(context, self._controller.events)
 
-    def maintain(self, events: Sequence[EvidenceEvent | Mapping[str, Any]] = (), **callbacks: Any):
-        """Run the canonical observe→assess→evolve workflow.
-
-        Callers supply only environment/verifier callbacks; ordering and
-        lifecycle semantics remain owned by the core maintainer.
-        """
-        return self.maintainer.step(events, **callbacks)
+    def maintain(self, events: Sequence[EvidenceEvent | Mapping[str, Any]] = (), *, subject_ids: Sequence[str] = (), experiment_plans: Sequence[Any] = (), experiment_executor: Any = None, record_case: Callable[[Mapping[str, Any]], None] | None = None, update_certificate: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Any]] | None = None):
+        """Run the canonical observe→experiment→assess→lifecycle workflow."""
+        from .maintainer import MaintenanceInput
+        return self.maintainer.run(MaintenanceInput(
+            events=tuple(events), subject_ids=tuple(subject_ids),
+            experiment_plans=tuple(experiment_plans), experiment_executor=experiment_executor,
+            record_case=record_case, update_certificate=update_certificate,
+        ))
 
     def update_rule(self, rule_id: str) -> EvolutionDecision:
         return self.evolve(rule_id)
@@ -196,12 +202,20 @@ class AcreEngine:
         assessment = self._controller.assess(subject_id, getattr(state, "version", None))
         evidence_ids = tuple(event.event_id for event in self._controller.events)
         if assessment.specialization_event_ids:
-            return EvolutionDecision(subject_type, subject_id, "SPECIALIZE", "review_required", "human-review", "adversarial evidence requires specialization or quarantine review", evidence_ids)
-        if state.status == "retired":
-            return EvolutionDecision(subject_type, subject_id, "RETIRE", "review_required", "human-review", "subject is retired", evidence_ids)
-        if state.drift_state != "stable":
-            return EvolutionDecision(subject_type, subject_id, "REVALIDATE", "review_required", "human-review", "subject drift requires revalidation", evidence_ids)
-        return EvolutionDecision(subject_type, subject_id, "NO_OP", "approved", "bounded-auto", "subject state is stable", evidence_ids)
+            decision = EvolutionDecision(subject_type, subject_id, "SPECIALIZE", "review_required", "human-review", "adversarial evidence requires specialization or quarantine review", evidence_ids)
+        elif state.status == "retired":
+            decision = EvolutionDecision(subject_type, subject_id, "RETIRE", "review_required", "human-review", "subject is retired", evidence_ids)
+        elif state.drift_state != "stable":
+            decision = EvolutionDecision(subject_type, subject_id, "REVALIDATE", "review_required", "human-review", "subject drift requires revalidation", evidence_ids)
+        else:
+            decision = EvolutionDecision(subject_type, subject_id, "NO_OP", "approved", "bounded-auto", "subject state is stable", evidence_ids)
+        from core.lifecycle import apply_lifecycle_decision
+        updated = apply_lifecycle_decision(decision, state, self.mutation_journal)
+        if subject_type == "rule":
+            self.rule_states[subject_id] = updated
+        else:
+            self.relation_states[subject_id] = updated
+        return decision
 
     def route(self, context: TaskContext | Mapping[str, Any], token_budget: int | None = None, higher_order_evidence: Mapping[str, float] | None = None) -> RoutingDecision:
         budget = token_budget if token_budget is not None else (context.token_budget if isinstance(context, TaskContext) else 4096)

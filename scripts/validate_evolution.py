@@ -388,6 +388,7 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
     regression_schema = load_schema(schema_root / "assets" / "rule_regression_case.schema.json")
     errors: list[str] = []
     cards: dict[str, dict[str, Any]] = {}
+    history: dict[tuple[str, int], dict[str, Any]] = {}
     regression_cases: dict[str, dict[str, Any]] = {}
     experiences: dict[str, dict[str, Any]] = {}
     for path in sorted((root / "experience" / "cases").glob("*.json")):
@@ -447,17 +448,20 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                 card = dict(card)
                 card["status"] = card_status
             if isinstance(card, dict) and isinstance(card.get("rule_id"), str):
-                if card["rule_id"] in cards:
-                    errors.append(f"duplicate rule_id across card directories: {card['rule_id']}")
-                cards[card["rule_id"]] = card
+                key = (str(card["rule_id"]), int(card.get("version", 1)))
+                if key in history:
+                    errors.append(f"duplicate rule revision: {key[0]} v{key[1]}")
+                history[key] = card
+                previous = cards.get(card["rule_id"])
+                if previous is None or int(card.get("version", 1)) >= int(previous.get("version", 1)):
+                    cards[card["rule_id"]] = card
                 if "trigger" in card:
                     errors.extend(f"{path}: {error}" for error in validate_card_links(card, experiences, regression_cases))
                     errors.extend(f"{path}: {error}" for error in validate_provenance_diversity(card, experiences))
                     errors.extend(f"{path}: {error}" for error in validate_replay_manifest(card, root))
                 else:
                     promotion_dir = root / "evolution" / "promotions" / identifier_digest(card['rule_id'])
-                    promotion_paths = sorted(promotion_dir.glob("v*.json"))
-                    promotion_path = promotion_paths[-1] if promotion_paths else root / "evolution" / "promotions" / f"{identifier_digest(card['rule_id'])}.json"
+                    promotion_path = promotion_dir / f"v{int(card.get('version', 1)):04d}.json"
                     if card_status == "canonical" and not promotion_path.is_file():
                         errors.append(f"{path}: canonical RuleSpec missing promotion record")
                     elif card_status == "canonical" and promotion_path.is_file():
@@ -482,6 +486,7 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
     relation_registry_path = root / "registry" / "relations.json"
     relation_dir = root / "relations"
     relation_cards: dict[str, dict[str, Any]] = {}
+    relation_history: dict[tuple[str, int], dict[str, Any]] = {}
     for path in sorted(relation_dir.rglob("*.json")) if relation_dir.is_dir() else []:
         if path.name.endswith(".state.json"):
             continue
@@ -496,8 +501,7 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
         try:
             relation_id = str(card.get("relation_id"))
             promotion_dir = root / "evolution" / "promotions" / identifier_digest(relation_id)
-            promotion_paths = sorted(promotion_dir.glob("v*.json"))
-            promotion_path = promotion_paths[-1] if promotion_paths else root / "evolution" / "promotions" / f"{identifier_digest(relation_id)}.json"
+            promotion_path = promotion_dir / f"v{int(card.get('version', 1)):04d}.json"
             if not promotion_path.is_file():
                 errors.append(f"{path}: canonical RelationSpec missing promotion record")
             elif isinstance(card, dict):
@@ -510,7 +514,13 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
         except (TypeError, ValueError):
             pass
         if isinstance(card, dict) and isinstance(card.get("relation_id"), str):
-            relation_cards[card["relation_id"]] = card
+            key = (str(card["relation_id"]), int(card.get("version", 1)))
+            if key in relation_history:
+                errors.append(f"duplicate relation revision: {key[0]} v{key[1]}")
+            relation_history[key] = card
+            previous = relation_cards.get(card["relation_id"])
+            if previous is None or int(card.get("version", 1)) >= int(previous.get("version", 1)):
+                relation_cards[card["relation_id"]] = card
     if relation_registry_path.exists():
         try:
             relation_registry = json.loads(relation_registry_path.read_text(encoding="utf-8"))

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import random
 from typing import Any, Mapping
 import random
 
@@ -17,13 +19,16 @@ class FamilyReplayExecutor:
     bounded measurements; no hidden applicability label is consulted.
     """
 
-    def __init__(self, family_id: str, action_id: str, *, repetitions: int = 512, transformation_state: Any = None) -> None:
+    def __init__(self, family_id: str, action_id: str, *, repetitions: int = 512, transformation_state: Any = None, noise_scale: float = 0.01) -> None:
         if repetitions < 2:
             raise ValueError("replay requires at least two paired repetitions")
         self.family_id = str(family_id)
         self.action_id = str(action_id)
         self.repetitions = int(repetitions)
         self.transformation_state = transformation_state
+        if noise_scale < 0.0:
+            raise ValueError("noise_scale must be non-negative")
+        self.noise_scale = float(noise_scale)
 
     def execute(self, context: Mapping[str, Any], *, arm: str = "on") -> Mapping[str, Any]:
         from benchmark.families.environment import FamilyEnvironment
@@ -31,10 +36,17 @@ class FamilyReplayExecutor:
         context = context.get("context", context) if isinstance(context.get("context", context), Mapping) else context
         deployed = [self.action_id] if arm == "on" else []
         outcome = env.evaluate(context, deployed, self.transformation_state)
+        # Paired replay shares the fixture-level randomization stream across
+        # on/off arms; the arm effect is therefore estimated by paired
+        # differences rather than by two unrelated noise draws.
+        seed_bytes = hashlib.sha256(f"{self.family_id}|{self.action_id}|{context.get('context_id', '')}".encode()).digest()
+        rng = random.Random(int.from_bytes(seed_bytes[:8], "big"))
+        measurements = [max(-1.0, min(1.0, float(outcome.utility) + rng.uniform(-self.noise_scale, self.noise_scale))) for _ in range(self.repetitions)]
         return {
             "utility": float(outcome.utility),
             "scientific_ok": all(outcome.scientific_gates.values()),
-            "measurements": [float(outcome.utility)] * self.repetitions,
+            "measurements": measurements,
+            "sampling_model": "synthetic_bounded_noise_v1",
             "oracle_bundle": list(outcome.oracle_bundle),
         }
 
@@ -136,6 +148,26 @@ class SynthesisAcquisitionScheduler:
             for item in pools["active_query_pool"]
             if item.instance_id not in seen
         ]
+
+    def plan(self, family_id: str, *, seen_context_ids: set[str] | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        """Rank active queries from the current observable version-space proxy."""
+        from core.acre.acquisition import AcquisitionQuery
+        from core.acre.planner import ExperimentPlanner
+        contexts = self.pending_contexts(family_id, seen_context_ids=seen_context_ids, seed=seed)
+        queries = tuple(AcquisitionQuery(
+            query_id=str(item["context_id"]), edge_id=str(item["context_id"]),
+            cost=float(item.get("experiment_cost", 1.0)), context=item["context"],
+            risk=0.8, provenance_novelty=0.8,
+        ) for item in contexts)
+        if not queries:
+            return []
+        planned = ExperimentPlanner().rank(
+            queries, {query.edge_id: [] for query in queries},
+            information_gain=lambda query, observations: 1.0 if not observations.get(query.edge_id) else 0.0,
+            simulate=lambda query, outcome, observations: (query.edge_id, bool(outcome)),
+        )
+        by_id = {str(item["context_id"]): item for item in contexts}
+        return [by_id[item.query.query_id] for item in planned]
 
 
 class ValidationScheduler:

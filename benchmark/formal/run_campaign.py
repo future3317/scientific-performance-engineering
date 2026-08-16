@@ -256,7 +256,7 @@ def hydrate_candidate_cases(
     """Rebuild all immutable case payloads recorded for a candidate revision."""
     subject_id = str(candidate.get("candidate_identity") or candidate.get("rule_id") or candidate.get("relation_id") or candidate.get("id") or "")
     version = int(candidate.get("version", 1))
-    action_digest = str(candidate.get("intervention_digest") or candidate.get("action_semantic_digest") or "") or None
+    action_digest = str(candidate.get("action_semantic_digest") or candidate.get("intervention_digest") or "") or None
     memberships = ledger.members(subject_id, version, action_digest=action_digest)
     paths: dict[str, Path] = {}
     for membership in memberships:
@@ -297,7 +297,7 @@ def semantic_action_spec(
     family_id: str | None,
     proposal: dict[str, Any],
     *,
-    activation_proof: str | None = None,
+    activation_certificate: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project a task patch onto the reusable family action vocabulary."""
     from core.acre.actions import action_from_proposal
@@ -326,14 +326,13 @@ def semantic_action_spec(
         action = ActionSpec(
             action_id=action_id,
             family=resolved_family,
-            parameters={
-                "source_patch_digest": candidate_intervention_digest(patch),
-                "activation_proof": str(activation_proof or "unproven"),
-            },
+            parameters={},
         )
-        if family_id and activation_proof is None:
-            raise ValueError("source patch requires harness activation proof")
+        if family_id and (not isinstance(activation_certificate, Mapping) or not activation_certificate.get("passed")):
+            raise ValueError("source patch requires a passed harness activation certificate")
     if resolved_family:
+        if not isinstance(activation_certificate, Mapping) or activation_certificate.get("passed") is not True:
+            raise ValueError("family action requires a passed activation certificate")
         from benchmark.families.catalog import FAMILY_SPECS
         family_spec = FAMILY_SPECS.get(resolved_family)
         if family_spec is not None and action.action_id not in family_spec.action_specs:
@@ -375,10 +374,11 @@ def persist_collecting_proposals(
                 "action": f"patch-{patch_digest[:16]}",
                 "action_id": f"patch-{patch_digest[:16]}",
                 "family": str(family_id or "runtime"),
-                "parameters": {"source_patch_digest": patch_digest, "activation_proof": "unproven"},
+                "parameters": {},
                 "preconditions": {}, "preserves": [], "risk_class": "review",
             }
         intervention_digest = candidate_intervention_digest(intervention)
+        realization_digest = candidate_intervention_digest(realization)
         identity = candidate_identity(identifier, version, intervention)
         path = candidates_dir / f"{identifier_digest(identity)}.json"
         existing: dict[str, Any] = {}
@@ -394,6 +394,8 @@ def persist_collecting_proposals(
             "version": int(proposal.get("version", existing.get("version", 1))),
             "candidate_identity": identity,
             "intervention_digest": intervention_digest,
+            "action_semantic_digest": intervention_digest,
+            "realization_digest": realization_digest,
             "parent": None,
             "hypothesis": {
                 "intervention": intervention,
@@ -940,7 +942,31 @@ def post_task_update(
                 from benchmark.formal.schedule import RelationExperimentScheduler
                 relation_id = str(candidate.get("relation_id") or candidate.get("id") or "")
                 validate_identifier(relation_id, "relation_id")
-                relation_schedule = RelationExperimentScheduler().schedule(candidate, str(family_id or "compile"))
+                relation_scheduler = RelationExperimentScheduler()
+                relation_family = str(family_id or "compile")
+                try:
+                    from benchmark.interaction.factorial_bench import generate_family_interaction_surface
+                    from core.acre.factorial import FactorialBlock
+                    surface = generate_family_interaction_surface((relation_family, "compile"), count=1, seed=int(item["outer_trial_index"]))[0]
+                    arms = dict(surface["outcomes"])
+                    def block_executor(_context: Mapping[str, Any], *, context_id: str) -> list[Any]:
+                        import random
+                        blocks = []
+                        for index in range(8):
+                            rng = random.Random(f"{context_id}:{index}")
+                            outcomes = {arm: max(-1.0, min(1.0, float(value) + rng.uniform(-0.01, 0.01))) for arm, value in arms.items()}
+                            blocks.append(FactorialBlock(f"{context_id}-{index}", outcomes))
+                        return blocks
+                    relation_schedule = relation_scheduler.execute(
+                        candidate, relation_family,
+                        block_executor=block_executor,
+                        maintainer=engine.maintainer,
+                        seed=int(item["outer_trial_index"]),
+                    )
+                except (KeyError, ValueError) as exc:
+                    relation_schedule = relation_scheduler.schedule(candidate, relation_family)
+                    relation_schedule["status"] = "blocked"
+                    relation_schedule["error"] = str(exc)
                 relation_dir = store / "evolution" / "relation_experiments"
                 relation_dir.mkdir(parents=True, exist_ok=True)
                 (relation_dir / f"{identifier_digest(relation_id)}.json").write_text(
@@ -961,13 +987,23 @@ def post_task_update(
                     "control_result": control_result,
                     "patch": task_patch,
                 }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest() if causal_result is not None and control_result is not None else None
-                action_spec = semantic_action_spec(family_id, candidate, activation_proof=activation_proof)
+                activation_certificate = {
+                    "action_id": str((candidate.get("action_spec") or candidate.get("intervention") or {}).get("action", "")),
+                    "activation_metrics": {"causal": causal_result, "control": control_result},
+                    "expected_signature": "verifier-paired",
+                    "observed_signature": activation_proof,
+                    "verifier_artifacts": {"task_id": task_id},
+                    "realization_digest": candidate_intervention_digest(task_patch),
+                    "passed": causal_result is not None and control_result is not None,
+                }
+                action_spec = semantic_action_spec(family_id, candidate, activation_certificate=activation_certificate)
             except ValueError:
                 # An unclassified source patch cannot enter the causal
                 # evidence ledger.  It remains a worker hypothesis until the
                 # harness can prove a unique registered ActionSpec.
                 continue
-            intervention_digest = candidate_intervention_digest(action_spec)
+            action_semantic_digest = candidate_intervention_digest(action_spec)
+            realization_digest = candidate_intervention_digest(task_patch)
             identity = candidate_identity(identifier, version, action_spec)
             try:
                 from benchmark.families.catalog import FAMILY_SPECS, resolve_family_id
@@ -992,7 +1028,9 @@ def post_task_update(
                 "family_id": family_id,
                 "version": version,
                 "candidate_identity": identity,
-                "intervention_digest": intervention_digest,
+                "intervention_digest": realization_digest,
+                "action_semantic_digest": action_semantic_digest,
+                "realization_digest": realization_digest,
                 "parent": None,
                 "applicability": {"all": []},
                 "hypothesis": {
@@ -1130,29 +1168,40 @@ def post_task_update(
                         str(candidate.get("candidate_identity") or identifier),
                         int(candidate.get("version", 1)),
                         case_value,
-                        action_digest=str(candidate.get("intervention_digest", "")),
+                        action_digest=str(candidate.get("action_semantic_digest") or candidate.get("intervention_digest", "")),
                     )
             case_values_for_cegis = hydrate_candidate_cases(store, candidate, candidate_evidence)
             candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
             from benchmark.formal.schedule import PromotionReplayScheduler
             scheduler = PromotionReplayScheduler()
             seen_groups = {str(case.get("independence_group")) for case in case_values_for_cegis if case.get("independence_group")}
+            from benchmark.formal.schedule import SynthesisAcquisitionScheduler
+            active_scheduler = SynthesisAcquisitionScheduler()
+            seen_contexts = {str(case.get("context_id")) for case in case_values_for_cegis if case.get("context_id")}
+            active_pending = active_scheduler.plan(str(family_id or "compile"), seen_context_ids=seen_contexts)
+            active_pending = active_pending[: max(1, min(4, len(active_pending)))]
+            representative_pending = scheduler.pending_contexts(
+                str(family_id or "compile"), seen_group_ids=seen_groups,
+            )
             candidate["replay_schedule"] = {
                 "minimum_groups": scheduler.minimum_groups,
-                "pending_contexts": scheduler.pending_contexts(
-                    str(family_id or "compile"), seen_group_ids=seen_groups,
-                ),
+                "pending_contexts": active_pending + representative_pending,
+                "acquisition_context_count": len(active_pending),
             }
             # Pending representative contexts are executable evidence, not a
             # promise exposed to the next worker.  The family executor uses
             # the harness-resolved ActionSpec and the Core paired-plan API.
             if candidate["replay_schedule"]["pending_contexts"] and isinstance(candidate.get("intervention"), dict):
                 from benchmark.formal.schedule import FamilyReplayExecutor
-                from core.acre.experiments import ExperimentPlan, execute_paired_plan
+                from core.acre.experiments import ExperimentPlan, ReplaySequentialCertificate, execute_paired_plan
                 family_name = str(family_id or "compile")
                 action_name = str(candidate["intervention"].get("action_id") or candidate["intervention"].get("action") or "")
                 if action_name:
-                    replay_executor = FamilyReplayExecutor(family_name, action_name, repetitions=64)
+                    # The bounded paired interval must clear the practical
+                    # effect threshold; 64 repeats cannot do so for the
+                    # declared Family effects.  Keep repetitions explicit
+                    # and preregistered rather than fabricating certainty.
+                    replay_executor = FamilyReplayExecutor(family_name, action_name, repetitions=256)
                     generated_cases: list[dict[str, Any]] = []
 
                     def record_generated(case: dict[str, Any]) -> None:
@@ -1174,12 +1223,15 @@ def post_task_update(
                             str(candidate.get("candidate_identity") or identifier),
                             int(candidate.get("version", 1)),
                             {**case, "case_path": str(evidence_path.relative_to(store)).replace("\\", "/")},
-                            action_digest=str(candidate.get("intervention_digest", "")),
+                            action_digest=str(candidate.get("action_semantic_digest") or candidate.get("intervention_digest", "")),
                         )
                         generated_cases.append(case)
 
-                    def update_generated(cases: list[dict[str, Any]]) -> dict[str, Any]:
-                        return {"status": "passed" if len(cases) >= scheduler.minimum_groups else "collecting"}
+                    sequential_certificate = ReplaySequentialCertificate(
+                        minimum_groups=scheduler.minimum_groups,
+                        epsilon=float(practical_epsilon),
+                        delta=0.05,
+                    )
 
                     execute_paired_plan(
                         ExperimentPlan(
@@ -1189,13 +1241,19 @@ def post_task_update(
                         ),
                         replay_executor,
                         record_case=record_generated,
-                        update_certificate=update_generated,
+                        update_certificate=sequential_certificate.update,
                     )
+                    # Newly executed verifier-owned cases are part of the
+                    # candidate evidence set in the same maintenance pass.
+                    # Rehydrate the append-only ledger before CEGIS so a
+                    # collecting proposal cannot depend on a later task to
+                    # observe its own replay evidence.
+                    case_values_for_cegis = hydrate_candidate_cases(store, candidate, candidate_evidence)
+                    candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
                     candidate["replay_schedule"]["executed_context_count"] = len(generated_cases)
+                    candidate["replay_schedule"]["experiment_cost"] = float(candidate["replay_schedule"].get("experiment_cost", 0.0) + len(generated_cases))
                     candidate["replay_schedule"]["pending_contexts"] = []
-            candidate["replay_schedule"]["experiment_cost"] = float(
-                len(candidate["replay_schedule"]["pending_contexts"])
-            )
+            candidate["replay_schedule"]["experiment_cost"] = float(candidate["replay_schedule"].get("experiment_cost", 0.0))
             candidate["status"] = "collecting_evidence"
             candidate["synthesis_state"] = {
                 **dict(candidate.get("synthesis_state") or {}),
@@ -1229,6 +1287,24 @@ def post_task_update(
             if not isinstance(certificate, dict) or sorted(promotion_ids) != sorted(str(item) for item in certificate.get("positive_anchor_ids", [])):
                 raise ValueError("promotion cases must be exactly the immutable synthesis positive anchors")
             candidate["applicability"], candidate["applicability_provenance"] = predicate, provenance
+            validation_ref = candidate.get("validation_artifacts")
+            if isinstance(validation_ref, dict) and isinstance(validation_ref.get("path"), str):
+                validation_file = store / validation_ref["path"]
+                try:
+                    validation_value = json.loads(validation_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    validation_value = None
+                if isinstance(validation_value, dict):
+                    from core.predicates import match_predicate
+                    for entry in validation_value.get("heldout_regression_cases", []):
+                        if not isinstance(entry, dict) or not isinstance(entry.get("context"), dict):
+                            continue
+                        inside = bool(match_predicate(predicate, entry["context"]))
+                        if entry.get("holdout_class") == "boundary":
+                            entry["abstained"] = not inside
+                        elif entry.get("holdout_class") in {"replication", "transfer"} and not inside:
+                            entry["scientific_ok"] = False
+                    validation_file.write_text(json.dumps(validation_value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             candidate["synthesis_state"] = {
                 "status": "identified",
                 "predicate": predicate,
@@ -1262,7 +1338,7 @@ def post_task_update(
         for candidate in candidates:
             hydrated_cases: list[dict[str, Any]] = []
             subject_id = str(candidate.get("candidate_identity") or candidate.get("rule_id") or candidate.get("id") or "")
-            memberships = candidate_evidence.members(subject_id, int(candidate.get("version", 1)), action_digest=str(candidate.get("intervention_digest", "")) or None)
+            memberships = candidate_evidence.members(subject_id, int(candidate.get("version", 1)), action_digest=str(candidate.get("action_semantic_digest") or candidate.get("intervention_digest", "")) or None)
             membership_by_id = {str(item.get("case_id")): item for item in memberships}
             case_ids = list(membership_by_id)
             for case_id in case_ids:
@@ -1654,11 +1730,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                     harness_action = semantic_action_spec(
                         str(task_spec.get("family_id", task_spec.get("family", "runtime"))),
                         proposals[0],
-                        activation_proof=hashlib.sha256(json.dumps({
+                        activation_certificate={
                             "task_id": task_id,
                             "proposal": proposals[0].get("intervention", {}),
                             "control_result": control_result,
-                        }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest(),
+                            "passed": control_result is not None,
+                            "expected_signature": "verifier-paired",
+                        },
                     )
                     realization_record = InterventionRealizer.realize_action(
                         solution_dir,
@@ -1727,18 +1805,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                     )
                     validation_evidence = {
                         "regression_tolerance": regression_tolerance,
-                        "heldout_regression_cases": [{
-                            "case_id": f"HELDOUT-{task_id}",
-                            "holdout_class": "replication",
-                            "executed": True,
-                            "execution_source": "verifier",
-                            "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
-                            "utility": heldout_effect,
-                            "effect": heldout_effect,
-                            "effect_lcb": heldout_lcb,
-                            "effect_ucb": heldout_ucb,
-                            "utility_policy_id": "bounded_log_speedup_v1",
-                        }],
+                        # The promotion task is never reused as held-out
+                        # evidence.  Disjoint family contexts are appended
+                        # below and carry their own execution results.
+                        "heldout_regression_cases": [],
                         "poison_probe_cases": [execute_poison_probe(
                             task_spec, public_routing, proposals[0], realized_solution, solution_dir,
                             task_dir=tasks_root / task_id,
@@ -1757,11 +1827,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         action_id = str(semantic_action_spec(
                             family_name,
                             proposals[0],
-                            activation_proof=hashlib.sha256(json.dumps({
+                            activation_certificate={
                                 "task_id": task_id,
                                 "proposal": proposals[0].get("intervention", {}),
                                 "realized_digest": _workspace_digest(realized_solution),
-                            }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest(),
+                                "passed": True,
+                                "expected_signature": "verifier-paired",
+                            },
                         )["action_id"])
                         env = FamilyEnvironment(family_name)
                         for holdout_class, pool_name in (("transfer", "representative_pool"), ("boundary", "sealed_boundary_pool")):
@@ -1772,6 +1844,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                             validation_evidence["heldout_regression_cases"].append({
                                 "case_id": f"HELDOUT-{holdout_class.upper()}-{instance.instance_id}",
                                 "holdout_class": holdout_class,
+                                "context": {"workload": dict(instance.parameters)},
                                 "executed": True,
                                 "execution_source": "family-environment",
                                 "scientific_ok": all(held.scientific_gates.values()),

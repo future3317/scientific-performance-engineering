@@ -14,23 +14,33 @@ except ImportError:  # validate_skill.py executes this module as a source projec
 BASE = "https://github.com/future3317/scientific-performance-engineering/"
 
 
-def _required(model: type[Any]) -> list[str]:
-    """Derive required top-level fields from dataclass defaults."""
-    ignored = {"relations"} if model is RuleSpec else set()
-    return [
+def canonical_serialized_fields(model: type[Any]) -> tuple[str, ...]:
+    """Return the fields that belong to the canonical wire projection."""
+    names = [item.name for item in fields(model)]
+    if model is RuleSpec:
+        names.remove("relations")
+    return tuple(names)
+
+
+def canonical_required_fields(model: type[Any]) -> tuple[str, ...]:
+    """Return canonical required fields, excluding constructor-only projections."""
+    return tuple(
         item.name
         for item in fields(model)
-        if item.name not in ignored and item.default is MISSING and item.default_factory is MISSING
-    ]
+        if item.name in canonical_serialized_fields(model)
+        and item.default is MISSING
+        and item.default_factory is MISSING
+    )
+
+
+def _required(model: type[Any]) -> list[str]:
+    """Derive required top-level fields from dataclass defaults."""
+    return list(canonical_required_fields(model))
 
 
 def _object(model: type[Any], properties: dict[str, Any]) -> dict[str, Any]:
     """Build a strict object schema from the model's canonical field set."""
-    model_fields = {item.name for item in fields(model)}
-    # ``RuleSpec.relations`` remains a constructor-only read projection for
-    # legacy imports; canonical serialized RuleSpec has no relation field.
-    if model is RuleSpec:
-        model_fields.discard("relations")
+    model_fields = set(canonical_serialized_fields(model))
     if set(properties) != model_fields:
         missing = sorted(model_fields - set(properties))
         extra = sorted(set(properties) - model_fields)

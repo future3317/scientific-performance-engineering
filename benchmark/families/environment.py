@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
+import math
 
 
 @dataclass(frozen=True)
@@ -138,9 +139,12 @@ class FamilyEnvironment:
             if state.active_poison:
                 utility -= float(model["poison_penalty"])
         if family_spec is not None:
-            gates = family_spec.policy_spec().evaluate({
-                name: True for name in (getattr(family_spec, "scientific_invariants", ()) or ("finite_loss",))
-            })
+            invariant_names = tuple(getattr(family_spec, "scientific_invariants", ()) or ("finite_loss",))
+            raw_gates = {
+                name: (not deployed) or (bool(preferred) and action == preferred and math.isfinite(float(utility)) and not state.active_poison)
+                for name in invariant_names
+            }
+            gates = family_spec.policy_spec().evaluate(raw_gates)
         else:
             gates = {"finite_loss": True}
         return EnvironmentOutcome(utility, gates, (preferred,) if preferred else ())

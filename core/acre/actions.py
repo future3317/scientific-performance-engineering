@@ -31,8 +31,6 @@ class RealizationValidator:
     def validate(family_id: str | None, action: ActionSpec) -> ActionSpec:
         if action.action_id.startswith("patch-") and family_id:
             raise ValueError("source patch has no proven registered ActionSpec")
-        if "source_patch_digest" in action.parameters and action.parameters.get("activation_proof") in {None, "", "unproven"} and family_id:
-            raise ValueError("source patch requires a harness activation proof")
         if family_id:
             try:
                 from benchmark.families import FAMILY_SPECS, resolve_family_id

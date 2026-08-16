@@ -57,27 +57,6 @@ class AcreMaintainer:
     def update_effect_process(self) -> Any:
         return self.engine.assess()
 
-    def falsify(self, callback: Callable[[], Any] | None = None) -> Any:
-        return callback() if callback else None
-
-    def synthesize(self, callback: Callable[[], Any] | None = None) -> Any:
-        return callback() if callback else None
-
-    def acquire(self, callback: Callable[[], Any] | None = None) -> Any:
-        return callback() if callback else None
-
-    def replay(self, callback: Callable[[], Any] | None = None) -> Any:
-        return callback() if callback else None
-
-    def validate(self, callback: Callable[[], Any] | None = None) -> Any:
-        return callback() if callback else None
-
-    def govern(self, callback: Callable[[], Any] | None = None) -> Any:
-        return callback() if callback else None
-
-    def relation_update(self, callback: Callable[[], Any] | None = None) -> Any:
-        return callback() if callback else None
-
     def lifecycle_update(self, subject_id: str | None = None) -> Any:
         return self.engine.evolve(subject_id) if subject_id else None
 
@@ -127,6 +106,34 @@ class AcreMaintainer:
             estimates[str(context_id)] = engine.estimate()
         return RelationIdentifier(practical_margin=practical_margin).identify(estimates)
 
+    def execute_higher_order_experiment(
+        self,
+        contexts: Sequence[Mapping[str, Any]],
+        executor: Any,
+        *,
+        delta: float = 0.05,
+        practical_margin: float = 0.05,
+    ) -> Any:
+        """Execute complete 2^3 bundles and return a coverage-safe certificate."""
+        from .factorial import ThreeWayBlock, estimate_higher_order
+        blocks = []
+        for index, context in enumerate(contexts):
+            outcomes = executor(dict(context))
+            if not isinstance(outcomes, Mapping):
+                raise ValueError("higher-order executor must return arm outcomes")
+            blocks.append(ThreeWayBlock(str(context.get("context_id", index)), {str(key): float(value) for key, value in outcomes.items()}))
+        estimate = estimate_higher_order(blocks, delta=delta, look_count=max(1, len(blocks)), practical_margin=practical_margin)
+        return {
+            "certificate_type": "higher_order",
+            "blocks": len(blocks),
+            "raw_residual": estimate.raw_residual,
+            "normalized_residual": estimate.normalized_residual,
+            "lcb": estimate.residual_lcb,
+            "ucb": estimate.residual_ucb,
+            "status": estimate.status,
+            "bounded_auto_allowed": estimate.status == "confirmed_negligible",
+        }
+
     def relation_certificates(
         self,
         context_blocks: Mapping[str, Sequence[Any]],
@@ -161,47 +168,4 @@ class AcreMaintainer:
             )
         return certificates
 
-    def step(
-        self,
-        events: Sequence[EvidenceEvent | Mapping[str, Any]] = (),
-        *,
-        falsify: Callable[[], Any] | None = None,
-        synthesize: Callable[[], Any] | None = None,
-        acquire: Callable[[], Any] | None = None,
-        replay: Callable[[], Any] | None = None,
-        validate: Callable[[], Any] | None = None,
-        govern: Callable[[], Any] | None = None,
-        relation_update: Callable[[], Any] | None = None,
-        subject_id: str | None = None,
-        subject_ids: Sequence[str] = (),
-    ) -> MaintenanceResult:
-        observed = self.observe(events)
-        assessment = self.update_effect_process()
-        # Keep the lifecycle reducer ordered: no proposal, acquisition,
-        # replay, validation, or governance callback may run before the
-        # current evidence has been observed and assessed.  This is the
-        # single workflow ordering shared by formal and episode callers.
-        falsify_result = self.falsify(falsify)
-        synthesis_result = self.synthesize(synthesize)
-        acquisition_result = self.acquire(acquire)
-        replay_result = self.replay(replay)
-        validation_result = self.validate(validate)
-        governance_result = self.govern(govern)
-        relation_result = self.relation_update(relation_update)
-        lifecycle_decisions = tuple(self.engine.evolve(item) for item in subject_ids)
-        return MaintenanceResult(
-            observed=len(observed),
-            assessment=assessment.to_dict() if hasattr(assessment, "__dict__") else assessment,
-            falsify=falsify_result,
-            synthesis=synthesis_result,
-            acquisition=acquisition_result,
-            replay=replay_result,
-            validation=validation_result,
-            governance=governance_result,
-            relation_update=relation_result,
-            lifecycle=self.lifecycle_update(subject_id),
-            lifecycle_decisions=lifecycle_decisions,
-        )
-
-
-__all__ = ["AcreMaintainer", "MaintenanceInput", "MaintenanceTransition", "MaintenanceResult"]
+__all__ = ["AcreMaintainer", "MaintenanceInput", "MaintenanceTransition"]

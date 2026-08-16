@@ -101,7 +101,15 @@ class ScientificPolicySpec:
         validate_identifier(self.policy_id, "scientific policy_id")
 
     def evaluate(self, gates: Mapping[str, Any]) -> dict[str, bool]:
-        return {name: bool(gates.get(name, False)) for name in self.required_gates}
+        result: dict[str, bool] = {}
+        for name in self.required_gates:
+            value = gates.get(name, False)
+            tolerance = self.tolerance.get(name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and isinstance(tolerance, (int, float)):
+                result[name] = float(value) >= float(tolerance)
+            else:
+                result[name] = bool(value)
+        return result
 
     def to_dict(self) -> dict[str, Any]:
         return {"policy_id": self.policy_id, "required_gates": list(self.required_gates), "tolerance": dict(self.tolerance)}
@@ -145,6 +153,29 @@ class RealizationRecord:
             realized_digest=self.realized_digest,
             verifier_digest=verifier_digest,
         )
+
+
+@dataclass(frozen=True)
+class ActivationCertificate:
+    """Harness-owned proof that a realization exercised a semantic action."""
+
+    action_id: str
+    activation_metrics: dict[str, Any]
+    expected_signature: str
+    observed_signature: str
+    verifier_artifacts: dict[str, Any]
+    realization_digest: str
+    passed: bool
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.action_id, "activation action_id")
+        if not self.expected_signature or not self.observed_signature or not self.realization_digest:
+            raise ValueError("activation certificate signatures and realization digest are required")
+        if not isinstance(self.passed, bool):
+            raise ValueError("activation certificate passed must be boolean")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)

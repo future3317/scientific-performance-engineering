@@ -45,15 +45,31 @@ class ReferenceExecutor:
     def available(self) -> bool:
         return shutil.which(self.executable) is not None
 
-    def receipt(self, *, worker_uid: str = "unknown") -> ExecutorReceipt:
-        digest = hashlib.sha256(self.executable.encode("utf-8")).hexdigest()
-        return ExecutorReceipt("external_namespace_executor", "none", ("task", "solution", "skill_view", "retrieved_context", "context_state", "result", "executor_receipt"), digest, worker_uid)
+    def receipt(self, *, worker_uid: str = "unknown", include_skill: bool = True) -> ExecutorReceipt:
+        executable = shutil.which(self.executable)
+        digest = hashlib.sha256(Path(executable).read_bytes()).hexdigest() if executable else "unavailable"
+        mounts = ["task", "solution", "retrieved_context", "context_state", "result", "executor_receipt"]
+        if include_skill:
+            mounts.insert(1, "skill_view")
+        return ExecutorReceipt("external_namespace_executor", "none", tuple(mounts), digest, worker_uid)
 
     def command(self, command: Sequence[str], worker_root: Path) -> list[str]:
         if not self.available():
             raise RuntimeError(f"reference executor unavailable: {self.executable}")
-        root = str(Path(worker_root).resolve())
-        return [self.executable, "--die-with-parent", "--unshare-net", "--ro-bind", root, "/worker", "--chdir", "/worker", "--", *map(str, command)]
+        root = Path(worker_root).resolve()
+        args = [self.executable, "--die-with-parent", "--unshare-net", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
+        readonly = ("task", "skill_view", "retrieved_context", "context_state")
+        writable = ("solution", "result", "executor_receipt")
+        for name in readonly:
+            source = root / name
+            if source.is_dir():
+                args.extend(["--ro-bind", str(source), f"/worker/{name}"])
+        for name in writable:
+            source = root / name
+            if source.exists():
+                args.extend(["--bind", str(source), f"/worker/{name}"])
+        args.extend(["--chdir", "/worker", "--", *map(str, command)])
+        return args
 
 
 __all__ = ["ExecutorReceipt", "ReferenceExecutor"]
