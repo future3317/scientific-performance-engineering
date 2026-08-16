@@ -28,6 +28,7 @@ TESTS = (
     "test_formal.py",
     "test_population.py",
     "test_families.py",
+    "test_acre_full_lifecycle_e2e.py",
 )
 
 
