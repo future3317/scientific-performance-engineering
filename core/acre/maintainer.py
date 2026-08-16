@@ -67,12 +67,14 @@ class AcreMaintainer:
             if maintenance_input.experiment_executor is None or maintenance_input.record_case is None or maintenance_input.update_certificate is None:
                 raise ValueError("planned experiments require executor, case recorder, and certificate updater")
             for plan in maintenance_input.experiment_plans:
-                self.execute_node_experiment(
+                execution = self.execute_node_experiment(
                     plan,
                     maintenance_input.experiment_executor,
                     record_case=maintenance_input.record_case,
                     update_certificate=maintenance_input.update_certificate,
                 )
+                if execution.evidence_events:
+                    observed += self.observe(execution.evidence_events)
         decisions = tuple(self.engine.evolve(subject_id) for subject_id in maintenance_input.subject_ids)
         assessment = self.engine.assess()
         return MaintenanceTransition(observed, decisions, assessment.to_dict() if hasattr(assessment, "to_dict") else dict(assessment))
@@ -115,7 +117,7 @@ class AcreMaintainer:
         practical_margin: float = 0.05,
     ) -> Any:
         """Execute complete 2^3 bundles and return a coverage-safe certificate."""
-        from .factorial import ThreeWayBlock, estimate_higher_order
+        from .factorial import ThreeWayBlock, HigherOrderCertificate, estimate_higher_order
         blocks = []
         for index, context in enumerate(contexts):
             outcomes = executor(dict(context))
@@ -123,16 +125,27 @@ class AcreMaintainer:
                 raise ValueError("higher-order executor must return arm outcomes")
             blocks.append(ThreeWayBlock(str(context.get("context_id", index)), {str(key): float(value) for key, value in outcomes.items()}))
         estimate = estimate_higher_order(blocks, delta=delta, look_count=max(1, len(blocks)), practical_margin=practical_margin)
-        return {
-            "certificate_type": "higher_order",
-            "blocks": len(blocks),
-            "raw_residual": estimate.raw_residual,
-            "normalized_residual": estimate.normalized_residual,
-            "lcb": estimate.residual_lcb,
-            "ucb": estimate.residual_ucb,
-            "status": estimate.status,
-            "bounded_auto_allowed": estimate.status == "confirmed_negligible",
-        }
+        first_context = contexts[0] if contexts else {}
+        context_root = first_context.get("context", first_context) if isinstance(first_context, Mapping) else {}
+        bundle_versions = {str(key): int(value) for key, value in (context_root.get("rule_versions", {}) if isinstance(context_root, Mapping) and isinstance(context_root.get("rule_versions", {}), Mapping) else {}).items()}
+        if len(bundle_versions) != 3:
+            bundle_versions = {str(key): 1 for key in (first_context.get("bundle_ids", ()) if isinstance(first_context, Mapping) else ())}
+        if len(bundle_versions) != 3:
+            raise ValueError("higher-order execution requires three versioned bundle endpoints")
+        status = "pairwise_certified" if estimate.status == "confirmed_negligible" else "hyperedge_required" if estimate.status == "confirmed_nonzero" else "unresolved"
+        certificate = HigherOrderCertificate(
+            bundle_versions=bundle_versions,
+            context_predicate=dict(first_context.get("context_predicate", {"all": []}) if isinstance(first_context, Mapping) else {"all": []}),
+            regime_digest=str(first_context.get("regime_digest", "unknown") if isinstance(first_context, Mapping) else "unknown"),
+            residual_lcb=estimate.residual_lcb,
+            residual_ucb=estimate.residual_ucb,
+            normalized_residual=estimate.normalized_residual,
+            raw_residual=estimate.raw_residual,
+            status=status,
+        )
+        result = certificate.to_dict()
+        self.engine.register_higher_order_certificate(result)
+        return result
 
     def relation_certificates(
         self,

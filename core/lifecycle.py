@@ -13,6 +13,7 @@ def apply_lifecycle_decision(
     decision: EvolutionDecision,
     state: RuleState | RelationState,
     journal: Any | None = None,
+    state_store: Any | None = None,
 ) -> RuleState | RelationState:
     """Apply a decision to canonical in-memory state."""
     state_id = state.rule_id if isinstance(state, RuleState) else state.relation_id
@@ -26,8 +27,10 @@ def apply_lifecycle_decision(
     elif decision.operation == "REVALIDATE":
         changes["drift_state"] = "revalidating"
     updated = replace(state, **changes) if changes else state
-    if journal is not None and changes:
-        journal.append("update_state", decision.subject_id, version=int(updated.version), digest=decision.operation.lower())
+    if changes and state_store is not None:
+        state_store.apply_transition(state, updated, decision=decision, journal=journal)
+    elif journal is not None and changes:
+        journal.append("update_state", decision.subject_id, version=int(updated.version), digest=decision.operation.lower(), operation_detail=decision.operation)
     return updated
 
 

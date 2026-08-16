@@ -14,7 +14,7 @@ import math
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Mapping
 
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
@@ -176,6 +176,29 @@ class ActivationCertificate:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any], *, action_id: str | None = None, realization_digest: str | None = None) -> "ActivationCertificate":
+        certificate = cls(
+            action_id=str(value.get("action_id") or action_id or ""),
+            activation_metrics=dict(value.get("activation_metrics") or {}),
+            expected_signature=str(value.get("expected_signature") or ""),
+            observed_signature=str(value.get("observed_signature") or ""),
+            verifier_artifacts=dict(value.get("verifier_artifacts") or {}),
+            realization_digest=str(value.get("realization_digest") or realization_digest or ""),
+            passed=value.get("passed") is True,
+        )
+        if not certificate.passed:
+            raise ValueError("activation certificate did not pass")
+        if action_id is not None and certificate.action_id != action_id:
+            raise ValueError("activation certificate action mismatch")
+        if realization_digest is not None and certificate.realization_digest != realization_digest:
+            raise ValueError("activation certificate realization mismatch")
+        if not certificate.verifier_artifacts.get("task_id"):
+            raise ValueError("activation certificate needs verifier task artifact")
+        if not certificate.activation_metrics.get("causal") or not certificate.activation_metrics.get("control"):
+            raise ValueError("activation certificate needs independent causal and control results")
+        return certificate
 
 
 @dataclass(frozen=True)

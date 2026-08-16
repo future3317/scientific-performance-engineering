@@ -19,6 +19,8 @@ class Mutation:
     version: int | None = None
     artifact_path: str | None = None
     digest: str | None = None
+    old_digest: str | None = None
+    operation_detail: str | None = None
     timestamp: str = ""
     previous_digest: str = ""
     entry_digest: str = ""
@@ -37,13 +39,13 @@ class MutationJournal:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
-    def append(self, operation: str, subject_id: str, *, version: int | None = None, artifact_path: str | None = None, digest: str | None = None) -> Mutation:
+    def append(self, operation: str, subject_id: str, *, version: int | None = None, artifact_path: str | None = None, digest: str | None = None, old_digest: str | None = None, operation_detail: str | None = None) -> Mutation:
         previous = self.entries()
         previous_digest = previous[-1].entry_digest if previous else ""
         timestamp = datetime.now(timezone.utc).isoformat()
-        payload = {"operation": operation, "subject_id": subject_id, "version": version, "artifact_path": artifact_path, "previous_digest": previous_digest, "timestamp": timestamp}
+        payload = {"operation": operation, "subject_id": subject_id, "version": version, "artifact_path": artifact_path, "digest": digest, "old_digest": old_digest, "operation_detail": operation_detail, "previous_digest": previous_digest, "timestamp": timestamp}
         entry_digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-        mutation = Mutation(operation, subject_id, version, artifact_path, digest, timestamp, previous_digest, entry_digest)
+        mutation = Mutation(operation, subject_id, version, artifact_path, digest, old_digest, operation_detail, timestamp, previous_digest, entry_digest)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(mutation), sort_keys=True, ensure_ascii=False) + "\n")
@@ -67,11 +69,27 @@ class MutationJournal:
         for entry in self.entries():
             if entry.previous_digest != previous:
                 raise ValueError("mutation journal chain is inconsistent")
-            payload = {"operation": entry.operation, "subject_id": entry.subject_id, "version": entry.version, "artifact_path": entry.artifact_path, "previous_digest": entry.previous_digest, "timestamp": entry.timestamp}
+            payload = {"operation": entry.operation, "subject_id": entry.subject_id, "version": entry.version, "artifact_path": entry.artifact_path, "digest": entry.digest, "old_digest": entry.old_digest, "operation_detail": entry.operation_detail, "previous_digest": entry.previous_digest, "timestamp": entry.timestamp}
             expected = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
             if entry.entry_digest not in {expected, ""}:
                 raise ValueError("mutation journal digest is invalid")
             previous = entry.entry_digest
+
+    def verify_against_store_diff(self, store: str | Path) -> None:
+        """Verify that journaled artifact digests match the current store."""
+        root = Path(store)
+        self.verify()
+        for entry in self.entries():
+            if not entry.artifact_path or not entry.digest:
+                continue
+            path = root / entry.artifact_path
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("journal artifact path escapes store")
+            if not path.is_file():
+                raise ValueError(f"journaled artifact is missing: {entry.artifact_path}")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest != entry.digest:
+                raise ValueError(f"journaled artifact digest mismatch: {entry.artifact_path}")
 
 
 __all__ = ["Mutation", "MutationJournal"]

@@ -279,14 +279,17 @@ def verify_condition_policy(condition_dir: str | Path) -> tuple[bool, list[str]]
                 *[f"D store deleted immutable skill state: {path}" for path in forbidden_deletions],
             ]
         immutable_prefixes = ("rules/", "relations/")
-        immutable_changes = [path for path in changed + deleted if path.startswith(immutable_prefixes) and "/v" in path]
+        immutable_changes = [
+            path for path in changed + deleted
+            if path.startswith(immutable_prefixes) and "/v" in path and not path.endswith(".state.json")
+        ]
         if immutable_changes:
             return False, [f"versioned governed artifact was modified or deleted: {path}" for path in immutable_changes]
         journal_path = condition_dir / "evolution" / "mutation_journal.jsonl"
         if journal_path.is_file():
             try:
                 from core.mutation_journal import MutationJournal
-                MutationJournal(journal_path).verify()
+                MutationJournal(journal_path).verify_against_store_diff(condition_dir)
             except (OSError, ValueError) as exc:
                 return False, [f"mutation journal is invalid: {exc}"]
     elif condition == "B" and (additions or changed or deleted):

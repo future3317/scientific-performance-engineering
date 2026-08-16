@@ -193,6 +193,7 @@ class StatisticalCEGIS:
         provenance["complexity"] = predicate_complexity(predicate)
         provenance["hypothesis_vocabulary_context_count"] = len(vocabulary_contexts)
         provenance["version_space_digest"] = hashlib.sha256(json.dumps(list(consistent), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+        provenance["version_space"] = list(consistent)
         # A consistent predicate is identified only when every remaining
         # hypothesis makes the same deploy/no-deploy decision on the
         # observable decision contexts.  The sealed pool is deliberately not
@@ -254,11 +255,9 @@ def _case_effect_interval(case: Mapping[str, Any], *, delta: float = 0.05) -> tu
         effects = [utility_effect(float(on), float(off), higher_is_better=higher_is_better, log_scale=log_scale) for on, off in zip(intervention, baseline)]
         lower, upper = paired_repetition_interval(effects, delta)
         return sum(effects) / len(effects), lower, upper
-    try:
-        effect = utility_effect(float(case["utility_on"]), float(case["utility_off"]), higher_is_better=higher_is_better, log_scale=log_scale)
-    except (KeyError, TypeError, ValueError):
-        return None
-    return effect, -1.0, 1.0
+    # A point effect without paired repetitions is descriptive only and
+    # cannot certify either a positive anchor or a counterexample.
+    return None
 
 
 def synthesize_applicability(

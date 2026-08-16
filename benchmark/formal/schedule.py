@@ -58,6 +58,7 @@ class PromotionReplayScheduler:
         self.p_min = float(p_min)
         self.delta = float(delta)
         self.minimum_groups = minimum_all_successes(self.p_min, self.delta) if self.p_min > 0.0 else 1
+        self.max_groups = max(self.minimum_groups * 3, self.minimum_groups + 8)
 
     def pending_contexts(
         self,
@@ -73,7 +74,7 @@ class PromotionReplayScheduler:
         # The task stream is only the proposal trigger.  Independent replay
         # groups come from preregistered family contexts and therefore remain
         # available even when a family has fewer public anchor tasks.
-        pools = family_views(family_id, count=max(3 * self.minimum_groups, 24), seed=seed)
+        pools = family_views(family_id, count=max(self.max_groups, 24), seed=seed)
         contexts: list[dict[str, Any]] = []
         for instance in pools["representative_pool"]:
             group_id = f"family-{instance.instance_id}"
@@ -86,7 +87,7 @@ class PromotionReplayScheduler:
                 "context": {"workload": dict(instance.parameters)},
                 "experiment_cost": 1.0,
             })
-            if len(contexts) >= self.minimum_groups:
+            if len(contexts) >= self.max_groups:
                 break
         return contexts
 
@@ -105,7 +106,7 @@ class PromotionReplayScheduler:
         from core.acre.experiments import ExperimentPlan, execute_paired_plan
 
         contexts = self.pending_contexts(family_id, seen_group_ids=seen_group_ids, seed=seed)
-        plan = ExperimentPlan(subject_id=str(subject_id), contexts=tuple(contexts), max_groups=self.minimum_groups)
+        plan = ExperimentPlan(subject_id=str(subject_id), contexts=tuple(contexts), max_groups=self.max_groups)
         return execute_paired_plan(
             plan,
             executor,
@@ -149,8 +150,8 @@ class SynthesisAcquisitionScheduler:
             if item.instance_id not in seen
         ]
 
-    def plan(self, family_id: str, *, seen_context_ids: set[str] | None = None, seed: int = 0) -> list[dict[str, Any]]:
-        """Rank active queries from the current observable version-space proxy."""
+    def plan(self, family_id: str, *, seen_context_ids: set[str] | None = None, seed: int = 0, version_space: list[Mapping[str, Any]] | None = None, decision_sensitivity_fn: Any | None = None) -> list[dict[str, Any]]:
+        """Rank active queries from the current observable version space."""
         from core.acre.acquisition import AcquisitionQuery
         from core.acre.planner import ExperimentPlanner
         contexts = self.pending_contexts(family_id, seen_context_ids=seen_context_ids, seed=seed)
@@ -161,10 +162,32 @@ class SynthesisAcquisitionScheduler:
         ) for item in contexts)
         if not queries:
             return []
+        hypotheses = tuple(version_space or ())
+        def hypothesis_signature(item: Mapping[str, Any], context: Mapping[str, Any]) -> bool:
+            from core.predicates import match_predicate
+            return bool(match_predicate(item, context))
+        def information_gain(query: AcquisitionQuery, _observations: Mapping[str, list[bool]]) -> float:
+            if not hypotheses:
+                return 0.0
+            total = float(len(hypotheses))
+            positive = sum(hypothesis_signature(item, query.context) for item in hypotheses)
+            negative = total - positive
+            import math
+            entropy = lambda count: 0.0 if count <= 0 else -(count / total) * math.log(count / total)
+            return entropy(positive) + entropy(negative)
+        def simulate(query: AcquisitionQuery, outcome: bool, _observations: Mapping[str, list[bool]]) -> Any:
+            if decision_sensitivity_fn is not None:
+                return decision_sensitivity_fn(query, outcome, hypotheses)
+            if not hypotheses:
+                return (query.query_id, outcome)
+            remaining = tuple(item for item in hypotheses if hypothesis_signature(item, query.context) is outcome)
+            # Deploy/abstain signature over the remaining hypotheses is the
+            # observable decision, not merely the boolean observation tuple.
+            return tuple(hypothesis_signature(item, query.context) for item in remaining)
         planned = ExperimentPlanner().rank(
             queries, {query.edge_id: [] for query in queries},
-            information_gain=lambda query, observations: 1.0 if not observations.get(query.edge_id) else 0.0,
-            simulate=lambda query, outcome, observations: (query.edge_id, bool(outcome)),
+            information_gain=information_gain,
+            simulate=simulate,
         )
         by_id = {str(item["context_id"]): item for item in contexts}
         return [by_id[item.query.query_id] for item in planned]
@@ -245,6 +268,12 @@ class RelationExperimentScheduler:
         }
         endpoint_versions = candidate.get("endpoint_versions")
         if isinstance(endpoint_versions, Mapping) and endpoint_versions:
+            endpoints = candidate.get("endpoints") if isinstance(candidate.get("endpoints"), Mapping) else {}
+            if set(endpoint_versions) == {"left", "right"} and set(endpoints) == {"left", "right"}:
+                endpoint_versions = {
+                    str(endpoints["left"]): int(endpoint_versions["left"]),
+                    str(endpoints["right"]): int(endpoint_versions["right"]),
+                }
             certificates = maintainer.relation_certificates(
                 context_blocks,
                 endpoint_versions={str(key): int(value) for key, value in endpoint_versions.items()},
@@ -255,6 +284,28 @@ class RelationExperimentScheduler:
                 key: value.to_dict() for key, value in certificates.items()
             }
         return plan
+
+    def execute_higher_order(
+        self,
+        contexts: list[Mapping[str, Any]],
+        *,
+        executor: Any,
+        maintainer: Any,
+        bundle_versions: Mapping[str, int],
+        delta: float = 0.05,
+        practical_margin: float = 0.05,
+    ) -> dict[str, Any]:
+        """Run a real 2^3 bundle experiment and return a typed certificate."""
+        prepared = [
+            {**dict(context), "rule_versions": dict(bundle_versions), "bundle_ids": list(bundle_versions)}
+            for context in contexts
+        ]
+        return maintainer.execute_higher_order_experiment(
+            prepared,
+            executor,
+            delta=delta,
+            practical_margin=practical_margin,
+        )
 
 
 def task_order(split_path: str | Path) -> list[tuple[int, str]]:

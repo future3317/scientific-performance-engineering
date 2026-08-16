@@ -257,7 +257,12 @@ def promote_via_replay(
             if not isinstance(declared_ids, list) or not declared_ids:
                 continue
             declared = {str(item) for item in declared_ids}
-            if anchor_ids and declared != {str(item) for item in anchor_ids}:
+            representative_anchor_ids = {
+                str(item.get("case_id")) for item in cases
+                if item.get("query_type", "representative") == "representative"
+                and str(item.get("case_id")) in {str(value) for value in anchor_ids}
+            }
+            if representative_anchor_ids and declared != representative_anchor_ids:
                 continue
             cases = [case for case in cases if str(case.get("case_id")) in declared]
             if {str(case.get("case_id")) for case in cases} != declared:

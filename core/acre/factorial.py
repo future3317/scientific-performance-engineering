@@ -191,6 +191,44 @@ class HigherOrderEstimate:
 
 
 @dataclass(frozen=True)
+class HigherOrderCertificate:
+    """Typed certificate for a three-rule bundle frontier."""
+
+    bundle_versions: Mapping[str, int]
+    context_predicate: Mapping[str, object]
+    regime_digest: str
+    residual_lcb: float
+    residual_ucb: float
+    normalized_residual: float
+    raw_residual: float
+    status: str
+    estimator_version: str = "higher-order-cs-v1"
+
+    def __post_init__(self) -> None:
+        if len(self.bundle_versions) != 3 or any(int(version) < 1 for version in self.bundle_versions.values()):
+            raise ValueError("higher-order certificates require exactly three versioned rules")
+        if self.status not in {"pairwise_certified", "hyperedge_required", "unresolved"}:
+            raise ValueError("invalid higher-order certificate status")
+        if not -1.0 <= self.residual_lcb <= self.residual_ucb <= 1.0:
+            raise ValueError("higher-order residual interval must be normalized and bounded")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "certificate_type": "higher_order",
+            "bundle_ids": sorted(self.bundle_versions),
+            "bundle_versions": dict(self.bundle_versions),
+            "context_predicate": dict(self.context_predicate),
+            "regime_digest": self.regime_digest,
+            "residual_lcb": self.residual_lcb,
+            "residual_ucb": self.residual_ucb,
+            "normalized_residual": self.normalized_residual,
+            "raw_residual": self.raw_residual,
+            "status": self.status,
+            "estimator_version": self.estimator_version,
+        }
+
+
+@dataclass(frozen=True)
 class ThreeWayBlock:
     block_id: str
     outcomes: Mapping[str, float]

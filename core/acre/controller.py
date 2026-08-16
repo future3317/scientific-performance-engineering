@@ -31,5 +31,14 @@ class AcreController:
     def assess(self, subject_id: str | None = None, version: int | None = None) -> EvidenceAssessment:
         events = self._events if subject_id is None else self._events_by_subject.get(str(subject_id), [])
         if version is not None:
-            events = [event for event in events if int(event.context.get("rule_versions", {}).get(str(subject_id), version)) == int(version)]
+            filtered = []
+            for event in events:
+                rule_versions = event.context.get("rule_versions", {})
+                relation_versions = event.context.get("relation_versions", {})
+                recorded = rule_versions.get(str(subject_id)) if isinstance(rule_versions, Mapping) else None
+                if recorded is None and isinstance(relation_versions, Mapping):
+                    recorded = relation_versions.get(str(subject_id))
+                if recorded is not None and int(recorded) == int(version):
+                    filtered.append(event)
+            events = filtered
         return assess(events)

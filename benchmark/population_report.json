@@ -349,6 +349,188 @@
     "hard_flags": [],
     "calibration_gate": "blocked"
   },
+  "public_context": {
+    "CORE-AUTOGRAD-BATCHED-VJP-15": {
+      "workload": {
+        "family_parameters": {
+          "fixture_index": 0,
+          "seed": 0
+        }
+      }
+    },
+    "CORE-CHECKPOINT-AMPLE-MEM-14": {
+      "workload": {
+        "family_parameters": {
+          "memory_pressure": 0.4,
+          "segment_count": 3,
+          "recompute_ratio": 0.2
+        }
+      }
+    },
+    "CORE-COMPILE-DYNAMIC-11": {
+      "workload": {
+        "family_parameters": {
+          "logical_steps": 256,
+          "graph_size": 128,
+          "dynamic_shape_rate": 0.3
+        }
+      }
+    },
+    "CORE-COMPILE-RECOMPILE-04": {
+      "workload": {
+        "family_parameters": {
+          "logical_steps": 128,
+          "graph_size": 64,
+          "dynamic_shape_rate": 0.2
+        }
+      }
+    },
+    "CORE-COMPILE-TINY-12": {
+      "workload": {
+        "family_parameters": {
+          "logical_steps": 64,
+          "graph_size": 64,
+          "dynamic_shape_rate": 0.8
+        }
+      }
+    },
+    "CORE-DATALOADER-FANOUT-16": {
+      "workload": {
+        "family_parameters": {
+          "batch_size": 64,
+          "worker_count": 3,
+          "prefetch_factor": 4,
+          "pin_memory": true
+        }
+      }
+    },
+    "CORE-H2D-PIPELINE-03": {
+      "workload": {
+        "family_parameters": {
+          "batch_size": 32,
+          "worker_count": 2,
+          "prefetch_factor": 2,
+          "pin_memory": true
+        }
+      }
+    },
+    "CORE-KERNEL-FUSION-09": {
+      "workload": {
+        "family_parameters": {
+          "logical_steps": 192,
+          "graph_size": 320,
+          "dynamic_shape_rate": 0.2
+        }
+      }
+    },
+    "CORE-MEM-RETAINED-GRAPH-13": {
+      "workload": {
+        "family_parameters": {
+          "memory_pressure": 0.7,
+          "segment_count": 4,
+          "recompute_ratio": 0.2
+        }
+      }
+    },
+    "CORE-REPEATED-BACKBONE-02": {
+      "workload": {
+        "family_parameters": {
+          "fixture_index": 0,
+          "seed": 0
+        }
+      }
+    },
+    "CORE-SCALAR-SYNC-01": {
+      "workload": {
+        "family_parameters": {
+          "scalar_syncs_per_step": 12,
+          "metric_cadence": 4
+        }
+      }
+    },
+    "EVOL-COMPILER-DRIFT-20": {
+      "workload": {
+        "family_parameters": {
+          "fixture_index": 1,
+          "seed": 0
+        }
+      }
+    },
+    "EVOL-EPISODE-POISON-10": {
+      "workload": {
+        "family_parameters": {
+          "fixture_index": 0,
+          "seed": 0
+        }
+      }
+    },
+    "SCIML-CRYSTAL-DIFFUSION-07": {
+      "workload": {
+        "family_parameters": {
+          "fixture_index": 0,
+          "seed": 0
+        }
+      }
+    },
+    "SCIML-EQUIV-RECOMPUTE-06": {
+      "workload": {
+        "family_parameters": {
+          "fixture_index": 0,
+          "seed": 0,
+          "applicable": false
+        }
+      }
+    },
+    "SCIML-FORCE-AUTOGRAD-19": {
+      "workload": {
+        "family_parameters": {
+          "geometry_displacement": 0.02,
+          "skin": 0.8,
+          "graph_size": 128,
+          "dynamic_rate": 0.3
+        }
+      }
+    },
+    "SCIML-GNN-DYNAMIC-GRAPH-18": {
+      "workload": {
+        "family_parameters": {
+          "geometry_displacement": 0.08,
+          "skin": 0.6,
+          "graph_size": 96,
+          "dynamic_rate": 0.8
+        }
+      }
+    },
+    "SCIML-GNN-RAGGED-05": {
+      "workload": {
+        "family_parameters": {
+          "geometry_displacement": 0.02,
+          "skin": 0.2,
+          "graph_size": 64,
+          "dynamic_rate": 0.0
+        }
+      }
+    },
+    "SCIML-GNN-STATIC-GRAPH-CACHE-17": {
+      "workload": {
+        "family_parameters": {
+          "geometry_displacement": 0.03,
+          "skin": 0.4,
+          "graph_size": 96,
+          "dynamic_rate": 0.1
+        }
+      }
+    },
+    "SCIML-GRAPH-REBUILD-08": {
+      "workload": {
+        "family_parameters": {
+          "fixture_index": 0,
+          "seed": 0,
+          "applicable": false
+        }
+      }
+    }
+  },
   "empirical_rejection_flags": {
     "oracle_effect_too_small": [],
     "noise_too_high": [],

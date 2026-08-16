@@ -26,6 +26,7 @@ class AcreEngine:
         higher_order_certificates: Mapping[str, Any] | None = None,
         query_proposer: Callable[[TaskContext | Mapping[str, Any], Sequence[EvidenceEvent]], Any] | None = None,
         mutation_journal: Any | None = None,
+        state_store: Any | None = None,
     ) -> None:
         self.rule_specs = tuple(rule_specs)
         self.rule_states = dict(rule_states or {})
@@ -33,6 +34,7 @@ class AcreEngine:
         self.relation_states = dict(relation_states or {})
         self.higher_order_certificates = dict(higher_order_certificates or {})
         self.mutation_journal = mutation_journal
+        self.state_store = state_store
         self._query_proposer = query_proposer
         self._controller = AcreController()
         self.maintainer = AcreMaintainer(self)
@@ -156,6 +158,7 @@ class AcreEngine:
                 key = (":".join(sorted(str(item) for item in bundle_ids)) + ":" + predicate_digest) if isinstance(bundle_ids, list) else path.stem
                 certificates[key] = certificate
         from core.mutation_journal import MutationJournal
+        from core.state_store import StateStore
         journal_path = root / "evolution" / "mutation_journal.jsonl"
         return cls(
             rule_specs=rule_specs,
@@ -163,7 +166,8 @@ class AcreEngine:
             relation_specs=relation_specs,
             relation_states=relation_states,
             higher_order_certificates=certificates,
-            mutation_journal=MutationJournal(journal_path) if journal_path.is_file() else None,
+            mutation_journal=MutationJournal(journal_path),
+            state_store=StateStore(root),
         )
 
     def observe(self, event: EvidenceEvent | Mapping[str, Any]) -> EvidenceEvent:
@@ -210,7 +214,7 @@ class AcreEngine:
         else:
             decision = EvolutionDecision(subject_type, subject_id, "NO_OP", "approved", "bounded-auto", "subject state is stable", evidence_ids)
         from core.lifecycle import apply_lifecycle_decision
-        updated = apply_lifecycle_decision(decision, state, self.mutation_journal)
+        updated = apply_lifecycle_decision(decision, state, self.mutation_journal, self.state_store)
         if subject_type == "rule":
             self.rule_states[subject_id] = updated
         else:
@@ -223,3 +227,22 @@ class AcreEngine:
             self.rule_specs, self.rule_states, self.relation_specs, self.relation_states, context,
             higher_order_evidence, self.higher_order_certificates, True,
         )
+
+    def register_higher_order_certificate(self, certificate: Mapping[str, Any]) -> str:
+        """Register one typed three-rule certificate for same-pass routing."""
+        from .factorial import HigherOrderCertificate
+        typed = HigherOrderCertificate(
+            bundle_versions={str(key): int(value) for key, value in certificate.get("bundle_versions", {}).items()},
+            context_predicate=dict(certificate.get("context_predicate", {"all": []})),
+            regime_digest=str(certificate.get("regime_digest", "")),
+            residual_lcb=float(certificate["residual_lcb"]),
+            residual_ucb=float(certificate["residual_ucb"]),
+            normalized_residual=float(certificate.get("normalized_residual", 0.0)),
+            raw_residual=float(certificate.get("raw_residual", 0.0)),
+            status=str(certificate["status"]),
+            estimator_version=str(certificate.get("estimator_version", "higher-order-cs-v1")),
+        )
+        import hashlib
+        key = ":".join(sorted(typed.bundle_versions)) + ":" + hashlib.sha256(json.dumps(typed.context_predicate, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        self.higher_order_certificates[key] = typed.to_dict()
+        return key

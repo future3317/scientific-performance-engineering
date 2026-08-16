@@ -187,8 +187,8 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
                         errors.append(f"held-out validation case regressed below tolerance: {case_id}")
             if label == "poison" and entry.get("accepted") is not False:
                 errors.append(f"poison validation case must be rejected by execution: {case_id}")
-            if label == "poison" and value.get("scope") == "formal" and entry.get("validation_class") == "synthetic_validation_only":
-                errors.append(f"synthetic poison validation cannot authorize promotion: {case_id}")
+            if label == "poison" and value.get("scope") == "formal" and entry.get("validation_class") in {"synthetic_validation_only", "hybrid_synthetic_adversarial"}:
+                errors.append(f"synthetic or hybrid poison validation cannot authorize promotion: {case_id}")
     return errors
 
 

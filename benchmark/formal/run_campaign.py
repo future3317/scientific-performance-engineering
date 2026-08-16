@@ -333,6 +333,8 @@ def semantic_action_spec(
     if resolved_family:
         if not isinstance(activation_certificate, Mapping) or activation_certificate.get("passed") is not True:
             raise ValueError("family action requires a passed activation certificate")
+        from core.models import ActivationCertificate
+        ActivationCertificate.from_dict(activation_certificate, action_id=action.action_id)
         from benchmark.families.catalog import FAMILY_SPECS
         family_spec = FAMILY_SPECS.get(resolved_family)
         if family_spec is not None and action.action_id not in family_spec.action_specs:
@@ -479,7 +481,7 @@ def execute_poison_probe(
         "case_id": f"POISON-PROBE-{task_spec.get('task_id', 'task')}",
         "executed": True,
         "execution_source": "verifier+family-environment" if verifier_executed else "family-environment",
-        "validation_class": "executable_adversarial" if verifier_executed else "synthetic_validation_only",
+        "validation_class": "hybrid_synthetic_adversarial" if verifier_executed else "synthetic_validation_only",
         "accepted": bool(
             outcome.utility > baseline.utility + 1e-9
             and all(outcome.scientific_gates.values())
@@ -933,6 +935,21 @@ def post_task_update(
         proposals = [item for item in result.get("acre_proposals", []) if isinstance(item, dict)]
         if len(proposals) != 1:
             proposals = []
+        # Collection is a Core-owned continuation: a collecting candidate is
+        # revisited even when the next worker submits no new proposal.
+        seen_candidate_keys = {
+            str(item.get("candidate_identity") or item.get("rule_id") or item.get("id") or "")
+            for item in proposals
+        }
+        for candidate_path in sorted((store / "evolution" / "candidates").glob("*.json")):
+            try:
+                pending_candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            pending_key = str(pending_candidate.get("candidate_identity") or pending_candidate.get("rule_id") or pending_candidate.get("id") or "")
+            if pending_candidate.get("status") == "collecting_evidence" and pending_key and pending_key not in seen_candidate_keys:
+                proposals.append(pending_candidate)
+                seen_candidate_keys.add(pending_key)
         for candidate in proposals:
             if not isinstance(candidate, dict):
                 continue
@@ -942,12 +959,23 @@ def post_task_update(
                 from benchmark.formal.schedule import RelationExperimentScheduler
                 relation_id = str(candidate.get("relation_id") or candidate.get("id") or "")
                 validate_identifier(relation_id, "relation_id")
+                endpoints = candidate.get("endpoints")
+                endpoint_versions = candidate.get("endpoint_versions")
+                endpoint_families = candidate.get("endpoint_families")
+                if not isinstance(endpoints, dict) or set(endpoints) != {"left", "right"} or not isinstance(endpoint_versions, dict) or set(endpoint_versions) != {"left", "right"} or not isinstance(endpoint_families, dict) or set(endpoint_families) != {"left", "right"}:
+                    relation_dir = store / "evolution" / "relation_experiments"
+                    relation_dir.mkdir(parents=True, exist_ok=True)
+                    (relation_dir / f"{identifier_digest(relation_id)}.json").write_text(json.dumps({
+                        "evidence_type": "factorial_contrast", "relation_id": relation_id,
+                        "status": "rejected", "error": "relation proposals require two canonical endpoint revisions and families",
+                    }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    continue
                 relation_scheduler = RelationExperimentScheduler()
-                relation_family = str(family_id or "compile")
+                relation_family = str(endpoint_families["left"])
                 try:
                     from benchmark.interaction.factorial_bench import generate_family_interaction_surface
                     from core.acre.factorial import FactorialBlock
-                    surface = generate_family_interaction_surface((relation_family, "compile"), count=1, seed=int(item["outer_trial_index"]))[0]
+                    surface = generate_family_interaction_surface((relation_family, str(endpoint_families["right"])), count=1, seed=int(item["outer_trial_index"]))[0]
                     arms = dict(surface["outcomes"])
                     def block_executor(_context: Mapping[str, Any], *, context_id: str) -> list[Any]:
                         import random
@@ -964,14 +992,43 @@ def post_task_update(
                         seed=int(item["outer_trial_index"]),
                     )
                 except (KeyError, ValueError) as exc:
-                    relation_schedule = relation_scheduler.schedule(candidate, relation_family)
-                    relation_schedule["status"] = "blocked"
-                    relation_schedule["error"] = str(exc)
+                    relation_schedule = {
+                        "evidence_type": "factorial_contrast",
+                        "relation_id": relation_id,
+                        "family_id": relation_family,
+                        "status": "rejected",
+                        "error": str(exc),
+                    }
                 relation_dir = store / "evolution" / "relation_experiments"
                 relation_dir.mkdir(parents=True, exist_ok=True)
                 (relation_dir / f"{identifier_digest(relation_id)}.json").write_text(
                     json.dumps(relation_schedule, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
                 )
+                identification = relation_schedule.get("identification", {}) if isinstance(relation_schedule, dict) else {}
+                decision_label = str(identification.get("decision", "unresolved"))
+                if decision_label not in {"unresolved", "underidentified_context_relation", "context_dependent_relation"}:
+                    from core.acre.relation import RelationIdentifier, RelationIdentification
+                    try:
+                        relation_spec = RelationIdentifier(practical_margin=0.05).to_spec(
+                            relation_id,
+                            str(endpoints["left"]),
+                            str(endpoints["right"]),
+                            RelationIdentification(
+                                decision=decision_label,
+                                context_decisions=dict(identification.get("context_decisions", {})),
+                                applicability_predicate=identification.get("applicability_predicate"),
+                            ),
+                        )
+                        candidate_path = store / "evolution" / "relation_candidates" / f"{identifier_digest(relation_id)}.json"
+                        candidate_path.parent.mkdir(parents=True, exist_ok=True)
+                        candidate_path.write_text(json.dumps({
+                            **relation_spec.to_dict(),
+                            "status": "candidate",
+                            "relation_evidence_certificates": relation_schedule.get("relation_evidence_certificates", {}),
+                            "endpoint_versions": {str(key): int(value) for key, value in endpoint_versions.items()},
+                        }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    except (TypeError, ValueError):
+                        pass
                 continue
             identifier = str(candidate.get("relation_id") or candidate.get("rule_id") or candidate.get("id") or "")
             if not identifier:
@@ -1178,13 +1235,22 @@ def post_task_update(
             from benchmark.formal.schedule import SynthesisAcquisitionScheduler
             active_scheduler = SynthesisAcquisitionScheduler()
             seen_contexts = {str(case.get("context_id")) for case in case_values_for_cegis if case.get("context_id")}
-            active_pending = active_scheduler.plan(str(family_id or "compile"), seen_context_ids=seen_contexts)
+            existing_version_space = candidate.get("synthesis_state", {}).get("version_space", []) if isinstance(candidate.get("synthesis_state"), dict) else []
+            active_pending = active_scheduler.plan(
+                str(family_id or "compile"),
+                seen_context_ids=seen_contexts,
+                version_space=existing_version_space if isinstance(existing_version_space, list) else None,
+            )
             active_pending = active_pending[: max(1, min(4, len(active_pending)))]
             representative_pending = scheduler.pending_contexts(
                 str(family_id or "compile"), seen_group_ids=seen_groups,
             )
             candidate["replay_schedule"] = {
                 "minimum_groups": scheduler.minimum_groups,
+                "synthesis_contexts": active_pending,
+                "promotion_contexts": representative_pending,
+                # Kept as a derived display field; execution below never
+                # treats active acquisition observations as promotion trials.
                 "pending_contexts": active_pending + representative_pending,
                 "acquisition_context_count": len(active_pending),
             }
@@ -1203,6 +1269,7 @@ def post_task_update(
                     # and preregistered rather than fabricating certainty.
                     replay_executor = FamilyReplayExecutor(family_name, action_name, repetitions=256)
                     generated_cases: list[dict[str, Any]] = []
+                    replay_evidence_events = []
 
                     def record_generated(case: dict[str, Any]) -> None:
                         case = dict(case)
@@ -1231,18 +1298,48 @@ def post_task_update(
                         minimum_groups=scheduler.minimum_groups,
                         epsilon=float(practical_epsilon),
                         delta=0.05,
+                        p_min=scheduler.p_min,
                     )
 
-                    execute_paired_plan(
+                    # Active acquisition observations are written to the
+                    # synthesis ledger but are excluded from promotion by
+                    # ReplaySequentialCertificate's representative filter.
+                    if candidate["replay_schedule"].get("synthesis_contexts"):
+                        active_execution = execute_paired_plan(
+                            ExperimentPlan(
+                                subject_id=str(candidate.get("candidate_identity") or identifier),
+                                contexts=tuple(candidate["replay_schedule"]["synthesis_contexts"]),
+                                max_groups=len(candidate["replay_schedule"]["synthesis_contexts"]),
+                            ),
+                            replay_executor,
+                            record_case=record_generated,
+                            update_certificate=lambda _cases: {"status": "collecting"},
+                        )
+                        replay_evidence_events.extend(active_execution.evidence_events)
+
+                    replay_execution = execute_paired_plan(
                         ExperimentPlan(
                             subject_id=str(candidate.get("candidate_identity") or identifier),
-                            contexts=tuple(candidate["replay_schedule"]["pending_contexts"]),
+                            contexts=tuple(candidate["replay_schedule"]["promotion_contexts"]),
                             max_groups=scheduler.minimum_groups,
                         ),
                         replay_executor,
                         record_case=record_generated,
                         update_certificate=sequential_certificate.update,
                     )
+                    replay_evidence_events.extend(replay_execution.evidence_events)
+                    if replay_evidence_events:
+                        # Replay evidence is canonical Core input, not a
+                        # driver-local promotion side channel.
+                        replay_step = engine.maintain(
+                            events=tuple(replay_evidence_events),
+                            subject_ids=(*engine.rule_states, *engine.relation_states),
+                        )
+                        maintenance_decisions.append({
+                            "operation": "REPLAY_OBSERVE",
+                            "observed": replay_step.observed,
+                            "assessment": replay_step.assessment,
+                        })
                     # Newly executed verifier-owned cases are part of the
                     # candidate evidence set in the same maintenance pass.
                     # Rehydrate the append-only ledger before CEGIS so a
@@ -1252,6 +1349,8 @@ def post_task_update(
                     candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
                     candidate["replay_schedule"]["executed_context_count"] = len(generated_cases)
                     candidate["replay_schedule"]["experiment_cost"] = float(candidate["replay_schedule"].get("experiment_cost", 0.0) + len(generated_cases))
+                    candidate["replay_schedule"]["promotion_contexts"] = []
+                    candidate["replay_schedule"]["synthesis_contexts"] = []
                     candidate["replay_schedule"]["pending_contexts"] = []
             candidate["replay_schedule"]["experiment_cost"] = float(candidate["replay_schedule"].get("experiment_cost", 0.0))
             candidate["status"] = "collecting_evidence"
@@ -1282,10 +1381,15 @@ def post_task_update(
                 str(item) for item in (certificate or {}).get("positive_anchor_ids", [])
                 if isinstance(item, str)
             ]
+            case_by_id = {str(item.get("case_id")): item for item in case_values_for_cegis if isinstance(item, dict)}
+            promotion_ids = [
+                case_id for case_id in promotion_ids
+                if case_by_id.get(case_id, {}).get("query_type", "representative") == "representative"
+            ]
             if not promotion_ids or provenance.get("status") != "identified":
                 continue
-            if not isinstance(certificate, dict) or sorted(promotion_ids) != sorted(str(item) for item in certificate.get("positive_anchor_ids", [])):
-                raise ValueError("promotion cases must be exactly the immutable synthesis positive anchors")
+            if not isinstance(certificate, dict):
+                raise ValueError("synthesis certificate is required")
             candidate["applicability"], candidate["applicability_provenance"] = predicate, provenance
             validation_ref = candidate.get("validation_artifacts")
             if isinstance(validation_ref, dict) and isinstance(validation_ref.get("path"), str):
@@ -1295,20 +1399,45 @@ def post_task_update(
                 except (OSError, json.JSONDecodeError):
                     validation_value = None
                 if isinstance(validation_value, dict):
-                    from core.predicates import match_predicate
+                    from core.models import RuleSpec, RuleState
+                    from core.acre.router import ConservativeCausalRouter
+                    action_for_validation = candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "validated-action"}
+                    validation_rule = RuleSpec(
+                        rule_id=str(candidate.get("rule_id") or identifier), version=int(candidate.get("version", 1)),
+                        parent=None, applicability=predicate, intervention=action_for_validation,
+                        expected_mechanism=str(candidate.get("expected_mechanism", "validated mechanism")),
+                        evidence_requirements=["paired_replay"], scientific_invariants=list(candidate.get("scientific_invariants", [])),
+                        abstain_conditions={}, relations={}, runtime_cost={"tokens": float(candidate.get("runtime_cost", {}).get("tokens", 1)) if isinstance(candidate.get("runtime_cost"), dict) else 1.0},
+                        provenance_policy={"required": True}, severity=str(candidate.get("severity", "P2")),
+                    )
+                    validation_state = RuleState(validation_rule.rule_id, validation_rule.version, "canonical", "stable", effect={"lower_utility": 0.1}, confidence_sequence={"utility_effect_lcb": 0.1})
                     for entry in validation_value.get("heldout_regression_cases", []):
                         if not isinstance(entry, dict) or not isinstance(entry.get("context"), dict):
                             continue
-                        inside = bool(match_predicate(predicate, entry["context"]))
+                        routed = ConservativeCausalRouter(token_budget=4096).route(
+                            (validation_rule,), {validation_rule.rule_id: validation_state}, (), {}, entry["context"],
+                        )
+                        inside = validation_rule.rule_id in routed.selected_rule_ids
+                        entry["routed_rule_ids"] = list(routed.selected_rule_ids)
                         if entry.get("holdout_class") == "boundary":
                             entry["abstained"] = not inside
                         elif entry.get("holdout_class") in {"replication", "transfer"} and not inside:
                             entry["scientific_ok"] = False
-                    validation_file.write_text(json.dumps(validation_value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    validation_digest = hashlib.sha256(json.dumps(validation_value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+                    validation_target = store / "evolution" / "validation" / f"{validation_digest}.json"
+                    validation_target.parent.mkdir(parents=True, exist_ok=True)
+                    validation_target.write_text(json.dumps(validation_value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    candidate["validation_artifacts"] = {
+                        "path": str(validation_target.relative_to(store)).replace("\\", "/"),
+                        "digest": validation_digest,
+                        "heldout_count": len(validation_value.get("heldout_regression_cases", [])),
+                        "poison_probe_count": len(validation_value.get("poison_probe_cases", [])),
+                    }
             candidate["synthesis_state"] = {
                 "status": "identified",
                 "predicate": predicate,
                 "version_space_digest": provenance.get("version_space_digest"),
+                "version_space": provenance.get("version_space", []),
                 "evidence_ids": list(candidate["cases"]),
                 "certificate": certificate,
             }
@@ -1727,17 +1856,14 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             if len(proposals) == 1:
                 try:
                     realized_solution = trial_dir / "realized_solution"
-                    harness_action = semantic_action_spec(
+                    # Resolve the legal action before execution; activation is
+                    # certified only after the realized artifact is replayed.
+                    from core.acre.actions import action_from_proposal
+                    provisional_action = action_from_proposal(
                         str(task_spec.get("family_id", task_spec.get("family", "runtime"))),
                         proposals[0],
-                        activation_certificate={
-                            "task_id": task_id,
-                            "proposal": proposals[0].get("intervention", {}),
-                            "control_result": control_result,
-                            "passed": control_result is not None,
-                            "expected_signature": "verifier-paired",
-                        },
                     )
+                    harness_action = provisional_action.to_dict()
                     realization_record = InterventionRealizer.realize_action(
                         solution_dir,
                         realized_solution,
@@ -1808,7 +1934,14 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         # The promotion task is never reused as held-out
                         # evidence.  Disjoint family contexts are appended
                         # below and carry their own execution results.
-                        "heldout_regression_cases": [],
+                        "heldout_regression_cases": [{
+                            **heldout_case,
+                            "holdout_class": "replication",
+                            "executed": True,
+                            "execution_source": "verifier",
+                            "effect_lcb": heldout_lcb,
+                            "effect_ucb": heldout_ucb,
+                        }],
                         "poison_probe_cases": [execute_poison_probe(
                             task_spec, public_routing, proposals[0], realized_solution, solution_dir,
                             task_dir=tasks_root / task_id,
@@ -1830,9 +1963,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                             activation_certificate={
                                 "task_id": task_id,
                                 "proposal": proposals[0].get("intervention", {}),
+                                "activation_metrics": {"causal": causal_result, "control": control_result},
                                 "realized_digest": _workspace_digest(realized_solution),
+                                "realization_digest": _workspace_digest(realized_solution),
+                                "observed_signature": _workspace_digest(realized_solution),
                                 "passed": True,
                                 "expected_signature": "verifier-paired",
+                                "verifier_artifacts": {"task_id": task_id},
                             },
                         )["action_id"])
                         env = FamilyEnvironment(family_name)

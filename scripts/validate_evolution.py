@@ -344,7 +344,7 @@ def validate_experience_provenance(record: dict[str, Any], root: Path) -> list[s
     return errors
 
 
-def validate_registry(registry: Any, cards: dict[str, dict[str, Any]]) -> list[str]:
+def validate_registry(registry: Any, cards: dict[str, dict[str, Any]], root: Path | None = None) -> list[str]:
     if not isinstance(registry, dict) or registry.get("schema_version") != 1 or not isinstance(registry.get("rules"), list):
         return ["registry needs schema_version=1 and a rules list"]
     errors: list[str] = []
@@ -362,6 +362,16 @@ def validate_registry(registry: Any, cards: dict[str, dict[str, Any]]) -> list[s
             errors.append(f"registry rule has no card: {rule_id}")
         elif card.get("status") != "canonical" or entry.get("status") != "canonical":
             errors.append(f"registry rule must reference a canonical card: {rule_id}")
+        if root is not None:
+            path = root / str(entry.get("path", ""))
+            try:
+                active = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                active = None
+            if not isinstance(active, dict) or active.get("rule_id") != rule_id:
+                errors.append(f"registry rule active path is not the declared subject: {rule_id}")
+            elif int(active.get("version", 0)) != int(entry.get("version", 0)):
+                errors.append(f"registry rule active version mismatch: {rule_id}")
     return errors
 
 
@@ -477,7 +487,7 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
     if registry_path.exists():
         try:
             registry = json.loads(registry_path.read_text(encoding="utf-8"))
-            errors.extend(validate_registry(registry, cards))
+            errors.extend(validate_registry(registry, cards, root))
             for entry in registry.get("rules", []) if isinstance(registry, dict) else []:
                 if isinstance(entry, dict) and isinstance(entry.get("path"), str) and not (root / entry["path"]).is_file():
                     errors.append(f"registry path does not exist: {entry['path']}")
@@ -539,6 +549,9 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                         if not isinstance(path_value, str) or not (root / path_value).is_file():
                             errors.append(f"registry relation path does not exist: {path_value}")
                         else:
+                            active = json.loads((root / path_value).read_text(encoding="utf-8"))
+                            if int(active.get("version", 0)) != int(entry.get("version", 0)):
+                                errors.append(f"registry relation active version mismatch: {entry.get('relation_id')}")
                             path = root / path_value
                             if entry.get("spec_digest") and hashlib.sha256(path.read_bytes()).hexdigest() != str(entry["spec_digest"]):
                                 errors.append(f"registry relation spec digest mismatch: {entry['relation_id']}")
