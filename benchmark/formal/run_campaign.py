@@ -32,14 +32,23 @@ from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier, ActionSpec, RealizationRecord
-from core.sequential_stats import bounded_mean_interval, paired_repetition_interval, minimum_all_successes
-from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold, utility_effect
+from core.sequential_stats import bounded_mean_interval, minimum_all_successes
+from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold
 from scripts.run_rule_replay import evaluate_cases
+from core.acre.cegis import synthesize_applicability, _case_effect_interval
 
 
 def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
     """Compatibility entry point for the canonical public-context builder."""
     return build_public_context(value)
+
+
+def _workspace_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file() and not item.is_symlink()):
+        digest.update(str(path.relative_to(root)).replace("\\", "/").encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 class InterventionRealizer:
@@ -90,6 +99,7 @@ class InterventionRealizer:
         task_id: str,
         context_id: str,
         verifier_digest: str = "unverified",
+        action_spec: dict[str, Any] | None = None,
     ) -> RealizationRecord:
         """Materialize a reusable semantic action and record its realization.
 
@@ -99,21 +109,25 @@ class InterventionRealizer:
         part of the canonical rule meaning.
         """
         from core.acre.actions import action_from_proposal
-        action = action_from_proposal(family_id, proposal)
+        if action_spec is None:
+            action = action_from_proposal(family_id, proposal)
+        else:
+            action = ActionSpec(
+                action_id=str(action_spec["action_id"]),
+                family=str(action_spec["family"]),
+                parameters=dict(action_spec.get("parameters", {})),
+                preconditions=dict(action_spec.get("preconditions", {})),
+                preserves=list(action_spec.get("preserves", [])),
+                risk_class=str(action_spec.get("risk_class", "bounded")),
+            )
         output = InterventionRealizer.realize(baseline, destination, proposal)
-        def digest_tree(root: Path) -> str:
-            digest = hashlib.sha256()
-            for path in sorted(item for item in root.rglob("*") if item.is_file()):
-                digest.update(str(path.relative_to(root)).replace("\\", "/").encode())
-                digest.update(path.read_bytes())
-            return digest.hexdigest()
         record = RealizationRecord(
             action_id=action.action_id,
             task_id=task_id,
             context_id=context_id,
-            baseline_digest=digest_tree(baseline),
+            baseline_digest=_workspace_digest(baseline),
             patch=dict(proposal.get("intervention") or {}),
-            realized_digest=digest_tree(output),
+            realized_digest=_workspace_digest(output),
             verifier_digest=verifier_digest,
         )
         (output.parent / "realization_record.json").write_text(
@@ -181,113 +195,6 @@ def sanitize_submission(
     return destination
 
 
-def _case_effect_interval(case: dict[str, Any], *, delta: float = 0.05) -> tuple[float, float, float] | None:
-    intervention = case.get("intervention_measurements")
-    baseline = case.get("baseline_measurements")
-    higher_is_better = bool(case.get("higher_is_better", True))
-    log_scale = float(case.get("utility_scale", UTILITY_LOG_SCALE))
-    if isinstance(intervention, list) and isinstance(baseline, list):
-        if not intervention or len(intervention) != len(baseline):
-            return None
-        effects = [utility_effect(float(on), float(off), higher_is_better=higher_is_better, log_scale=log_scale) for on, off in zip(intervention, baseline)]
-        if len(effects) > 1 and max(effects) - min(effects) <= 1e-15:
-            return effects[0], effects[0], effects[0]
-        lower, upper = paired_repetition_interval(effects, delta)
-        return sum(effects) / len(effects), lower, upper
-    try:
-        effect = utility_effect(
-            float(case["utility_on"]), float(case["utility_off"]),
-            higher_is_better=higher_is_better, log_scale=log_scale,
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
-    # A scalar score has no sampling uncertainty and cannot certify a boundary
-    # anchor or counterexample.  Formal CEGIS consumes paired repetitions only.
-    return effect, -1.0, 1.0
-
-
-def _family_decision_lattice(family_id: str | None) -> list[dict[str, Any]]:
-    if not family_id:
-        return []
-    try:
-        from benchmark.families import family_instances
-        instances = family_instances(family_id, count=24, seed=0)
-    except (KeyError, ValueError):
-        return []
-    return [{"workload": dict(instance.parameters)} for instance in instances]
-
-
-def synthesize_applicability(
-    cases: list[dict[str, Any]],
-    *,
-    family_id: str | None = None,
-    decision_contexts: list[dict[str, Any]] | None = None,
-    delta: float = 0.05,
-    epsilon_true: float = 0.0,
-    epsilon_false: float = 0.0,
-    require_identified: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any]] | None:
-    """Derive a worker rule boundary from harness-owned public observations."""
-    from core.acre.cegis import BoundaryObservation, synthesize_boundary
-
-    lattice = list(decision_contexts or _family_decision_lattice(family_id))
-    if require_identified and not lattice:
-        return None
-    context_delta = float(delta) / max(1, len(lattice))
-    observations: list[BoundaryObservation] = []
-    for index, case in enumerate(cases):
-        context = case.get("context") if isinstance(case.get("context"), dict) else {}
-        if not context:
-            continue
-        interval = _case_effect_interval(case, delta=context_delta)
-        if interval is None:
-            continue
-        effect, effect_lower, effect_upper = interval
-        observations.append(BoundaryObservation(
-            observation_id=str(case.get("case_id", f"case-{index}")),
-            context=context,
-            effect=effect,
-            gate_passed=bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)),
-            effect_lower=effect_lower,
-            effect_upper=effect_upper,
-        ))
-    if not observations:
-        return None
-    from benchmark.families import family_predicate_grammar
-    # Formal synthesis is only defined over a FamilySpec-owned finite
-    # hypothesis space.  There is intentionally no global grammar fallback.
-    # Calls without a family are restricted to the historical compile
-    # calibration helper; formal campaign calls always pass an explicit
-    # FamilySpec and therefore cannot use an implicit grammar.
-    grammar_payload = family_predicate_grammar(family_id or "compile")
-    if not grammar_payload:
-        return None
-    observed_paths = set()
-    for observation in observations:
-        for feature in grammar_payload["features"]:
-            value: Any = observation.context
-            for part in feature["path"].split("."):
-                value = value.get(part) if isinstance(value, dict) else None
-            if value is not None:
-                observed_paths.add(feature["path"])
-    grammar_payload["features"] = [feature for feature in grammar_payload["features"] if feature["path"] in observed_paths]
-    grammar_payload["threshold_universe"] = {
-        path: values for path, values in grammar_payload.get("threshold_universe", {}).items() if path in observed_paths
-    }
-    if not grammar_payload["features"]:
-        return None
-    result = synthesize_boundary(
-        observations,
-        grammar_payload,
-        decision_contexts=lattice,
-        epsilon_true=epsilon_true,
-        epsilon_false=epsilon_false,
-    )
-    if result.predicate is None or (require_identified and result.status != "identified"):
-        return None
-    return result.predicate, {"source": "harness-cegis", **(result.provenance or {}), "status": result.status}
-
-
 def representative_case_ids(predicate: dict[str, Any], cases: list[dict[str, Any]]) -> list[str]:
     """Return only certified representative cases covered by a learned predicate."""
     from core.predicates import match_predicate
@@ -349,7 +256,7 @@ def hydrate_candidate_cases(
     """Rebuild all immutable case payloads recorded for a candidate revision."""
     subject_id = str(candidate.get("candidate_identity") or candidate.get("rule_id") or candidate.get("relation_id") or candidate.get("id") or "")
     version = int(candidate.get("version", 1))
-    action_digest = str(candidate.get("action_semantic_digest", "")) or None
+    action_digest = str(candidate.get("intervention_digest") or candidate.get("action_semantic_digest") or "") or None
     memberships = ledger.members(subject_id, version, action_digest=action_digest)
     paths: dict[str, Path] = {}
     for membership in memberships:
@@ -386,7 +293,12 @@ def candidate_identity(rule_id: str, version: int, intervention: dict[str, Any])
     return f"{rule_id}:v{int(version)}:{candidate_intervention_digest(intervention)[:24]}"
 
 
-def semantic_action_spec(family_id: str | None, proposal: dict[str, Any]) -> dict[str, Any]:
+def semantic_action_spec(
+    family_id: str | None,
+    proposal: dict[str, Any],
+    *,
+    activation_proof: str | None = None,
+) -> dict[str, Any]:
     """Project a task patch onto the reusable family action vocabulary."""
     from core.acre.actions import action_from_proposal
     resolved_family = str(family_id) if family_id is not None else ""
@@ -395,7 +307,32 @@ def semantic_action_spec(family_id: str | None, proposal: dict[str, Any]) -> dic
         resolved_family = resolve_family_id(resolved_family)
     except (KeyError, ValueError):
         pass
-    action = action_from_proposal(resolved_family or None, proposal)
+    try:
+        action = action_from_proposal(resolved_family or None, proposal)
+    except ValueError:
+        # A source patch has no worker-controlled semantic label.  The
+        # harness maps it to the single declared default action and keeps the
+        # exact patch digest in parameters, so unrelated patches cannot share
+        # a causal evidence identity without the same realization proof.
+        from core.models import ActionSpec
+        from benchmark.families.catalog import FAMILY_SPECS
+        family_spec = FAMILY_SPECS.get(resolved_family)
+        if family_spec is None:
+            raise
+        action_id = str(family_spec.action_policy.get("default", ""))
+        if not action_id:
+            raise ValueError(f"family {resolved_family} has no harness action mapping")
+        patch = dict(proposal.get("intervention") or {})
+        action = ActionSpec(
+            action_id=action_id,
+            family=resolved_family,
+            parameters={
+                "source_patch_digest": candidate_intervention_digest(patch),
+                "activation_proof": str(activation_proof or "unproven"),
+            },
+        )
+        if family_id and activation_proof is None:
+            raise ValueError("source patch requires harness activation proof")
     if resolved_family:
         from benchmark.families.catalog import FAMILY_SPECS
         family_spec = FAMILY_SPECS.get(resolved_family)
@@ -426,7 +363,21 @@ def persist_collecting_proposals(
             continue
         version = int(proposal.get("version", 1))
         realization = proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {"action": "measure"}
-        intervention = semantic_action_spec(family_id, proposal)
+        try:
+            intervention = semantic_action_spec(family_id, proposal)
+        except ValueError:
+            # Collect the worker hypothesis without granting it semantic
+            # action identity.  A later verifier activation proof must replace
+            # this patch projection before it can enter replay/governance.
+            patch = dict(realization)
+            patch_digest = candidate_intervention_digest(patch)
+            intervention = {
+                "action": f"patch-{patch_digest[:16]}",
+                "action_id": f"patch-{patch_digest[:16]}",
+                "family": str(family_id or "runtime"),
+                "parameters": {"source_patch_digest": patch_digest, "activation_proof": "unproven"},
+                "preconditions": {}, "preserves": [], "risk_class": "review",
+            }
         intervention_digest = candidate_intervention_digest(intervention)
         identity = candidate_identity(identifier, version, intervention)
         path = candidates_dir / f"{identifier_digest(identity)}.json"
@@ -491,7 +442,17 @@ def execute_poison_probe(
     if not changed:
         raise ValueError("poison probe requires a realized intervention different from baseline")
     family_id = str(task_spec.get("family_id", task_spec.get("family", "compile")))
-    intervention_id = str(semantic_action_spec(family_id, proposal)["action_id"])
+    # Poison validation executes the realized artifact itself.  An
+    # unclassified source patch is intentionally not promoted into the
+    # semantic action ledger, but it still receives a stable execution label.
+    patch_digest = hashlib.sha256(
+        json.dumps(proposal.get("intervention", {}), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    try:
+        from benchmark.families.catalog import FAMILY_SPECS, resolve_family_id
+        intervention_id = str(FAMILY_SPECS[resolve_family_id(family_id)].action_policy.get("default") or f"unclassified-{patch_digest}")
+    except (KeyError, ValueError):
+        intervention_id = f"unclassified-{patch_digest}"
     deployed = [intervention_id]
     verifier_executed = False
     verifier_scientific_ok = True
@@ -797,7 +758,18 @@ def _read_agent_extensions(path: Path) -> dict[str, Any]:
                 validate_identifier(identifier, "proposal_id")
             except ValueError:
                 continue
-            clean.append({key: value for key, value in proposal.items() if key in proposal_fields})
+            normalized = {key: value for key, value in proposal.items() if key in proposal_fields}
+            # Semantic action labels are harness-owned.  A worker may submit
+            # a source realization proposal, but cannot choose the registered
+            # ActionSpec that will be used for attribution.
+            intervention = normalized.get("intervention")
+            if isinstance(intervention, dict):
+                normalized["intervention"] = {
+                    key: value
+                    for key, value in intervention.items()
+                    if key not in {"action", "action_id", "action_spec", "family"}
+                }
+            clean.append(normalized)
         extensions["acre_proposals"] = clean
     return extensions
 
@@ -832,6 +804,8 @@ def post_task_update(
     maintenance_decisions: list[dict[str, Any]] = []
     promoted_rule_ids: list[str] = []
     if condition in {"C", "C_STRESS", "D"}:
+        from core.mutation_journal import MutationJournal
+        mutation_journal = MutationJournal(store / "evolution" / "mutation_journal.jsonl") if condition == "D" else None
         experience = {
             "schema_version": 1,
             "record_type": "task_experience",
@@ -858,6 +832,8 @@ def post_task_update(
         if not experience_path.exists():
             experience_path.write_text(json.dumps(experience, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             added_experience_ids.append(experience_id)
+            if mutation_journal is not None:
+                mutation_journal.append("add_evidence", experience_id, artifact_path=str(experience_path.relative_to(store)).replace("\\", "/"))
 
         if condition == "D" and causal_result is not None and causal_scored is not None and control_result is not None and control_scored is not None:
             # The worker cannot author evidence.  The harness derives paired
@@ -907,6 +883,8 @@ def post_task_update(
             evidence_path = evidence_dir / f"{identifier_digest(case_id)}.json"
             if not evidence_path.exists():
                 evidence_path.write_text(json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                if mutation_journal is not None:
+                    mutation_journal.append("add_evidence", case_id, artifact_path=str(evidence_path.relative_to(store)).replace("\\", "/"))
             added_replay_case_ids.append(case_id)
             validation_dir = store / "evolution" / "validation"
             validation_dir.mkdir(parents=True, exist_ok=True)
@@ -976,7 +954,19 @@ def post_task_update(
             validate_identifier(identifier, "candidate_id")
             task_patch = candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"}
             version = int(candidate.get("version", 1))
-            action_spec = semantic_action_spec(family_id, candidate)
+            try:
+                activation_proof = hashlib.sha256(json.dumps({
+                    "task_id": task_id,
+                    "causal_result": causal_result,
+                    "control_result": control_result,
+                    "patch": task_patch,
+                }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest() if causal_result is not None and control_result is not None else None
+                action_spec = semantic_action_spec(family_id, candidate, activation_proof=activation_proof)
+            except ValueError:
+                # An unclassified source patch cannot enter the causal
+                # evidence ledger.  It remains a worker hypothesis until the
+                # harness can prove a unique registered ActionSpec.
+                continue
             intervention_digest = candidate_intervention_digest(action_spec)
             identity = candidate_identity(identifier, version, action_spec)
             try:
@@ -1153,6 +1143,56 @@ def post_task_update(
                     str(family_id or "compile"), seen_group_ids=seen_groups,
                 ),
             }
+            # Pending representative contexts are executable evidence, not a
+            # promise exposed to the next worker.  The family executor uses
+            # the harness-resolved ActionSpec and the Core paired-plan API.
+            if candidate["replay_schedule"]["pending_contexts"] and isinstance(candidate.get("intervention"), dict):
+                from benchmark.formal.schedule import FamilyReplayExecutor
+                from core.acre.experiments import ExperimentPlan, execute_paired_plan
+                family_name = str(family_id or "compile")
+                action_name = str(candidate["intervention"].get("action_id") or candidate["intervention"].get("action") or "")
+                if action_name:
+                    replay_executor = FamilyReplayExecutor(family_name, action_name, repetitions=64)
+                    generated_cases: list[dict[str, Any]] = []
+
+                    def record_generated(case: dict[str, Any]) -> None:
+                        case = dict(case)
+                        case.update({
+                            "same_fixture_id": str(case.get("case_id")),
+                            "source_id": "family-replay",
+                            "higher_is_better": True,
+                            "utility_scale": UTILITY_LOG_SCALE,
+                            "quality_ok": bool(case.get("scientific_ok", False)),
+                            "context_mode": context_mode,
+                        })
+                        case_id = str(case["case_id"])
+                        evidence_path = store / "experience" / "cases" / f"{identifier_digest(case_id)}.json"
+                        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+                        if not evidence_path.exists():
+                            evidence_path.write_text(json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                        candidate_evidence.append(
+                            str(candidate.get("candidate_identity") or identifier),
+                            int(candidate.get("version", 1)),
+                            {**case, "case_path": str(evidence_path.relative_to(store)).replace("\\", "/")},
+                            action_digest=str(candidate.get("intervention_digest", "")),
+                        )
+                        generated_cases.append(case)
+
+                    def update_generated(cases: list[dict[str, Any]]) -> dict[str, Any]:
+                        return {"status": "passed" if len(cases) >= scheduler.minimum_groups else "collecting"}
+
+                    execute_paired_plan(
+                        ExperimentPlan(
+                            subject_id=str(candidate.get("candidate_identity") or identifier),
+                            contexts=tuple(candidate["replay_schedule"]["pending_contexts"]),
+                            max_groups=scheduler.minimum_groups,
+                        ),
+                        replay_executor,
+                        record_case=record_generated,
+                        update_certificate=update_generated,
+                    )
+                    candidate["replay_schedule"]["executed_context_count"] = len(generated_cases)
+                    candidate["replay_schedule"]["pending_contexts"] = []
             candidate["replay_schedule"]["experiment_cost"] = float(
                 len(candidate["replay_schedule"]["pending_contexts"])
             )
@@ -1184,10 +1224,10 @@ def post_task_update(
                 str(item) for item in (certificate or {}).get("positive_anchor_ids", [])
                 if isinstance(item, str)
             ]
-            if not promotion_ids:
-                promotion_ids = representative_case_ids(predicate, case_values_for_cegis)
             if not promotion_ids or provenance.get("status") != "identified":
                 continue
+            if not isinstance(certificate, dict) or sorted(promotion_ids) != sorted(str(item) for item in certificate.get("positive_anchor_ids", [])):
+                raise ValueError("promotion cases must be exactly the immutable synthesis positive anchors")
             candidate["applicability"], candidate["applicability_provenance"] = predicate, provenance
             candidate["synthesis_state"] = {
                 "status": "identified",
@@ -1469,7 +1509,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if not isinstance(public_routing, dict):
             public_routing = {}
         retrieved_context_path = agent_task_dir / "retrieved_context.json"
-        if str(item["condition"]) in {"C", "C_STRESS", "D"}:
+        if str(item["condition"]) in {"B", "C", "C_STRESS", "D"}:
             adapter = FormalConditionAdapter(
                 str(item["condition"]),
                 store,
@@ -1584,16 +1624,21 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             condition=str(item["condition"]),
             context_mode=str(item["context_mode"]),
             seed=int(item["outer_trial_index"]),
+            predicted_mechanism=[str(value) for value in agent_extensions.get("predicted_mechanisms", []) if isinstance(value, str)],
         )
         result["seed"] = int(item["outer_trial_index"])
         result.update(agent_extensions)
-        expected_mechanism = str((result.get("task") or {}).get("expected_mechanism", ""))
         predicted = [str(value) for value in result.get("predicted_mechanisms", []) if isinstance(value, str)]
-        result["diagnosis"] = {
-            "predicted_mechanisms": predicted,
-            "diagnosis_correct": bool(expected_mechanism and expected_mechanism in predicted),
-        }
+        # Diagnosis correctness is computed inside the immutable verifier;
+        # the driver only preserves the worker's submitted prediction.
+        if isinstance(result.get("diagnosis"), dict):
+            result["diagnosis"]["predicted_mechanisms"] = predicted
         result["abstained"] = bool(result.get("abstain", False))
+        if result["abstained"]:
+            proposals = [item for item in agent_extensions.get("acre_proposals", []) if isinstance(item, dict)]
+            if _workspace_digest(submitted_solution_dir) != _workspace_digest(solution_dir) or proposals:
+                budget_errors.append("abstain declaration conflicts with submitted artifact or executable proposal")
+                result["validity"] = "invalid"
         result["condition_adapter"] = retrieved_context
         result.setdefault("cost", {}).update({
             "input_tokens": usage.get("input_tokens"),
@@ -1606,13 +1651,23 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             if len(proposals) == 1:
                 try:
                     realized_solution = trial_dir / "realized_solution"
-                    InterventionRealizer.realize_action(
+                    harness_action = semantic_action_spec(
+                        str(task_spec.get("family_id", task_spec.get("family", "runtime"))),
+                        proposals[0],
+                        activation_proof=hashlib.sha256(json.dumps({
+                            "task_id": task_id,
+                            "proposal": proposals[0].get("intervention", {}),
+                            "control_result": control_result,
+                        }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest(),
+                    )
+                    realization_record = InterventionRealizer.realize_action(
                         solution_dir,
                         realized_solution,
                         proposals[0],
                         family_id=str(task_spec.get("family_id", task_spec.get("family", "runtime"))),
                         task_id=task_id,
                         context_id=task_id,
+                        action_spec=harness_action,
                     )
                     causal_result = verifier.verify_task(
                         tasks_root / task_id,
@@ -1623,6 +1678,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         seed=int(item["outer_trial_index"]),
                     )
                     causal_result["seed"] = int(item["outer_trial_index"])
+                    verifier_digest = hashlib.sha256(json.dumps(causal_result, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+                    finalized = realization_record.finalize(verifier_digest)
+                    (realized_solution / "realization_record.json").write_text(
+                        json.dumps(finalized.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+                    )
                     causal_scored = scoring.score_task(causal_result)
                     heldout_result = verifier.verify_task(
                         tasks_root / task_id,
@@ -1694,7 +1754,15 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         from benchmark.families import family_views, FamilyEnvironment, EpisodeEnvironmentState
                         family_name = str(task_spec.get("family_id", task_spec.get("family", "compile")))
                         views = family_views(family_name, count=24, seed=int(item["outer_trial_index"]) + 17)
-                        action_id = str(semantic_action_spec(family_name, proposals[0])["action_id"])
+                        action_id = str(semantic_action_spec(
+                            family_name,
+                            proposals[0],
+                            activation_proof=hashlib.sha256(json.dumps({
+                                "task_id": task_id,
+                                "proposal": proposals[0].get("intervention", {}),
+                                "realized_digest": _workspace_digest(realized_solution),
+                            }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest(),
+                        )["action_id"])
                         env = FamilyEnvironment(family_name)
                         for holdout_class, pool_name in (("transfer", "representative_pool"), ("boundary", "sealed_boundary_pool")):
                             pool = views[pool_name]

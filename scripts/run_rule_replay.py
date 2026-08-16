@@ -121,14 +121,11 @@ def paired_group_effects(
                     for on, off in zip(measured, control)
                 )
         if effects_for_interval:
-            if len(effects_for_interval) > 1 and max(effects_for_interval) - min(effects_for_interval) <= 1e-15:
-                # A deterministic fixture has no observed within-group
-                # variation; retain the exact paired effect as the group
-                # certificate and let independent groups carry promotion
-                # uncertainty.
-                lcb, ucb = effects_for_interval[0], effects_for_interval[0]
-            else:
-                lcb, ucb = paired_repetition_interval(effects_for_interval, 0.05)
+            # Equal observed repetitions are not mathematical proof of zero
+            # uncertainty for timing/performance measurements.  Every
+            # non-deterministic observable therefore uses the predeclared
+            # paired interval, including zero empirical-variance samples.
+            lcb, ucb = paired_repetition_interval(effects_for_interval, 0.05)
         else:
             lcb, ucb = -1.0, 1.0
         results.append({

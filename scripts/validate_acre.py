@@ -29,7 +29,12 @@ def validate_method_ownership(root: Path) -> list[str]:
         errors.append("benchmark/boundary/cegis.py must not exist; CEGIS is core-owned")
     forbidden_classes = {"StatisticalCEGIS", "ConservativeCausalRouter", "FactorialEngine", "AcreEngine"}
     forbidden_names = {"RuleCandidate", "InteractionEvidence", "EvolutionDecision"}
-    for directory in (boundary_root, interaction_root, root / "scripts"):
+    forbidden_functions = {
+        "synthesize_applicability", "promote_via_replay", "apply_promotion",
+        "execute_relation_experiment", "run_rule_replay",
+    }
+    formal_root = root / "benchmark" / "formal"
+    for directory in (boundary_root, interaction_root, formal_root, root / "scripts"):
         for path in directory.rglob("*.py"):
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -39,6 +44,18 @@ def validate_method_ownership(root: Path) -> list[str]:
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef) and node.name in forbidden_classes | forbidden_names:
                     errors.append(f"benchmark method implementation {node.name} in {path}")
+                if (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name in forbidden_functions
+                    and directory in {boundary_root, interaction_root, formal_root}
+                ):
+                    errors.append(f"benchmark method implementation {node.name} in {path}")
+            if directory == formal_root:
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ImportFrom) and node.module:
+                        imported = {alias.name for alias in node.names}
+                        if node.module == "core.governance" and "apply_promotion" in imported:
+                            errors.append(f"formal driver must use the Core engine facade, not apply_promotion directly: {path}")
     return errors
 
 

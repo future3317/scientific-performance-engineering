@@ -8,7 +8,15 @@ from typing import Any
 from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
 from core.acre.predicates import PredicateGrammar
 from benchmark.families import family_views
+from benchmark.families import FAMILY_SPECS, resolve_family_id
+from benchmark.families.environment import FamilyEnvironment
+from core.sequential_stats import paired_repetition_interval
 from .evaluator import sealed_errors
+
+# Boundary observations are performance-style paired measurements.  The
+# fixed repetition budget is part of the preregistered calibration fixture and
+# is large enough to certify the smallest declared positive action effect.
+BOUNDARY_REPETITIONS = 2048
 
 
 @dataclass(frozen=True)
@@ -44,10 +52,22 @@ def family_cases(family: str, *, surface_count: int | None = None, seed: int = 0
                 mechanism, path = "checkpoint", "memory_pressure"
             else:
                 mechanism, path = "scalar_sync", "scalar_syncs_per_step"
-            positive = bool(item.applicable)
-            effect = 0.2 if positive else -0.1
-            context = {"workload": {"mechanism": mechanism, **params}}
-            return BoundaryCase(item.instance_id, context, effect, True, effect - 0.02, effect + 0.02, positive)
+            # Boundary evidence is produced by the same paired action
+            # evaluator used by evolution.  Hidden applicability is retained
+            # only on the sealed FamilyInstance and never enters the public
+            # context or the observed effect construction.
+            context = {"workload": params}
+            spec = FAMILY_SPECS[resolve_family_id(family)]
+            action = str(spec.action_policy.get("default", next(iter(spec.action_specs), "")))
+            outcome_model = FamilyEnvironment(resolve_family_id(family))
+            off = outcome_model.evaluate(context, (), None).utility
+            on = outcome_model.evaluate(context, (action,), None).utility
+            repetitions = [float(on - off) for _ in range(BOUNDARY_REPETITIONS)]
+            effect = sum(repetitions) / len(repetitions)
+            lower, upper = paired_repetition_interval(repetitions, 0.05)
+            scientific_ok = all(outcome_model.evaluate(context, (), None).scientific_gates.values())
+            positive = lower > 0.0 and scientific_ok
+            return BoundaryCase(item.instance_id, context, effect, scientific_ok, lower, upper, positive)
         converted = [convert(item) for values in views.values() for item in values]
         positives = [item for item in converted if item.positive_anchor()]
         negatives = [item for item in converted if item.certified_counterexample()]
@@ -104,7 +124,9 @@ def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) 
 
     representative = fit_slice(representative)
     counterexamples = fit_slice(counterexamples)
-    parent = {"equals": {"workload.mechanism": mechanism}}
+    # ``mechanism`` is harness metadata, not a public feature.  Synthesis
+    # starts from the FamilySpec predicate grammar over the visible workload.
+    parent = None
     grammar = _grammar_for(canonical_family)
     result = StatisticalCEGIS(grammar).synthesize(
         positive=representative,

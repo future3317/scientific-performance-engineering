@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, replace
 import hashlib
 import json
 from typing import Any, Callable, Mapping
+from core.models import ScientificPolicySpec
 
 
 @dataclass(frozen=True)
@@ -98,25 +99,34 @@ class InteractionOracle:
         gates = {arm: True for arm in ("00", "10", "01", "11")}
         if relation == "semantic_conflict":
             gates["11"] = False
-        # Hidden truth is derived from the final factorial cells, never from
-        # the mechanism label used to construct them.
+        # Hidden truth and noisy estimation share one semantic decision policy.
+        # The oracle supplies degenerate (point) confidence sets; it does not
+        # maintain a second threshold implementation.
+        from core.acre.policy import RelationDecisionPolicy
         gamma = (outcomes["11"] - outcomes["10"] - outcomes["01"] + outcomes["00"]) / 4.0
-        da0, da1 = outcomes["10"] - outcomes["00"], outcomes["11"] - outcomes["01"]
-        db0, db1 = outcomes["01"] - outcomes["00"], outcomes["11"] - outcomes["10"]
-        if not all(gates.values()):
+        intervals = {
+            "gamma": (gamma, gamma),
+            "delta_a_given_b0": ((outcomes["10"] - outcomes["00"]) / 2.0,) * 2,
+            "delta_a_given_b1": ((outcomes["11"] - outcomes["01"]) / 2.0,) * 2,
+            "delta_b_given_a0": ((outcomes["01"] - outcomes["00"]) / 2.0,) * 2,
+            "delta_b_given_a1": ((outcomes["11"] - outcomes["10"]) / 2.0,) * 2,
+            "redundancy": ((outcomes["11"] - max(outcomes["10"], outcomes["01"])) / 2.0,) * 2,
+        }
+        policy = RelationDecisionPolicy(0.05)
+        if gates["11"] is False and all(gates.get(arm, False) for arm in ("00", "10", "01")):
             derived_relation = "semantic_conflict"
-        elif da0 > 0.05 and db0 > 0.05 and abs(outcomes["11"] - max(outcomes["10"], outcomes["01"])) <= 0.05:
-            derived_relation = "redundancy"
-        elif da1 > 0.05 and abs(db0) <= 0.05:
-            derived_relation = "prerequisite_a_to_b"
-        elif db1 > 0.05 and abs(da0) <= 0.05:
-            derived_relation = "prerequisite_b_to_a"
-        elif gamma > 0.05:
-            derived_relation = "synergy"
-        elif gamma < -0.05:
-            derived_relation = "antagonism"
         else:
-            derived_relation = "independence"
+            derived_relation = policy.decide(intervals, gates, kind_hint="redundancy")
+            if derived_relation == "unresolved":
+                derived_relation = policy.decide(intervals, gates, kind_hint="prerequisite")
+            if derived_relation == "unresolved":
+                derived_relation = policy.decide(intervals, gates)
+        derived_relation = {
+            "confirmed_synergy": "synergy",
+            "confirmed_antagonism": "antagonism",
+            "confirmed_independence": "independence",
+            "confirmed_redundancy": "redundancy",
+        }.get(derived_relation, derived_relation)
         return {"outcomes": outcomes, "hidden_relation": derived_relation, "target_gamma": gamma, "scientific_gates": gates, "higher_order_residual": float(ctx.get("higher_order_residual", 0.0))}
 
 
@@ -195,6 +205,41 @@ class FamilySpec:
         "poison_penalty": 0.20,
     })
     action_policy: Mapping[str, str] = field(default_factory=dict)
+
+    def policy_spec(self) -> ScientificPolicySpec:
+        value = self.scientific_policy or {"policy_id": self.scientific_contract_id, "required_gates": list(self.scientific_invariants)}
+        return ScientificPolicySpec(str(value.get("policy_id", self.scientific_contract_id)), tuple(str(item) for item in value.get("required_gates", self.scientific_invariants)), dict(value.get("tolerance", {})))
+
+    def action_applicable(self, action_id: str, parameters: Mapping[str, Any], *, regime: str = "default") -> bool:
+        """Return applicability for one declared action, not the family label.
+
+        The family predicate answers whether the workload is relevant; this
+        action-level contract answers whether the specific intervention is
+        deployable in the current regime.
+        """
+        if action_id not in self.action_specs:
+            return False
+        declared = self.action_specs[action_id].get("applicability") if isinstance(self.action_specs[action_id], Mapping) else None
+        if callable(declared):
+            return bool(declared(parameters))
+        selected = self.action_policy.get(regime) or self.action_policy.get("default", "")
+        if not selected or selected != action_id:
+            return False
+        try:
+            family_ok = bool(self.applicability(parameters))
+        except (KeyError, TypeError, ValueError):
+            # Environment oracle construction may only have a regime context;
+            # it must not manufacture a negative action solely because a
+            # workload lattice point is unavailable.
+            family_ok = True
+        return family_ok
+
+    def action_effect(self, action_id: str, parameters: Mapping[str, Any], *, regime: str = "default") -> float:
+        """Return the bounded utility for a concrete action in this context."""
+        model = self.action_specs.get(action_id, {})
+        if isinstance(model, Mapping) and isinstance(model.get("effect"), (int, float)):
+            return float(model["effect"])
+        return float(self.outcome_model.get("preferred", self.outcome_model.get("baseline", 0.0))) if self.action_applicable(action_id, parameters, regime=regime) else float(self.outcome_model.get("mismatch", self.outcome_model.get("baseline", 0.0)))
 
     def generate(self, count: int, seed: int = 0) -> list[FamilyInstance]:
         if count < 1:
@@ -467,16 +512,20 @@ _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
 _OUTCOME_MODELS: dict[str, Mapping[str, float]] = {
     "compile": {"baseline": 0.60, "preferred": 0.80, "mismatch": 0.35, "poison_penalty": 0.20},
     "graph_cache": {"baseline": 0.60, "preferred": 0.78, "mismatch": 0.35, "poison_penalty": 0.20},
-    "h2d_pipeline": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.58, "poison_penalty": 0.20},
-    "checkpoint": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.58, "poison_penalty": 0.20},
-    "scalar_sync": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.58, "poison_penalty": 0.20},
+    # A wrongly deployed action has a measurable, bounded cost.  Keeping
+    # mismatch equal to baseline would make a non-applicable action
+    # statistically indistinguishable from the control and leave Boundary
+    # CEGIS without a certifiable counterexample.
+    "h2d_pipeline": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "checkpoint": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
+    "scalar_sync": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.38, "poison_penalty": 0.20},
 }
 _ACTION_POLICIES: dict[str, Mapping[str, str]] = {
-    "compile": {"default": "reuse_compile_cache", "shifted": "revalidate_compile_cache", "inapplicable": "reuse_compile_cache"},
-    "graph_cache": {"default": "reuse_graph_cache", "shifted": "rebuild_graph_cache", "inapplicable": "rebuild_graph_cache"},
-    "h2d_pipeline": {"default": "pin_memory_pipeline", "shifted": "prefetch_pipeline", "inapplicable": "prefetch_pipeline"},
-    "checkpoint": {"default": "checkpoint_recompute", "shifted": "retained_graph", "inapplicable": "retained_graph"},
-    "scalar_sync": {"default": "aggregate_scalars", "shifted": "defer_scalar_sync", "inapplicable": "aggregate_scalars"},
+    "compile": {"default": "reuse_compile_cache", "shifted": "revalidate_compile_cache", "inapplicable": ""},
+    "graph_cache": {"default": "reuse_graph_cache", "shifted": "rebuild_graph_cache", "inapplicable": ""},
+    "h2d_pipeline": {"default": "pin_memory_pipeline", "shifted": "prefetch_pipeline", "inapplicable": ""},
+    "checkpoint": {"default": "checkpoint_recompute", "shifted": "retained_graph", "inapplicable": ""},
+    "scalar_sync": {"default": "aggregate_scalars", "shifted": "defer_scalar_sync", "inapplicable": ""},
 }
 _LEGAL_COMPOSITIONS: dict[str, tuple[CompositionSpec, ...]] = {
     "compile": (CompositionSpec("compile", "h2d_pipeline"), CompositionSpec("compile", "graph_cache"), CompositionSpec("compile", "scalar_sync")),
@@ -494,6 +543,11 @@ for _spec in _SPECS:
         predicate_features=_PREDICATE_FEATURES.get(_spec.family_id, ()),
         threshold_universe=_THRESHOLDS.get(_spec.family_id, {}),
         scientific_invariants=_SCIENTIFIC_INVARIANTS.get(_spec.family_id, ()),
+        scientific_policy={
+            "policy_id": _spec.scientific_contract_id,
+            "required_gates": list(_SCIENTIFIC_INVARIANTS.get(_spec.family_id, ())),
+            "tolerance": {},
+        },
         action_specs=_ACTION_SPECS.get(_spec.family_id, {}),
         outcome_model=_OUTCOME_MODELS.get(_spec.family_id, {
             "baseline": 0.60,

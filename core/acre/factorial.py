@@ -58,9 +58,17 @@ class RelationEvidenceCertificate:
             raise ValueError("relation certificate endpoint versions do not match current endpoints")
         if not self.applicability_provenance.get("source"):
             raise ValueError("relation certificate applicability provenance is required")
-        if not all(self.scientific_arm_gates.values()):
-            raise ValueError("relation certificate scientific arm gates must pass")
         kind = str(getattr(relation_spec, "kind", ""))
+        if kind == "semantic_conflict":
+            if not (
+                self.scientific_arm_gates.get("00") is True
+                and self.scientific_arm_gates.get("10") is True
+                and self.scientific_arm_gates.get("01") is True
+                and self.scientific_arm_gates.get("11") is False
+            ):
+                raise ValueError("semantic_conflict requires only the joint arm to fail")
+        elif not all(self.scientific_arm_gates.values()):
+            raise ValueError("relation certificate scientific arm gates must pass")
         required = {"gamma"}
         if kind == "prerequisite":
             required |= {"delta_a_given_b0", "delta_a_given_b1", "delta_b_given_a0", "delta_b_given_a1"}

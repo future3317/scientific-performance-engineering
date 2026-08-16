@@ -102,7 +102,7 @@ class FamilyEnvironment:
                 # action policy (for example when computing an oracle bundle
                 # during a drift probe); missing parameters do not fabricate
                 # applicability truth.
-                family_applicable = False
+                family_applicable = not bool(workload)
             model = dict(family_spec.outcome_model)
         except (KeyError, TypeError, ValueError):
             family_spec = None
@@ -124,12 +124,26 @@ class FamilyEnvironment:
         legal_actions = set(getattr(family_spec, "action_specs", {}) or {})
         if preferred and preferred not in legal_actions:
             raise ValueError(f"family {self.family_id} action policy references undeclared action {preferred}")
-        utility = model["baseline"]
+        utility = float(model["baseline"])
         if deployed:
-            utility = model["preferred"] if preferred and preferred in deployed else model["mismatch"]
+            # Evaluate the concrete action against the FamilySpec action-level
+            # contract.  A family-level applicability label never directly
+            # supplies a utility value.
+            action = sorted(deployed)[0]
+            regime = "shifted" if shifted else "default"
+            if family_spec is not None and family_spec.action_applicable(action, workload, regime=regime):
+                utility = family_spec.action_effect(action, workload, regime=regime)
+            else:
+                utility = float(model["mismatch"])
             if state.active_poison:
-                utility -= model["poison_penalty"]
-        return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,) if preferred else ())
+                utility -= float(model["poison_penalty"])
+        if family_spec is not None:
+            gates = family_spec.policy_spec().evaluate({
+                name: True for name in (getattr(family_spec, "scientific_invariants", ()) or ("finite_loss",))
+            })
+        else:
+            gates = {"finite_loss": True}
+        return EnvironmentOutcome(utility, gates, (preferred,) if preferred else ())
 
     def oracle(self, context: Mapping[str, Any], transformation_state: Mapping[str, Any] | EpisodeEnvironmentState | None = None) -> EnvironmentOutcome:
         """Enumerate legal bundles and select the hindsight-best outcome."""

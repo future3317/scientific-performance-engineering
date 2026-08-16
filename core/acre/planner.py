@@ -49,7 +49,10 @@ class ExperimentPlanner:
             ig = float(information_gain(query, observations))
             sensitivity = self.decision_sensitivity(query, observations, simulate)
             risk = float(query.risk)
-            score = (ig * (1.0 + sensitivity) + risk * sensitivity) / (query.cost + self.cost_floor)
+            # Canonical decision-aware acquisition value:
+            # A_t(q)=IG_t(q) D_t(q) R_t(q)/(C(q)+c0).
+            relevance = max(risk, float(query.provenance_novelty))
+            score = (ig * sensitivity * relevance) / (query.cost + self.cost_floor)
             planned.append(PlannedExperiment(query, score, ig, sensitivity, risk, query.cost))
         return tuple(sorted(planned, key=lambda item: (-item.score, item.query.query_id)))
 

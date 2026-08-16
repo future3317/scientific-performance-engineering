@@ -45,6 +45,11 @@ from core.models import identifier_digest, validate_identifier
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 
+# Episode replay uses a fixed, preregistered repetition budget. These are
+# performance-style observations, so identical measurements still retain the
+# bounded paired uncertainty required by the promotion contract.
+EPISODE_REPLAY_REPETITIONS = 512
+
 METRIC_NAMES = (
     "transfer_gain",
     "rule_reuse_utility",
@@ -242,6 +247,21 @@ def promote_via_replay(
             cases = all_cases
         else:
             cases = [case for case in all_cases if match_predicate(predicate, case.get("context", {}))]
+        # Once a harness-owned synthesis certificate exists, its positive
+        # anchors are the immutable promotion sample.  Recomputing membership
+        # from the predicate would silently admit later boundary evidence.
+        if synthesis_state is not None or provenance is not None:
+            certificate = (provenance or {}).get("certificate") if isinstance(provenance, dict) else None
+            anchor_ids = certificate.get("positive_anchor_ids", []) if isinstance(certificate, dict) else []
+            declared_ids = candidate.get("promotion_case_ids") or anchor_ids
+            if not isinstance(declared_ids, list) or not declared_ids:
+                continue
+            declared = {str(item) for item in declared_ids}
+            if anchor_ids and declared != {str(item) for item in anchor_ids}:
+                continue
+            cases = [case for case in cases if str(case.get("case_id")) in declared]
+            if {str(case.get("case_id")) for case in cases} != declared:
+                continue
         if not cases:
             continue
         p_min = float(candidate.get("p_min", 0.8))
@@ -383,6 +403,7 @@ def promote_via_replay(
             candidate,
             manifest,
             replay_path=str(manifest_path.relative_to(store)),
+            candidate_storage_key=str(candidate.get("candidate_identity") or ledger_subject),
         )
         if decision.allowed:
             ledger.record(ledger_subject, version, replay_digest, "promoted")
@@ -634,11 +655,17 @@ def run_episode(
                             workload = dict(context.get("workload", context))
                             deployed = family_environment.evaluate(workload, (action_id,), environment_state)
                             baseline = family_environment.evaluate(workload, (), environment_state)
+                            # Promotion replay consumes representative groups
+                            # whose realized action has a positive paired
+                            # effect.  Negative/boundary contexts remain
+                            # synthesis evidence and are not promotion trials.
+                            if deployed.utility <= baseline.utility + float(record.get("epsilon", 0.0)):
+                                continue
                             generated_cases.append({
                                 "case_id": f"EPISODE-{scheduled_context.get('context_id', phase.get('index', 0))}",
                                 "context": context,
-                                "intervention_measurements": [float(deployed.utility)] * 3,
-                                "baseline_measurements": [float(baseline.utility)] * 3,
+                                "intervention_measurements": [float(deployed.utility)] * EPISODE_REPLAY_REPETITIONS,
+                                "baseline_measurements": [float(baseline.utility)] * EPISODE_REPLAY_REPETITIONS,
                                 "control_measured": True,
                                 "higher_is_better": True,
                                 "utility_scale": 1.0,

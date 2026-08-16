@@ -21,6 +21,9 @@ def load(name: str):
     if spec is None or spec.loader is None:
         raise AssertionError(f"cannot load {path}")
     module = importlib.util.module_from_spec(spec)
+    # dataclasses resolves postponed annotations through sys.modules while a
+    # module is executed; mirror normal import semantics for dynamic fixtures.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -30,7 +33,7 @@ def main() -> None:
     assert replay.beta_tail_probability(20, 1, 0.8) > 0.8
     assert replay.beta_tail_probability(2, 10, 0.8) < 0.01
     result = replay.evaluate_cases(
-        [{"case_id": f"REG-{index}", "paired_replay": True, "same_fixture_id": f"F-{index}", "utility_on": 1.2, "utility_off": 1.0, "scientific_ok": True} for index in range(200)],
+        [{"case_id": f"REG-{index}", "paired_replay": True, "same_fixture_id": f"F-{index}", "intervention_measurements": [1.2] * 512, "baseline_measurements": [1.0] * 512, "control_measured": True, "scientific_ok": True} for index in range(200)],
         epsilon=0.05,
         p_min=0.8,
         delta=0.05,
@@ -38,7 +41,7 @@ def main() -> None:
     assert result["outcome"] == "passed"
     assert result["mean_effect"] > 0.05
     assert result["successes"] == 200 and result["failures"] == 0
-    payload = {"rule_id": "PERF-SYNC-004", "epsilon": 0.05, "p_min": 0.8, "delta": 0.05, "cases": [{"case_id": f"REG-{index}", "paired_replay": True, "same_fixture_id": f"F-{index}", "utility_on": 1.2, "utility_off": 1.0, "scientific_ok": True} for index in range(200)]}
+    payload = {"rule_id": "PERF-SYNC-004", "epsilon": 0.05, "p_min": 0.8, "delta": 0.05, "cases": [{"case_id": f"REG-{index}", "paired_replay": True, "same_fixture_id": f"F-{index}", "intervention_measurements": [1.2] * 512, "baseline_measurements": [1.0] * 512, "control_measured": True, "scientific_ok": True} for index in range(200)]}
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "input.json").write_text(json.dumps(payload), encoding="utf-8")

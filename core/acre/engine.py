@@ -193,7 +193,7 @@ class AcreEngine:
             subject_type, state = "relation", self.relation_states[subject_id]
         else:
             return EvolutionDecision("rule", subject_id, "NO_OP", "rejected", "none", "unknown subject")
-        assessment = self._controller.assess()
+        assessment = self._controller.assess(subject_id, getattr(state, "version", None))
         evidence_ids = tuple(event.event_id for event in self._controller.events)
         if assessment.specialization_event_ids:
             return EvolutionDecision(subject_type, subject_id, "SPECIALIZE", "review_required", "human-review", "adversarial evidence requires specialization or quarantine review", evidence_ids)

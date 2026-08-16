@@ -39,7 +39,7 @@ generator_family_id: GEN-CRYSTAL_GENERATION
 oracle_fix_pattern_id: FIX-SCIML-CRYSTAL-DIFFUSION-07
 scientific_contract_id: CONTRACT-CRYSTAL_GENERATION
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "6e2c73f962313b4dad2ec57a221d4d9adb7a19266812f388de70e0c06e5028f8"
+workspace_ast_skeleton_hash: e4607f8b7bac1352026fe08ee42514d1f50043ee2b72ae67c4f5ca365c954ff2
 family_id: crystal_generation
 anchor_instance_id: SCIML-CRYSTAL-DIFFUSION-07
 family_parameters:

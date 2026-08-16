@@ -90,6 +90,24 @@ class ActionSpec:
 
 
 @dataclass(frozen=True)
+class ScientificPolicySpec:
+    """Shared scientific gate contract consumed by every benchmark view."""
+
+    policy_id: str
+    required_gates: tuple[str, ...] = ()
+    tolerance: Mapping[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.policy_id, "scientific policy_id")
+
+    def evaluate(self, gates: Mapping[str, Any]) -> dict[str, bool]:
+        return {name: bool(gates.get(name, False)) for name in self.required_gates}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"policy_id": self.policy_id, "required_gates": list(self.required_gates), "tolerance": dict(self.tolerance)}
+
+
+@dataclass(frozen=True)
 class RealizationRecord:
     """Task-specific execution record for a semantic action."""
 
@@ -110,6 +128,23 @@ class RealizationRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @property
+    def finalized(self) -> bool:
+        return self.verifier_digest != "unverified"
+
+    def finalize(self, verifier_digest: str) -> "RealizationRecord":
+        if not isinstance(verifier_digest, str) or not verifier_digest or verifier_digest == "unverified":
+            raise ValueError("a finalized realization requires a verifier digest")
+        return RealizationRecord(
+            action_id=self.action_id,
+            task_id=self.task_id,
+            context_id=self.context_id,
+            baseline_digest=self.baseline_digest,
+            patch=dict(self.patch),
+            realized_digest=self.realized_digest,
+            verifier_digest=verifier_digest,
+        )
 
 
 @dataclass(frozen=True)

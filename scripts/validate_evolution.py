@@ -16,7 +16,7 @@ from core.models import RelationSpec, RelationState, RuleSpec, RuleState, identi
 
 
 SEVERITIES = {"P0", "P1", "P2", "P3", "P4"}
-STATUSES = {"candidate", "canonical", "retired"}
+STATUSES = {"collecting_evidence", "candidate", "canonical", "retired"}
 
 
 def canonical_json(value: Any) -> bytes:
@@ -134,6 +134,24 @@ def validate_rule(card: Any, schema: dict[str, Any]) -> list[str]:
                 errors.append("canonical replay_manifest requires 64-character digests")
     elif card.get("status") == "retired" and _missing(card.get("retirement_reason")):
         errors.append("retired rule requires retirement_reason")
+    return errors
+
+
+def validate_candidate_projection(card: Any) -> list[str]:
+    """Validate the immutable identity of a collecting candidate projection."""
+    if not isinstance(card, dict):
+        return ["candidate projection must be an object"]
+    errors: list[str] = []
+    identity = card.get("candidate_identity")
+    if not isinstance(identity, str) or not identity:
+        errors.append("collecting candidate requires candidate_identity")
+    if not isinstance(card.get("rule_id") or card.get("relation_id"), str):
+        errors.append("collecting candidate requires a subject id")
+    if int(card.get("version", 0)) < 1:
+        errors.append("collecting candidate version must be positive")
+    state = card.get("synthesis_state")
+    if not isinstance(state, dict) or state.get("status") not in {"collecting_evidence", "identified"}:
+        errors.append("collecting candidate requires synthesis_state")
     return errors
 
 
@@ -396,6 +414,7 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
             if case["case_id"] in regression_cases:
                 errors.append(f"duplicate regression case_id: {case['case_id']}")
             regression_cases[case["case_id"]] = case
+    candidate_identities: set[str] = set()
     for directory, expected_status in ((root / "evolution" / "candidates", "candidate"), (root / "rules", "canonical"), (root / "evolution" / "retired", "retired")):
         for path in sorted(directory.rglob("*.json")):
             if path.name.endswith(".state.json"):
@@ -404,6 +423,14 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                 card = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 errors.append(f"{path}: {exc}")
+                continue
+            if directory == root / "evolution" / "candidates" and card.get("status") in {"collecting_evidence", "candidate"}:
+                errors.extend(f"{path}: {error}" for error in validate_candidate_projection(card))
+                identity = card.get("candidate_identity")
+                if isinstance(identity, str):
+                    if identity in candidate_identities:
+                        errors.append(f"duplicate candidate_identity: {identity}")
+                    candidate_identities.add(identity)
                 continue
             errors.extend(f"{path}: {error}" for error in validate_rule(card, schema))
             card_status = card.get("status") if isinstance(card, dict) else None
@@ -468,7 +495,9 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
         errors.extend(f"{path}: {error}" for error in validate_relation_artifact(card, state, "canonical"))
         try:
             relation_id = str(card.get("relation_id"))
-            promotion_path = root / "evolution" / "promotions" / f"{identifier_digest(relation_id)}.json"
+            promotion_dir = root / "evolution" / "promotions" / identifier_digest(relation_id)
+            promotion_paths = sorted(promotion_dir.glob("v*.json"))
+            promotion_path = promotion_paths[-1] if promotion_paths else root / "evolution" / "promotions" / f"{identifier_digest(relation_id)}.json"
             if not promotion_path.is_file():
                 errors.append(f"{path}: canonical RelationSpec missing promotion record")
             elif isinstance(card, dict):

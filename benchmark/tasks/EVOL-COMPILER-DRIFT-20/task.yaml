@@ -39,7 +39,7 @@ generator_family_id: GEN-EVOLUTION-DRIFT
 oracle_fix_pattern_id: FIX-EVOLUTION-DRIFT-REVALIDATE
 scientific_contract_id: CONTRACT-EVOLUTION-GOVERNANCE
 difficulty_tier: hard
-workspace_ast_skeleton_hash: "75ee9f7de3b4467f639880b7e769ab80db1e0be427e811cef4d5b0e8c484f25c"
+workspace_ast_skeleton_hash: 825d41431a3733f4c37a3027d045f34ba70fe0083c1722fdaf0dfdcf790a30fe
 family_id: episode
 anchor_instance_id: EVOL-COMPILER-DRIFT-20
 family_parameters:

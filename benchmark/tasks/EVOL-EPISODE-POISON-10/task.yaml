@@ -39,7 +39,7 @@ generator_family_id: GEN-EPISODE
 oracle_fix_pattern_id: FIX-EVOL-EPISODE-POISON-10
 scientific_contract_id: CONTRACT-EVOLUTION-GOVERNANCE
 difficulty_tier: hard
-workspace_ast_skeleton_hash: "2ce4e279b1697aeb8bd08920e878c76eae5b719c90be8d3f6c71b763f29bcdb6"
+workspace_ast_skeleton_hash: e9e8b9d6b694db46b4af07955cb10397a6ecee1d54da93f15496ab25ee7003cf
 family_id: episode
 anchor_instance_id: EVOL-EPISODE-POISON-10
 family_parameters:

@@ -10,22 +10,8 @@ from benchmark.harness.experience_retrieval import RawExperienceRetriever
 from benchmark.formal.schedule import PendingCandidateScheduler
 from core.acre.engine import AcreEngine
 from core.models import TaskContext
-from core.cost import PromptCostModel
-
-
-def build_public_context(value: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Build the single worker-visible context used by every condition."""
-    source = value if isinstance(value, Mapping) else {}
-    result = {
-        key: dict(source[key]) if isinstance(source.get(key), dict) else source[key]
-        for key in ("domain", "workload", "hardware", "software", "evidence")
-        if key in source
-    }
-    workload = result.setdefault("workload", {})
-    nested = workload.pop("family_parameters", None)
-    if isinstance(nested, dict):
-        result["workload"] = {**nested, **workload}
-    return result
+from core.cost import BudgetedContextRenderer
+from core.public_context import build_public_context
 
 
 _canonical_public_context = build_public_context
@@ -39,8 +25,8 @@ class FormalConditionAdapter:
         self.store = Path(store)
         self.token_budget = token_budget
         self.family_id = family_id
-        if self.condition not in {"C", "C_STRESS", "D"}:
-            raise ValueError("formal condition adapter supports C, C_STRESS, or D")
+        if self.condition not in {"B", "C", "C_STRESS", "D"}:
+            raise ValueError("formal condition adapter supports B, C, C_STRESS, or D")
 
     def _governed_engine(self) -> AcreEngine:
         return AcreEngine.from_store(self.store)
@@ -68,14 +54,18 @@ class FormalConditionAdapter:
             experiences = retriever.retrieve(query=query, family_id=self.family_id)
             actions = retriever.propose_from_records(experiences)
             rendered = {"experiences": experiences, "proposed_interventions": actions}
+            rendered = BudgetedContextRenderer(self.token_budget).render(rendered, entries_key="experiences")
             return {
                 "schema_version": 1,
                 "condition": self.condition,
                 "context": typed_context.to_dict(),
                 "retrieved_experiences": experiences,
                 "proposed_interventions": actions,
-                "token_cost": PromptCostModel().cost(rendered),
+                "token_cost": int(rendered["token_cost"]),
+                "renderer": rendered.get("renderer"),
             }
+        # B and D share the same router semantics.  B simply loads the
+        # frozen snapshot and never runs maintenance; D may update it.
         engine = self._governed_engine()
         routed = engine.route(typed_context, token_budget=self.token_budget)
         specs = {spec.rule_id: spec for spec in engine.rule_specs}
@@ -97,9 +87,6 @@ class FormalConditionAdapter:
                 "effect_lcb": float(state.confidence_sequence.get("utility_effect_lcb", state.retrieval_utility)),
                 "provenance": dict(spec.provenance_policy),
             })
-        cost_model = PromptCostModel()
-        while rule_views and cost_model.cost({"rule_views": rule_views}) > self.token_budget:
-            rule_views.pop()
         selected_set = set(routed.selected_rule_ids)
         relation_ids = [
             spec.relation_id for spec in engine.relation_specs
@@ -121,6 +108,12 @@ class FormalConditionAdapter:
                 family_id = candidate.get("family_id")
                 if isinstance(family_id, str):
                     pending.extend(scheduler.for_candidate(candidate, family_id))
+        rendered = BudgetedContextRenderer(self.token_budget).render({
+            "rule_views": rule_views,
+            "relations": relation_ids,
+            "pending": pending,
+            "proposed_interventions": actions,
+        }, entries_key="rule_views")
         return {
             "schema_version": 1,
             "condition": self.condition,
@@ -128,10 +121,11 @@ class FormalConditionAdapter:
             "selected_rule_ids": list(routed.selected_rule_ids),
             "selected_relation_ids": relation_ids,
             "proposed_interventions": actions,
-            "rule_views": rule_views,
+            "rule_views": rendered.get("rule_views", []),
             "routing": {"optimizer_mode": routed.optimizer_mode, "objective": routed.objective, "blockers": list(routed.blockers)},
             "pending_replay_contexts": pending,
-            "token_cost": cost_model.cost({"rule_views": rule_views, "relations": relation_ids, "pending": pending}),
+            "token_cost": int(rendered["token_cost"]),
+            "renderer": rendered.get("renderer"),
         }
 
     def propose_interventions(self, context: TaskContext | Mapping[str, Any]) -> list[str]:

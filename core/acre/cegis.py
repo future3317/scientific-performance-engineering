@@ -8,6 +8,8 @@ import hashlib
 import json
 
 from core.predicates import match_predicate
+from core.sequential_stats import paired_repetition_interval
+from core.utility import UTILITY_LOG_SCALE, utility_effect
 
 from .predicates import PredicateGrammar, SYNTHESIZER_VERSION, _key, predicate_complexity
 
@@ -93,6 +95,7 @@ class StatisticalCEGIS:
         if not 0.0 < float(delta) < 1.0:
             raise ValueError("delta must be in (0, 1)")
         self.delta = float(delta)
+        self._last_version_space: tuple[dict[str, Any], ...] | None = None
 
     def _certificate(
         self,
@@ -164,6 +167,8 @@ class StatisticalCEGIS:
         # hypothesis space.
         vocabulary_contexts = contexts + list(decision_contexts or [])
         hypothesis_space = tuple(self.grammar.candidates(vocabulary_contexts, parent_predicate=parent_predicate))
+        if decision_contexts is None and self._last_version_space is not None:
+            hypothesis_space = self._last_version_space
         consistent = [
             predicate
             for predicate in hypothesis_space
@@ -211,6 +216,7 @@ class StatisticalCEGIS:
             decision_contexts=decision_contexts, version_space=tuple(consistent),
         )
         provenance["certificate"] = certificate.to_dict()
+        self._last_version_space = tuple(consistent)
         return SynthesisResult(status, predicate, counterexample_ids, anchor_ids, provenance=provenance, version_space=tuple(consistent), certificate=certificate)
 
 
@@ -235,3 +241,82 @@ def synthesize_boundary(
         parent_predicate=None,
         decision_contexts=decision_contexts,
     )
+
+
+def _case_effect_interval(case: Mapping[str, Any], *, delta: float = 0.05) -> tuple[float, float, float] | None:
+    intervention = case.get("intervention_measurements")
+    baseline = case.get("baseline_measurements")
+    higher_is_better = bool(case.get("higher_is_better", True))
+    log_scale = float(case.get("utility_scale", UTILITY_LOG_SCALE))
+    if isinstance(intervention, list) and isinstance(baseline, list):
+        if not intervention or len(intervention) != len(baseline):
+            return None
+        effects = [utility_effect(float(on), float(off), higher_is_better=higher_is_better, log_scale=log_scale) for on, off in zip(intervention, baseline)]
+        lower, upper = paired_repetition_interval(effects, delta)
+        return sum(effects) / len(effects), lower, upper
+    try:
+        effect = utility_effect(float(case["utility_on"]), float(case["utility_off"]), higher_is_better=higher_is_better, log_scale=log_scale)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return effect, -1.0, 1.0
+
+
+def synthesize_applicability(
+    cases: list[dict[str, Any]],
+    *,
+    family_id: str | None = None,
+    decision_contexts: list[dict[str, Any]] | None = None,
+    delta: float = 0.05,
+    epsilon_true: float = 0.0,
+    epsilon_false: float = 0.0,
+    require_identified: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Core-owned CEGIS adapter over verifier-produced paired cases."""
+    if family_id is None:
+        family_id = "compile"
+    from benchmark.families import family_predicate_grammar, family_instances
+    try:
+        lattice = list(decision_contexts or [{"workload": dict(item.parameters)} for item in family_instances(family_id, count=24, seed=0)])
+    except (KeyError, ValueError):
+        return None
+    if require_identified and not lattice:
+        return None
+    grammar_payload = family_predicate_grammar(family_id)
+    if not grammar_payload:
+        return None
+    observations: list[BoundaryObservation] = []
+    context_delta = float(delta) / max(1, len(lattice))
+    for index, case in enumerate(cases):
+        context = case.get("context") if isinstance(case.get("context"), dict) else {}
+        if not context:
+            continue
+        interval = _case_effect_interval(case, delta=context_delta)
+        if interval is None:
+            continue
+        effect, lower, upper = interval
+        observations.append(BoundaryObservation(
+            str(case.get("case_id", f"case-{index}")), context, effect,
+            bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True)),
+            lower, upper,
+        ))
+    if not observations:
+        return None
+    observed_paths: set[str] = set()
+    for observation in observations:
+        for feature in grammar_payload["features"]:
+            value: Any = observation.context
+            for part in str(feature["path"]).split("."):
+                value = value.get(part) if isinstance(value, dict) else None
+            if value is not None:
+                observed_paths.add(str(feature["path"]))
+    grammar_payload["features"] = [feature for feature in grammar_payload["features"] if feature["path"] in observed_paths]
+    grammar_payload["threshold_universe"] = {path: values for path, values in grammar_payload.get("threshold_universe", {}).items() if path in observed_paths}
+    if not grammar_payload["features"]:
+        return None
+    result = synthesize_boundary(
+        observations, grammar_payload, decision_contexts=lattice,
+        delta=delta, epsilon_true=epsilon_true, epsilon_false=epsilon_false,
+    )
+    if result.predicate is None or (require_identified and result.status != "identified"):
+        return None
+    return result.predicate, {"source": "harness-cegis", "method_owner": "core", **(result.provenance or {})}

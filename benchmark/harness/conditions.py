@@ -126,6 +126,11 @@ def refresh_attestation(condition_dir: str | Path) -> dict[str, Any]:
         previous = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid condition manifest: {exc}") from exc
+    if str(previous.get("condition", "")).upper() == "D":
+        from core.mutation_journal import MutationJournal
+        MutationJournal(condition_dir / "evolution" / "mutation_journal.jsonl").append(
+            "update_state", "condition-store", artifact_path="condition_manifest.json"
+        )
     return _attest(
         condition_dir,
         str(previous["condition"]),

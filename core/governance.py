@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from enum import StrEnum
 
 from .models import RelationSpec, RelationState, RuleSpec, RuleState, identifier_digest, validate_identifier
 
@@ -36,6 +37,45 @@ class EvolutionDecision:
     @property
     def rule_id(self) -> str:
         return self.subject_id if self.subject_type == "rule" else ""
+
+
+class ValidationKind(StrEnum):
+    REPLICATION = "replication"
+    TRANSFER = "transfer"
+    BOUNDARY = "boundary"
+    ADVERSARIAL = "adversarial"
+
+
+@dataclass(frozen=True)
+class ValidationCertificate:
+    kind: ValidationKind
+    case_id: str
+    executed: bool
+    execution_source: str
+    scientific_ok: bool | None = None
+    effect_lcb: float | None = None
+    abstained: bool | None = None
+    accepted: bool | None = None
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "ValidationCertificate":
+        raw_kind = value.get("holdout_class", value.get("validation_kind", "adversarial"))
+        aliases = {"heldout": "replication", "transfer_holdout": "transfer", "boundary_challenge": "boundary", "poison": "adversarial"}
+        kind = ValidationKind(aliases.get(str(raw_kind), str(raw_kind)))
+        return cls(kind, str(value["case_id"]), value.get("executed") is True, str(value.get("execution_source", "")), value.get("scientific_ok"), float(value["effect_lcb"]) if value.get("effect_lcb") is not None else None, value.get("abstained"), value.get("accepted"))
+
+    def validate(self, tolerance: float = 0.0) -> str | None:
+        if not self.executed or not self.execution_source:
+            return "validation must be executed by a named source"
+        if self.kind in {ValidationKind.REPLICATION, ValidationKind.TRANSFER}:
+            if self.scientific_ok is not True or self.effect_lcb is None or self.effect_lcb < tolerance:
+                return "positive holdout did not clear scientific/regression gates"
+        elif self.kind is ValidationKind.BOUNDARY:
+            if self.abstained is not True and self.effect_lcb is not None and self.effect_lcb > tolerance:
+                return "boundary challenge was neither abstained nor non-positive"
+        elif self.kind is ValidationKind.ADVERSARIAL and self.accepted is not False:
+            return "adversarial validation was accepted"
+        return None
 
 
 def _promotion_record(manifest: dict[str, Any]) -> dict[str, Any] | None:
@@ -123,6 +163,16 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
                 errors.append(f"{label} validation case was not executed: {case_id}")
             if not isinstance(entry.get("execution_source"), str) or not entry["execution_source"]:
                 errors.append(f"{label} validation case needs execution_source: {case_id}")
+            try:
+                typed = ValidationCertificate.from_dict({
+                    **entry,
+                    "holdout_class": entry.get("holdout_class", "adversarial" if label == "poison" else "replication"),
+                })
+                typed_error = typed.validate(regression_tolerance)
+                if typed_error:
+                    errors.append(f"{label} validation case {case_id}: {typed_error}")
+            except (TypeError, ValueError, KeyError) as exc:
+                errors.append(f"{label} validation case {case_id}: invalid typed certificate ({exc})")
             if label == "held-out":
                 if entry.get("scientific_ok") is not True:
                     errors.append(f"held-out validation case failed scientific gates: {case_id}")
@@ -256,6 +306,7 @@ def apply_promotion(
     replay_manifest: dict[str, Any],
     *,
     replay_path: str,
+    candidate_storage_key: str | None = None,
 ) -> EvolutionDecision:
     """Apply only an approved P2/P3 promotion and update the registry."""
     manifest_for_evaluation = dict(replay_manifest)
@@ -379,11 +430,40 @@ def apply_promotion(
     else:
         target.write_text(serialized, encoding="utf-8")
     state_path = target.with_name(f"{target.stem}.state.json")
-    state_path.write_text(json.dumps(state.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    state_serialized = json.dumps(state.to_dict(), indent=2, ensure_ascii=False) + "\n"
+    if state_path.exists():
+        try:
+            existing_state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "immutable_state_violation")
+        if existing_state != state.to_dict():
+            return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "immutable_state_violation")
+    else:
+        state_path.write_text(state_serialized, encoding="utf-8")
+    from core.mutation_journal import MutationJournal
+    journal = MutationJournal(store / "evolution" / "mutation_journal.jsonl")
+    journal.append(
+        "add_v2_spec",
+        decision.subject_id,
+        version=int(card.get("version", 1)),
+        artifact_path=str(target.relative_to(store)).replace("\\", "/"),
+        digest=hashlib.sha256(target.read_bytes()).hexdigest(),
+    )
+    journal.append(
+        "update_state",
+        decision.subject_id,
+        version=int(card.get("version", 1)),
+        artifact_path=str(state_path.relative_to(store)).replace("\\", "/"),
+        digest=hashlib.sha256(state_path.read_bytes()).hexdigest(),
+    )
     # Promotion is a state transition, not a second copy of the candidate.
     promotion_path.parent.mkdir(parents=True, exist_ok=True)
     promotion_path.write_text(json.dumps(promotion, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    candidate_path = store / "evolution" / "candidates" / f"{identifier_digest(decision.subject_id)}.json"
+    storage_key = candidate_storage_key or str(candidate.get("candidate_identity") or decision.subject_id)
+    try:
+        candidate_path = store / "evolution" / "candidates" / f"{identifier_digest(storage_key)}.json"
+    except ValueError:
+        return EvolutionDecision(decision.subject_type, decision.subject_id, "PROMOTE", "rejected", "none", "candidate storage key is invalid")
     if candidate_path.is_file():
         candidate_path.unlink()
 
@@ -405,4 +485,11 @@ def apply_promotion(
     registry[key] = entries
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    journal.append(
+        "activate_registry",
+        decision.subject_id,
+        version=int(card.get("version", 1)),
+        artifact_path=str(registry_path.relative_to(store)).replace("\\", "/"),
+        digest=hashlib.sha256(registry_path.read_bytes()).hexdigest(),
+    )
     return decision

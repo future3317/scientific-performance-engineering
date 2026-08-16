@@ -1,6 +1,7 @@
 """Shared workload-family generation for all SPE-EvoBench views."""
 
 from .catalog import (
+    FAMILY_SPECS,
     FamilyInstance,
     FamilySpec,
     FamilyTransformation,
@@ -21,6 +22,7 @@ from .environment import EnvironmentOutcome, EpisodeEnvironmentState, FamilyEnvi
 
 __all__ = [
     "FamilyInstance",
+    "FAMILY_SPECS",
     "FamilySpec",
     "FamilyTransformation",
     "family_instances",

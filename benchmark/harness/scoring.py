@@ -41,6 +41,13 @@ def score_task(result: dict[str, Any]) -> dict[str, Any]:
     """
     task_info = result.get("task", {})
     kind = task_info.get("kind", "positive")
+    if result.get("validity") == "invalid":
+        return {
+            "task_id": result.get("task_id"), "verdict": result.get("verdict"), "kind": kind,
+            "gates_passed": False, "inconclusive": False, "tripwired": False,
+            "perf_term": 0.0, "perf_note": "invalid trial protocol", "diagnosis_correct": None,
+            "task_score": 0.0, "cost": result.get("cost", {}), "verified_speedup": result.get("verified_speedup", {}),
+        }
     gates_ok = _gates_passed(result)
     inconclusive = result.get("verdict") == "inconclusive" or bool(
         result.get("verified_speedup", {}).get("inconclusive")

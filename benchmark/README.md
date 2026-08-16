@@ -71,7 +71,8 @@ representative/query contexts to obtain the preregistered number of independent
 groups required by the mixture confidence sequence; the task stream is only the
 candidate trigger. Held-out validation records replication, within-predicate
 transfer, and boundary-challenge classes separately. Outer formal trials use a
-seeded Latin-square block order and record that order in each trial manifest.
+seeded blocked rotation/shuffle and record that order in each trial manifest;
+this is not called a Latin square.
 
 The external executor must write an `executor_receipt.json` at
 `SPE_EXECUTOR_RECEIPT_PATH` with `network_mode: none`, an explicit mount
@@ -109,6 +110,14 @@ validation is execution-backed, promotion-disjoint, scientifically valid, and
 must clear the registered regression tolerance; poison probes must execute a
 materialized intervention and be rejected by the observed environment result.
 Replay and routing share the versioned bounded_log_speedup_v1 utility policy.
+
+The executable closure is Core-owned: `AcreMaintainer` runs paired plans,
+factorial relation experiments, and lifecycle reduction; the formal driver only
+materializes public contexts, invokes the verifier/environment, and persists
+immutable cases and certificates. Pending replay is executed through the same
+FamilyEnvironment path rather than exposed as worker-visible schedule metadata.
+Higher-order bundles remain blocked until a typed `RequiredExperiment` and its
+2^3 certificate are available.
 
 ```
 benchmark/

@@ -38,6 +38,30 @@ class RoutingDecision:
     upper_bound: float | None = None
     optimality_gap: float | None = None
     blockers: tuple[Mapping[str, Any], ...] = ()
+    blocked_candidate_frontier: tuple[Mapping[str, Any], ...] = ()
+    required_experiments: tuple[Mapping[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class RequiredExperiment:
+    """Typed experiment required before a blocked bundle can be deployed."""
+
+    experiment_id: str
+    experiment_type: str
+    bundle_ids: tuple[str, ...]
+    required_arms: tuple[str, ...]
+    reason: str
+    objective_gain: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "experiment_id": self.experiment_id,
+            "experiment_type": self.experiment_type,
+            "bundle_ids": list(self.bundle_ids),
+            "required_arms": list(self.required_arms),
+            "reason": self.reason,
+            "objective_gain": float(self.objective_gain),
+        }
 
 
 def validate_relation_nonoverlap(
@@ -264,14 +288,14 @@ class ConservativeCausalRouter:
                 if isinstance(bounds, Mapping) and {"lcb", "ucb"}.issubset(bounds):
                     uncertainty_penalty += max(0.0, float(bounds["ucb"]) - float(bounds["lcb"])) / 2.0
             else:
-                # Unknown pairwise evidence is not independence.  It reduces
-                # the robust value of a bundle even when neither endpoint is
-                # scientifically sensitive enough to hard-block it.
-                uncertainty_penalty += 0.05
+                # Unknown pairwise evidence is not independence.  Penalize
+                # it by the unresolved decision interval and by predicate
+                # extrapolation risk rather than a fixed heuristic constant.
+                uncertainty_penalty += 1.0 if (left.scientific_invariants or right.scientific_invariants) else 0.05
         if len(bundle) > 1:
-            uncertainty_penalty += self.zeta
+            uncertainty_penalty += self.zeta * (len(bundle) - 1) * 0.1
         if len(bundle) >= 3:
-            uncertainty_penalty += 0.05 * (len(bundle) - 2)
+            uncertainty_penalty += self.zeta * (len(bundle) - 2) * 0.1
         score -= uncertainty_penalty
         score -= self.lambda_tokens * sum(self._tokens(spec) for spec in bundle)
         return score
@@ -320,14 +344,19 @@ class ConservativeCausalRouter:
             elif spec.abstain_conditions and match_predicate(spec.abstain_conditions, context_map):
                 rejected[spec.rule_id].add("abstain_condition")
         valid: list[tuple[tuple[RuleSpec, ...], float]] = []
+        blocked_frontier: list[tuple[tuple[RuleSpec, ...], float]] = []
         optimizer_mode = "exact" if len(applicable) <= 16 else "conservative-greedy"
         bundles: list[tuple[RuleSpec, ...]]
         if len(applicable) > 16:
             selected: tuple[RuleSpec, ...] = ()
+            selected_objective = 0.0
             for spec in sorted(applicable, key=lambda item: self._utility(rule_states[item.rule_id]), reverse=True):
                 proposal = tuple(sorted((*selected, spec), key=lambda item: item.rule_id))
-                if not self._invalid_reasons(proposal, relation_map, relation_states, context_map, higher_order_certificates, require_higher_order_certificate):
+                reasons = self._invalid_reasons(proposal, relation_map, relation_states, context_map, higher_order_certificates, require_higher_order_certificate)
+                proposal_objective = self._objective(proposal, rule_states, relation_map, relation_states, context_map) if not reasons else float("-inf")
+                if not reasons and proposal_objective > selected_objective:
                     selected = proposal
+                    selected_objective = proposal_objective
             bundles = [selected]
         else:
             bundles = [selected for width in range(0, len(applicable) + 1) for selected in itertools.combinations(applicable, width)]
@@ -338,6 +367,8 @@ class ConservativeCausalRouter:
                 higher_order_certificates, require_higher_order_certificate,
             )
             if reasons:
+                if "higher_order_certificate_required" in reasons:
+                    blocked_frontier.append((bundle, self._objective(bundle, rule_states, relation_map, relation_states, context_map)))
                 for spec in bundle:
                     rejected[spec.rule_id].update(reasons)
                 continue
@@ -367,8 +398,33 @@ class ConservativeCausalRouter:
         else:
             certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, -1.0, 1.0, "higher_order_suspected")
         blockers: list[Mapping[str, Any]] = []
+        required_experiments: list[RequiredExperiment] = []
+        if blocked_frontier:
+            frontier_bundle, frontier_score = max(
+                blocked_frontier,
+                key=lambda item: (item[1], tuple(spec.rule_id for spec in item[0])),
+            )
+            if frontier_score > objective:
+                experiment = RequiredExperiment(
+                    experiment_id="three-way:" + ":".join(spec.rule_id for spec in frontier_bundle),
+                    experiment_type="three_way_factorial",
+                    bundle_ids=tuple(spec.rule_id for spec in frontier_bundle),
+                    required_arms=("000", "001", "010", "011", "100", "101", "110", "111"),
+                    reason="higher-order certificate is required before deployment",
+                    objective_gain=frontier_score - objective,
+                )
+                required_experiments.append(experiment)
+                blockers.append({"type": "required_experiment", **experiment.to_dict()})
         if len(bundle) >= 3 and certificate.status == "higher_order_suspected":
-            blockers.append({"type": "higher_order", "bundle": list(spec.rule_id for spec in bundle), "required_arms": ["000", "001", "010", "011", "100", "101", "110", "111"]})
+            experiment = RequiredExperiment(
+                experiment_id="three-way:" + ":".join(spec.rule_id for spec in bundle),
+                experiment_type="three_way_factorial",
+                bundle_ids=tuple(spec.rule_id for spec in bundle),
+                required_arms=("000", "001", "010", "011", "100", "101", "110", "111"),
+                reason="selected bundle has no measured higher-order certificate",
+            )
+            required_experiments.append(experiment)
+            blockers.append({"type": "higher_order", **experiment.to_dict()})
         if optimizer_mode == "exact":
             upper_bound = objective
             optimality_gap = 0.0
@@ -389,4 +445,9 @@ class ConservativeCausalRouter:
             upper_bound=upper_bound,
             optimality_gap=optimality_gap,
             blockers=tuple(blockers),
+            blocked_candidate_frontier=tuple(
+                {"bundle_ids": [spec.rule_id for spec in bundle], "objective": score}
+                for bundle, score in blocked_frontier
+            ),
+            required_experiments=tuple(item.to_dict() for item in required_experiments),
         )
