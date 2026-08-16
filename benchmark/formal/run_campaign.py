@@ -33,7 +33,8 @@ from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier
 from core.sequential_stats import bounded_mean_interval
-from core.utility import UTILITY_LOG_SCALE, utility_effect
+from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold, utility_effect
+from scripts.run_rule_replay import evaluate_cases
 
 
 def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -194,17 +195,25 @@ def synthesize_applicability(
     *,
     family_id: str | None = None,
     decision_contexts: list[dict[str, Any]] | None = None,
+    delta: float = 0.05,
+    epsilon_true: float = 0.0,
+    epsilon_false: float = 0.0,
+    require_identified: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Derive a worker rule boundary from harness-owned public observations."""
     from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
     from core.acre.predicates import PredicateGrammar
 
+    lattice = list(decision_contexts or _family_decision_lattice(family_id))
+    if require_identified and not lattice:
+        return None
+    context_delta = float(delta) / max(1, len(lattice))
     observations: list[BoundaryObservation] = []
     for index, case in enumerate(cases):
         context = case.get("context") if isinstance(case.get("context"), dict) else {}
         if not context:
             continue
-        interval = _case_effect_interval(case)
+        interval = _case_effect_interval(case, delta=context_delta)
         if interval is None:
             continue
         effect, effect_lower, effect_upper = interval
@@ -235,16 +244,62 @@ def synthesize_applicability(
     if not grammar_payload["features"]:
         return None
     grammar = PredicateGrammar.from_dict(grammar_payload)
-    lattice = list(decision_contexts or _family_decision_lattice(family_id))
-    result = StatisticalCEGIS(grammar, epsilon_true=0.0, epsilon_false=0.0).synthesize(
+    result = StatisticalCEGIS(grammar, epsilon_true=epsilon_true, epsilon_false=epsilon_false).synthesize(
         positive=observations,
         counterexamples=observations,
         parent_predicate=None,
         decision_contexts=lattice,
     )
-    if result.predicate is None:
+    if result.predicate is None or (require_identified and result.status != "identified"):
         return None
     return result.predicate, {"source": "harness-cegis", **(result.provenance or {}), "status": result.status}
+
+
+def representative_case_ids(predicate: dict[str, Any], cases: list[dict[str, Any]]) -> list[str]:
+    """Return only certified representative cases covered by a learned predicate."""
+    from core.predicates import match_predicate
+
+    return sorted({
+        str(case["case_id"])
+        for case in cases
+        if isinstance(case, dict)
+        and isinstance(case.get("case_id"), str)
+        and isinstance(case.get("context"), dict)
+        and match_predicate(predicate, case["context"])
+    })
+
+
+def rewrite_validation_membership(
+    store: Path,
+    candidate: dict[str, Any],
+    *,
+    synthesis_case_ids: list[str],
+    promotion_case_ids: list[str],
+) -> None:
+    """Bind validation membership after CEGIS has identified applicability."""
+    reference = candidate.get("validation_artifacts")
+    if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
+        raise ValueError("candidate validation artifact is missing")
+    path = store / str(reference["path"])
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("candidate validation artifact is invalid") from exc
+    if not isinstance(value, dict):
+        raise ValueError("candidate validation artifact must be an object")
+    value["synthesis_case_ids"] = sorted(set(str(item) for item in synthesis_case_ids))
+    value["promotion_case_ids"] = sorted(set(str(item) for item in promotion_case_ids))
+    digest = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    target = store / "evolution" / "validation" / f"{digest}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        target.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    candidate["validation_artifacts"] = {
+        "path": str(target.relative_to(store)).replace("\\", "/"),
+        "digest": digest,
+        "heldout_count": len(value.get("heldout_regression_cases", [])),
+        "poison_probe_count": len(value.get("poison_probe_cases", [])),
+    }
 
 
 def hydrate_candidate_cases(
@@ -302,17 +357,31 @@ def persist_collecting_proposals(store: Path, proposals: list[dict[str, Any]], c
                 existing = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 existing = {}
+        evidence_ids = sorted(set(str(item) for item in existing.get("synthesis_state", {}).get("evidence_ids", []) if isinstance(item, str)) | set(case_ids))
         candidate = {
             "rule_id": identifier,
             "version": int(proposal.get("version", existing.get("version", 1))),
             "parent": None,
-            "applicability": existing.get("applicability", {"all": []}),
+            "hypothesis": {
+                "intervention": proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {"action": "measure"},
+                "expected_mechanism": str(proposal.get("expected_mechanism") or proposal.get("hypothesis") or "task-local performance mechanism"),
+            },
+            "synthesis_state": existing.get("synthesis_state", {
+                "status": "collecting_evidence",
+                "predicate": None,
+                "version_space_digest": None,
+                "evidence_ids": evidence_ids,
+            }),
             "intervention": proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {"action": "measure"},
             "expected_mechanism": str(proposal.get("expected_mechanism") or proposal.get("hypothesis") or "task-local performance mechanism"),
             "status": "collecting_evidence",
             "cases": sorted(set(str(item) for item in existing.get("cases", []) if isinstance(item, str)) | set(case_ids)),
         }
-        path.write_text(json.dumps({**existing, **candidate}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        candidate["synthesis_state"]["evidence_ids"] = evidence_ids
+        payload = {**existing, **candidate}
+        if payload.get("status") == "collecting_evidence":
+            payload.pop("applicability", None)
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def execute_poison_probe(
@@ -353,6 +422,7 @@ def execute_poison_probe(
         "case_id": f"POISON-PROBE-{task_spec.get('task_id', 'task')}",
         "executed": True,
         "execution_source": "family-environment",
+        "validation_class": "synthetic_validation_only",
         "accepted": bool(outcome.utility > baseline.utility + 1e-9 and all(outcome.scientific_gates.values())),
         "utility": outcome.utility,
         "baseline_utility": baseline.utility,
@@ -618,6 +688,7 @@ def post_task_update(
     causal_result: dict[str, Any] | None = None,
     causal_scored: dict[str, Any] | None = None,
     validation_evidence: dict[str, Any] | None = None,
+    practical_epsilon: float = 0.0,
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
@@ -711,8 +782,10 @@ def post_task_update(
                 return {"transition": "no_independent_validation", "added_experience_ids": added_experience_ids}
             validation = {
                 "schema_version": 1,
+                "scope": "formal",
                 "subject_context": canonical_public_context(public_context),
-                "promotion_case_ids": [case_id],
+                "synthesis_case_ids": [case_id],
+                "promotion_case_ids": [],
                 "heldout_regression_cases": list(validation_evidence.get("heldout_regression_cases", [])),
                 "poison_probe_cases": list(validation_evidence.get("poison_probe_cases", [])),
                 "independence_groups": [case["independence_group"]],
@@ -759,6 +832,16 @@ def post_task_update(
                 "version": int(candidate.get("version", 1)),
                 "parent": None,
                 "applicability": {"all": []},
+                "hypothesis": {
+                    "intervention": candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"},
+                    "expected_mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
+                },
+                "synthesis_state": {
+                    "status": "collecting_evidence",
+                    "predicate": None,
+                    "version_space_digest": None,
+                    "evidence_ids": [],
+                },
                 "intervention": candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"},
                 "expected_mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
                 "evidence_requirements": ["paired_replay"],
@@ -771,6 +854,7 @@ def post_task_update(
                 "domain": "runtime",
                 "text": str(candidate.get("text", "")),
                 "status": "candidate",
+                "epsilon": float(practical_epsilon),
             }
             candidate["cases"] = list(added_replay_case_ids)
             candidate["validation_artifacts"] = {
@@ -787,13 +871,20 @@ def post_task_update(
                 except (OSError, json.JSONDecodeError):
                     existing = {}
             if existing:
-                immutable = ("rule_id", "relation_id", "version", "applicability", "intervention", "expected_mechanism")
+                immutable = ("rule_id", "relation_id", "version", "intervention", "expected_mechanism")
                 for field in immutable:
                     if field in existing and field in candidate and existing[field] != candidate[field]:
                         raise ValueError(f"candidate immutable field changed for {identifier}: {field}")
                 merged = dict(existing)
-                merged.update({key: value for key, value in candidate.items() if key not in {"cases"}})
+                merged.update({key: value for key, value in candidate.items() if key not in {"cases", "applicability", "synthesis_state"}})
                 candidate = merged
+                candidate["applicability"] = existing.get("applicability", {"all": []})
+                candidate["synthesis_state"] = existing.get("synthesis_state", {
+                    "status": "collecting_evidence",
+                    "predicate": None,
+                    "version_space_digest": None,
+                    "evidence_ids": [],
+                })
             candidate["cases"] = sorted(set(existing.get("cases", [])) | set(candidate.get("cases", [])))
             # A candidate may accumulate independent replay cases over several
             # tasks.  Keep the validation artifact aligned with the complete
@@ -828,7 +919,8 @@ def post_task_update(
                             if isinstance(entry, dict) and isinstance(entry.get("case_id"), str):
                                 target.setdefault(entry["case_id"], entry)
                 merged_validation = dict(validation_sources[-1])
-                merged_validation["promotion_case_ids"] = list(candidate["cases"])
+                merged_validation["synthesis_case_ids"] = sorted({str(item) for item in candidate["cases"]})
+                merged_validation["promotion_case_ids"] = sorted({str(item) for item in merged_validation.get("promotion_case_ids", [])})
                 merged_validation["heldout_regression_cases"] = list(heldout_cases.values())
                 merged_validation["poison_probe_cases"] = list(poison_cases.values())
                 merged_validation["independence_groups"] = sorted(independence_groups)
@@ -859,20 +951,57 @@ def post_task_update(
             case_values_for_cegis = hydrate_candidate_cases(store, candidate, candidate_evidence)
             candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
             candidate["status"] = "collecting_evidence"
+            candidate["synthesis_state"] = {
+                **dict(candidate.get("synthesis_state") or {}),
+                "status": "collecting_evidence",
+                "evidence_ids": list(candidate["cases"]),
+            }
+            candidate.pop("applicability", None)
+            candidate.pop("applicability_provenance", None)
             path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            synthesized = synthesize_applicability(case_values_for_cegis, family_id=family_id)
+            synthesized = synthesize_applicability(
+                case_values_for_cegis,
+                family_id=family_id,
+                delta=0.05,
+                epsilon_true=float(practical_epsilon),
+                epsilon_false=0.0,
+                require_identified=True,
+            )
             if synthesized is None:
                 continue
             intervention = candidate.get("intervention")
             if not isinstance(intervention, dict) or not isinstance(intervention.get("file"), str) or not isinstance(intervention.get("replacements"), list):
                 continue
-            candidate["applicability"], candidate["applicability_provenance"] = synthesized
+            predicate, provenance = synthesized
+            promotion_ids = representative_case_ids(predicate, case_values_for_cegis)
+            if not promotion_ids or provenance.get("status") != "identified":
+                continue
+            candidate["applicability"], candidate["applicability_provenance"] = predicate, provenance
+            candidate["synthesis_state"] = {
+                "status": "identified",
+                "predicate": predicate,
+                "version_space_digest": provenance.get("version_space_digest"),
+                "evidence_ids": list(candidate["cases"]),
+            }
+            rewrite_validation_membership(
+                store,
+                candidate,
+                synthesis_case_ids=list(candidate["cases"]),
+                promotion_case_ids=promotion_ids,
+            )
             candidate["status"] = "candidate"
             path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             candidates_by_id[identifier] = candidate
         for path in sorted(candidates_dir.glob("*.json")):
             candidate = json.loads(path.read_text(encoding="utf-8"))
-            if candidate.get("cases") and candidate.get("status") == "candidate":
+            synthesis_state = candidate.get("synthesis_state") if isinstance(candidate.get("synthesis_state"), dict) else {}
+            provenance = candidate.get("applicability_provenance") if isinstance(candidate.get("applicability_provenance"), dict) else {}
+            if (
+                candidate.get("cases")
+                and candidate.get("status") == "candidate"
+                and synthesis_state.get("status") == "identified"
+                and int(provenance.get("decision_context_count", 0)) > 0
+            ):
                 identifier = str(candidate.get("relation_id") or candidate.get("rule_id") or candidate.get("id") or path.stem)
                 candidates_by_id[identifier] = candidate
         candidates = list(candidates_by_id.values())
@@ -1272,10 +1401,28 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         context_mode=str(item["context_mode"]),
                         seed=int(item["outer_trial_index"]) + 1000003,
                     )
-                    heldout_effect = utility_effect(
-                        float(heldout_scored.get("task_score", 0.0)),
-                        float(heldout_control_scored.get("task_score", 0.0)),
-                        higher_is_better=True,
+                    heldout_measurement = heldout_result.get("measurement", {}) if isinstance(heldout_result.get("measurement"), dict) else {}
+                    heldout_candidate_runs = list(heldout_measurement.get("candidate_runs", []))
+                    heldout_baseline_runs = list(heldout_measurement.get("baseline_runs", []))
+                    if not heldout_candidate_runs or len(heldout_candidate_runs) != len(heldout_baseline_runs):
+                        raise ValueError("held-out verifier did not produce paired measurements")
+                    heldout_case = {
+                        "case_id": f"HELDOUT-{task_id}",
+                        "paired_replay": True,
+                        "same_fixture_id": f"HELDOUT-FIXTURE-{task_id}",
+                        "independence_group": f"heldout-{task_id}",
+                        "intervention_measurements": heldout_candidate_runs,
+                        "baseline_measurements": heldout_baseline_runs,
+                        "higher_is_better": bool(heldout_measurement.get("higher_is_better", False)),
+                        "utility_scale": UTILITY_LOG_SCALE,
+                        "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
+                        "quality_ok": bool(heldout_scored.get("gates_passed", False)) and bool(heldout_control_scored.get("gates_passed", False)),
+                    }
+                    heldout_stats = evaluate_cases(
+                        [heldout_case],
+                        epsilon=practical_effect_threshold(float((task_spec.get("measurement") or {}).get("min_improvement_percent", 0.0))),
+                        p_min=0.0,
+                        delta=0.05,
                     )
                     validation_evidence = {
                         "heldout_regression_cases": [{
@@ -1283,10 +1430,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                             "executed": True,
                             "execution_source": "verifier",
                             "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
-                            "utility": heldout_scored.get("task_score"),
-                            "effect": heldout_effect,
-                            "effect_lcb": heldout_effect,
-                            "effect_ucb": heldout_effect,
+                            "utility": heldout_stats.get("mean_effect"),
+                            "effect": heldout_stats.get("mean_effect"),
+                            "effect_lcb": heldout_stats.get("utility_effect_lcb"),
+                            "effect_ucb": heldout_stats.get("utility_effect_ucb"),
+                            "utility_policy_id": heldout_stats.get("utility_policy_id"),
                         }],
                         "poison_probe_cases": [execute_poison_probe(
                             task_spec, public_routing, proposals[0], realized_solution, solution_dir
@@ -1312,6 +1460,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             causal_result=causal_result,
             causal_scored=causal_scored,
             validation_evidence=validation_evidence,
+            practical_epsilon=practical_effect_threshold(
+                float((task_spec.get("measurement") or {}).get("min_improvement_percent", 0.0))
+            ),
         )
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:

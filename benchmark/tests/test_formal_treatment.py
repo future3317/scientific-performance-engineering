@@ -103,6 +103,7 @@ def test_relation_promotion_round_trips_as_spec_state_and_record(tmp_path: Path)
         } for endpoint in ("X", "Y")],
     }), encoding="utf-8")
     validation = {
+        "synthesis_case_ids": ["CASE-REL"],
         "promotion_case_ids": ["CASE-REL"],
         "heldout_regression_cases": [{"case_id": "HELDOUT-REL", "executed": True, "execution_source": "verifier", "scientific_ok": True, "effect_lcb": 0.1}],
         "poison_probe_cases": [{"case_id": "POISON-REL", "executed": True, "execution_source": "environment", "accepted": False}],
@@ -366,6 +367,7 @@ def test_formal_promotion_round_trip_routes_and_abstains_by_cegis_boundary(tmp_p
     candidate = _rule("RULE-CEGIS")
     candidate = candidate.__class__(**{**candidate.__dict__, "applicability": predicate}).to_dict()
     validation = {
+        "synthesis_case_ids": ["CASE-CEGIS-1", "CASE-CEGIS-2"],
         "promotion_case_ids": ["CASE-CEGIS-1", "CASE-CEGIS-2"],
         "heldout_regression_cases": [{"case_id": "HELDOUT-CEGIS", "executed": True, "execution_source": "verifier", "scientific_ok": True, "effect_lcb": 0.1}],
         "poison_probe_cases": [{"case_id": "POISON-CEGIS", "executed": True, "execution_source": "environment", "accepted": False}],
@@ -531,6 +533,7 @@ def test_validation_artifact_requires_executed_disjoint_probes() -> None:
     from core.governance import validate_validation_artifact
 
     artifact = {
+        "synthesis_case_ids": ["CASE-1"],
         "promotion_case_ids": ["CASE-1"],
         "heldout_regression_cases": [{"case_id": "CASE-1", "executed": True}],
         "poison_probe_cases": [{"case_id": "POISON-1", "executed": False, "accepted": False}],
@@ -544,6 +547,7 @@ def test_validation_artifact_requires_heldout_gate() -> None:
     from core.governance import validate_validation_artifact
 
     artifact = {
+        "synthesis_case_ids": ["CASE-1"],
         "promotion_case_ids": ["CASE-1"],
         "heldout_regression_cases": [{
             "case_id": "HELDOUT-1", "executed": True, "execution_source": "verifier",
@@ -589,6 +593,45 @@ def test_utility_transform_is_dimensionless_and_versioned() -> None:
     assert UTILITY_POLICY_ID == "bounded_log_speedup_v1"
     assert utility_effect(95.0, 100.0, higher_is_better=False) > 0.0
     assert utility_effect(2.0, 1.0, higher_is_better=True) > utility_effect(1.1, 1.0, higher_is_better=True)
+
+
+def test_replay_events_use_group_effects_not_task_scores() -> None:
+    from scripts.run_rule_replay import build_evidence_events, evaluate_cases
+
+    case = {
+        "case_id": "CASE-MEASURED",
+        "independence_group": "GROUP-1",
+        "paired_replay": True,
+        "same_fixture_id": "FIXTURE-1",
+        "utility_on": 0.0,
+        "utility_off": 0.0,
+        "intervention_measurements": [95.0, 96.0],
+        "baseline_measurements": [100.0, 100.0],
+        "control_measured": True,
+        "higher_is_better": False,
+        "scientific_ok": True,
+        "quality_ok": True,
+    }
+    result = evaluate_cases([case], epsilon=0.0, p_min=0.0, delta=0.05)
+    assert result["successes"] == 1
+    events = build_evidence_events({"rule_id": "RULE-MEASURED", "cases": [case]})
+    assert len(events) == 2
+    assert events[0]["outcome_vector"]["paired_effect"] > 0.0
+
+
+def test_formal_identification_requires_a_nonempty_decision_lattice() -> None:
+    assert synthesize_applicability(
+        [{
+            "case_id": "POS",
+            "context": {"workload": {"dynamic_shape_rate": 0.2}},
+            "intervention_measurements": [0.8] * 16,
+            "baseline_measurements": [0.5] * 16,
+            "control_measured": True,
+            "scientific_ok": True,
+        }],
+        family_id="missing-family",
+        require_identified=True,
+    ) is None
 
 
 def test_evidence_utility_is_bounded_for_confidence_accounting() -> None:

@@ -89,6 +89,11 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
     declared = {str(item) for item in value.get("promotion_case_ids", []) if isinstance(item, str)}
     if declared != {str(item) for item in promotion_case_ids}:
         errors.append("validation artifact promotion case membership mismatch")
+    synthesis = {str(item) for item in value.get("synthesis_case_ids", []) if isinstance(item, str)}
+    if not synthesis:
+        errors.append("validation artifact synthesis case membership is required")
+    if not declared.issubset(synthesis):
+        errors.append("promotion cases must be drawn from synthesis cases")
     heldout = value.get("heldout_regression_cases")
     poison = value.get("poison_probe_cases")
     try:
@@ -130,6 +135,8 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
                         errors.append(f"held-out validation case regressed below tolerance: {case_id}")
             if label == "poison" and entry.get("accepted") is not False:
                 errors.append(f"poison validation case must be rejected by execution: {case_id}")
+            if label == "poison" and value.get("scope") == "formal" and entry.get("validation_class") == "synthetic_validation_only":
+                errors.append(f"synthetic poison validation cannot authorize promotion: {case_id}")
     return errors
 
 

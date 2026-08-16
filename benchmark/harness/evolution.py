@@ -219,6 +219,12 @@ def promote_via_replay(
         predicate = candidate.get("applicability") or candidate.get("trigger")
         if not isinstance(predicate, dict) or not predicate:
             continue
+        synthesis_state = candidate.get("synthesis_state") if isinstance(candidate.get("synthesis_state"), dict) else None
+        provenance = candidate.get("applicability_provenance") if isinstance(candidate.get("applicability_provenance"), dict) else None
+        if synthesis_state is not None and synthesis_state.get("status") != "identified":
+            continue
+        if provenance is not None and int(provenance.get("decision_context_count", 0)) <= 0:
+            continue
         if all(not isinstance(case.get("context"), dict) or not case.get("context") for case in all_cases):
             # Episode calibration cards predate contextual replay payloads;
             # their reviewed trigger is the harness-owned applicability.
@@ -273,6 +279,8 @@ def promote_via_replay(
             baseline_outcome = family.evaluate(first_context, (), EpisodeEnvironmentState(active_poison=("validation_probe",)))
             validation = {
                 "schema_version": 1,
+                "scope": "calibration",
+                "synthesis_case_ids": [str(case.get("case_id")) for case in cases],
                 "promotion_case_ids": [str(case.get("case_id")) for case in cases],
                 "heldout_regression_cases": [{
                     "case_id": f"HELDOUT-{candidate.get('rule_id')}",

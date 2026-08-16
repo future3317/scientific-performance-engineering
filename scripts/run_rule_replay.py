@@ -49,6 +49,53 @@ def betting_lower_bound(successes: int, trials: int, delta: float) -> float:
     return mixture_lower_bound(successes, trials, delta)
 
 
+def paired_group_effects(
+    cases: list[dict[str, Any]],
+    *,
+    utility_scale: float = UTILITY_LOG_SCALE,
+) -> list[dict[str, Any]]:
+    """Reduce repetitions and cases to one bounded effect per independence group."""
+    grouped: dict[str, list[tuple[float, bool, str, int]]] = {}
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            raise ValueError("replay cases must be objects")
+        group_id = str(case.get("independence_group") or case.get("source_id") or case.get("case_id") or f"group-{index}")
+        measured = case.get("intervention_measurements")
+        control = case.get("baseline_measurements")
+        higher_is_better = bool(case.get("higher_is_better", True))
+        if isinstance(measured, list) and isinstance(control, list):
+            if not measured or len(measured) != len(control):
+                raise ValueError("paired replay measured arms must be non-empty and equal length")
+            repetition_effects = [utility_effect(
+                float(on), float(off), higher_is_better=higher_is_better,
+                log_scale=float(case.get("utility_scale", utility_scale)),
+            ) for on, off in zip(measured, control)]
+            case_effect = mean(repetition_effects)
+            repetition_count = len(repetition_effects)
+        else:
+            if "utility_on" not in case or "utility_off" not in case:
+                raise ValueError("paired replay case must contain measured arms")
+            case_effect = utility_effect(
+                float(case["utility_on"]), float(case["utility_off"]),
+                higher_is_better=higher_is_better, log_scale=utility_scale,
+            )
+            repetition_count = 1
+        gates_passed = bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))
+        grouped.setdefault(group_id, []).append((case_effect, gates_passed, str(case.get("case_id", index)), repetition_count))
+    results: list[dict[str, Any]] = []
+    for group_id, entries in grouped.items():
+        effects = [entry[0] for entry in entries]
+        results.append({
+            "independence_group": group_id,
+            "effect": mean(effects),
+            "scientific_ok": all(entry[1] for entry in entries),
+            "case_ids": [entry[2] for entry in entries],
+            "case_count": len(entries),
+            "repetition_count": sum(entry[3] for entry in entries),
+        })
+    return results
+
+
 def evaluate_cases(
     cases: list[dict[str, Any]],
     epsilon: float,
@@ -82,39 +129,10 @@ def evaluate_cases(
             # measured baseline may legitimately be zero and is accepted above.
             raise ValueError("paired replay requires a non-zero control for legacy scalar cases; measured arms may be zero")
     validate_policy(utility_policy_id)
-    case_effects: list[tuple[str, float, bool]] = []
-    repetition_count = 0
-    for case in cases:
-        group_id = str(case.get("independence_group") or case.get("source_id") or case.get("case_id"))
-        intervention = case.get("intervention_measurements")
-        baseline = case.get("baseline_measurements")
-        if isinstance(intervention, list) and isinstance(baseline, list):
-            higher_is_better = bool(case.get("higher_is_better", True))
-            repetition_effects = []
-            for on, off in zip(intervention, baseline):
-                on_value, off_value = float(on), float(off)
-                repetition_effects.append(utility_effect(
-                    on_value,
-                    off_value,
-                    higher_is_better=higher_is_better,
-                    log_scale=float(case.get("utility_scale", utility_scale)),
-                ))
-            repetition_count += len(repetition_effects)
-            case_effect = mean(repetition_effects)
-        else:
-            repetition_count += 1
-            case_effect = utility_effect(
-                float(case["utility_on"]),
-                float(case["utility_off"]),
-                higher_is_better=bool(case.get("higher_is_better", True)),
-                log_scale=utility_scale,
-            )
-        case_effects.append((group_id, case_effect, bool(case.get("scientific_ok", False)) and bool(case.get("quality_ok", True))))
-    grouped: dict[str, list[tuple[float, bool]]] = {}
-    for group_id, effect, gates_passed in case_effects:
-        grouped.setdefault(group_id, []).append((effect, gates_passed))
-    effects = [mean(effect for effect, _ in group_cases) for group_cases in grouped.values()]
-    group_quality = [all(gates_passed for _, gates_passed in group_cases) for group_cases in grouped.values()]
+    group_effects = paired_group_effects(cases, utility_scale=utility_scale)
+    effects = [float(item["effect"]) for item in group_effects]
+    group_quality = [bool(item["scientific_ok"]) for item in group_effects]
+    repetition_count = sum(int(item["repetition_count"]) for item in group_effects)
     scientific_ok = all(group_quality)
     successes = sum(effect > epsilon and gates_passed for effect, gates_passed in zip(effects, group_quality))
     failures = len(effects) - successes
@@ -136,7 +154,7 @@ def evaluate_cases(
     outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
     return {
         "n": len(effects),
-        "case_count": len(case_effects),
+        "case_count": len(cases),
         "repetition_count": repetition_count,
         "independence_group_count": len(effects),
         "mean_effect": mean_effect,
@@ -164,7 +182,16 @@ def evaluate_cases(
 def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Materialize paired replay directly as canonical EvidenceEvent v2."""
     events: list[dict[str, Any]] = []
-    for index, case in enumerate(payload["cases"]):
+    grouped = paired_group_effects(
+        payload["cases"],
+        utility_scale=float(payload.get("utility_scale", UTILITY_LOG_SCALE)),
+    )
+    cases_by_group = {
+        str(case.get("independence_group") or case.get("source_id") or case.get("case_id") or f"group-{index}"): case
+        for index, case in enumerate(payload["cases"])
+    }
+    for index, group in enumerate(grouped):
+        case = cases_by_group[group["independence_group"]]
         common = dict(case.get("context") or {})
         common.setdefault("revision", case.get("revision", payload.get("revision", "unknown")))
         common.setdefault("seed_family", case.get("seed_family", payload.get("seed_family", "replay")))
@@ -172,24 +199,16 @@ def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
         versions = dict(common["rule_versions"])
         versions[payload["rule_id"]] = int(payload.get("rule_version", 1))
         common["rule_versions"] = versions
-        on_value = float(case["utility_on"])
-        off_value = float(case["utility_off"])
-        paired_effect = utility_effect(
-            on_value,
-            off_value,
-            higher_is_better=bool(case.get("higher_is_better", True)),
-            log_scale=float(case.get("utility_scale", UTILITY_LOG_SCALE)),
-        )
         for arm in ("on", "off"):
             events.append({
                 "schema_version": 2,
-                "event_id": f"{case.get('case_id', index)}-{arm}", "context": common,
+                "event_id": f"{group['independence_group']}-{arm}", "context": common,
                 "assignment": {"interventions": {payload["rule_id"]: int(arm == "on")}, "propensity": float(case.get("propensity", 0.5)), "design_id": "paired-replay-v2"},
-                "evidence_stream": "representative", "query_id": str(case.get("query_id", case.get("case_id", index))),
-                "outcome_vector": {"utility": paired_effect if arm == "on" else 0.0, "paired_effect": paired_effect},
-                "scientific_gates": {"scientific_ok": bool(case.get("scientific_ok", False)), "quality_ok": bool(case.get("quality_ok", True))},
+                "evidence_stream": "representative", "query_id": str(case.get("query_id", group["independence_group"])),
+                "outcome_vector": {"utility": float(group["effect"]) if arm == "on" else 0.0, "paired_effect": float(group["effect"]), "contrast": "on-minus-off"},
+                "scientific_gates": {"scientific_ok": bool(group["scientific_ok"]), "quality_ok": bool(group["scientific_ok"])},
                 "artifacts": case.get("artifacts", {}), "versions": case.get("versions", {}),
-                "source_id": case.get("source_id", f"replay-{index}"), "independence_group": case.get("independence_group", f"replay-{index}"),
+                "source_id": case.get("source_id", f"replay-{index}"), "independence_group": group["independence_group"],
                 "timestamp": case.get("timestamp", datetime.now(timezone.utc).isoformat()), "trust_zone": "local", "attacker_controlled_fields": [],
             })
     return events
