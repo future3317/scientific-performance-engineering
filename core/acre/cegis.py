@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping
+import hashlib
+import json
 
 from core.predicates import match_predicate
 
@@ -35,6 +37,7 @@ class SynthesisResult:
     synthesizer_version: str = SYNTHESIZER_VERSION
     provenance: dict[str, Any] | None = None
     version_space: tuple[dict[str, Any], ...] = ()
+    certificate: "SynthesisCertificate | None" = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +49,39 @@ class SynthesisResult:
             "provenance": self.provenance,
             "version_space_size": len(self.version_space),
             "version_space": list(self.version_space),
+            "certificate": self.certificate.to_dict() if self.certificate else None,
+        }
+
+
+@dataclass(frozen=True)
+class SynthesisCertificate:
+    """Immutable evidence boundary for a materialized predicate."""
+
+    status: str
+    predicate: Mapping[str, Any] | None
+    positive_anchor_ids: tuple[str, ...]
+    counterexample_ids: tuple[str, ...]
+    unresolved_ids: tuple[str, ...]
+    grammar_digest: str
+    decision_lattice_digest: str
+    version_space_digest: str
+    alpha_budget: float
+    practical_threshold: float
+    synthesizer_version: str = SYNTHESIZER_VERSION
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "predicate": dict(self.predicate) if isinstance(self.predicate, Mapping) else None,
+            "positive_anchor_ids": list(self.positive_anchor_ids),
+            "counterexample_ids": list(self.counterexample_ids),
+            "unresolved_ids": list(self.unresolved_ids),
+            "grammar_digest": self.grammar_digest,
+            "decision_lattice_digest": self.decision_lattice_digest,
+            "version_space_digest": self.version_space_digest,
+            "alpha_budget": self.alpha_budget,
+            "practical_threshold": self.practical_threshold,
+            "synthesizer_version": self.synthesizer_version,
         }
 
 
@@ -54,6 +90,41 @@ class StatisticalCEGIS:
         self.grammar = grammar
         self.epsilon_true = epsilon_true
         self.epsilon_false = epsilon_false
+
+    def _certificate(
+        self,
+        *,
+        status: str,
+        predicate: dict[str, Any] | None,
+        anchors: tuple[str, ...],
+        counterexamples: tuple[str, ...],
+        observation_ids: tuple[str, ...],
+        decision_contexts: list[Mapping[str, Any]] | None,
+        version_space: tuple[dict[str, Any], ...] = (),
+    ) -> SynthesisCertificate:
+        grammar_payload = {
+            "schema_version": self.grammar.schema_version,
+            "features": list(self.grammar.features),
+            "max_depth": self.grammar.max_depth,
+            "max_literals": self.grammar.max_literals,
+            "threshold_universe": self.grammar.threshold_universe or {},
+        }
+        digest = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+        return SynthesisCertificate(
+            status=status,
+            predicate=predicate,
+            positive_anchor_ids=anchors,
+            counterexample_ids=counterexamples,
+            unresolved_ids=tuple(
+                item for item in observation_ids
+                if item not in set(anchors) and item not in set(counterexamples)
+            ),
+            grammar_digest=digest(grammar_payload),
+            decision_lattice_digest=digest(list(decision_contexts or [])),
+            version_space_digest=digest(list(version_space)),
+            alpha_budget=0.05,
+            practical_threshold=max(float(self.epsilon_true), float(self.epsilon_false)),
+        )
 
     def synthesize(
         self,
@@ -69,13 +140,19 @@ class StatisticalCEGIS:
         counterexample_ids = tuple(item.observation_id for item in certified)
         provenance = {"parent_predicate": parent_predicate, "grammar_version": 2}
         if not anchors:
-            return SynthesisResult("insufficient_evidence", None, counterexample_ids, anchor_ids, provenance=provenance)
+            cert = self._certificate(status="insufficient_evidence", predicate=None, anchors=anchor_ids, counterexamples=counterexample_ids, observation_ids=tuple(item.observation_id for item in positive + counterexamples), decision_contexts=decision_contexts)
+            provenance["certificate"] = cert.to_dict()
+            return SynthesisResult("insufficient_evidence", None, counterexample_ids, anchor_ids, provenance=provenance, certificate=cert)
         if not certified:
             provenance["reason"] = "awaiting_certified_counterexample"
-            return SynthesisResult("insufficient_evidence", None, counterexample_ids, anchor_ids, provenance=provenance)
+            cert = self._certificate(status="insufficient_evidence", predicate=None, anchors=anchor_ids, counterexamples=counterexample_ids, observation_ids=tuple(item.observation_id for item in positive + counterexamples), decision_contexts=decision_contexts)
+            provenance["certificate"] = cert.to_dict()
+            return SynthesisResult("insufficient_evidence", None, counterexample_ids, anchor_ids, provenance=provenance, certificate=cert)
         anchor_keys = {_key(item.context) for item in anchors}
         if any(_key(item.context) in anchor_keys for item in certified):
-            return SynthesisResult("unsynthesizable_boundary", None, counterexample_ids, anchor_ids, provenance=provenance)
+            cert = self._certificate(status="unsynthesizable_boundary", predicate=None, anchors=anchor_ids, counterexamples=counterexample_ids, observation_ids=tuple(item.observation_id for item in positive + counterexamples), decision_contexts=decision_contexts)
+            provenance["certificate"] = cert.to_dict()
+            return SynthesisResult("unsynthesizable_boundary", None, counterexample_ids, anchor_ids, provenance=provenance, certificate=cert)
         contexts = [item.context for item in anchors] + [item.context for item in certified]
         # The finite vocabulary is rebuilt from the complete observed
         # decision context set on every call.  This is an explicit sequential
@@ -91,7 +168,9 @@ class StatisticalCEGIS:
             and all(not match_predicate(predicate, item.context) for item in certified)
         ]
         if not consistent:
-            return SynthesisResult("unsynthesizable_boundary", None, counterexample_ids, anchor_ids, provenance=provenance)
+            cert = self._certificate(status="unsynthesizable_boundary", predicate=None, anchors=anchor_ids, counterexamples=counterexample_ids, observation_ids=tuple(item.observation_id for item in positive + counterexamples), decision_contexts=decision_contexts)
+            provenance["certificate"] = cert.to_dict()
+            return SynthesisResult("unsynthesizable_boundary", None, counterexample_ids, anchor_ids, provenance=provenance, certificate=cert)
         predicate = min(
             consistent,
             key=lambda value: (
@@ -105,6 +184,7 @@ class StatisticalCEGIS:
         provenance["positive_anchors"] = list(anchor_ids)
         provenance["complexity"] = predicate_complexity(predicate)
         provenance["hypothesis_vocabulary_context_count"] = len(vocabulary_contexts)
+        provenance["version_space_digest"] = hashlib.sha256(json.dumps(list(consistent), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
         # A consistent predicate is identified only when every remaining
         # hypothesis makes the same deploy/no-deploy decision on the
         # observable decision contexts.  The sealed pool is deliberately not
@@ -121,4 +201,11 @@ class StatisticalCEGIS:
             status = "identified" if len(signatures) == 1 else "underidentified"
             provenance["decision_context_count"] = len(decision_contexts)
             provenance["decision_equivalence_classes"] = len(signatures)
-        return SynthesisResult(status, predicate, counterexample_ids, anchor_ids, provenance=provenance, version_space=tuple(consistent))
+        certificate = self._certificate(
+            status=status, predicate=predicate, anchors=anchor_ids,
+            counterexamples=counterexample_ids,
+            observation_ids=tuple(item.observation_id for item in positive + counterexamples),
+            decision_contexts=decision_contexts, version_space=tuple(consistent),
+        )
+        provenance["certificate"] = certificate.to_dict()
+        return SynthesisResult(status, predicate, counterexample_ids, anchor_ids, provenance=provenance, version_space=tuple(consistent), certificate=certificate)

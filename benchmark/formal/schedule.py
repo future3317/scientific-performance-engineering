@@ -61,6 +61,31 @@ class PendingCandidateScheduler(PromotionReplayScheduler):
         return self.pending_contexts(family_id, seen_group_ids=seen_group_ids, seed=seed)
 
 
+class RelationExperimentScheduler:
+    """Harness-owned scheduler for relation evidence.
+
+    A relation proposal is never sent through node utility replay.  It first
+    receives a complete factorial design; the resulting contrast certificate
+    is the only input that can later reach relation governance.
+    """
+
+    def schedule(self, candidate: Mapping[str, Any], family_id: str, *, seed: int = 0) -> dict[str, Any]:
+        from benchmark.families import family_views
+        pools = family_views(family_id, count=24, seed=seed)
+        contexts = [item for item in (*pools["representative_pool"], *pools["active_query_pool"])]
+        return {
+            "evidence_type": "factorial_contrast",
+            "relation_id": str(candidate.get("relation_id") or candidate.get("id") or ""),
+            "family_id": family_id,
+            "arms": ["00", "10", "01", "11"],
+            "pending_contexts": [
+                {"context_id": item.instance_id, "context": {"workload": dict(item.parameters)}, "independence_group": f"relation-{item.instance_id}"}
+                for item in contexts
+            ],
+            "status": "scheduled",
+        }
+
+
 def task_order(split_path: str | Path) -> list[tuple[int, str]]:
     manifest = split.load_split_manifest(split_path)
     ordered: list[tuple[int, str]] = []
@@ -90,7 +115,11 @@ def build_schedule(
     schedule: list[dict[str, Any]] = []
     index = 0
     for outer_trial in range(outer_trials):
-        for condition in conditions:
+        # Rotate the condition stream between outer trials.  Task order within
+        # a condition remains fixed, while thermal/cache and queue effects are
+        # not deterministically assigned to one treatment.
+        ordered_conditions = tuple(conditions[outer_trial % len(conditions):] + conditions[:outer_trial % len(conditions)])
+        for condition in ordered_conditions:
             for context_mode in context_modes:
                 stream_id = f"trial-{outer_trial:03d}-{condition}-{context_mode}"
                 for phase, task_id in tasks:

@@ -56,14 +56,15 @@ def assess(events: Iterable[EvidenceEvent], *, delta: float = 0.05) -> EvidenceA
     canonical = _canonical(events)
     reps = representative_events(canonical)
     adv = adversarial_events(canonical)
-    # Replay writes one audit event per arm, but one independence group is one
-    # statistical observation.  Prefer the explicit paired effect and fall
-    # back to a single unpaired utility only when no paired effect exists.
+    # Replay writes raw arm audit events.  The paired contrast is the only
+    # promotion observation; it is stored in the immutable artifact envelope
+    # so raw on/off outcomes remain auditable without being counted twice.
     grouped: dict[str, EvidenceEvent] = {}
     values: list[float] = []
     for event in reps:
         group = event.independence_group
-        paired = event.outcome_vector.get("paired_effect")
+        paired_record = event.artifacts.get("paired_contrast") if isinstance(event.artifacts, dict) else None
+        paired = paired_record.get("effect") if isinstance(paired_record, dict) else event.outcome_vector.get("paired_effect")
         if paired is not None:
             if group not in grouped:
                 grouped[group] = event

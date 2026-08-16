@@ -72,14 +72,13 @@ class FamilyEnvironment:
         return state
 
     def legal_bundles(self, context: Mapping[str, Any], transformation_state: Mapping[str, Any] | EpisodeEnvironmentState | None = None) -> tuple[tuple[str, ...], ...]:
-        bundles = {
-            "compile": ((), ("reuse_compile_cache",), ("revalidate_compile_cache",)),
-            "graph_cache": ((), ("reuse_graph_cache",), ("rebuild_graph_cache",)),
-            "h2d_pipeline": ((), ("pin_memory_pipeline",), ("prefetch_pipeline",)),
-            "checkpoint": ((), ("checkpoint_recompute",), ("retained_graph",)),
-            "scalar_sync": ((), ("aggregate_scalars",), ("defer_scalar_sync",)),
-        }
-        return bundles.get(self.family_id, ((),))
+        from .catalog import FAMILY_SPECS, resolve_family_id
+        try:
+            spec = FAMILY_SPECS[resolve_family_id(self.family_id)]
+        except KeyError:
+            return ((),)
+        actions = tuple(spec.action_specs)
+        return ((),) + tuple((action,) for action in actions)
 
     def evaluate(
         self,
@@ -89,37 +88,54 @@ class FamilyEnvironment:
     ) -> EnvironmentOutcome:
         state = self._state(transformation_state)
         deployed = set(str(item) for item in deployed_interventions)
+        workload = dict(context.get("workload", context) if isinstance(context, Mapping) else {})
+        # Applicability is owned by FamilySpec.  The family-specific branches
+        # below only translate that truth into outcome semantics under the
+        # persistent regime state.
+        from .catalog import FAMILY_SPECS, resolve_family_id
+        try:
+            family_spec = FAMILY_SPECS[resolve_family_id(self.family_id)]
+            family_applicable = bool(family_spec.applicability(workload))
+        except (KeyError, TypeError, ValueError):
+            family_applicable = True
         if self.family_id == "compile":
             drifted = state.runtime_version != "A"
+            applicable = family_applicable
             preferred = "revalidate_compile_cache" if drifted else "reuse_compile_cache"
-            utility = 0.35 if drifted and "reuse_compile_cache" in deployed else 0.80 if preferred in deployed else 0.60
+            utility = 0.35 if (drifted or not applicable) and "reuse_compile_cache" in deployed else 0.80 if applicable and preferred in deployed else 0.60
             if state.active_poison and "reuse_compile_cache" in deployed:
                 utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         if self.family_id == "graph_cache":
             drifted = state.scientific_regime != "default"
-            preferred = "rebuild_graph_cache" if drifted else "reuse_graph_cache"
-            utility = 0.35 if drifted and "reuse_graph_cache" in deployed else 0.78 if preferred in deployed else 0.60
+            applicable = family_applicable
+            preferred = "rebuild_graph_cache" if drifted or not applicable else "reuse_graph_cache"
+            utility = 0.35 if (drifted or not applicable) and "reuse_graph_cache" in deployed else 0.78 if applicable and preferred in deployed else 0.60
             if state.active_poison and deployed:
                 utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         if self.family_id == "h2d_pipeline":
             shifted = state.hardware_regime != "default" or state.scale_regime != "default"
+            applicable = family_applicable
             preferred = "prefetch_pipeline" if shifted else "pin_memory_pipeline"
+            if not applicable:
+                preferred = "prefetch_pipeline"
             utility = 0.76 if preferred in deployed else 0.58
             if state.active_poison and deployed:
                 utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         if self.family_id == "checkpoint":
             shifted = state.scale_regime != "default"
-            preferred = "retained_graph" if shifted else "checkpoint_recompute"
+            applicable = family_applicable
+            preferred = "retained_graph" if shifted or not applicable else "checkpoint_recompute"
             utility = 0.76 if preferred in deployed else 0.58
             if state.active_poison and deployed:
                 utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         if self.family_id == "scalar_sync":
             shifted = state.harness_regime != "default"
-            preferred = "defer_scalar_sync" if shifted else "aggregate_scalars"
+            applicable = family_applicable
+            preferred = "defer_scalar_sync" if shifted or applicable else "aggregate_scalars"
             utility = 0.76 if preferred in deployed else 0.58
             if state.active_poison and deployed:
                 utility -= 0.20

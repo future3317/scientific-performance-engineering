@@ -112,6 +112,7 @@ def import_module_by_path(path: str | Path, module_name: str | None = None):
         sys.path.append(task_text)
         added_paths.append(task_text)
     try:
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
     finally:
         for entry in reversed(added_paths):

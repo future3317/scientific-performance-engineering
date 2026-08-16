@@ -87,16 +87,16 @@ def generate_family_interaction_surface(
         sign_flip = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) > 0.5
         semantic_conflict = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) <= 0.5
         redundancy = a.parameters.get("worker_count", 0) <= 4 and b.parameters.get("dynamic_shape_rate", 0) <= 0.2
-        context = {"sign_flip": sign_flip, "semantic_conflict": semantic_conflict, "redundancy": redundancy}
-        base_context = dict(context)
-        base_context["sign_flip"] = False
-        base_context["force_synergy"] = sign_flip
+        # The oracle derives hidden relation from the family parameters.  The
+        # only registered context variation is runtime regime; no relation
+        # label is injected into the surface.
+        base_context = {"regime": "baseline"}
         result = oracle.evaluate(a, b, base_context)
         outcomes = result["outcomes"]
         relation = result["hidden_relation"]
         contexts = [{"name": "baseline", "outcomes": outcomes}]
-        if context["sign_flip"]:
-            shifted = oracle.evaluate(a, b, {"sign_flip": False, "force_antagonism": True})
+        if sign_flip:
+            shifted = oracle.evaluate(a, b, {"regime": "shifted"})
             contexts.append({"name": "shifted", "outcomes": shifted["outcomes"], "hidden_relation": shifted["hidden_relation"]})
             relation = "context_dependent_relation"
         surfaces.append({

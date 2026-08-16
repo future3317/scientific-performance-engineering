@@ -14,7 +14,7 @@ from .factorial import CANONICAL_RELATIONS, FactorialEstimate
 from .cegis import BoundaryObservation, StatisticalCEGIS
 from .predicates import PredicateGrammar
 from .policy import RelationDecisionPolicy
-from core.models import RelationSpec
+from core.models import RelationSpec, RevisionRef
 
 
 @dataclass(frozen=True)
@@ -60,7 +60,7 @@ class RelationIdentifier:
         if kind == "unresolved":
             raise ValueError("cannot materialize an unresolved relation")
         if kind == "context_dependent_relation":
-            kind = "context_dependent_interaction"
+            raise ValueError("context-dependent parent is an audit certificate; materialize relational CEGIS children")
         if kind.startswith("confirmed_"):
             kind = kind.removeprefix("confirmed_")
         if kind.startswith("prerequisite_"):
@@ -139,9 +139,7 @@ def relational_cegis(
     for child_index, (target_context, target_decision) in enumerate(sorted(decisions.items())):
         if target_decision == "unresolved":
             continue
-        positive = [
-            BoundaryObservation(target_context, contexts[target_context], 1.0, True, 1.0, 1.0)
-        ]
+        positive = [BoundaryObservation(name, contexts[name], 1.0, True, 1.0, 1.0) for name, decision in decisions.items() if decision == target_decision]
         negative = [
             BoundaryObservation(name, contexts[name], 0.0, False, -1.0, 0.0)
             for name, decision in decisions.items() if name != target_context and decision != target_decision
@@ -152,11 +150,11 @@ def relational_cegis(
             positive=positive, counterexamples=negative, parent_predicate=None,
             decision_contexts=list(contexts.values()),
         )
-        if synthesis.predicate is None:
+        if synthesis.predicate is None or synthesis.status != "identified":
             continue
         kind, orientation = _relation_kind(target_decision)
         children.append(RelationSpec(
-            relation_id=f"{relation_id}-{child_index + 1}", version=1, parent=relation_id,
+            relation_id=f"{relation_id}-{child_index + 1}", version=1, parent=RevisionRef(relation_id, 1, "relational-cegis"),
             endpoints={"left": left_rule_id, "right": right_rule_id}, orientation=orientation,
             kind=kind, applicability=synthesis.predicate,
             contrast_definition={"contexts": [target_context], "cegis": synthesis.to_dict()},

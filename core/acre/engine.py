@@ -12,6 +12,7 @@ from core.models import EvidenceEvent, RelationSpec, RelationState, RuleSpec, Ru
 
 from .router import ConservativeCausalRouter, RoutingDecision
 from .controller import AcreController
+from .maintainer import AcreMaintainer
 
 
 class AcreEngine:
@@ -32,6 +33,7 @@ class AcreEngine:
         self.higher_order_certificates = dict(higher_order_certificates or {})
         self._query_proposer = query_proposer
         self._controller = AcreController()
+        self.maintainer = AcreMaintainer(self)
 
     @classmethod
     def from_store(cls, store: str | Path) -> "AcreEngine":
@@ -63,7 +65,23 @@ class AcreEngine:
                     return read(candidate)
             raise ValueError(f"missing materialized state for {identifier}")
 
-        def latest_paths(paths: list[Path], id_field: str) -> list[Path]:
+        def latest_paths(paths: list[Path], id_field: str, registry_name: str) -> list[Path]:
+            registry_path = root / "registry" / registry_name
+            if registry_path.is_file():
+                registry = read(registry_path)
+                entries = registry.get("rules" if id_field == "rule_id" else "relations", [])
+                selected: list[Path] = []
+                if isinstance(entries, list):
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+                        raw_path = entry.get("spec_path") or entry.get("path")
+                        if isinstance(raw_path, str):
+                            path = root / raw_path
+                            if path.is_file():
+                                selected.append(path)
+                if selected:
+                    return selected
             selected: dict[str, tuple[int, Path]] = {}
             for path in paths:
                 value = read(path)
@@ -80,7 +98,7 @@ class AcreEngine:
         rule_paths = latest_paths(sorted(
             [path for path in rules_dir.glob("*.json") if not path.name.endswith(".state.json")]
             + [path for path in rules_dir.glob("*/v*.json") if not path.name.endswith(".state.json")]
-        ), "rule_id") if rules_dir.is_dir() else []
+        ), "rule_id", "rules.json") if rules_dir.is_dir() else []
         for path in rule_paths:
             if path.name.endswith(".state.json"):
                 continue
@@ -99,7 +117,7 @@ class AcreEngine:
         relation_paths = latest_paths(sorted(
             [path for path in relations_dir.glob("*.json") if not path.name.endswith(".state.json")]
             + [path for path in relations_dir.glob("*/v*.json") if not path.name.endswith(".state.json")]
-        ), "relation_id") if relations_dir.is_dir() else []
+        ), "relation_id", "relations.json") if relations_dir.is_dir() else []
         for path in relation_paths:
             if path.name.endswith(".state.json"):
                 continue
@@ -132,6 +150,9 @@ class AcreEngine:
 
     def observe(self, event: EvidenceEvent | Mapping[str, Any]) -> EvidenceEvent:
         return self._controller.observe(event)
+
+    def assess(self):
+        return self._controller.assess()
 
     def propose_experiment(self, context: TaskContext | Mapping[str, Any]) -> Any:
         if self._query_proposer is None:

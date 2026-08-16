@@ -57,6 +57,7 @@ class PredicateGrammar:
     max_depth: int = 3
     max_literals: int = 4
     threshold_universe: dict[str, tuple[float, ...]] | None = None
+    allow_observed_thresholds: bool = True
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "PredicateGrammar":
@@ -87,7 +88,9 @@ class PredicateGrammar:
             for path, values in (raw_thresholds or {}).items()
             if isinstance(values, list) and values
         }
-        return cls(1, tuple(features), max_depth=max_depth, max_literals=max_literals, threshold_universe=threshold_universe)
+        formal = bool(value.get("formal", False) or value.get("mode") == "formal")
+        return cls(1, tuple(features), max_depth=max_depth, max_literals=max_literals,
+                   threshold_universe=threshold_universe, allow_observed_thresholds=not formal)
 
     def _within_bounds(self, predicate: dict[str, Any]) -> bool:
         complexity = predicate_complexity(predicate)
@@ -102,6 +105,8 @@ class PredicateGrammar:
             if kind == "numeric":
                 configured = (self.threshold_universe or {}).get(path)
                 numeric = sorted({float(value) for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)})
+                if configured is None and not self.allow_observed_thresholds:
+                    raise ValueError(f"formal predicate grammar requires frozen thresholds for {path}")
                 thresholds = configured if configured else sorted({(left + right) / 2.0 for left, right in zip(numeric, numeric[1:])})
                 for threshold in thresholds:
                     atoms.extend(({"compare": {path: {"lte": threshold}}}, {"compare": {path: {"gte": threshold}}}))
@@ -116,12 +121,19 @@ class PredicateGrammar:
         fragments = atoms + [{"not": atom} for atom in atoms]
         candidates: list[dict[str, Any]] = []
         if parent_predicate is not None and self._within_bounds(parent_predicate):
-            candidates.extend((parent_predicate, {"not": parent_predicate}))
+            # A specialization may preserve the parent or narrow it; it must
+            # never introduce a complement/OR branch that broadens coverage.
+            candidates.append(parent_predicate)
         for width in range(1, min(self.max_literals, len(fragments)) + 1):
             for selected in itertools.combinations(fragments, width):
                 if parent_predicate is not None:
                     candidates.append({"all": [parent_predicate, *selected]})
-                    candidates.append({"any": [parent_predicate, *selected]})
+                    if width > 1:
+                        # A disjunction is safe only inside the parent
+                        # predicate: parent AND (a OR b) is still a true
+                        # specialization, whereas (parent OR a) is not.
+                        candidates.append({"all": [parent_predicate, {"any": list(selected)}]})
+                        candidates.append({"any": [{"all": [parent_predicate, selected[0]]}]})
                 else:
                     candidates.append(selected[0] if width == 1 else {"all": list(selected)})
                     if width > 1:

@@ -13,13 +13,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any
+from dataclasses import dataclass
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from core.sequential_stats import bounded_mean_interval, mixture_lower_bound, minimum_all_successes
+from core.sequential_stats import bounded_mean_interval, mixture_lower_bound, minimum_all_successes, paired_repetition_interval
 from core.models import validate_identifier
 from core.utility import UTILITY_LOG_SCALE, UTILITY_POLICY_ID, utility_effect, validate_policy
+
+
+@dataclass(frozen=True)
+class GroupEffectCertificate:
+    """Within-context paired certificate used as one promotion Bernoulli trial."""
+
+    independence_group: str
+    effect: float
+    lcb: float
+    ucb: float
+    n_repetitions: int
+    scientific_ok: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "independence_group": self.independence_group,
+            "effect": self.effect,
+            "lcb": self.lcb,
+            "ucb": self.ucb,
+            "n_repetitions": self.n_repetitions,
+            "scientific_ok": self.scientific_ok,
+        }
 
 
 def canonical_json(value: Any) -> bytes:
@@ -85,9 +108,34 @@ def paired_group_effects(
     results: list[dict[str, Any]] = []
     for group_id, entries in grouped.items():
         effects = [entry[0] for entry in entries]
+        effects_for_interval = []
+        for entry in entries:
+            # Reconstruct repetition effects only when the source case carries
+            # paired measurements; scalar cases remain uncertifiable.
+            case = next(item for item in cases if str(item.get("case_id", "")) == entry[2])
+            measured = case.get("intervention_measurements")
+            control = case.get("baseline_measurements")
+            if isinstance(measured, list) and isinstance(control, list):
+                effects_for_interval.extend(
+                    utility_effect(float(on), float(off), higher_is_better=bool(case.get("higher_is_better", True)), log_scale=float(case.get("utility_scale", utility_scale)))
+                    for on, off in zip(measured, control)
+                )
+        if effects_for_interval:
+            if len(effects_for_interval) > 1 and max(effects_for_interval) - min(effects_for_interval) <= 1e-15:
+                # A deterministic fixture has no observed within-group
+                # variation; retain the exact paired effect as the group
+                # certificate and let independent groups carry promotion
+                # uncertainty.
+                lcb, ucb = effects_for_interval[0], effects_for_interval[0]
+            else:
+                lcb, ucb = paired_repetition_interval(effects_for_interval, 0.05)
+        else:
+            lcb, ucb = -1.0, 1.0
         results.append({
             "independence_group": group_id,
             "effect": mean(effects),
+            "lcb": lcb,
+            "ucb": ucb,
             "scientific_ok": all(entry[1] for entry in entries),
             "case_ids": [entry[2] for entry in entries],
             "case_count": len(entries),
@@ -134,7 +182,12 @@ def evaluate_cases(
     group_quality = [bool(item["scientific_ok"]) for item in group_effects]
     repetition_count = sum(int(item["repetition_count"]) for item in group_effects)
     scientific_ok = all(group_quality)
-    successes = sum(effect > epsilon and gates_passed for effect, gates_passed in zip(effects, group_quality))
+    certificates = [item for item in group_effects]
+    successes = sum(
+        (float(item["effect"]) > epsilon if p_min <= 0.0 else float(item["lcb"]) > epsilon)
+        and bool(item["scientific_ok"])
+        for item in certificates
+    )
     failures = len(effects) - successes
     alpha = 1 + successes
     beta = 1 + failures
@@ -213,9 +266,9 @@ def build_evidence_events(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "event_id": f"{group['independence_group']}-{arm}", "context": common,
                 "assignment": {"interventions": {payload["rule_id"]: int(arm == "on")}, "propensity": float(case.get("propensity", 0.5)), "design_id": "paired-replay-v2"},
                 "evidence_stream": "representative", "query_id": str(case.get("query_id", group["independence_group"])),
-                "outcome_vector": {"utility": float(group["effect"]) if arm == "on" else 0.0, "paired_effect": float(group["effect"]), "contrast": "on-minus-off"},
+                "outcome_vector": {"utility": float(case.get("utility_on", 0.0)) if arm == "on" else float(case.get("utility_off", 0.0)), "paired_effect": float(group["effect"]), "contrast": "on-minus-off"},
                 "scientific_gates": {"scientific_ok": bool(group["scientific_ok"]), "quality_ok": bool(group["scientific_ok"])},
-                "artifacts": case.get("artifacts", {}), "versions": case.get("versions", {}),
+                "artifacts": {**dict(case.get("artifacts", {})), "paired_contrast": {"effect": float(group["effect"]), "lcb": float(group["lcb"]), "ucb": float(group["ucb"]), "n_repetitions": int(group["repetition_count"])}}, "versions": case.get("versions", {}),
                 "source_id": case.get("source_id", f"replay-{index}"), "independence_group": group["independence_group"],
                 "timestamp": case.get("timestamp", datetime.now(timezone.utc).isoformat()), "trust_zone": "local", "attacker_controlled_fields": [],
             })

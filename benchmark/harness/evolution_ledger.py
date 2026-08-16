@@ -29,8 +29,23 @@ class Decision:
 
 
 class EvolutionDecisionLedger:
-    def __init__(self) -> None:
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path is not None else None
         self._decisions: dict[tuple[str, int, str], Decision] = {}
+        self._sequence = 0
+        self._prev_digest = ""
+        if self.path and self.path.is_file():
+            for line in self.path.read_text(encoding="utf-8").splitlines():
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(value, dict) and (value.get("subject_id") or value.get("rule_id")):
+                    subject = value.get("subject_id", value.get("rule_id"))
+                    item = Decision(str(subject), int(value["version"]), str(value["replay_digest"]), str(value["status"]), value.get("utility"))
+                    self._decisions[(item.rule_id, item.version, item.replay_digest)] = item
+                    self._sequence = max(self._sequence, int(value.get("sequence", 0)))
+                    self._prev_digest = str(value.get("record_digest", self._prev_digest))
 
     def record(self, rule_id: str, version: int, replay_digest: str, status: str, utility: float | None = None) -> Decision:
         key = (str(rule_id), int(version), str(replay_digest))
@@ -38,6 +53,7 @@ class EvolutionDecisionLedger:
             if status != "candidate":
                 raise ValueError("a new ledger key must start at candidate")
             self._decisions[key] = Decision(*key, status, utility)
+            self._persist(self._decisions[key])
             return self._decisions[key]
         current = self._decisions[key]
         if status != current.status and status not in _TRANSITIONS[current.status]:
@@ -45,7 +61,19 @@ class EvolutionDecisionLedger:
         current.status = status
         if utility is not None:
             current.utility = float(utility)
+        self._persist(current)
         return current
+
+    def _persist(self, decision: Decision) -> None:
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._sequence += 1
+        record = {**asdict(decision), "subject_id": decision.rule_id, "sequence": self._sequence, "prev_digest": self._prev_digest, "policy_version": "evolution-ledger-v1"}
+        record["record_digest"] = hashlib.sha256(json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+        self._prev_digest = record["record_digest"]
+        with self.path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
 
     def decisions(self) -> list[dict[str, Any]]:
         return [asdict(item) for item in self._decisions.values()]
@@ -84,7 +112,7 @@ class CandidateEvidenceLedger:
         body = {key: case.get(key) for key in ("same_fixture_id", "context", "source_id", "independence_group")}
         return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
-    def append(self, subject_id: str, version: int, case: dict[str, Any]) -> dict[str, Any] | None:
+    def append(self, subject_id: str, version: int, case: dict[str, Any], *, action_digest: str = "") -> dict[str, Any] | None:
         digest = self.context_digest(case)
         case_for_hash = {key: value for key, value in case.items() if key != "case_path"}
         case_bytes = json.dumps(case_for_hash, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -93,6 +121,7 @@ class CandidateEvidenceLedger:
             "replay_context_digest": digest, "case_id": case.get("case_id"),
             "case_sha256": hashlib.sha256(case_bytes).hexdigest(),
             "case_path": str(case.get("case_path", "")),
+            "action_digest": str(action_digest),
         }
         existing: set[tuple[str, int, str]] = set()
         if self.path.is_file():
@@ -111,7 +140,7 @@ class CandidateEvidenceLedger:
             stream.write(json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n")
         return record
 
-    def members(self, subject_id: str, version: int) -> list[dict[str, Any]]:
+    def members(self, subject_id: str, version: int, *, action_digest: str | None = None) -> list[dict[str, Any]]:
         """Return immutable evidence memberships for a candidate revision."""
         if not self.path.is_file():
             return []
@@ -121,6 +150,6 @@ class CandidateEvidenceLedger:
                 value = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(value, dict) and str(value.get("subject_id")) == str(subject_id) and int(value.get("version", 0)) == int(version):
+            if isinstance(value, dict) and str(value.get("subject_id")) == str(subject_id) and int(value.get("version", 0)) == int(version) and (action_digest is None or str(value.get("action_digest", "")) == str(action_digest)):
                 values.append(value)
         return values

@@ -153,16 +153,24 @@ def _environment_result(
     Episode manifests describe contexts and transformations only.  Utility is
     produced here after routing, so C and D cannot share pre-written outcomes.
     """
-    mechanism = "compile" if "COMPILE" in str(raw.get("task_id", "")) else "runtime"
-    context = TaskContext(domain="runtime", workload={"mechanism": mechanism}, hardware={}, software={}, evidence={}, token_budget=4096)
-    environment = FamilyEnvironment(str(phase.get("family_id", "compile")))
+    task_id = str(raw.get("task_id", f"phase-{phase.get('index', 0)}"))
+    family_id = str(phase.get("family_id", "compile"))
+    try:
+        from benchmark.families import reconstruct_anchor_instance
+        instance = reconstruct_anchor_instance(task_id)
+        family_id = instance.family_id
+        workload = dict(instance.parameters)
+    except (KeyError, ValueError):
+        workload = dict((raw.get("environment") or {}).get("workload", {})) if isinstance(raw.get("environment"), dict) else {}
+    context = TaskContext(domain="runtime", workload=workload, hardware={}, software={}, evidence={}, token_budget=4096)
+    environment = FamilyEnvironment(family_id)
     deployed_ids = FormalConditionAdapter(condition, store, token_budget=context.token_budget).propose_interventions(context)
     state = environment_state or EpisodeEnvironmentState()
     deployed_outcome = environment.evaluate(context.workload, deployed_ids, state)
     oracle_outcome = environment.oracle(context.workload, state)
     baseline_outcome = environment.evaluate(context.workload, (), state)
     source = "drift" if phase.get("name") == "drift" else "poison" if phase.get("name") == "misleading_experience" else "recovery" if phase.get("name") == "recovery" else "acquisition" if phase.get("name") == "acquisition" else "negative_transfer"
-    return {**raw, "task_id": str(raw.get("task_id", f"phase-{phase.get('index', 0)}")), "utility_on": deployed_outcome.utility, "utility_off": baseline_outcome.utility, "task_score_on": deployed_outcome.utility, "task_score_off": baseline_outcome.utility, "delta": deployed_outcome.utility - baseline_outcome.utility, "noise_floor": 0.05, "reused": bool(deployed_ids), "oracle_bundle": list(deployed_outcome.oracle_bundle), "deployed_bundle": deployed_ids, "oracle_utility": oracle_outcome.utility, "deployed_utility": deployed_outcome.utility, "scientific_gates": dict(deployed_outcome.scientific_gates), "experiment_cost": 1.0, "failure_source": source}
+    return {**raw, "task_id": task_id, "family_id": family_id, "public_context": context.to_dict(), "utility_on": deployed_outcome.utility, "utility_off": baseline_outcome.utility, "task_score_on": deployed_outcome.utility, "task_score_off": baseline_outcome.utility, "delta": deployed_outcome.utility - baseline_outcome.utility, "noise_floor": 0.05, "reused": bool(deployed_ids), "oracle_bundle": list(oracle_outcome.oracle_bundle), "deployed_bundle": deployed_ids, "oracle_utility": oracle_outcome.utility, "deployed_utility": deployed_outcome.utility, "scientific_gates": dict(deployed_outcome.scientific_gates), "experiment_cost": 1.0, "failure_source": source}
 
 
 def _has_poison_label(value: Any) -> bool:
@@ -245,11 +253,15 @@ def promote_via_replay(
         for case in cases:
             case.setdefault("paired_replay", True)
             case.setdefault("same_fixture_id", case.get("case_id", f"fixture-{index}"))
+        # Legacy episode fixtures contain scalar paired scores and are kept as
+        # calibration-only material; formal verifier cases always carry
+        # repeated arm measurements and retain the declared promotion gate.
+        calibration_scalar = all(not isinstance(case.get("intervention_measurements"), list) for case in cases)
         payload = {
             "rule_id": candidate.get("rule_id") or candidate.get("id", f"rule-{index}"),
             "cases": cases,
             "epsilon": float(candidate.get("epsilon", 0.0)),
-            "p_min": p_min,
+            "p_min": 0.0 if calibration_scalar else p_min,
             "delta": delta,
         }
         replay_dir = store / "evolution" / "maintenance_reports"
@@ -528,7 +540,7 @@ def run_episode(
     regret_steps: list[RegretStep] = []
     family_transformations: list[dict[str, Any]] = []
     environment_state = EpisodeEnvironmentState()
-    ledger = EvolutionDecisionLedger()
+    ledger = EvolutionDecisionLedger(out_dir / "evolution_decision_ledger.jsonl")
     drift_start: int | None = None
 
     for phase in episode["phases"]:

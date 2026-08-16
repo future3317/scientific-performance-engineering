@@ -195,14 +195,17 @@ def _choose(
     for query in available:
         uncertainty = _dynamic_uncertainty(query, observations)
         information_gain = _information_gain(query, observations)
-        decision = decision_sensitivity_fn(query, observations) if decision_sensitivity_fn else (1.0 if not observations.get(query.edge_id) else 0.5)
+        decision = decision_sensitivity_fn(query, observations) if decision_sensitivity_fn else 0.0
         decision = min(1.0, max(0.0, decision))
         if not 0.0 <= decision <= 1.0:
             raise ValueError("decision_sensitivity_fn must return a value in [0, 1]")
         if policy is AcquisitionPolicy.UNCERTAINTY_ONLY:
             score = information_gain / query.cost
         else:
-            score = (information_gain + decision + query.risk + query.provenance_novelty) / (query.cost + 0.1)
+            # Decision-aware value is multiplicative: an informative query
+            # matters only when at least one possible outcome can change a
+            # deployment decision.  Risk/provenance are separate factors.
+            score = (information_gain * (1.0 + decision) + query.risk * decision + query.provenance_novelty * 0.25) / (query.cost + 0.1)
         scored.append(((score, query.query_id), query, uncertainty, information_gain, decision))
     _, query, uncertainty, information_gain, decision = max(scored, key=lambda item: item[0])
     return query, uncertainty, information_gain, decision

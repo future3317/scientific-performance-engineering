@@ -54,7 +54,7 @@ def schemas() -> dict[str, dict[str, Any]]:
         },
         "relation_state.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "relation_state.schema.json", "title": "RelationState", "type": "object",
-            **_object(RelationState, {"relation_id": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 1}, "estimate": {"type": "number"}, "confidence_sequence": {"type": "object"}, "status": {"enum": ["candidate", "canonical", "retired"]}, "drift_state": {"enum": ["stable", "suspected_drift", "stale", "revalidating"]}, "counterexample_count": {"type": "integer", "minimum": 0}, "last_confirmed": {"type": ["string", "null"]}}),
+            **_object(RelationState, {"relation_id": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 1}, "estimate": {"type": "number"}, "confidence_sequence": {"type": "object"}, "contrast_bounds": {"type": "object"}, "semantic_certificate": {"type": "object"}, "status": {"enum": ["candidate", "canonical", "retired"]}, "drift_state": {"enum": ["stable", "suspected_drift", "stale", "revalidating"]}, "counterexample_count": {"type": "integer", "minimum": 0}, "last_confirmed": {"type": ["string", "null"]}}),
         },
         "rule_state.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "rule_state.schema.json", "title": "RuleState", "type": "object",

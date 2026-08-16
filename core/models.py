@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from copy import deepcopy
 import math
 import hashlib
+import json
 import re
 from typing import Any
 
@@ -37,10 +38,85 @@ def _nonempty(value: Any, name: str) -> None:
 
 
 @dataclass(frozen=True)
+class RevisionRef:
+    """Immutable reference to the exact parent revision used for lineage."""
+
+    subject_id: str
+    version: int
+    spec_digest: str
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.subject_id, "revision subject_id")
+        if self.version < 1 or not isinstance(self.spec_digest, str) or not self.spec_digest:
+            raise ValueError("revision references require version and spec_digest")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_value(cls, value: Any) -> "RevisionRef | None":
+        if value is None:
+            return None
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, str):
+            return cls(value, 1, "legacy")
+        if isinstance(value, dict):
+            return cls(str(value["subject_id"]), int(value["version"]), str(value["spec_digest"]))
+        raise ValueError("invalid revision reference")
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    """Reusable semantic intervention, independent of task source layout."""
+
+    action_id: str
+    family: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+    preconditions: dict[str, Any] = field(default_factory=dict)
+    preserves: list[str] = field(default_factory=list)
+    risk_class: str = "bounded"
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.action_id, "action_id")
+        _nonempty(self.family, "action family")
+        _nonempty(self.risk_class, "action risk_class")
+
+    def digest(self) -> str:
+        return hashlib.sha256(json.dumps(asdict(self), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class RealizationRecord:
+    """Task-specific execution record for a semantic action."""
+
+    action_id: str
+    task_id: str
+    context_id: str
+    baseline_digest: str
+    patch: dict[str, Any]
+    realized_digest: str
+    verifier_digest: str
+
+    def __post_init__(self) -> None:
+        for name, value in (("action_id", self.action_id), ("task_id", self.task_id), ("context_id", self.context_id)):
+            validate_identifier(value, name)
+        for name, value in (("baseline_digest", self.baseline_digest), ("realized_digest", self.realized_digest), ("verifier_digest", self.verifier_digest)):
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"{name} must be non-empty")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class RuleSpec:
     rule_id: str
     version: int
-    parent: str | None
+    parent: RevisionRef | str | None
     applicability: dict[str, Any]
     intervention: dict[str, Any]
     expected_mechanism: str
@@ -56,8 +132,7 @@ class RuleSpec:
 
     def __post_init__(self) -> None:
         validate_identifier(self.rule_id, "rule_id")
-        if self.parent is not None:
-            validate_identifier(self.parent, "parent")
+        object.__setattr__(self, "parent", RevisionRef.from_value(self.parent))
         if self.version < 1:
             raise ValueError("version must be >= 1")
         if self.severity not in {"P0", "P1", "P2", "P3", "P4"}:
@@ -89,10 +164,18 @@ class RuleSpec:
                 severity=value.get("severity", "P2"), domain=value.get("domain", "runtime"),
                 text=value.get("rule", {}).get("text", ""),
             )
-        return cls(**value)
+        normalized = dict(value)
+        normalized["parent"] = RevisionRef.from_value(normalized.get("parent"))
+        # relations is retained only as a read-side legacy projection.  New
+        # serialized specs omit it; canonical relation meaning lives in
+        # RelationSpec/RelationState.
+        normalized.setdefault("relations", {})
+        return cls(**normalized)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        value = asdict(self)
+        value.pop("relations", None)
+        return value
 
 
 def normalize_evidence_event(value: dict[str, Any]) -> dict[str, Any]:
@@ -199,7 +282,7 @@ class EvidenceEvent:
 class RelationSpec:
     relation_id: str
     version: int
-    parent: str | None
+    parent: RevisionRef | str | None
     endpoints: dict[str, str]
     orientation: str
     kind: str
@@ -211,6 +294,7 @@ class RelationSpec:
 
     def __post_init__(self) -> None:
         validate_identifier(self.relation_id, "relation_id")
+        object.__setattr__(self, "parent", RevisionRef.from_value(self.parent))
         if self.version < 1:
             raise ValueError("version must be >= 1")
         if set(self.endpoints) != {"left", "right"} or any(not isinstance(value, str) or not value for value in self.endpoints.values()):
@@ -244,7 +328,9 @@ class RelationSpec:
             value.pop("rule_ids")
             value["endpoints"] = {"left": ids[0], "right": ids[1]}
             value["orientation"] = "symmetric" if value.get("kind") != "prerequisite" else "left_to_right"
-        return cls(**value)
+        normalized = dict(value)
+        normalized["parent"] = RevisionRef.from_value(normalized.get("parent"))
+        return cls(**normalized)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -260,6 +346,8 @@ class RelationState:
     drift_state: str = "stable"
     counterexample_count: int = 0
     last_confirmed: str | None = None
+    contrast_bounds: dict[str, dict[str, float]] = field(default_factory=dict)
+    semantic_certificate: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         validate_identifier(self.relation_id, "relation_id")

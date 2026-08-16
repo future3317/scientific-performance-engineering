@@ -31,7 +31,7 @@ from benchmark.harness.evolution import promote_via_replay
 from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
-from core.models import identifier_digest, validate_identifier
+from core.models import identifier_digest, validate_identifier, ActionSpec, RealizationRecord
 from core.sequential_stats import bounded_mean_interval, paired_repetition_interval, minimum_all_successes
 from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold, utility_effect
 from scripts.run_rule_replay import evaluate_cases
@@ -95,6 +95,47 @@ class InterventionRealizer:
             content = content.replace(old, new, 1)
         target.write_text(content, encoding="utf-8")
         return destination
+
+    @staticmethod
+    def realize_action(
+        baseline: Path,
+        destination: Path,
+        proposal: dict[str, Any],
+        *,
+        family_id: str,
+        task_id: str,
+        context_id: str,
+        verifier_digest: str = "unverified",
+    ) -> RealizationRecord:
+        """Materialize a reusable semantic action and record its realization.
+
+        The source patch is a realization detail.  The candidate identity and
+        governance path use the ActionSpec digest; this record links that
+        semantic action to the task-local artifact without making source text
+        part of the canonical rule meaning.
+        """
+        from core.acre.actions import action_from_proposal
+        action = action_from_proposal(family_id, proposal)
+        output = InterventionRealizer.realize(baseline, destination, proposal)
+        def digest_tree(root: Path) -> str:
+            digest = hashlib.sha256()
+            for path in sorted(item for item in root.rglob("*") if item.is_file()):
+                digest.update(str(path.relative_to(root)).replace("\\", "/").encode())
+                digest.update(path.read_bytes())
+            return digest.hexdigest()
+        record = RealizationRecord(
+            action_id=action.action_id,
+            task_id=task_id,
+            context_id=context_id,
+            baseline_digest=digest_tree(baseline),
+            patch=dict(proposal.get("intervention") or {}),
+            realized_digest=digest_tree(output),
+            verifier_digest=verifier_digest,
+        )
+        (output / "realization_record.json").write_text(
+            json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        return record
 
 
 def sanitize_submission(
@@ -187,7 +228,7 @@ def _family_decision_lattice(family_id: str | None) -> list[dict[str, Any]]:
         instances = family_instances(family_id, count=24, seed=0)
     except (KeyError, ValueError):
         return []
-    return [{"workload": {"mechanism": family_id, **dict(instance.parameters)}} for instance in instances]
+    return [{"workload": dict(instance.parameters)} for instance in instances]
 
 
 def synthesize_applicability(
@@ -247,9 +288,12 @@ def synthesize_applicability(
     if not grammar_payload["features"]:
         return None
     grammar = PredicateGrammar.from_dict(grammar_payload)
-    result = StatisticalCEGIS(grammar, epsilon_true=epsilon_true, epsilon_false=epsilon_false).synthesize(
-        positive=observations,
-        counterexamples=observations,
+    cegis = StatisticalCEGIS(grammar, epsilon_true=epsilon_true, epsilon_false=epsilon_false)
+    positives = [item for item in observations if item.positive_anchor(epsilon_true)]
+    negatives = [item for item in observations if item.certified_counterexample(epsilon_false)]
+    result = cegis.synthesize(
+        positive=positives,
+        counterexamples=negatives,
         parent_predicate=None,
         decision_contexts=lattice,
     )
@@ -269,6 +313,9 @@ def representative_case_ids(predicate: dict[str, Any], cases: list[dict[str, Any
         and isinstance(case.get("case_id"), str)
         and isinstance(case.get("context"), dict)
         and match_predicate(predicate, case["context"])
+        and (_case_effect_interval(case) is not None)
+        and _case_effect_interval(case)[1] > float(case.get("epsilon", 0.0))
+        and bool(case.get("scientific_ok", False))
     })
 
 
@@ -313,8 +360,8 @@ def hydrate_candidate_cases(
     """Rebuild all immutable case payloads recorded for a candidate revision."""
     subject_id = str(candidate.get("candidate_identity") or candidate.get("rule_id") or candidate.get("relation_id") or candidate.get("id") or "")
     version = int(candidate.get("version", 1))
-    case_ids = {str(item) for item in candidate.get("cases", []) if isinstance(item, str)}
-    memberships = ledger.members(subject_id, version)
+    action_digest = str(candidate.get("action_semantic_digest", "")) or None
+    memberships = ledger.members(subject_id, version, action_digest=action_digest)
     paths: dict[str, Path] = {}
     for membership in memberships:
         case_id = membership.get("case_id")
@@ -325,16 +372,18 @@ def hydrate_candidate_cases(
         if relative.is_absolute() or ".." in relative.parts:
             continue
         paths[case_id] = store / relative
-        case_ids.add(case_id)
-    for case_id in case_ids:
-        paths.setdefault(case_id, store / "experience" / "cases" / f"{identifier_digest(case_id)}.json")
     values: list[dict[str, Any]] = []
-    for case_id in sorted(case_ids):
+    for case_id in sorted(paths):
         try:
             value = json.loads(paths[case_id].read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         if isinstance(value, dict):
+            case_for_hash = {key: item for key, item in value.items() if key != "case_path"}
+            expected = next((item.get("case_sha256") for item in memberships if item.get("case_id") == case_id), None)
+            actual = hashlib.sha256(json.dumps(case_for_hash, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+            if expected and actual != expected:
+                raise ValueError(f"candidate evidence digest mismatch: {case_id}")
             values.append(value)
     return values
 
@@ -350,29 +399,15 @@ def candidate_identity(rule_id: str, version: int, intervention: dict[str, Any])
 
 def semantic_action_spec(family_id: str | None, proposal: dict[str, Any]) -> dict[str, Any]:
     """Project a task patch onto the reusable family action vocabulary."""
-    explicit = proposal.get("action_spec")
-    if isinstance(explicit, dict) and isinstance(explicit.get("action"), str):
-        return {"action": explicit["action"]}
-    patch = proposal.get("intervention")
-    if isinstance(patch, dict) and isinstance(patch.get("action"), str):
-        return {"action": patch["action"]}
-    if family_id is None and isinstance(patch, dict) and patch:
-        return dict(patch)
-    actions = {
-        "compile": "reuse_compile_cache",
-        "graph_cache": "reuse_graph_cache",
-        "h2d_pipeline": "pin_memory_pipeline",
-        "checkpoint": "checkpoint_recompute",
-        "scalar_sync": "aggregate_scalars",
-    }
-    resolved_family = str(family_id or "")
+    from core.acre.actions import action_from_proposal
+    resolved_family = str(family_id) if family_id is not None else ""
     try:
         from benchmark.families import resolve_family_id
         resolved_family = resolve_family_id(resolved_family)
     except (KeyError, ValueError):
         pass
-    action = actions.get(resolved_family, "measure")
-    return {"action": action}
+    action = action_from_proposal(resolved_family or None, proposal)
+    return {"action": action.action_id, "action_id": action.action_id, "family": action.family, "parameters": dict(action.parameters), "preconditions": dict(action.preconditions), "preserves": list(action.preserves), "risk_class": action.risk_class}
 
 
 def persist_collecting_proposals(
@@ -462,16 +497,8 @@ def execute_poison_probe(
     if not changed:
         raise ValueError("poison probe requires a realized intervention different from baseline")
     family_id = str(task_spec.get("family_id", task_spec.get("family", "compile")))
-    canonical_actions = {
-        "compile": "reuse_compile_cache",
-        "graph_cache": "reuse_graph_cache",
-        "h2d_pipeline": "pin_memory_pipeline",
-        "checkpoint": "checkpoint_recompute",
-        "scalar_sync": "aggregate_scalars",
-    }
-    intervention_id = canonical_actions.get(family_id)
-    if intervention_id is None:
-        raise ValueError(f"no canonical poison probe intervention for family {family_id}")
+    from core.acre.actions import action_from_proposal
+    intervention_id = action_from_proposal(family_id, proposal).action_id
     deployed = [intervention_id]
     verifier_executed = False
     verifier_scientific_ok = True
@@ -537,6 +564,14 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
         # this same public contract until their YAML declarations are rebuilt.
         family_parameters = task.get("family_parameters") if isinstance(task.get("family_parameters"), dict) else {}
         declared_public_context = {"workload": dict(family_parameters)}
+    # Optional observable platform facts are part of the common public
+    # context, never condition-specific metadata.
+    if isinstance(task.get("public_hardware"), dict):
+        declared_public_context.setdefault("hardware", dict(task["public_hardware"]))
+    if isinstance(task.get("public_software"), dict):
+        declared_public_context.setdefault("software", dict(task["public_software"]))
+    if isinstance(task.get("pre_task_telemetry"), dict):
+        declared_public_context.setdefault("evidence", dict(task["pre_task_telemetry"]))
     declared_public_context = canonical_public_context(declared_public_context)
     public_task = {
         "schema_version": 1,
@@ -670,12 +705,23 @@ def _read_executor_receipt(path: Path, skill_digest: str | None, context_mode: s
     if not isinstance(receipt, dict):
         return {}, ["external executor receipt must be an object"]
     errors: list[str] = []
-    required = ("mode", "network_mode", "mount_allowlist", "executor_digest", "worker_uid", "usage")
+    required = (
+        "mode", "network_mode", "mount_allowlist", "executor_digest", "worker_uid", "usage",
+        "network_namespace_attested", "mount_receipt", "isolation_canary", "usage_meter_source",
+    )
     errors.extend(f"executor receipt missing {key}" for key in required if key not in receipt)
     if receipt.get("mode") != "external_namespace_executor":
         errors.append("executor receipt mode mismatch")
     if receipt.get("network_mode") != "none":
         errors.append("external executor must declare network_mode=none")
+    if receipt.get("network_namespace_attested") is not True:
+        errors.append("external executor network namespace is not attested")
+    if not isinstance(receipt.get("mount_receipt"), dict) or receipt.get("mount_receipt", {}).get("verified") is not True:
+        errors.append("external executor mount receipt is not verified")
+    if receipt.get("isolation_canary") is not True:
+        errors.append("external executor isolation canary did not pass")
+    if not isinstance(receipt.get("usage_meter_source"), str) or not receipt.get("usage_meter_source"):
+        errors.append("external executor usage meter source is required")
     mounts = receipt.get("mount_allowlist")
     if not isinstance(mounts, list) or not mounts:
         errors.append("executor receipt mount_allowlist must be non-empty")
@@ -721,11 +767,18 @@ def _read_agent_extensions(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     extensions: dict[str, Any] = {}
-    for key in ("lesson", "acre_proposals"):
+    for key in ("lesson", "acre_proposals", "predicted_mechanisms", "abstain", "abstain_reason"):
         if key in payload:
             extensions[key] = payload[key]
     if not isinstance(extensions.get("lesson", {}), dict):
         extensions["lesson"] = {}
+    mechanisms = extensions.get("predicted_mechanisms", [])
+    if not isinstance(mechanisms, list) or any(not isinstance(item, str) or not item for item in mechanisms):
+        extensions["predicted_mechanisms"] = []
+    if not isinstance(extensions.get("abstain", False), bool):
+        extensions["abstain"] = False
+    if not isinstance(extensions.get("abstain_reason", ""), str):
+        extensions["abstain_reason"] = ""
     proposals = extensions.get("acre_proposals", [])
     if not isinstance(proposals, list):
         extensions["acre_proposals"] = []
@@ -882,6 +935,13 @@ def post_task_update(
         from dataclasses import asdict
         from core.acre.engine import AcreEngine
         engine = AcreEngine.from_store(store)
+        # Core owns the evidence-to-lifecycle reducer.  The formal driver
+        # only supplies this task's verifier-produced events and persistence
+        # callbacks; it does not make a second lifecycle decision.
+        maintenance_step = engine.maintainer.step(
+            events=[item for item in result.get("evidence_events", []) if isinstance(item, dict)],
+        )
+        maintenance_decisions.append({"operation": "OBSERVE", "observed": maintenance_step.observed, "assessment": maintenance_step.assessment})
         for subject_id in (*engine.rule_states, *engine.relation_states):
             maintenance_decisions.append(asdict(engine.evolve(subject_id)))
         active_ledger = ledger or EvolutionDecisionLedger()
@@ -897,8 +957,17 @@ def post_task_update(
             if not isinstance(candidate, dict):
                 continue
             if candidate.get("relation_id"):
-                # Formal task outcomes cannot establish factorial contrasts;
-                # relation proposals stay out of the node replay path.
+                # Relations use an explicit factorial experiment and never
+                # enter the node utility replay path.
+                from benchmark.formal.schedule import RelationExperimentScheduler
+                relation_id = str(candidate.get("relation_id") or candidate.get("id") or "")
+                validate_identifier(relation_id, "relation_id")
+                relation_schedule = RelationExperimentScheduler().schedule(candidate, str(family_id or "compile"))
+                relation_dir = store / "evolution" / "relation_experiments"
+                relation_dir.mkdir(parents=True, exist_ok=True)
+                (relation_dir / f"{identifier_digest(relation_id)}.json").write_text(
+                    json.dumps(relation_schedule, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+                )
                 continue
             identifier = str(candidate.get("relation_id") or candidate.get("rule_id") or candidate.get("id") or "")
             if not identifier:
@@ -984,7 +1053,10 @@ def post_task_update(
                     "version_space_digest": None,
                     "evidence_ids": [],
                 })
-            candidate["cases"] = sorted(set(existing.get("cases", [])) | set(candidate.get("cases", [])))
+            # Membership is authoritative in CandidateEvidenceLedger.  The
+            # candidate projection may retain case ids for display only; it
+            # must never union mutable worker data into the evidence set.
+            candidate["cases"] = sorted(set(candidate.get("cases", [])))
             # A candidate may accumulate independent replay cases over several
             # tasks.  Keep the validation artifact aligned with the complete
             # promotion bundle instead of leaving only the latest case id.
@@ -1050,6 +1122,7 @@ def post_task_update(
                         str(candidate.get("candidate_identity") or identifier),
                         int(candidate.get("version", 1)),
                         case_value,
+                        action_digest=str(candidate.get("intervention_digest", "")),
                     )
             case_values_for_cegis = hydrate_candidate_cases(store, candidate, candidate_evidence)
             candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
@@ -1123,9 +1196,9 @@ def post_task_update(
         for candidate in candidates:
             hydrated_cases: list[dict[str, Any]] = []
             subject_id = str(candidate.get("candidate_identity") or candidate.get("rule_id") or candidate.get("id") or "")
-            memberships = candidate_evidence.members(subject_id, int(candidate.get("version", 1)))
+            memberships = candidate_evidence.members(subject_id, int(candidate.get("version", 1)), action_digest=str(candidate.get("intervention_digest", "")) or None)
             membership_by_id = {str(item.get("case_id")): item for item in memberships}
-            case_ids = list(membership_by_id) or candidate.get("cases", [])
+            case_ids = list(membership_by_id)
             for case_id in case_ids:
                 try:
                     case_path = store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json"
@@ -1476,6 +1549,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         )
         result["seed"] = int(item["outer_trial_index"])
         result.update(agent_extensions)
+        expected_mechanism = str((result.get("task") or {}).get("expected_mechanism", ""))
+        predicted = [str(value) for value in result.get("predicted_mechanisms", []) if isinstance(value, str)]
+        result["diagnosis"] = {
+            "predicted_mechanisms": predicted,
+            "diagnosis_correct": bool(expected_mechanism and expected_mechanism in predicted),
+        }
+        result["abstained"] = bool(result.get("abstain", False))
         result["condition_adapter"] = retrieved_context
         result.setdefault("cost", {}).update({
             "input_tokens": usage.get("input_tokens"),
@@ -1570,7 +1650,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             core_repo=repo_root,
             out_dir=trial_dir,
             context_mode=str(item["context_mode"]),
-            ledger=ledgers.setdefault(stream_id, EvolutionDecisionLedger()),
+            # Decisions are append-only and survive a campaign resume.  The
+            # stream-local ledger is part of the condition store rather than
+            # an in-memory side table.
+            ledger=ledgers.setdefault(
+                stream_id,
+                EvolutionDecisionLedger(store / "evolution" / "decisions.jsonl"),
+            ),
             allow_maintenance=not budget_errors,
             control_result=control_result,
             control_scored=control_scored,

@@ -24,6 +24,12 @@
     "confidence_sequence": {
       "type": "object"
     },
+    "contrast_bounds": {
+      "type": "object"
+    },
+    "semantic_certificate": {
+      "type": "object"
+    },
     "status": {
       "enum": [
         "candidate",

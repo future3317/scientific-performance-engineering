@@ -30,6 +30,7 @@ class CompositionSpec:
     left_family: str
     right_family: str
     context: Mapping[str, Any] = field(default_factory=dict)
+    mechanism: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,16 +49,27 @@ class InteractionOracle:
         left_active, right_active = left.applicable, right.applicable
         # The relation is a consequence of regime and parameter interaction;
         # no surface index or pre-assigned relation is consulted.
-        if ctx.get("force_synergy"):
-            relation = "synergy"
-        elif ctx.get("force_antagonism"):
-            relation = "antagonism"
-        elif ctx.get("redundancy"):
-            relation = "redundancy"
-        elif ctx.get("semantic_conflict"):
+        # Relation truth is derived from the two family parameter points and
+        # an explicit runtime regime.  A worker- or benchmark-supplied label
+        # is never accepted as causal truth.  The pilot pair has a declared
+        # mechanistic composition; other pairs use the conservative generic
+        # applicability/score rule below.
+        regime = str(ctx.get("regime", "baseline"))
+        worker_count = int(left.parameters.get("worker_count", -1))
+        dynamic_rate = float(right.parameters.get("dynamic_shape_rate", -1.0))
+        pair_is_pipeline_compile = {
+            self.spec.left_family,
+            self.spec.right_family,
+        } == {"h2d_pipeline", "compile"}
+        sign_flip = pair_is_pipeline_compile and worker_count > 6 and dynamic_rate > 0.5
+        semantic_conflict = pair_is_pipeline_compile and worker_count > 6 and dynamic_rate <= 0.5
+        redundancy_regime = pair_is_pipeline_compile and worker_count <= 4 and dynamic_rate <= 0.2
+        if semantic_conflict:
             relation = "semantic_conflict"
-        elif ctx.get("sign_flip"):
-            relation = "antagonism" if left_active and right_active else "independence"
+        elif redundancy_regime:
+            relation = "redundancy"
+        elif sign_flip and regime == "shifted":
+            relation = "antagonism"
         elif left_active and right_active and left_score > 0 and right_score > 0:
             relation = "synergy"
         elif left_active and not right_active:
@@ -74,7 +86,7 @@ class InteractionOracle:
         # interaction value is gamma, not an unbounded additive effect later
         # clipped into a different hidden relation.
         interaction = {"synergy": 0.12, "antagonism": -0.12, "independence": 0.0, "redundancy": 0.0, "prerequisite_a_to_b": 0.12, "prerequisite_b_to_a": 0.12, "semantic_conflict": 0.0}[relation]
-        if ctx.get("sign_flip"):
+        if sign_flip and regime == "shifted":
             interaction = -interaction if interaction else -0.12
         baseline = -0.20 if relation in {"synergy", "antagonism", "prerequisite_a_to_b", "prerequisite_b_to_a"} else 0.0
         outcomes = {"00": baseline, "10": baseline + a, "01": baseline + b, "11": baseline + a + b + 4.0 * interaction}
@@ -86,7 +98,26 @@ class InteractionOracle:
         gates = {arm: True for arm in ("00", "10", "01", "11")}
         if relation == "semantic_conflict":
             gates["11"] = False
-        return {"outcomes": outcomes, "hidden_relation": relation, "target_gamma": interaction, "scientific_gates": gates, "higher_order_residual": float(ctx.get("higher_order_residual", 0.0))}
+        # Hidden truth is derived from the final factorial cells, never from
+        # the mechanism label used to construct them.
+        gamma = (outcomes["11"] - outcomes["10"] - outcomes["01"] + outcomes["00"]) / 4.0
+        da0, da1 = outcomes["10"] - outcomes["00"], outcomes["11"] - outcomes["01"]
+        db0, db1 = outcomes["01"] - outcomes["00"], outcomes["11"] - outcomes["10"]
+        if not all(gates.values()):
+            derived_relation = "semantic_conflict"
+        elif da0 > 0.05 and db0 > 0.05 and abs(outcomes["11"] - max(outcomes["10"], outcomes["01"])) <= 0.05:
+            derived_relation = "redundancy"
+        elif da1 > 0.05 and abs(db0) <= 0.05:
+            derived_relation = "prerequisite_a_to_b"
+        elif db1 > 0.05 and abs(da0) <= 0.05:
+            derived_relation = "prerequisite_b_to_a"
+        elif gamma > 0.05:
+            derived_relation = "synergy"
+        elif gamma < -0.05:
+            derived_relation = "antagonism"
+        else:
+            derived_relation = "independence"
+        return {"outcomes": outcomes, "hidden_relation": derived_relation, "target_gamma": gamma, "scientific_gates": gates, "higher_order_residual": float(ctx.get("higher_order_residual", 0.0))}
 
 
 @dataclass(frozen=True)
@@ -144,6 +175,20 @@ class FamilySpec:
     threshold_universe: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
     scientific_invariants: tuple[str, ...] = ()
     default_severity: str = "P2"
+    # All views consume these declarations.  They are projections of the
+    # family contract, not parallel benchmark-specific maps.
+    action_specs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    decision_lattice: tuple[Mapping[str, Any], ...] = ()
+    legal_compositions: tuple[CompositionSpec, ...] = ()
+    validation_scenarios: tuple[Mapping[str, Any], ...] = ()
+    formal_predicate_grammar: bool = True
+    # Named contract components are kept on the family even when the default
+    # environment adapter supplies the executable implementation.
+    public_features: tuple[str, ...] = ()
+    feature_domains: Mapping[str, Any] = field(default_factory=dict)
+    scientific_policy: Mapping[str, Any] = field(default_factory=dict)
+    realization_validators: tuple[str, ...] = ()
+    outcome_model: str = "family_environment_v1"
 
     def generate(self, count: int, seed: int = 0) -> list[FamilyInstance]:
         if count < 1:
@@ -391,6 +436,28 @@ _SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
     "checkpoint": ("gradient_equivalence",),
     "scalar_sync": ("metric_semantics_preserved",),
 }
+_ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
+    "compile": {
+        "reuse_compile_cache": {"family": "compile", "risk_class": "bounded"},
+        "revalidate_compile_cache": {"family": "compile", "risk_class": "review"},
+    },
+    "graph_cache": {
+        "reuse_graph_cache": {"family": "graph_cache", "risk_class": "bounded"},
+        "rebuild_graph_cache": {"family": "graph_cache", "risk_class": "bounded"},
+    },
+    "h2d_pipeline": {
+        "pin_memory_pipeline": {"family": "h2d_pipeline", "risk_class": "bounded"},
+        "prefetch_pipeline": {"family": "h2d_pipeline", "risk_class": "bounded"},
+    },
+    "checkpoint": {
+        "checkpoint_recompute": {"family": "checkpoint", "risk_class": "bounded"},
+        "retained_graph": {"family": "checkpoint", "risk_class": "review"},
+    },
+    "scalar_sync": {
+        "aggregate_scalars": {"family": "scalar_sync", "risk_class": "bounded"},
+        "defer_scalar_sync": {"family": "scalar_sync", "risk_class": "bounded"},
+    },
+}
 for _spec in _SPECS:
     _applicability = _legacy_applicability if _spec.family_id in {"repeated_compute", "autograd", "equivariant_head", "crystal_generation", "crystal_sampling", "episode"} else _spec.applicability
     _CANONICAL_SPECS.append(replace(
@@ -400,6 +467,7 @@ for _spec in _SPECS:
         predicate_features=_PREDICATE_FEATURES.get(_spec.family_id, ()),
         threshold_universe=_THRESHOLDS.get(_spec.family_id, {}),
         scientific_invariants=_SCIENTIFIC_INVARIANTS.get(_spec.family_id, ()),
+        action_specs=_ACTION_SPECS.get(_spec.family_id, {}),
     ))
 _SPECS = tuple(_CANONICAL_SPECS)
 
@@ -443,6 +511,9 @@ def family_predicate_grammar(family_id: str) -> dict[str, Any]:
         "max_depth": 3,
         "max_literals": 4,
         "threshold_universe": {key: list(values) for key, values in spec.threshold_universe.items()},
+        "formal": bool(spec.formal_predicate_grammar),
+        "public_features": list(spec.public_features or spec.parameter_space),
+        "feature_domains": dict(spec.feature_domains),
     }
 
 

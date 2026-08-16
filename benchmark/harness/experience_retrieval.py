@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Mapping
+from core.cost import PromptCostModel
 
 
 def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
@@ -21,7 +22,7 @@ def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
     return result
 
 
-def _context_distance(record: Mapping[str, Any], query: Mapping[str, Any]) -> float:
+def _context_distance(record: Mapping[str, Any], query: Mapping[str, Any], *, family_id: str | None = None) -> float:
     stored = record.get("public_context") if isinstance(record.get("public_context"), Mapping) else record.get("context")
     if not isinstance(stored, Mapping):
         return float("inf")
@@ -29,21 +30,36 @@ def _context_distance(record: Mapping[str, Any], query: Mapping[str, Any]) -> fl
     shared = set(left) | set(right)
     if not shared:
         return float("inf")
+    ranges: dict[str, float] = {}
+    if family_id:
+        try:
+            from benchmark.families import FAMILY_SPECS, resolve_family_id
+            spec = FAMILY_SPECS[resolve_family_id(family_id)]
+            pool = spec.generate(64, seed=0)
+            for feature in spec.parameter_space:
+                values = [item.parameters.get(feature) for item in pool]
+                numeric = [float(value) for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)]
+                if numeric:
+                    ranges[f"workload.{feature}"] = max(max(numeric) - min(numeric), 1e-12)
+        except (KeyError, TypeError, ValueError):
+            pass
     distance = 0.0
     for key in shared:
         if key not in left or key not in right:
             distance += 1.0
         elif isinstance(left[key], (int, float)) and isinstance(right[key], (int, float)) and not isinstance(left[key], bool) and not isinstance(right[key], bool):
-            distance += abs(float(left[key]) - float(right[key])) / max(1.0, abs(float(left[key])), abs(float(right[key])))
+            scale = ranges.get(key, max(1.0, abs(float(left[key])), abs(float(right[key]))))
+            distance += abs(float(left[key]) - float(right[key])) / scale
         else:
             distance += 0.0 if left[key] == right[key] else 1.0
     return distance / len(shared)
 
 
-def retrieve_raw_experiences(store: str | Path, query: str | Mapping[str, Any] = "", token_budget: int = 4096) -> list[dict[str, Any]]:
+def retrieve_raw_experiences(store: str | Path, query: str | Mapping[str, Any] = "", token_budget: int = 4096, *, family_id: str | None = None) -> list[dict[str, Any]]:
     if token_budget < 1:
         raise ValueError("token_budget must be positive")
     records: list[tuple[float, str, dict[str, Any], int]] = []
+    cost_model = PromptCostModel()
     for path in sorted((Path(store) / "experience" / "inbox").glob("*.json")):
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
@@ -52,10 +68,10 @@ def retrieve_raw_experiences(store: str | Path, query: str | Mapping[str, Any] =
         if not isinstance(record, dict):
             continue
         text = json.dumps(record, sort_keys=True, ensure_ascii=False)
-        distance = _context_distance(record, query) if isinstance(query, Mapping) else 0.0
+        distance = _context_distance(record, query, family_id=family_id) if isinstance(query, Mapping) else 0.0
         if isinstance(query, str) and query and query.lower() not in text.lower():
             continue
-        cost = max(1, (len(text) + 3) // 4)
+        cost = cost_model.cost(record)
         records.append((distance, str(path), record, cost))
     records.sort(key=lambda item: (item[0], item[1]))
     selected: list[dict[str, Any]] = []
@@ -75,12 +91,16 @@ class RawExperienceRetriever:
         self.store = Path(store)
         self.token_budget = token_budget
 
-    def retrieve(self, query: str | Mapping[str, Any] = "") -> list[dict[str, Any]]:
-        return retrieve_raw_experiences(self.store, query=query, token_budget=self.token_budget)
+    def retrieve(self, query: str | Mapping[str, Any] = "", *, family_id: str | None = None) -> list[dict[str, Any]]:
+        return retrieve_raw_experiences(self.store, query=query, token_budget=self.token_budget, family_id=family_id)
 
-    def propose_interventions(self, query: str | Mapping[str, Any] = "") -> list[str]:
+    def propose_interventions(self, query: str | Mapping[str, Any] = "", *, family_id: str | None = None) -> list[str]:
+        return self.propose_from_records(self.retrieve(query, family_id=family_id))
+
+    @staticmethod
+    def propose_from_records(records: list[dict[str, Any]]) -> list[str]:
         actions: list[str] = []
-        for record in self.retrieve(query):
+        for record in records:
             if record.get("record_type") != "causal_evidence":
                 lesson = record.get("lesson")
                 proposed = lesson.get("proposed_interventions", []) if isinstance(lesson, dict) else []
