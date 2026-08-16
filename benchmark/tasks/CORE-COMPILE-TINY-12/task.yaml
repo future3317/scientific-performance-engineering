@@ -39,7 +39,7 @@ generator_family_id: GEN-COMPILER-TINY
 oracle_fix_pattern_id: FIX-COMPILE-TINY-BYPASS
 scientific_contract_id: CONTRACT-COMPILER-CACHE
 difficulty_tier: hard
-workspace_ast_skeleton_hash: 7fedde4ab3af71f80a64975eaade7126f97a07b5224e958e17e0298817f4e163
+workspace_ast_skeleton_hash: "866239d3eacf0e4c146764297641276a3d431f337b36fcafc3d79d3e6052bc46"
 family_id: compile
 anchor_instance_id: CORE-COMPILE-TINY-12
 family_parameters:
@@ -49,7 +49,6 @@ family_parameters:
 family_instance_digest: d38bc66b6b1d84d44e3e7b1282a6dcd5036dd62dc6838b8cbed45addeead4ec1
 public_context:
   workload:
-    family_parameters:
-        logical_steps: 64
-        graph_size: 64
-        dynamic_shape_rate: 0.8
+    logical_steps: 64
+    graph_size: 64
+    dynamic_shape_rate: 0.8

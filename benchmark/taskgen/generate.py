@@ -104,6 +104,7 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
             anchor = FAMILY_SPECS[family_id].reconstruct_anchor(metadata["task_id"])
             spec["family_parameters"] = dict(anchor.parameters)
             spec["family_instance_digest"] = family_instance_digest(family_id, anchor.parameters)
+            spec["public_context"] = {"workload": dict(anchor.parameters)}
     spec["oracle_fix_pattern_id"] = metadata["fix"]
     spec["scientific_contract_id"] = metadata["contract"]
     spec["difficulty_tier"] = metadata["difficulty"]

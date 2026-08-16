@@ -260,6 +260,8 @@ def evaluate_candidate(candidate: dict[str, Any], replay_manifest: dict[str, Any
     except ValueError as exc:
         return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", str(exc))
     try:
+        if str(candidate.get("scope", "calibration")) == "formal" and replay_manifest.get("execution_source") != "external_executor":
+            return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", "formal promotion requires executable external-verifier evidence")
         if subject_type == "relation":
             if replay_manifest.get("evidence_type") != "factorial_contrast":
                 return EvolutionDecision(subject_type, subject_id, "PROMOTE", "rejected", "none", "relations require factorial contrast evidence")

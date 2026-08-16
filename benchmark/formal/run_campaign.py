@@ -31,7 +31,7 @@ from benchmark.harness.evolution import promote_via_replay
 from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
-from core.models import identifier_digest, validate_identifier, ActionSpec, RealizationRecord
+from core.models import identifier_digest, validate_identifier, ActionSpec, RawRealizationRecord, RealizationRecord
 from core.sequential_stats import bounded_mean_interval, minimum_all_successes
 from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold
 from scripts.run_rule_replay import evaluate_cases
@@ -90,6 +90,45 @@ class InterventionRealizer:
         return destination
 
     @staticmethod
+    def realize_raw(
+        baseline: Path,
+        destination: Path,
+        proposal: dict[str, Any],
+        *,
+        task_id: str,
+        context_id: str,
+    ) -> RawRealizationRecord:
+        """Materialize only the worker patch; no semantic action is inferred."""
+        output = InterventionRealizer.realize(baseline, destination, proposal)
+        return RawRealizationRecord(
+            task_id=task_id,
+            context_id=context_id,
+            baseline_digest=_workspace_digest(baseline),
+            patch=dict(proposal.get("intervention") or {}),
+            realized_digest=_workspace_digest(output),
+        )
+
+    @staticmethod
+    def classify_after_verification(raw: RawRealizationRecord, action_spec: Mapping[str, Any], verifier_digest: str) -> RealizationRecord:
+        action = ActionSpec(
+            action_id=str(action_spec["action_id"]),
+            family=str(action_spec["family"]),
+            parameters=dict(action_spec.get("parameters", {})),
+            preconditions=dict(action_spec.get("preconditions", {})),
+            preserves=list(action_spec.get("preserves", [])),
+            risk_class=str(action_spec.get("risk_class", "bounded")),
+        )
+        return RealizationRecord(
+            action_id=action.action_id,
+            task_id=raw.task_id,
+            context_id=raw.context_id,
+            baseline_digest=raw.baseline_digest,
+            patch=dict(raw.patch),
+            realized_digest=raw.realized_digest,
+            verifier_digest=verifier_digest,
+        )
+
+    @staticmethod
     def realize_action(
         baseline: Path,
         destination: Path,
@@ -108,29 +147,11 @@ class InterventionRealizer:
         semantic action to the task-local artifact without making source text
         part of the canonical rule meaning.
         """
-        from core.acre.actions import action_from_proposal
+        raw = InterventionRealizer.realize_raw(baseline, destination, proposal, task_id=task_id, context_id=context_id)
         if action_spec is None:
-            action = action_from_proposal(family_id, proposal)
-        else:
-            action = ActionSpec(
-                action_id=str(action_spec["action_id"]),
-                family=str(action_spec["family"]),
-                parameters=dict(action_spec.get("parameters", {})),
-                preconditions=dict(action_spec.get("preconditions", {})),
-                preserves=list(action_spec.get("preserves", [])),
-                risk_class=str(action_spec.get("risk_class", "bounded")),
-            )
-        output = InterventionRealizer.realize(baseline, destination, proposal)
-        record = RealizationRecord(
-            action_id=action.action_id,
-            task_id=task_id,
-            context_id=context_id,
-            baseline_digest=_workspace_digest(baseline),
-            patch=dict(proposal.get("intervention") or {}),
-            realized_digest=_workspace_digest(output),
-            verifier_digest=verifier_digest,
-        )
-        (output.parent / "realization_record.json").write_text(
+            raise ValueError("action_spec must be supplied after verifier activation")
+        record = InterventionRealizer.classify_after_verification(raw, action_spec, verifier_digest)
+        (destination / "realization_record.json").write_text(
             json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         return record
@@ -333,6 +354,17 @@ def semantic_action_spec(
     if resolved_family:
         if not isinstance(activation_certificate, Mapping) or activation_certificate.get("passed") is not True:
             raise ValueError("family action requires a passed activation certificate")
+        metrics = activation_certificate.get("activation_metrics")
+        causal = metrics.get("causal") if isinstance(metrics, Mapping) else None
+        activation = causal.get("activation") if isinstance(causal, Mapping) else None
+        if not isinstance(activation, Mapping) or str(activation.get("status", "")) not in {"passed", "verified"}:
+            raise ValueError("activation certificate requires action-specific verifier instrumentation")
+        matched = activation.get("matched_actions")
+        if matched is not None and (not isinstance(matched, list) or len(matched) != 1 or str(matched[0]) != action.action_id):
+            raise ValueError("activation must match exactly one registered ActionSpec")
+        matched_id = activation.get("action_id") or activation.get("matched_action_id")
+        if matched_id is not None and str(matched_id) != action.action_id:
+            raise ValueError("activation ActionSpec does not match the classified action")
         from core.models import ActivationCertificate
         ActivationCertificate.from_dict(activation_certificate, action_id=action.action_id)
         from benchmark.families.catalog import FAMILY_SPECS
@@ -973,18 +1005,20 @@ def post_task_update(
                 relation_scheduler = RelationExperimentScheduler()
                 relation_family = str(endpoint_families["left"])
                 try:
-                    from benchmark.interaction.factorial_bench import generate_family_interaction_surface
-                    from core.acre.factorial import FactorialBlock
-                    surface = generate_family_interaction_surface((relation_family, str(endpoint_families["right"])), count=1, seed=int(item["outer_trial_index"]))[0]
-                    arms = dict(surface["outcomes"])
+                    from benchmark.formal.schedule import FamilyPairReplayExecutor
+                    endpoint_specs = {spec.rule_id: spec for spec in engine.rule_specs}
+                    left_spec = endpoint_specs.get(str(endpoints["left"]))
+                    right_spec = endpoint_specs.get(str(endpoints["right"]))
+                    if left_spec is None or right_spec is None:
+                        raise ValueError("relation endpoints are not active canonical rules")
+                    left_action = str(left_spec.intervention.get("action_id") or left_spec.intervention.get("action") or "")
+                    right_action = str(right_spec.intervention.get("action_id") or right_spec.intervention.get("action") or "")
+                    if not left_action or not right_action:
+                        raise ValueError("relation endpoints lack canonical ActionSpec")
+                    pair_executor = FamilyPairReplayExecutor(relation_family, left_action, right_action)
                     def block_executor(_context: Mapping[str, Any], *, context_id: str) -> list[Any]:
-                        import random
-                        blocks = []
-                        for index in range(8):
-                            rng = random.Random(f"{context_id}:{index}")
-                            outcomes = {arm: max(-1.0, min(1.0, float(value) + rng.uniform(-0.01, 0.01))) for arm, value in arms.items()}
-                            blocks.append(FactorialBlock(f"{context_id}-{index}", outcomes))
-                        return blocks
+                        from core.acre.factorial import FactorialBlock
+                        return [FactorialBlock(f"{context_id}-{index}", outcomes) for index, outcomes in enumerate(pair_executor.execute(_context.get("workload", _context), context_id=context_id))]
                     relation_schedule = relation_scheduler.execute(
                         candidate, relation_family,
                         block_executor=block_executor,
@@ -1038,22 +1072,30 @@ def post_task_update(
             task_patch = candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"}
             version = int(candidate.get("version", 1))
             try:
-                activation_proof = hashlib.sha256(json.dumps({
-                    "task_id": task_id,
-                    "causal_result": causal_result,
-                    "control_result": control_result,
-                    "patch": task_patch,
-                }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest() if causal_result is not None and control_result is not None else None
-                activation_certificate = {
-                    "action_id": str((candidate.get("action_spec") or candidate.get("intervention") or {}).get("action", "")),
-                    "activation_metrics": {"causal": causal_result, "control": control_result},
-                    "expected_signature": "verifier-paired",
-                    "observed_signature": activation_proof,
-                    "verifier_artifacts": {"task_id": task_id},
-                    "realization_digest": candidate_intervention_digest(task_patch),
-                    "passed": causal_result is not None and control_result is not None,
-                }
-                action_spec = semantic_action_spec(family_id, candidate, activation_certificate=activation_certificate)
+                persisted_activation = candidate.get("activation_certificate")
+                if causal_result is None and isinstance(persisted_activation, dict) and isinstance(candidate.get("intervention"), dict):
+                    # A collecting candidate is a persisted hypothesis.  It
+                    # continues from its harness-owned ActionSpec/certificate
+                    # and never asks the next worker to re-prove activation.
+                    action_spec = dict(candidate["intervention"])
+                    activation_certificate = dict(persisted_activation)
+                else:
+                    activation_proof = hashlib.sha256(json.dumps({
+                        "task_id": task_id,
+                        "causal_result": causal_result,
+                        "control_result": control_result,
+                        "patch": task_patch,
+                    }, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest() if causal_result is not None and control_result is not None else None
+                    activation_certificate = {
+                        "action_id": str((candidate.get("action_spec") or candidate.get("intervention") or {}).get("action", "")),
+                        "activation_metrics": {"causal": causal_result, "control": control_result},
+                        "expected_signature": "verifier-paired",
+                        "observed_signature": activation_proof,
+                        "verifier_artifacts": {"task_id": task_id},
+                        "realization_digest": candidate_intervention_digest(task_patch),
+                        "passed": causal_result is not None and control_result is not None,
+                    }
+                    action_spec = semantic_action_spec(family_id, candidate, activation_certificate=activation_certificate)
             except ValueError:
                 # An unclassified source patch cannot enter the causal
                 # evidence ledger.  It remains a worker hypothesis until the
@@ -1112,11 +1154,13 @@ def post_task_update(
                 "severity": severity,
                 "domain": "runtime",
                 "text": str(candidate.get("text", "")),
+                "scope": "formal",
                 "status": "candidate",
                 "epsilon": float(practical_epsilon),
                 "p_min": 0.8,
                 "delta": 0.05,
                 "promotion_case_ids": [],
+                "activation_certificate": activation_certificate,
             }
             candidate["cases"] = list(added_replay_case_ids)
             candidate["validation_artifacts"] = {
@@ -1247,6 +1291,7 @@ def post_task_update(
             )
             candidate["replay_schedule"] = {
                 "minimum_groups": scheduler.minimum_groups,
+                "max_groups": scheduler.max_groups,
                 "synthesis_contexts": active_pending,
                 "promotion_contexts": representative_pending,
                 # Kept as a derived display field; execution below never
@@ -1258,7 +1303,7 @@ def post_task_update(
             # promise exposed to the next worker.  The family executor uses
             # the harness-resolved ActionSpec and the Core paired-plan API.
             if candidate["replay_schedule"]["pending_contexts"] and isinstance(candidate.get("intervention"), dict):
-                from benchmark.formal.schedule import FamilyReplayExecutor
+                from benchmark.formal.schedule import SyntheticFamilyExecutor
                 from core.acre.experiments import ExperimentPlan, ReplaySequentialCertificate, execute_paired_plan
                 family_name = str(family_id or "compile")
                 action_name = str(candidate["intervention"].get("action_id") or candidate["intervention"].get("action") or "")
@@ -1267,7 +1312,7 @@ def post_task_update(
                     # effect threshold; 64 repeats cannot do so for the
                     # declared Family effects.  Keep repetitions explicit
                     # and preregistered rather than fabricating certainty.
-                    replay_executor = FamilyReplayExecutor(family_name, action_name, repetitions=256)
+                    replay_executor = SyntheticFamilyExecutor(family_name, action_name, repetitions=256, campaign_seed=int(item["outer_trial_index"]))
                     generated_cases: list[dict[str, Any]] = []
                     replay_evidence_events = []
 
@@ -1280,6 +1325,7 @@ def post_task_update(
                             "utility_scale": UTILITY_LOG_SCALE,
                             "quality_ok": bool(case.get("scientific_ok", False)),
                             "context_mode": context_mode,
+                            "execution_source": getattr(replay_executor, "execution_source", "synthetic_family"),
                         })
                         case_id = str(case["case_id"])
                         evidence_path = store / "experience" / "cases" / f"{identifier_digest(case_id)}.json"
@@ -1296,6 +1342,7 @@ def post_task_update(
 
                     sequential_certificate = ReplaySequentialCertificate(
                         minimum_groups=scheduler.minimum_groups,
+                        max_groups=scheduler.max_groups,
                         epsilon=float(practical_epsilon),
                         delta=0.05,
                         p_min=scheduler.p_min,
@@ -1321,7 +1368,7 @@ def post_task_update(
                         ExperimentPlan(
                             subject_id=str(candidate.get("candidate_identity") or identifier),
                             contexts=tuple(candidate["replay_schedule"]["promotion_contexts"]),
-                            max_groups=scheduler.minimum_groups,
+                            max_groups=scheduler.max_groups,
                         ),
                         replay_executor,
                         record_case=record_generated,
@@ -1856,22 +1903,15 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             if len(proposals) == 1:
                 try:
                     realized_solution = trial_dir / "realized_solution"
-                    # Resolve the legal action before execution; activation is
-                    # certified only after the realized artifact is replayed.
-                    from core.acre.actions import action_from_proposal
-                    provisional_action = action_from_proposal(
-                        str(task_spec.get("family_id", task_spec.get("family", "runtime"))),
-                        proposals[0],
-                    )
-                    harness_action = provisional_action.to_dict()
-                    realization_record = InterventionRealizer.realize_action(
+                    # Source patch realization is intentionally semantic-free.
+                    # ActionSpec classification is deferred until the
+                    # realized artifact has passed the causal verifier.
+                    raw_realization = InterventionRealizer.realize_raw(
                         solution_dir,
                         realized_solution,
                         proposals[0],
-                        family_id=str(task_spec.get("family_id", task_spec.get("family", "runtime"))),
                         task_id=task_id,
                         context_id=task_id,
-                        action_spec=harness_action,
                     )
                     causal_result = verifier.verify_task(
                         tasks_root / task_id,
@@ -1883,7 +1923,29 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                     )
                     causal_result["seed"] = int(item["outer_trial_index"])
                     verifier_digest = hashlib.sha256(json.dumps(causal_result, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-                    finalized = realization_record.finalize(verifier_digest)
+                    family_name = str(task_spec.get("family_id", task_spec.get("family", "runtime")))
+                    try:
+                        from benchmark.families import FAMILY_SPECS, resolve_family_id
+                        family_spec = FAMILY_SPECS[resolve_family_id(family_name)]
+                        certified_action_id = str(family_spec.action_policy.get("default", ""))
+                    except (KeyError, ValueError):
+                        certified_action_id = ""
+                    activation_certificate = {
+                        "action_id": certified_action_id,
+                        "activation_metrics": {"causal": causal_result, "control": control_result},
+                        "expected_signature": "verifier-paired",
+                        "observed_signature": verifier_digest,
+                        "verifier_artifacts": {"task_id": task_id},
+                        "realization_digest": raw_realization.realized_digest,
+                        "passed": causal_result is not None and control_result is not None,
+                    }
+                    action_spec = semantic_action_spec(
+                        family_name,
+                        proposals[0],
+                        activation_certificate=activation_certificate,
+                    )
+                    activation_certificate["action_id"] = str(action_spec["action_id"])
+                    finalized = InterventionRealizer.classify_after_verification(raw_realization, action_spec, verifier_digest)
                     (realized_solution / "realization_record.json").write_text(
                         json.dumps(finalized.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
                     )

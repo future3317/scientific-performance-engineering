@@ -381,6 +381,7 @@ def promote_via_replay(
             },
             "replay_manifest_digest": replay_digest,
         }
+        manifest["execution_source"] = "synthetic_family"
         # Store-relative paths are required by the independent evolution
         # validator; absolute host paths are not portable evidence.
         manifest["case_bundle_path"] = str(case_path.relative_to(store))

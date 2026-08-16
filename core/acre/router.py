@@ -7,9 +7,14 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from core.models import RelationSpec, RelationState, RuleSpec, RuleState, TaskContext
+from core.models import RelationSpec, RelationState, RevisionRef, RuleSpec, RuleState, TaskContext
 from core.predicates import match_predicate
 from core.cost import PromptCostModel
+
+
+def _spec_digest(spec: RuleSpec) -> str:
+    import hashlib, json
+    return hashlib.sha256(json.dumps(spec.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,23 @@ class RequiredExperiment:
             "reason": self.reason,
             "objective_gain": float(self.objective_gain),
         }
+
+
+@dataclass(frozen=True)
+class PairExperimentRequest:
+    """Router-owned request for an unknown pair of canonical revisions."""
+
+    left: RevisionRef
+    right: RevisionRef
+
+    def __post_init__(self) -> None:
+        if self.left is None or self.right is None:
+            raise ValueError("pair experiment endpoints require revision refs")
+        if self.left.subject_id == self.right.subject_id:
+            raise ValueError("pair experiment endpoints must be distinct")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"left": {"subject_id": self.left.subject_id, "version": self.left.version, "spec_digest": self.left.spec_digest}, "right": {"subject_id": self.right.subject_id, "version": self.right.version, "spec_digest": self.right.spec_digest}}
 
 
 def validate_relation_nonoverlap(
@@ -177,8 +199,6 @@ class ConservativeCausalRouter:
         state = states.get(spec.relation_id)
         # Cross-context parent certificates are audit objects; only typed
         # relational-CEGIS children may enter deployment.
-        if spec.kind == "context_dependent_interaction":
-            return False
         return state is not None and state.status == "canonical" and state.drift_state == "stable" and match_predicate(spec.applicability, context)
 
     @classmethod
@@ -399,6 +419,28 @@ class ConservativeCausalRouter:
             certificate = BundleCertificate(tuple(spec.rule_id for spec in bundle), {"context": dict(context_map)}, -1.0, 1.0, "higher_order_suspected")
         blockers: list[Mapping[str, Any]] = []
         required_experiments: list[RequiredExperiment] = []
+        pair_seen: set[str] = set()
+        for left, right in itertools.combinations(applicable, 2):
+            matches, _ = self._matching_relations(frozenset((left.rule_id, right.rule_id)), relation_map, relation_states, context_map)
+            if matches or not (left.scientific_invariants or right.scientific_invariants):
+                continue
+            request = PairExperimentRequest(
+                RevisionRef(left.rule_id, left.version, _spec_digest(left)),
+                RevisionRef(right.rule_id, right.version, _spec_digest(right)),
+            )
+            experiment_id = "pair:" + ":".join((left.rule_id, right.rule_id))
+            if experiment_id in pair_seen:
+                continue
+            pair_seen.add(experiment_id)
+            experiment = RequiredExperiment(
+                experiment_id=experiment_id,
+                experiment_type="pair_factorial",
+                bundle_ids=(left.rule_id, right.rule_id),
+                required_arms=("00", "10", "01", "11"),
+                reason="canonical pair relation is unknown",
+            )
+            required_experiments.append(experiment)
+            blockers.append({"type": "pairwise", "revision_refs": request.to_dict(), **experiment.to_dict()})
         if blocked_frontier:
             frontier_bundle, frontier_score = max(
                 blocked_frontier,

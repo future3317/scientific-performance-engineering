@@ -19,7 +19,11 @@ def build_public_context(
     if workload is not None:
         source["workload"] = dict(workload)
     elif "workload" not in source:
-        source["workload"] = dict(value or {})
+        family_parameters = source.get("family_parameters")
+        source["workload"] = dict(family_parameters) if isinstance(family_parameters, Mapping) else dict(value or {})
+    elif isinstance(source.get("workload"), Mapping) and isinstance(source["workload"].get("family_parameters"), Mapping):
+        source["workload"] = dict(source["workload"]["family_parameters"])
+    source.pop("family_parameters", None)
     for key, replacement in (("hardware", hardware), ("software", software), ("evidence", evidence)):
         if replacement is not None:
             source[key] = dict(replacement)

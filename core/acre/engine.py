@@ -245,4 +245,18 @@ class AcreEngine:
         import hashlib
         key = ":".join(sorted(typed.bundle_versions)) + ":" + hashlib.sha256(json.dumps(typed.context_predicate, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         self.higher_order_certificates[key] = typed.to_dict()
+        if self.state_store is not None:
+            root = Path(self.state_store.root) / "evolution" / "certificates"
+            root.mkdir(parents=True, exist_ok=True)
+            path = root / f"{identifier_digest(key)}.json"
+            path.write_text(
+                json.dumps(typed.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+            if self.mutation_journal is not None:
+                import hashlib
+                self.mutation_journal.append(
+                    "add_v2_spec", key,
+                    artifact_path=str(path.relative_to(self.state_store.root)).replace("\\", "/"),
+                    digest=hashlib.sha256(path.read_bytes()).hexdigest(),
+                )
         return key

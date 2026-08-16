@@ -19,7 +19,7 @@ class FamilyReplayExecutor:
     bounded measurements; no hidden applicability label is consulted.
     """
 
-    def __init__(self, family_id: str, action_id: str, *, repetitions: int = 512, transformation_state: Any = None, noise_scale: float = 0.01) -> None:
+    def __init__(self, family_id: str, action_id: str, *, repetitions: int = 512, transformation_state: Any = None, noise_scale: float = 0.01, campaign_seed: int = 0) -> None:
         if repetitions < 2:
             raise ValueError("replay requires at least two paired repetitions")
         self.family_id = str(family_id)
@@ -29,17 +29,21 @@ class FamilyReplayExecutor:
         if noise_scale < 0.0:
             raise ValueError("noise_scale must be non-negative")
         self.noise_scale = float(noise_scale)
+        self.campaign_seed = int(campaign_seed)
 
     def execute(self, context: Mapping[str, Any], *, arm: str = "on") -> Mapping[str, Any]:
         from benchmark.families.environment import FamilyEnvironment
         env = FamilyEnvironment(self.family_id)
-        context = context.get("context", context) if isinstance(context.get("context", context), Mapping) else context
+        outer = dict(context)
+        workload = outer.get("context", outer) if isinstance(outer.get("context", outer), Mapping) else outer
+        group_id = str(outer.get("independence_group", outer.get("context_id", "default")))
+        context_id = str(outer.get("context_id", group_id))
         deployed = [self.action_id] if arm == "on" else []
-        outcome = env.evaluate(context, deployed, self.transformation_state)
+        outcome = env.evaluate(workload, deployed, self.transformation_state)
         # Paired replay shares the fixture-level randomization stream across
         # on/off arms; the arm effect is therefore estimated by paired
         # differences rather than by two unrelated noise draws.
-        seed_bytes = hashlib.sha256(f"{self.family_id}|{self.action_id}|{context.get('context_id', '')}".encode()).digest()
+        seed_bytes = hashlib.sha256(f"{self.family_id}|{self.action_id}|{group_id}|{self.campaign_seed}".encode()).digest()
         rng = random.Random(int.from_bytes(seed_bytes[:8], "big"))
         measurements = [max(-1.0, min(1.0, float(outcome.utility) + rng.uniform(-self.noise_scale, self.noise_scale))) for _ in range(self.repetitions)]
         return {
@@ -48,7 +52,55 @@ class FamilyReplayExecutor:
             "measurements": measurements,
             "sampling_model": "synthetic_bounded_noise_v1",
             "oracle_bundle": list(outcome.oracle_bundle),
+            "context_id": context_id,
+            "independence_group": group_id,
         }
+
+
+class ExecutableFamilyExecutor:
+    """Adapter for a materialized workspace plus independent verifier."""
+
+    execution_source = "external_executor"
+
+    def __init__(self, verifier: Any, *, action_id: str) -> None:
+        self.verifier = verifier
+        self.action_id = str(action_id)
+
+    def execute(self, context: Mapping[str, Any], *, arm: str = "on") -> Mapping[str, Any]:
+        result = self.verifier(dict(context), deployed=(self.action_id,) if arm == "on" else ())
+        if not isinstance(result, Mapping) or not isinstance(result.get("measurements"), list):
+            raise ValueError("executable family verifier must return repeated measurements")
+        return dict(result)
+
+
+class SyntheticFamilyExecutor(FamilyReplayExecutor):
+    """Calibration-only family simulator; never formal promotion evidence."""
+
+    execution_source = "synthetic_family"
+
+
+class FamilyPairReplayExecutor:
+    """Execute a canonical endpoint pair through the family environment."""
+
+    def __init__(self, family_id: str, left_action: str, right_action: str, *, transformation_state: Any = None) -> None:
+        self.family_id = str(family_id)
+        self.left_action = str(left_action)
+        self.right_action = str(right_action)
+        self.transformation_state = transformation_state
+
+    def execute(self, context: Mapping[str, Any], *, context_id: str, blocks: int = 8) -> list[dict[str, float]]:
+        from benchmark.families.environment import FamilyEnvironment
+        env = FamilyEnvironment(self.family_id)
+        workload = context.get("workload", context) if isinstance(context, Mapping) else {}
+        outcomes: dict[str, float] = {}
+        for arm, deployed in (
+            ("00", ()),
+            ("10", (self.left_action,)),
+            ("01", (self.right_action,)),
+            ("11", (self.left_action, self.right_action)),
+        ):
+            outcomes[arm] = float(env.evaluate(workload, deployed, self.transformation_state).utility)
+        return [dict(outcomes) for _ in range(int(blocks))]
 
 
 class PromotionReplayScheduler:
@@ -74,7 +126,7 @@ class PromotionReplayScheduler:
         # The task stream is only the proposal trigger.  Independent replay
         # groups come from preregistered family contexts and therefore remain
         # available even when a family has fewer public anchor tasks.
-        pools = family_views(family_id, count=max(self.max_groups, 24), seed=seed)
+        pools = family_views(family_id, count=max(3 * self.max_groups, 24), seed=seed)
         contexts: list[dict[str, Any]] = []
         for instance in pools["representative_pool"]:
             group_id = f"family-{instance.instance_id}"

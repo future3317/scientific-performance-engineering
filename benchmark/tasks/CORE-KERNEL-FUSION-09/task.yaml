@@ -39,7 +39,7 @@ generator_family_id: GEN-COMPILER
 oracle_fix_pattern_id: FIX-CORE-KERNEL-FUSION-09
 scientific_contract_id: CONTRACT-COMPILER
 difficulty_tier: medium
-workspace_ast_skeleton_hash: 74542920fdb0f4251dcff573d37935c3ea4182550cdfb13a41c42d9b46e62c3f
+workspace_ast_skeleton_hash: "114a342520c4531c8089323ff0d53735e6870e2267187d74439f257ad86264df"
 family_id: compile
 anchor_instance_id: CORE-KERNEL-FUSION-09
 family_parameters:
@@ -49,7 +49,6 @@ family_parameters:
 family_instance_digest: "43e2318a8e9a3b6869625bf76fec2f9df8d21f8330b6776530e91e823433a896"
 public_context:
   workload:
-    family_parameters:
-        logical_steps: 192
-        graph_size: 320
-        dynamic_shape_rate: 0.2
+    logical_steps: 192
+    graph_size: 320
+    dynamic_shape_rate: 0.2

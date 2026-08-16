@@ -226,6 +226,8 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         public_context = spec.get("public_context")
         if not isinstance(public_context, dict) or not isinstance(public_context.get("workload"), dict) or not public_context.get("workload"):
             errors.append(f"{task_dir.name}: missing explicit public routing context")
+        elif isinstance(spec.get("family_parameters"), dict) and public_context.get("workload") != spec.get("family_parameters"):
+            errors.append(f"{task_dir.name}: public_context.workload must equal family_parameters")
         if not spec.get("family_id"):
             errors.append(f"{task_dir.name}: missing family_id anchor projection")
         elif not spec.get("anchor_instance_id"):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import math
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from core.sequential_stats import paired_repetition_interval
@@ -32,16 +33,55 @@ class ExperimentExecution:
     evidence_events: tuple[EvidenceEvent, ...] = ()
 
 
+@dataclass(frozen=True)
+class PairedContrastEvidence:
+    """One causal contrast per independence group.
+
+    Raw arm observations remain in the case artifact.  This envelope is the
+    only evidence object consumed by Core promotion assessment.
+    """
+
+    independence_group: str
+    paired_effect: float
+    lcb: float
+    ucb: float
+    source_on_event_ids: tuple[str, ...]
+    source_off_event_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "independence_group": self.independence_group,
+            "effect": self.paired_effect,
+            "paired_effect": self.paired_effect,
+            "lcb": self.lcb,
+            "ucb": self.ucb,
+            "source_on_event_ids": list(self.source_on_event_ids),
+            "source_off_event_ids": list(self.source_off_event_ids),
+        }
+
+
+def _paired_effect(on: float, off: float, *, higher_is_better: bool, scale: float) -> float:
+    """Return the canonical dimensionless effect, including zero-valued controls."""
+    try:
+        return utility_effect(on, off, higher_is_better=higher_is_better, log_scale=scale)
+    except ValueError:
+        if not all(math.isfinite(value) for value in (on, off)):
+            raise
+        direction = 1.0 if higher_is_better else -1.0
+        return max(-1.0, min(1.0, direction * (on - off)))
+
+
 class ReplaySequentialCertificate:
     """Group-level sequential certificate for paired replay."""
 
-    def __init__(self, *, minimum_groups: int, epsilon: float = 0.0, delta: float = 0.05, p_min: float = 0.8) -> None:
+    def __init__(self, *, minimum_groups: int, max_groups: int | None = None, epsilon: float = 0.0, delta: float = 0.05, p_min: float = 0.8) -> None:
         self.minimum_groups = int(minimum_groups)
         self.epsilon = float(epsilon)
         self.delta = float(delta)
         if not 0.0 < float(p_min) <= 1.0:
             raise ValueError("p_min must be in (0, 1]")
         self.p_min = float(p_min)
+        self.max_groups = max(int(max_groups or self.minimum_groups * 3), self.minimum_groups)
 
     def update(self, cases: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
         grouped: dict[str, Mapping[str, Any]] = {}
@@ -71,7 +111,14 @@ class ReplaySequentialCertificate:
             probability_lcb = mixture_lower_bound(successes, len(intervals), self.delta)
             if probability_lcb >= self.p_min:
                 return {"status": "passed", "stop": True, "groups": len(intervals), "successes": successes, "failures": failures, "promotion_probability_lcb": probability_lcb}
-            if failures > len(intervals) - self.minimum_groups and len(intervals) >= self.minimum_groups:
+            remaining = max(0, self.max_groups - len(intervals))
+            # A failed prefix is futile only when even an all-success future
+            # at the preregistered maximum cannot clear p_min.
+            best_possible = max(
+                mixture_lower_bound(successes + k, len(intervals) + k, self.delta)
+                for k in range(remaining + 1)
+            )
+            if best_possible < self.p_min:
                 return {"status": "futility", "stop": True, "groups": len(intervals), "successes": successes, "failures": failures, "promotion_probability_lcb": probability_lcb}
         return {"status": "collecting", "groups": len(intervals), "successes": successes, "failures": failures, "promotion_probability_lcb": probability_lcb}
 
@@ -118,25 +165,33 @@ def execute_paired_plan(
                 case_context = dict(case["context"])
                 case_context["rule_versions"] = versions
                 case["context"] = case_context
-            for arm_name, measurements in (("on", on["measurements"]), ("off", off["measurements"])):
-                for repetition, value in enumerate(measurements):
-                    evidence_events.append(EvidenceEvent(
-                        schema_version=2,
-                        event_id=f"{plan.subject_id}:{group_id}:{arm_name}:{repetition}",
-                        context=dict(case["context"]),
-                        assignment={"interventions": {plan.subject_id: 1 if arm_name == "on" else 0}, "propensity": 0.5, "design_id": plan.design},
-                        outcome_vector={"utility": float(value)},
-                        scientific_gates={"paired": bool(case["scientific_ok"])},
-                        artifacts={"case_id": case["case_id"], "repetition": repetition},
-                        versions={str(key): str(value) for key, value in versions.items()},
-                        source_id="core-experiment",
-                        independence_group=group_id,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
-                        evidence_stream="adversarial" if case["query_type"] == "adversarial" else "representative",
-                        query_id=str(case["context_id"]),
-                        trust_zone="harness",
-                        attacker_controlled_fields=[],
-                    ))
+            effects = [_paired_effect(float(a), float(b), higher_is_better=bool(case.get("higher_is_better", True)), scale=float(case.get("utility_scale", 0.5))) for a, b in zip(on["measurements"], off["measurements"])]
+            lcb, ucb = paired_repetition_interval(effects, 0.05)
+            contrast = PairedContrastEvidence(
+                independence_group=group_id,
+                paired_effect=sum(effects) / len(effects),
+                lcb=lcb,
+                ucb=ucb,
+                source_on_event_ids=tuple(f"{plan.subject_id}:{group_id}:on:{index}" for index in range(len(on["measurements"]))),
+                source_off_event_ids=tuple(f"{plan.subject_id}:{group_id}:off:{index}" for index in range(len(off["measurements"]))),
+            )
+            evidence_events.append(EvidenceEvent(
+                schema_version=2,
+                event_id=f"{plan.subject_id}:{group_id}:paired-contrast",
+                context=dict(case["context"]),
+                assignment={"interventions": {plan.subject_id: 1}, "propensity": 0.5, "design_id": plan.design},
+                outcome_vector={"utility": contrast.paired_effect, "paired_effect": contrast.paired_effect, "contrast": "on-minus-off"},
+                scientific_gates={"paired": bool(case["scientific_ok"])},
+                artifacts={"case_id": case["case_id"], "paired_contrast": contrast.to_dict()},
+                versions={str(key): str(value) for key, value in versions.items()},
+                source_id="core-experiment",
+                independence_group=group_id,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                evidence_stream="adversarial" if case["query_type"] == "adversarial" else "representative",
+                query_id=str(case["context_id"]),
+                trust_zone="harness",
+                attacker_controlled_fields=[],
+            ))
         record_case(case)
         cases.append(case)
         certificate = dict(update_certificate(tuple(cases)))
@@ -146,4 +201,4 @@ def execute_paired_plan(
     return ExperimentExecution(tuple(cases), "plan_exhausted", len(cases), certificate, tuple(evidence_events))
 
 
-__all__ = ["ExperimentExecutor", "ExperimentPlan", "ExperimentExecution", "ReplaySequentialCertificate", "execute_paired_plan"]
+__all__ = ["ExperimentExecutor", "ExperimentPlan", "ExperimentExecution", "PairedContrastEvidence", "ReplaySequentialCertificate", "execute_paired_plan"]

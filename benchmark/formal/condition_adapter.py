@@ -122,7 +122,12 @@ class FormalConditionAdapter:
             "selected_relation_ids": relation_ids,
             "proposed_interventions": actions,
             "rule_views": rendered.get("rule_views", []),
-            "routing": {"optimizer_mode": routed.optimizer_mode, "objective": routed.objective, "blockers": list(routed.blockers)},
+            "routing": {
+                "optimizer_mode": routed.optimizer_mode,
+                "objective": routed.objective,
+                "blockers": list(routed.blockers),
+                "required_experiments": list(routed.required_experiments),
+            },
             "pending_replay_contexts": pending,
             "token_cost": int(rendered["token_cost"]),
             "renderer": rendered.get("renderer"),

@@ -82,14 +82,30 @@ class MutationJournal:
         for entry in self.entries():
             if not entry.artifact_path or not entry.digest:
                 continue
-            path = root / entry.artifact_path
-            if path.is_absolute() or ".." in path.parts:
+            relative = Path(entry.artifact_path)
+            if relative.is_absolute() or ".." in relative.parts:
                 raise ValueError("journal artifact path escapes store")
+            path = root / relative
             if not path.is_file():
                 raise ValueError(f"journaled artifact is missing: {entry.artifact_path}")
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            if digest != entry.digest:
-                raise ValueError(f"journaled artifact digest mismatch: {entry.artifact_path}")
+            # Immutable specs are checked at every journal entry below;
+            # mutable artifacts are verified as transition chains.
+        by_artifact: dict[str, list[Mutation]] = {}
+        for entry in self.entries():
+            if entry.artifact_path and entry.digest:
+                by_artifact.setdefault(str(Path(entry.artifact_path)), []).append(entry)
+        for artifact, entries in by_artifact.items():
+            relative = Path(artifact)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("journal artifact path escapes store")
+            path = root / relative
+            if not path.is_file():
+                raise ValueError(f"journaled artifact is missing: {artifact}")
+            for previous, current in zip(entries, entries[1:]):
+                if current.old_digest and current.old_digest != previous.digest:
+                    raise ValueError(f"mutation transition chain mismatch: {artifact}")
+            if entries[-1].digest != hashlib.sha256(path.read_bytes()).hexdigest():
+                raise ValueError(f"journaled artifact digest mismatch: {artifact}")
 
 
 __all__ = ["Mutation", "MutationJournal"]

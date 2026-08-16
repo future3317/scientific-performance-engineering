@@ -129,8 +129,6 @@ class AcreMaintainer:
         context_root = first_context.get("context", first_context) if isinstance(first_context, Mapping) else {}
         bundle_versions = {str(key): int(value) for key, value in (context_root.get("rule_versions", {}) if isinstance(context_root, Mapping) and isinstance(context_root.get("rule_versions", {}), Mapping) else {}).items()}
         if len(bundle_versions) != 3:
-            bundle_versions = {str(key): 1 for key in (first_context.get("bundle_ids", ()) if isinstance(first_context, Mapping) else ())}
-        if len(bundle_versions) != 3:
             raise ValueError("higher-order execution requires three versioned bundle endpoints")
         status = "pairwise_certified" if estimate.status == "confirmed_negligible" else "hyperedge_required" if estimate.status == "confirmed_nonzero" else "unresolved"
         certificate = HigherOrderCertificate(
@@ -179,6 +177,13 @@ class AcreMaintainer:
                 applicability_provenance={"source": "core-factorial", "context_id": str(context_id)},
                 endpoint_versions={str(key): int(value) for key, value in endpoint_versions.items()},
             )
+            if self.engine.state_store is not None:
+                import hashlib, json
+                directory = self.engine.state_store.root / "evolution" / "relation_certificates"
+                directory.mkdir(parents=True, exist_ok=True)
+                payload = certificates[str(context_id)].to_dict()
+                digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+                (directory / f"{digest}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return certificates
 
 __all__ = ["AcreMaintainer", "MaintenanceInput", "MaintenanceTransition"]

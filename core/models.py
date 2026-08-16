@@ -116,6 +116,27 @@ class ScientificPolicySpec:
 
 
 @dataclass(frozen=True)
+class RawRealizationRecord:
+    """Execution artifact produced before semantic action classification."""
+
+    task_id: str
+    context_id: str
+    baseline_digest: str
+    patch: dict[str, Any]
+    realized_digest: str
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.task_id, "task_id")
+        validate_identifier(self.context_id, "context_id")
+        for name, value in (("baseline_digest", self.baseline_digest), ("realized_digest", self.realized_digest)):
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"{name} must be non-empty")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class RealizationRecord:
     """Task-specific execution record for a semantic action."""
 

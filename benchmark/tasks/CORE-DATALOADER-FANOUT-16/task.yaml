@@ -39,7 +39,7 @@ generator_family_id: GEN-DATA-FANOUT
 oracle_fix_pattern_id: FIX-DATALOADER-TOPOLOGY
 scientific_contract_id: CONTRACT-DATA-ORDER
 difficulty_tier: medium
-workspace_ast_skeleton_hash: 38a9e3882682017856c7d4c51afa42ae823c8fe7086652ae797f9dab0b6bbfab
+workspace_ast_skeleton_hash: e94bc3aa697850f6c1e78e63222eea0388eaff6977628e3b680fc845bceb48a5
 family_id: h2d_pipeline
 anchor_instance_id: CORE-DATALOADER-FANOUT-16
 family_parameters:
@@ -50,8 +50,7 @@ family_parameters:
 family_instance_digest: "2d6de97d06c570b131f824356d09a9062b2e08defc3eb99ab02d97326303a2c4"
 public_context:
   workload:
-    family_parameters:
-        batch_size: 64
-        worker_count: 3
-        prefetch_factor: 4
-        pin_memory: true
+    batch_size: 64
+    worker_count: 3
+    prefetch_factor: 4
+    pin_memory: true

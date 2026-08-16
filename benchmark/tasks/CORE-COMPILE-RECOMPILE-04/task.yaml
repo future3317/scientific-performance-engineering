@@ -39,7 +39,7 @@ generator_family_id: GEN-COMPILER
 oracle_fix_pattern_id: FIX-CORE-COMPILE-RECOMPILE-04
 scientific_contract_id: CONTRACT-COMPILER
 difficulty_tier: medium
-workspace_ast_skeleton_hash: dd0cbfe46b0e31cacdb85b0664111b28e8f411548169a77b754f8bfa1a91ffc8
+workspace_ast_skeleton_hash: fbe32af784f35c2510b1f2c5f75a48a9da4c6611cd927fad9d7951746a8aaf75
 family_id: compile
 anchor_instance_id: CORE-COMPILE-RECOMPILE-04
 family_parameters:
@@ -49,7 +49,6 @@ family_parameters:
 family_instance_digest: "4e92590f861726a41b0ec393f1902d9994c46669682238caf8aa03784f416f15"
 public_context:
   workload:
-    family_parameters:
-        logical_steps: 128
-        graph_size: 64
-        dynamic_shape_rate: 0.2
+    logical_steps: 128
+    graph_size: 64
+    dynamic_shape_rate: 0.2

@@ -50,6 +50,15 @@ class StateStore:
         new_digest = self.digest(new_state)
         path = self.path_for(new_state)
         path.parent.mkdir(parents=True, exist_ok=True)
+        previous_artifact_digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else ""
+        if path.exists():
+            try:
+                current_payload = json.loads(path.read_text(encoding="utf-8"))
+                current = RuleState.from_dict(current_payload) if isinstance(old_state, RuleState) else RelationState.from_dict(current_payload)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise ValueError("existing state artifact is invalid") from exc
+            if self.digest(current) != old_digest:
+                raise ValueError("state transition compare-and-swap failed")
         fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -69,7 +78,7 @@ class StateStore:
                 version=int(new_state.version),
                 artifact_path=str(path.relative_to(self.root)),
                 digest=artifact_digest,
-                old_digest=old_digest,
+                old_digest=previous_artifact_digest,
                 operation_detail=str(decision.operation),
             )
         return path, old_digest, new_digest

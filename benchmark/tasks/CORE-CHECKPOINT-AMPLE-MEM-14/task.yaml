@@ -39,7 +39,7 @@ generator_family_id: GEN-MEMORY-CHECKPOINT
 oracle_fix_pattern_id: FIX-CHECKPOINT-SELECTIVE
 scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
 difficulty_tier: medium
-workspace_ast_skeleton_hash: 04f499bd90057ddf236a1fa7ea05e3b0b15bc92e72df3a4c184bff9e23254a71
+workspace_ast_skeleton_hash: c99e1e2a7f8bcde3f47121b81bbc4eb6f6aa9890c8611fa595fda117f7a47fff
 family_id: checkpoint
 anchor_instance_id: CORE-CHECKPOINT-AMPLE-MEM-14
 family_parameters:
@@ -49,7 +49,6 @@ family_parameters:
 family_instance_digest: "0ba85d210b77632f6fc3e19f841a325819d9820c9c71e30301045e6f9e782b20"
 public_context:
   workload:
-    family_parameters:
-        memory_pressure: 0.4
-        segment_count: 3
-        recompute_ratio: 0.2
+    memory_pressure: 0.4
+    segment_count: 3
+    recompute_ratio: 0.2
