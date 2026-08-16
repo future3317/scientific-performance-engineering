@@ -144,13 +144,21 @@ def test_external_node_router_to_restart_lifecycle(tmp_path: Path):
     assert synthesis.status == "identified"
     candidate = replace(_rule("RULE-E2E", "e2e-action"), applicability=synthesis.predicate).to_dict()
     candidate["severity"] = "P3"
+    heldout_on = _external_node({"context": {"domain": "runtime", "workload": {"x": 3}}}, arm="on")
+    heldout_off = _external_node({"context": {"domain": "runtime", "workload": {"x": 3}}}, arm="off")
+    poison_on = _external_node({"context": {"domain": "runtime", "workload": {"x": -2}}}, arm="on")
+    poison_off = _external_node({"context": {"domain": "runtime", "workload": {"x": -2}}}, arm="off")
+    heldout_effect = float(heldout_on["measurements"][0]) - float(heldout_off["measurements"][0])
+    poison_accepted = float(poison_on["measurements"][0]) > float(poison_off["measurements"][0])
+>>>>>>> 79331a8 (refactor: simplify freeze readiness execution paths)
     validation = {
         "scope": "calibration", "promotion_case_ids": [case["case_id"] for case in cases],
         "synthesis_case_ids": [case["case_id"] for case in cases],
         "heldout_regression_cases": [{"case_id": "RULE-E2E-heldout", "executed": True, "execution_source": "external_executor",
-                                       "scientific_ok": True, "effect_lcb": 0.05, "effect_ucb": 0.15}],
+                                       "scientific_ok": bool(heldout_on["scientific_ok"] and heldout_off["scientific_ok"]),
+                                       "effect_lcb": heldout_effect, "effect_ucb": heldout_effect}],
         "poison_probe_cases": [{"case_id": "RULE-E2E-poison", "executed": True, "execution_source": "external_executor",
-                                 "accepted": False, "abstained": True}],
+                                 "accepted": poison_accepted, "abstained": not poison_accepted}],
         "regression_tolerance": 0.0,
     }
     validation_path = tmp_path / "evolution" / "validation" / "node.json"
