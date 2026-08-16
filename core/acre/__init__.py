@@ -1,7 +1,7 @@
 """Core-owned ACRE semantics and orchestration primitives."""
 
 from .predicates import PredicateGrammar, SYNTHESIZER_VERSION, predicate_complexity
-from .cegis import BoundaryObservation, StatisticalCEGIS, SynthesisResult
+from .cegis import BoundaryObservation, StatisticalCEGIS, SynthesisResult, SynthesisCertificate, synthesize_boundary
 from .factorial import (
     CoverageResult, FactorialBlock, FactorialEngine, FactorialEstimate,
     HigherOrderEstimate, ThreeWayBlock, RelationEvidenceCertificate, canonical_relation_label,
@@ -17,7 +17,7 @@ from .evidence import EvidenceAssessment, adversarial_events, assess, representa
 from .controller import AcreController
 
 __all__ = [
-    "PredicateGrammar", "predicate_complexity", "SynthesisResult", "StatisticalCEGIS", "BoundaryObservation", "SYNTHESIZER_VERSION",
+    "PredicateGrammar", "predicate_complexity", "SynthesisResult", "SynthesisCertificate", "synthesize_boundary", "StatisticalCEGIS", "BoundaryObservation", "SYNTHESIZER_VERSION",
     "CoverageResult", "FactorialBlock", "FactorialEngine", "FactorialEstimate", "simulate_coverage",
     "AcquisitionPolicy", "AcquisitionQuery", "AcquisitionResult", "run_acquisition",
     "ConservativeCausalRouter", "RoutingDecision", "BundleCertificate", "validate_relation_nonoverlap", "RelationDecisionPolicy",

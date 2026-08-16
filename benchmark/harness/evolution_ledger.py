@@ -35,17 +35,25 @@ class EvolutionDecisionLedger:
         self._sequence = 0
         self._prev_digest = ""
         if self.path and self.path.is_file():
+            previous_digest = ""
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 try:
                     value = json.loads(line)
                 except json.JSONDecodeError:
                     continue
                 if isinstance(value, dict) and (value.get("subject_id") or value.get("rule_id")):
+                    if value.get("prev_digest", "") != previous_digest:
+                        raise ValueError("evolution decision ledger digest chain is invalid")
+                    body = {key: item for key, item in value.items() if key != "record_digest"}
+                    expected_digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+                    if value.get("record_digest") != expected_digest:
+                        raise ValueError("evolution decision ledger record digest is invalid")
                     subject = value.get("subject_id", value.get("rule_id"))
                     item = Decision(str(subject), int(value["version"]), str(value["replay_digest"]), str(value["status"]), value.get("utility"))
                     self._decisions[(item.rule_id, item.version, item.replay_digest)] = item
                     self._sequence = max(self._sequence, int(value.get("sequence", 0)))
-                    self._prev_digest = str(value.get("record_digest", self._prev_digest))
+                    previous_digest = str(value.get("record_digest"))
+            self._prev_digest = previous_digest
 
     def record(self, rule_id: str, version: int, replay_digest: str, status: str, utility: float | None = None) -> Decision:
         key = (str(rule_id), int(version), str(replay_digest))
@@ -123,7 +131,7 @@ class CandidateEvidenceLedger:
             "case_path": str(case.get("case_path", "")),
             "action_digest": str(action_digest),
         }
-        existing: set[tuple[str, int, str]] = set()
+        existing: dict[tuple[str, int, str], dict[str, Any]] = {}
         if self.path.is_file():
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 try:
@@ -131,9 +139,14 @@ class CandidateEvidenceLedger:
                 except json.JSONDecodeError:
                     continue
                 if isinstance(value, dict):
-                    existing.add((str(value.get("subject_id")), int(value.get("version", 0)), str(value.get("replay_context_digest"))))
+                    key = (str(value.get("subject_id")), int(value.get("version", 0)), str(value.get("replay_context_digest")))
+                    existing[key] = value
         key = (record["subject_id"], record["version"], digest)
         if key in existing:
+            prior = existing[key]
+            immutable = ("case_id", "case_sha256", "case_path", "action_digest")
+            if any(prior.get(field, "") != record.get(field, "") for field in immutable):
+                raise ValueError("candidate evidence membership is immutable")
             return None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as stream:

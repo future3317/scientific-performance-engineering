@@ -494,6 +494,17 @@ def audit(root: Path, schema_root: Path | None = None) -> list[str]:
                         errors.append(f"registry relation has no card: {entry}")
                     elif entry.get("status") != "canonical":
                         errors.append(f"registry relation must be canonical: {entry.get('relation_id')}")
+                    else:
+                        card = relation_cards[str(entry["relation_id"])]
+                        path_value = entry.get("path")
+                        if not isinstance(path_value, str) or not (root / path_value).is_file():
+                            errors.append(f"registry relation path does not exist: {path_value}")
+                        else:
+                            path = root / path_value
+                            if entry.get("spec_digest") and hashlib.sha256(path.read_bytes()).hexdigest() != str(entry["spec_digest"]):
+                                errors.append(f"registry relation spec digest mismatch: {entry['relation_id']}")
+                            if int(entry.get("version", 0)) != int(card.get("version", 0)):
+                                errors.append(f"registry relation version mismatch: {entry['relation_id']}")
         except (OSError, json.JSONDecodeError) as exc:
             errors.append(f"{relation_registry_path}: {exc}")
     return errors

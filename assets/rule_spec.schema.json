@@ -14,7 +14,6 @@
     "evidence_requirements",
     "scientific_invariants",
     "abstain_conditions",
-    "relations",
     "runtime_cost",
     "provenance_policy"
   ],
@@ -29,7 +28,7 @@
     },
     "parent": {
       "type": [
-        "string",
+        "object",
         "null"
       ]
     },
@@ -59,9 +58,6 @@
       }
     },
     "abstain_conditions": {
-      "type": "object"
-    },
-    "relations": {
       "type": "object"
     },
     "runtime_cost": {

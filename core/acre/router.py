@@ -92,6 +92,11 @@ class ConservativeCausalRouter:
 
     @staticmethod
     def _tokens(spec: RuleSpec) -> int:
+        # Explicit measured runtime cost is authoritative when present;
+        # otherwise use the canonical worker-visible serialization.  Formal
+        # candidates populate the former from PromptCostModel, so C and D
+        # still share one cost contract while old in-memory fixtures remain
+        # usable.
         declared = spec.runtime_cost.get("tokens", spec.runtime_cost.get("token_cost"))
         if declared is not None:
             if float(declared) < 1:
@@ -104,6 +109,8 @@ class ConservativeCausalRouter:
             "mechanism": spec.expected_mechanism,
             "applicability": spec.applicability,
             "invariants": spec.scientific_invariants,
+            "abstain_conditions": spec.abstain_conditions,
+            "provenance": spec.provenance_policy,
         }
         return PromptCostModel().cost(view)
 
@@ -235,13 +242,37 @@ class ConservativeCausalRouter:
         context: Mapping[str, Any],
     ) -> float:
         score = sum(self._utility(states[spec.rule_id]) for spec in bundle)
+        uncertainty_penalty = 0.0
         for left, right in itertools.combinations(bundle, 2):
             matches, _ = self._matching_relations(frozenset((left.rule_id, right.rule_id)), relation_map, relation_states, context)
             relation = matches[0] if len(matches) == 1 else None
             if relation is not None:
-                score += self._lower_bound(relation, relation_states.get(relation.relation_id))
+                state = relation_states.get(relation.relation_id)
+                # Relation semantics are not interchangeable utility bonuses:
+                # conflicts reject, prerequisites constrain closure, redundancy
+                # removes duplicate node gain, and only synergy/antagonism
+                # contribute a pairwise effect term.
+                if relation.kind == "semantic_conflict":
+                    continue
+                if relation.kind == "prerequisite":
+                    continue
+                if relation.kind == "redundancy":
+                    score -= min(self._utility(states[spec.rule_id]) for spec in (left, right))
+                elif relation.kind in {"synergy", "antagonism"}:
+                    score += self._lower_bound(relation, state)
+                bounds = state.contrast_bounds.get("gamma", {}) if state is not None else {}
+                if isinstance(bounds, Mapping) and {"lcb", "ucb"}.issubset(bounds):
+                    uncertainty_penalty += max(0.0, float(bounds["ucb"]) - float(bounds["lcb"])) / 2.0
+            else:
+                # Unknown pairwise evidence is not independence.  It reduces
+                # the robust value of a bundle even when neither endpoint is
+                # scientifically sensitive enough to hard-block it.
+                uncertainty_penalty += 0.05
         if len(bundle) > 1:
-            score -= self.zeta
+            uncertainty_penalty += self.zeta
+        if len(bundle) >= 3:
+            uncertainty_penalty += 0.05 * (len(bundle) - 2)
+        score -= uncertainty_penalty
         score -= self.lambda_tokens * sum(self._tokens(spec) for spec in bundle)
         return score
 
@@ -338,13 +369,24 @@ class ConservativeCausalRouter:
         blockers: list[Mapping[str, Any]] = []
         if len(bundle) >= 3 and certificate.status == "higher_order_suspected":
             blockers.append({"type": "higher_order", "bundle": list(spec.rule_id for spec in bundle), "required_arms": ["000", "001", "010", "011", "100", "101", "110", "111"]})
+        if optimizer_mode == "exact":
+            upper_bound = objective
+            optimality_gap = 0.0
+        else:
+            optimistic = sum(max(0.0, self._utility(rule_states[spec.rule_id])) for spec in applicable)
+            for left, right in itertools.combinations(applicable, 2):
+                matches, _ = self._matching_relations(frozenset((left.rule_id, right.rule_id)), relation_map, relation_states, context_map)
+                if len(matches) == 1:
+                    optimistic += max(0.0, self._lower_bound(matches[0], relation_states.get(matches[0].relation_id)))
+            upper_bound = optimistic
+            optimality_gap = max(0.0, upper_bound - objective)
         return RoutingDecision(
             selected_rule_ids=tuple(spec.rule_id for spec in bundle),
             objective=objective,
             rejected_reasons={rule_id: tuple(sorted(reasons)) for rule_id, reasons in rejected.items() if reasons},
             bundle_certificate=certificate,
             optimizer_mode=optimizer_mode,
-            upper_bound=objective if optimizer_mode == "exact" else None,
-            optimality_gap=0.0 if optimizer_mode == "exact" else None,
+            upper_bound=upper_bound,
+            optimality_gap=optimality_gap,
             blockers=tuple(blockers),
         )

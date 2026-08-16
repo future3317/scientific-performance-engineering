@@ -82,11 +82,12 @@ def generate_family_interaction_surface(
     left = family_instances(resolved[0], count=count, seed=seed)
     right = family_instances(resolved[1], count=count, seed=seed + 1)
     surfaces: list[dict[str, object]] = []
-    oracle = InteractionOracle(CompositionSpec(resolved[0], resolved[1]))
+    declared = tuple(FAMILY_SPECS[resolved[0]].legal_compositions)
+    composition = next((item for item in declared if item.right_family == resolved[1]), None)
+    if composition is None:
+        raise ValueError(f"family composition is not preregistered: {resolved[0]} x {resolved[1]}")
+    oracle = InteractionOracle(composition)
     for index, (a, b) in enumerate(zip(left, right)):
-        sign_flip = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) > 0.5
-        semantic_conflict = a.parameters.get("worker_count", 0) > 6 and b.parameters.get("dynamic_shape_rate", 0) <= 0.5
-        redundancy = a.parameters.get("worker_count", 0) <= 4 and b.parameters.get("dynamic_shape_rate", 0) <= 0.2
         # The oracle derives hidden relation from the family parameters.  The
         # only registered context variation is runtime regime; no relation
         # label is injected into the surface.
@@ -95,8 +96,8 @@ def generate_family_interaction_surface(
         outcomes = result["outcomes"]
         relation = result["hidden_relation"]
         contexts = [{"name": "baseline", "outcomes": outcomes}]
-        if sign_flip:
-            shifted = oracle.evaluate(a, b, {"regime": "shifted"})
+        shifted = oracle.evaluate(a, b, {"regime": "shifted"})
+        if shifted["hidden_relation"] != result["hidden_relation"]:
             contexts.append({"name": "shifted", "outcomes": shifted["outcomes"], "hidden_relation": shifted["hidden_relation"]})
             relation = "context_dependent_relation"
         surfaces.append({
@@ -154,6 +155,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             identified = RelationIdentifier(practical_margin=0.08, equivalence_margin=0.35).identify(context_estimates)
             row = {"blocks": block_count, "decision": estimate.decision, "gamma": estimate.gamma, "gamma_lcb": estimate.gamma_lcb, "gamma_ucb": estimate.gamma_ucb}
             row["contrast_intervals"] = {key: list(value) for key, value in estimate.contrast_intervals.items()}
+            row["raw_contrasts"] = dict(estimate.raw_contrasts)
             row["relation_identifier"] = identified.decision
             row["context_decisions"] = dict(identified.context_decisions)
             estimates.append(row)
@@ -175,7 +177,8 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             "gamma": estimate.gamma,
             "gamma_lcb": estimate.gamma_lcb,
             "gamma_ucb": estimate.gamma_ucb,
-            "contrast_intervals": {key: list(value) for key, value in estimate.contrast_intervals.items()},
+        "contrast_intervals": {key: list(value) for key, value in estimate.contrast_intervals.items()},
+        "raw_contrasts": dict(estimate.raw_contrasts),
             "context_decisions": dict(identified.context_decisions),
             "applicability_predicate": identified.applicability_predicate,
             "stopping_blocks": stopping_blocks,

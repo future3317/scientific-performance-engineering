@@ -13,11 +13,13 @@ from core.models import TaskContext
 from core.cost import PromptCostModel
 
 
-def _canonical_public_context(value: Mapping[str, Any]) -> dict[str, Any]:
+def build_public_context(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Build the single worker-visible context used by every condition."""
+    source = value if isinstance(value, Mapping) else {}
     result = {
-        key: dict(value[key]) if isinstance(value.get(key), dict) else value[key]
+        key: dict(source[key]) if isinstance(source.get(key), dict) else source[key]
         for key in ("domain", "workload", "hardware", "software", "evidence")
-        if key in value
+        if key in source
     }
     workload = result.setdefault("workload", {})
     nested = workload.pop("family_parameters", None)
@@ -26,13 +28,17 @@ def _canonical_public_context(value: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+_canonical_public_context = build_public_context
+
+
 class FormalConditionAdapter:
     """Expose C raw retrieval and D governed routing through one interface."""
 
-    def __init__(self, condition: str, store: str | Path, *, token_budget: int = 4096) -> None:
+    def __init__(self, condition: str, store: str | Path, *, token_budget: int = 4096, family_id: str | None = None) -> None:
         self.condition = condition.upper()
         self.store = Path(store)
         self.token_budget = token_budget
+        self.family_id = family_id
         if self.condition not in {"C", "C_STRESS", "D"}:
             raise ValueError("formal condition adapter supports C, C_STRESS, or D")
 
@@ -59,7 +65,7 @@ class FormalConditionAdapter:
         if self.condition in {"C", "C_STRESS"}:
             query = typed_context.to_dict()
             retriever = RawExperienceRetriever(self.store, token_budget=self.token_budget)
-            experiences = retriever.retrieve(query=query)
+            experiences = retriever.retrieve(query=query, family_id=self.family_id)
             actions = retriever.propose_from_records(experiences)
             rendered = {"experiences": experiences, "proposed_interventions": actions}
             return {

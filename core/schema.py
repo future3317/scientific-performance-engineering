@@ -16,16 +16,21 @@ BASE = "https://github.com/future3317/scientific-performance-engineering/"
 
 def _required(model: type[Any]) -> list[str]:
     """Derive required top-level fields from dataclass defaults."""
+    ignored = {"relations"} if model is RuleSpec else set()
     return [
         item.name
         for item in fields(model)
-        if item.default is MISSING and item.default_factory is MISSING
+        if item.name not in ignored and item.default is MISSING and item.default_factory is MISSING
     ]
 
 
 def _object(model: type[Any], properties: dict[str, Any]) -> dict[str, Any]:
     """Build a strict object schema from the model's canonical field set."""
     model_fields = {item.name for item in fields(model)}
+    # ``RuleSpec.relations`` remains a constructor-only read projection for
+    # legacy imports; canonical serialized RuleSpec has no relation field.
+    if model is RuleSpec:
+        model_fields.discard("relations")
     if set(properties) != model_fields:
         missing = sorted(model_fields - set(properties))
         extra = sorted(set(properties) - model_fields)
@@ -42,7 +47,7 @@ def schemas() -> dict[str, dict[str, Any]]:
     return {
         "rule_spec.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "rule_spec.schema.json", "title": "RuleSpec", "type": "object",
-            **_object(RuleSpec, {"rule_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"}, "version": {"type": "integer", "minimum": 1}, "parent": {"type": ["string", "null"]}, "applicability": {"type": "object", "minProperties": 1}, "intervention": {"type": "object", "minProperties": 1}, "expected_mechanism": {"type": "string", "minLength": 1}, "evidence_requirements": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "scientific_invariants": {"type": "array", "items": {"type": "string"}}, "abstain_conditions": {"type": "object"}, "relations": {"type": "object"}, "runtime_cost": {"type": "object"}, "provenance_policy": {"type": "object"}, "severity": {"enum": ["P0", "P1", "P2", "P3", "P4"]}, "domain": {"type": "string"}, "text": {"type": "string"}}),
+            **_object(RuleSpec, {"rule_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"}, "version": {"type": "integer", "minimum": 1}, "parent": {"type": ["object", "null"]}, "applicability": {"type": "object", "minProperties": 1}, "intervention": {"type": "object", "minProperties": 1}, "expected_mechanism": {"type": "string", "minLength": 1}, "evidence_requirements": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "scientific_invariants": {"type": "array", "items": {"type": "string"}}, "abstain_conditions": {"type": "object"}, "runtime_cost": {"type": "object"}, "provenance_policy": {"type": "object"}, "severity": {"enum": ["P0", "P1", "P2", "P3", "P4"]}, "domain": {"type": "string"}, "text": {"type": "string"}}),
         },
         "evidence_event.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "evidence_event.schema.json", "title": "EvidenceEvent", "type": "object",
@@ -50,7 +55,7 @@ def schemas() -> dict[str, dict[str, Any]]:
         },
         "relation_spec.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "relation_spec.schema.json", "title": "RelationSpec", "type": "object",
-            **_object(RelationSpec, {"relation_id": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 1}, "parent": {"type": ["string", "null"]}, "endpoints": {"type": "object", "additionalProperties": False, "required": ["left", "right"], "properties": {"left": {"type": "string", "minLength": 1}, "right": {"type": "string", "minLength": 1}}}, "orientation": {"enum": ["symmetric", "left_to_right", "right_to_left"]}, "kind": {"enum": ["synergy", "antagonism", "independence", "prerequisite", "redundancy", "semantic_conflict", "context_dependent_interaction"]}, "applicability": {"type": "object", "minProperties": 1}, "contrast_definition": {"type": "object", "minProperties": 1}, "practical_margin": {"type": "number", "minimum": 0}, "scientific_invariants": {"type": "array", "items": {"type": "string"}}, "provenance_policy": {"type": "object"}}),
+            **_object(RelationSpec, {"relation_id": {"type": "string", "minLength": 1}, "version": {"type": "integer", "minimum": 1}, "parent": {"type": ["object", "null"]}, "endpoints": {"type": "object", "additionalProperties": False, "required": ["left", "right"], "properties": {"left": {"type": "string", "minLength": 1}, "right": {"type": "string", "minLength": 1}}}, "orientation": {"enum": ["symmetric", "left_to_right", "right_to_left"]}, "kind": {"enum": ["synergy", "antagonism", "independence", "prerequisite", "redundancy", "semantic_conflict", "context_dependent_interaction"]}, "applicability": {"type": "object", "minProperties": 1}, "contrast_definition": {"type": "object", "minProperties": 1}, "practical_margin": {"type": "number", "minimum": 0}, "scientific_invariants": {"type": "array", "items": {"type": "string"}}, "provenance_policy": {"type": "object"}}),
         },
         "relation_state.schema.json": {
             "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": BASE + "relation_state.schema.json", "title": "RelationState", "type": "object",

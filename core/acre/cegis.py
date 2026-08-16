@@ -86,10 +86,13 @@ class SynthesisCertificate:
 
 
 class StatisticalCEGIS:
-    def __init__(self, grammar: PredicateGrammar, *, epsilon_true: float = 0.0, epsilon_false: float = 0.0) -> None:
+    def __init__(self, grammar: PredicateGrammar, *, epsilon_true: float = 0.0, epsilon_false: float = 0.0, delta: float = 0.05) -> None:
         self.grammar = grammar
         self.epsilon_true = epsilon_true
         self.epsilon_false = epsilon_false
+        if not 0.0 < float(delta) < 1.0:
+            raise ValueError("delta must be in (0, 1)")
+        self.delta = float(delta)
 
     def _certificate(
         self,
@@ -122,7 +125,7 @@ class StatisticalCEGIS:
             grammar_digest=digest(grammar_payload),
             decision_lattice_digest=digest(list(decision_contexts or [])),
             version_space_digest=digest(list(version_space)),
-            alpha_budget=0.05,
+            alpha_budget=self.delta,
             practical_threshold=max(float(self.epsilon_true), float(self.epsilon_false)),
         )
 
@@ -209,3 +212,26 @@ class StatisticalCEGIS:
         )
         provenance["certificate"] = certificate.to_dict()
         return SynthesisResult(status, predicate, counterexample_ids, anchor_ids, provenance=provenance, version_space=tuple(consistent), certificate=certificate)
+
+
+def synthesize_boundary(
+    observations: list[BoundaryObservation],
+    grammar_payload: Mapping[str, Any],
+    *,
+    decision_contexts: list[Mapping[str, Any]] | None = None,
+    delta: float = 0.05,
+    epsilon_true: float = 0.0,
+    epsilon_false: float = 0.0,
+) -> SynthesisResult:
+    """Single core-owned entry point for harness boundary synthesis."""
+    grammar = PredicateGrammar.from_dict(dict(grammar_payload))
+    positives = [item for item in observations if item.positive_anchor(epsilon_true)]
+    negatives = [item for item in observations if item.certified_counterexample(epsilon_false)]
+    return StatisticalCEGIS(
+        grammar, epsilon_true=epsilon_true, epsilon_false=epsilon_false, delta=delta,
+    ).synthesize(
+        positive=positives,
+        counterexamples=negatives,
+        parent_predicate=None,
+        decision_contexts=decision_contexts,
+    )

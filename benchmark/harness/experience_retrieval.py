@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Mapping
+from dataclasses import dataclass, field
 from core.cost import PromptCostModel
 
 
@@ -22,37 +23,52 @@ def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
     return result
 
 
+@dataclass(frozen=True)
+class FamilyPublicMetric:
+    """Preregistered Gower-style distance over public family features."""
+
+    family_id: str | None = None
+    ranges: Mapping[str, float] = field(default_factory=dict)
+
+    @classmethod
+    def for_family(cls, family_id: str | None) -> "FamilyPublicMetric":
+        ranges: dict[str, float] = {}
+        if family_id:
+            try:
+                from benchmark.families.catalog import FAMILY_SPECS, resolve_family_id
+                spec = FAMILY_SPECS[resolve_family_id(family_id)]
+                pool = spec.generate(64, seed=0)
+                for feature in spec.parameter_space:
+                    values = [item.parameters.get(feature) for item in pool]
+                    numeric = [float(value) for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)]
+                    if numeric:
+                        ranges[f"workload.{feature}"] = max(max(numeric) - min(numeric), 1e-12)
+            except (KeyError, TypeError, ValueError):
+                pass
+        return cls(family_id, ranges)
+
+    def distance(self, stored: Mapping[str, Any], query: Mapping[str, Any]) -> float:
+        left, right = _flatten(stored), _flatten(query)
+        shared = set(left) | set(right)
+        if not shared:
+            return float("inf")
+        distance = 0.0
+        for key in shared:
+            if key not in left or key not in right:
+                distance += 1.0
+            elif isinstance(left[key], (int, float)) and isinstance(right[key], (int, float)) and not isinstance(left[key], bool) and not isinstance(right[key], bool):
+                scale = self.ranges.get(key, max(1.0, abs(float(left[key])), abs(float(right[key]))))
+                distance += abs(float(left[key]) - float(right[key])) / scale
+            else:
+                distance += 0.0 if left[key] == right[key] else 1.0
+        return distance / len(shared)
+
+
 def _context_distance(record: Mapping[str, Any], query: Mapping[str, Any], *, family_id: str | None = None) -> float:
     stored = record.get("public_context") if isinstance(record.get("public_context"), Mapping) else record.get("context")
     if not isinstance(stored, Mapping):
         return float("inf")
-    left, right = _flatten(stored), _flatten(query)
-    shared = set(left) | set(right)
-    if not shared:
-        return float("inf")
-    ranges: dict[str, float] = {}
-    if family_id:
-        try:
-            from benchmark.families import FAMILY_SPECS, resolve_family_id
-            spec = FAMILY_SPECS[resolve_family_id(family_id)]
-            pool = spec.generate(64, seed=0)
-            for feature in spec.parameter_space:
-                values = [item.parameters.get(feature) for item in pool]
-                numeric = [float(value) for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)]
-                if numeric:
-                    ranges[f"workload.{feature}"] = max(max(numeric) - min(numeric), 1e-12)
-        except (KeyError, TypeError, ValueError):
-            pass
-    distance = 0.0
-    for key in shared:
-        if key not in left or key not in right:
-            distance += 1.0
-        elif isinstance(left[key], (int, float)) and isinstance(right[key], (int, float)) and not isinstance(left[key], bool) and not isinstance(right[key], bool):
-            scale = ranges.get(key, max(1.0, abs(float(left[key])), abs(float(right[key]))))
-            distance += abs(float(left[key]) - float(right[key])) / scale
-        else:
-            distance += 0.0 if left[key] == right[key] else 1.0
-    return distance / len(shared)
+    return FamilyPublicMetric.for_family(family_id).distance(stored, query)
 
 
 def retrieve_raw_experiences(store: str | Path, query: str | Mapping[str, Any] = "", token_budget: int = 4096, *, family_id: str | None = None) -> list[dict[str, Any]]:

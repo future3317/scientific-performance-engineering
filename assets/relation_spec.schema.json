@@ -28,7 +28,7 @@
     },
     "parent": {
       "type": [
-        "string",
+        "object",
         "null"
       ]
     },

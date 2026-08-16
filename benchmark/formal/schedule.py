@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Mapping
+import random
 
 from benchmark.harness import miniyaml, split
 from core.sequential_stats import minimum_all_successes
@@ -28,6 +29,9 @@ class PromotionReplayScheduler:
         from benchmark.families import family_views
 
         seen = {str(value) for value in (seen_group_ids or set())}
+        # The task stream is only the proposal trigger.  Independent replay
+        # groups come from preregistered family contexts and therefore remain
+        # available even when a family has fewer public anchor tasks.
         pools = family_views(family_id, count=max(3 * self.minimum_groups, 24), seed=seed)
         contexts: list[dict[str, Any]] = []
         for instance in [*pools["representative_pool"], *pools["active_query_pool"]]:
@@ -37,7 +41,9 @@ class PromotionReplayScheduler:
             contexts.append({
                 "context_id": instance.instance_id,
                 "independence_group": group_id,
+                "query_type": "representative" if instance in pools["representative_pool"] else "active_query",
                 "context": {"workload": dict(instance.parameters)},
+                "experiment_cost": 1.0,
             })
             if len(contexts) >= self.minimum_groups:
                 break
@@ -118,7 +124,14 @@ def build_schedule(
         # Rotate the condition stream between outer trials.  Task order within
         # a condition remains fixed, while thermal/cache and queue effects are
         # not deterministically assigned to one treatment.
-        ordered_conditions = tuple(conditions[outer_trial % len(conditions):] + conditions[:outer_trial % len(conditions)])
+        # Latin-square blocking keeps every condition in every position over
+        # outer trials while making the realized order explicit and seeded.
+        rotation = outer_trial % len(conditions)
+        rotated = conditions[rotation:] + conditions[:rotation]
+        rng = random.Random(outer_trial)
+        order = list(rotated)
+        rng.shuffle(order)
+        ordered_conditions = tuple(order)
         for condition in ordered_conditions:
             for context_mode in context_modes:
                 stream_id = f"trial-{outer_trial:03d}-{condition}-{context_mode}"
@@ -130,6 +143,8 @@ def build_schedule(
                             "outer_trial_id": f"outer-{outer_trial:03d}",
                             "outer_trial_index": outer_trial,
                             "condition": condition,
+                            "condition_block_order": list(ordered_conditions),
+                            "randomization_seed": outer_trial,
                             "context_mode": context_mode,
                             "phase": phase,
                             "task_id": task_id,

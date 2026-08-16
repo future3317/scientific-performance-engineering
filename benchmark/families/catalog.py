@@ -188,7 +188,13 @@ class FamilySpec:
     feature_domains: Mapping[str, Any] = field(default_factory=dict)
     scientific_policy: Mapping[str, Any] = field(default_factory=dict)
     realization_validators: tuple[str, ...] = ()
-    outcome_model: str = "family_environment_v1"
+    outcome_model: Mapping[str, float] = field(default_factory=lambda: {
+        "baseline": 0.60,
+        "preferred": 0.80,
+        "mismatch": 0.35,
+        "poison_penalty": 0.20,
+    })
+    action_policy: Mapping[str, str] = field(default_factory=dict)
 
     def generate(self, count: int, seed: int = 0) -> list[FamilyInstance]:
         if count < 1:
@@ -423,11 +429,11 @@ _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
     ),
 }
 _THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
-    "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.2, 0.4, 0.6)},
-    "graph_cache": {"workload.geometry_displacement": (0.02, 0.05, 0.08), "workload.dynamic_rate": (0.2, 0.6)},
-    "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0)},
-    "checkpoint": {"workload.memory_pressure": (0.4, 0.57, 0.7), "workload.segment_count": (4.0, 6.0)},
-    "scalar_sync": {"workload.scalar_syncs_per_step": (4.0, 8.0, 12.0)},
+    "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.2, 0.4, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
+    "graph_cache": {"workload.geometry_displacement": (0.02, 0.05, 0.08), "workload.dynamic_rate": (0.2, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
+    "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0), "workload.prefetch_factor": (2.0, 4.0)},
+    "checkpoint": {"workload.memory_pressure": (0.4, 0.57, 0.7), "workload.segment_count": (4.0, 6.0), "workload.recompute_ratio": (0.2, 0.5)},
+    "scalar_sync": {"workload.scalar_syncs_per_step": (4.0, 8.0, 12.0), "workload.metric_cadence": (4.0, 8.0, 12.0)},
 }
 _SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
     "compile": ("compile_correctness",),
@@ -458,6 +464,27 @@ _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
         "defer_scalar_sync": {"family": "scalar_sync", "risk_class": "bounded"},
     },
 }
+_OUTCOME_MODELS: dict[str, Mapping[str, float]] = {
+    "compile": {"baseline": 0.60, "preferred": 0.80, "mismatch": 0.35, "poison_penalty": 0.20},
+    "graph_cache": {"baseline": 0.60, "preferred": 0.78, "mismatch": 0.35, "poison_penalty": 0.20},
+    "h2d_pipeline": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.58, "poison_penalty": 0.20},
+    "checkpoint": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.58, "poison_penalty": 0.20},
+    "scalar_sync": {"baseline": 0.58, "preferred": 0.76, "mismatch": 0.58, "poison_penalty": 0.20},
+}
+_ACTION_POLICIES: dict[str, Mapping[str, str]] = {
+    "compile": {"default": "reuse_compile_cache", "shifted": "revalidate_compile_cache", "inapplicable": "reuse_compile_cache"},
+    "graph_cache": {"default": "reuse_graph_cache", "shifted": "rebuild_graph_cache", "inapplicable": "rebuild_graph_cache"},
+    "h2d_pipeline": {"default": "pin_memory_pipeline", "shifted": "prefetch_pipeline", "inapplicable": "prefetch_pipeline"},
+    "checkpoint": {"default": "checkpoint_recompute", "shifted": "retained_graph", "inapplicable": "retained_graph"},
+    "scalar_sync": {"default": "aggregate_scalars", "shifted": "defer_scalar_sync", "inapplicable": "aggregate_scalars"},
+}
+_LEGAL_COMPOSITIONS: dict[str, tuple[CompositionSpec, ...]] = {
+    "compile": (CompositionSpec("compile", "h2d_pipeline"), CompositionSpec("compile", "graph_cache"), CompositionSpec("compile", "scalar_sync")),
+    "h2d_pipeline": (CompositionSpec("h2d_pipeline", "compile"), CompositionSpec("h2d_pipeline", "checkpoint")),
+    "graph_cache": (CompositionSpec("graph_cache", "compile"), CompositionSpec("graph_cache", "h2d_pipeline")),
+    "checkpoint": (CompositionSpec("checkpoint", "compile"), CompositionSpec("checkpoint", "scalar_sync")),
+    "scalar_sync": (CompositionSpec("scalar_sync", "h2d_pipeline"), CompositionSpec("scalar_sync", "compile")),
+}
 for _spec in _SPECS:
     _applicability = _legacy_applicability if _spec.family_id in {"repeated_compute", "autograd", "equivariant_head", "crystal_generation", "crystal_sampling", "episode"} else _spec.applicability
     _CANONICAL_SPECS.append(replace(
@@ -468,6 +495,14 @@ for _spec in _SPECS:
         threshold_universe=_THRESHOLDS.get(_spec.family_id, {}),
         scientific_invariants=_SCIENTIFIC_INVARIANTS.get(_spec.family_id, ()),
         action_specs=_ACTION_SPECS.get(_spec.family_id, {}),
+        outcome_model=_OUTCOME_MODELS.get(_spec.family_id, {
+            "baseline": 0.60,
+            "preferred": 0.80,
+            "mismatch": 0.35,
+            "poison_penalty": 0.20,
+        }),
+        action_policy=_ACTION_POLICIES.get(_spec.family_id, {}),
+        legal_compositions=_LEGAL_COMPOSITIONS.get(_spec.family_id, ()),
     ))
 _SPECS = tuple(_CANONICAL_SPECS)
 

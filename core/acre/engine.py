@@ -67,6 +67,9 @@ class AcreEngine:
 
         def latest_paths(paths: list[Path], id_field: str, registry_name: str) -> list[Path]:
             registry_path = root / "registry" / registry_name
+            registry_dir = root / "registry"
+            if registry_dir.is_dir() and paths and not registry_path.is_file():
+                raise ValueError(f"active {id_field} registry is required: {registry_name}")
             if registry_path.is_file():
                 registry = read(registry_path)
                 entries = registry.get("rules" if id_field == "rule_id" else "relations", [])
@@ -79,9 +82,19 @@ class AcreEngine:
                         if isinstance(raw_path, str):
                             path = root / raw_path
                             if path.is_file():
+                                expected_digest = entry.get("spec_digest") or entry.get("digest")
+                                if expected_digest:
+                                    actual_digest = __import__("hashlib").sha256(
+                                        path.read_bytes()
+                                    ).hexdigest()
+                                    if actual_digest != str(expected_digest):
+                                        raise ValueError(f"registry spec digest mismatch: {raw_path}")
                                 selected.append(path)
-                if selected:
-                    return selected
+                if not isinstance(entries, list):
+                    raise ValueError(f"active {id_field} registry is invalid: {registry_name}")
+                if entries and len(selected) != len(entries):
+                    raise ValueError(f"active {id_field} registry references missing specs: {registry_name}")
+                return selected
             selected: dict[str, tuple[int, Path]] = {}
             for path in paths:
                 value = read(path)
@@ -158,6 +171,20 @@ class AcreEngine:
         if self._query_proposer is None:
             return None
         return self._query_proposer(context, self._controller.events)
+
+    def maintain(self, events: Sequence[EvidenceEvent | Mapping[str, Any]] = (), **callbacks: Any):
+        """Run the canonical observe→assess→evolve workflow.
+
+        Callers supply only environment/verifier callbacks; ordering and
+        lifecycle semantics remain owned by the core maintainer.
+        """
+        return self.maintainer.step(events, **callbacks)
+
+    def update_rule(self, rule_id: str) -> EvolutionDecision:
+        return self.evolve(rule_id)
+
+    def update_relation(self, relation_id: str) -> EvolutionDecision:
+        return self.evolve(relation_id)
 
     def evolve(self, subject_id: str) -> EvolutionDecision:
         if subject_id in self.rule_states:

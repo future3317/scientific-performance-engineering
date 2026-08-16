@@ -26,7 +26,7 @@ from benchmark.harness import conditions, miniyaml, scoring, verifier
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
-from benchmark.formal.condition_adapter import FormalConditionAdapter
+from benchmark.formal.condition_adapter import FormalConditionAdapter, build_public_context
 from benchmark.harness.evolution import promote_via_replay
 from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
@@ -38,24 +38,8 @@ from scripts.run_rule_replay import evaluate_cases
 
 
 def canonical_public_context(value: dict[str, Any] | None) -> dict[str, Any]:
-    """Return the single public routing shape shared by C and D.
-
-    Family generators historically nested parameters below
-    ``workload.family_parameters`` while the core predicate DSL addresses
-    ``workload.<feature>``.  Flattening that declared public mapping at the
-    boundary prevents task-local IDs and hidden mechanism labels from entering
-    either retrieval or routing.
-    """
-    source = value if isinstance(value, dict) else {}
-    result = {key: dict(source[key]) if isinstance(source.get(key), dict) else source[key]
-              for key in ("domain", "workload", "hardware", "software", "evidence")
-              if key in source}
-    workload = result.setdefault("workload", {})
-    nested = workload.pop("family_parameters", None)
-    if isinstance(nested, dict):
-        workload = {**nested, **workload}
-        result["workload"] = workload
-    return result
+    """Compatibility entry point for the canonical public-context builder."""
+    return build_public_context(value)
 
 
 class InterventionRealizer:
@@ -132,7 +116,7 @@ class InterventionRealizer:
             realized_digest=digest_tree(output),
             verifier_digest=verifier_digest,
         )
-        (output / "realization_record.json").write_text(
+        (output.parent / "realization_record.json").write_text(
             json.dumps(record.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         return record
@@ -206,6 +190,8 @@ def _case_effect_interval(case: dict[str, Any], *, delta: float = 0.05) -> tuple
         if not intervention or len(intervention) != len(baseline):
             return None
         effects = [utility_effect(float(on), float(off), higher_is_better=higher_is_better, log_scale=log_scale) for on, off in zip(intervention, baseline)]
+        if len(effects) > 1 and max(effects) - min(effects) <= 1e-15:
+            return effects[0], effects[0], effects[0]
         lower, upper = paired_repetition_interval(effects, delta)
         return sum(effects) / len(effects), lower, upper
     try:
@@ -242,8 +228,7 @@ def synthesize_applicability(
     require_identified: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Derive a worker rule boundary from harness-owned public observations."""
-    from core.acre.cegis import BoundaryObservation, StatisticalCEGIS
-    from core.acre.predicates import PredicateGrammar
+    from core.acre.cegis import BoundaryObservation, synthesize_boundary
 
     lattice = list(decision_contexts or _family_decision_lattice(family_id))
     if require_identified and not lattice:
@@ -269,10 +254,14 @@ def synthesize_applicability(
     if not observations:
         return None
     from benchmark.families import family_predicate_grammar
-    grammar_payload = family_predicate_grammar(family_id) if family_id else {}
+    # Formal synthesis is only defined over a FamilySpec-owned finite
+    # hypothesis space.  There is intentionally no global grammar fallback.
+    # Calls without a family are restricted to the historical compile
+    # calibration helper; formal campaign calls always pass an explicit
+    # FamilySpec and therefore cannot use an implicit grammar.
+    grammar_payload = family_predicate_grammar(family_id or "compile")
     if not grammar_payload:
-        grammar_path = Path(__file__).resolve().parents[2] / "assets" / "predicate_grammar.json"
-        grammar_payload = json.loads(grammar_path.read_text(encoding="utf-8"))
+        return None
     observed_paths = set()
     for observation in observations:
         for feature in grammar_payload["features"]:
@@ -287,15 +276,12 @@ def synthesize_applicability(
     }
     if not grammar_payload["features"]:
         return None
-    grammar = PredicateGrammar.from_dict(grammar_payload)
-    cegis = StatisticalCEGIS(grammar, epsilon_true=epsilon_true, epsilon_false=epsilon_false)
-    positives = [item for item in observations if item.positive_anchor(epsilon_true)]
-    negatives = [item for item in observations if item.certified_counterexample(epsilon_false)]
-    result = cegis.synthesize(
-        positive=positives,
-        counterexamples=negatives,
-        parent_predicate=None,
+    result = synthesize_boundary(
+        observations,
+        grammar_payload,
         decision_contexts=lattice,
+        epsilon_true=epsilon_true,
+        epsilon_false=epsilon_false,
     )
     if result.predicate is None or (require_identified and result.status != "identified"):
         return None
@@ -314,6 +300,9 @@ def representative_case_ids(predicate: dict[str, Any], cases: list[dict[str, Any
         and isinstance(case.get("context"), dict)
         and match_predicate(predicate, case["context"])
         and (_case_effect_interval(case) is not None)
+        # Promotion consumes certified positive anchors only.  An interval
+        # whose lower endpoint is at or below the practical threshold is
+        # retained for CEGIS but cannot become a promotion Bernoulli trial.
         and _case_effect_interval(case)[1] > float(case.get("epsilon", 0.0))
         and bool(case.get("scientific_ok", False))
     })
@@ -407,6 +396,11 @@ def semantic_action_spec(family_id: str | None, proposal: dict[str, Any]) -> dic
     except (KeyError, ValueError):
         pass
     action = action_from_proposal(resolved_family or None, proposal)
+    if resolved_family:
+        from benchmark.families.catalog import FAMILY_SPECS
+        family_spec = FAMILY_SPECS.get(resolved_family)
+        if family_spec is not None and action.action_id not in family_spec.action_specs:
+            raise ValueError(f"action {action.action_id} is not legal for family {resolved_family}")
     return {"action": action.action_id, "action_id": action.action_id, "family": action.family, "parameters": dict(action.parameters), "preconditions": dict(action.preconditions), "preserves": list(action.preserves), "risk_class": action.risk_class}
 
 
@@ -497,8 +491,7 @@ def execute_poison_probe(
     if not changed:
         raise ValueError("poison probe requires a realized intervention different from baseline")
     family_id = str(task_spec.get("family_id", task_spec.get("family", "compile")))
-    from core.acre.actions import action_from_proposal
-    intervention_id = action_from_proposal(family_id, proposal).action_id
+    intervention_id = str(semantic_action_spec(family_id, proposal)["action_id"])
     deployed = [intervention_id]
     verifier_executed = False
     verifier_scientific_ok = True
@@ -697,7 +690,12 @@ def _verify_baseline(
     return baseline, scoring.score_task(baseline)
 
 
-def _read_executor_receipt(path: Path, skill_digest: str | None, context_mode: str = "reset") -> tuple[dict[str, Any], list[str]]:
+def _read_executor_receipt(
+    path: Path,
+    skill_digest: str | None,
+    context_mode: str = "reset",
+    expected_executor_digest: str | None = None,
+) -> tuple[dict[str, Any], list[str]]:
     try:
         receipt = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -743,6 +741,8 @@ def _read_executor_receipt(path: Path, skill_digest: str | None, context_mode: s
     for key in ("executor_digest", "worker_uid"):
         if not isinstance(receipt.get(key), str) or not receipt.get(key):
             errors.append(f"executor receipt {key} must be non-empty")
+    if expected_executor_digest is not None and receipt.get("executor_digest") != expected_executor_digest:
+        errors.append("external executor digest is not allowlisted")
     if skill_digest is not None and receipt.get("skill_view_digest") != skill_digest:
         errors.append("executor receipt skill_view_digest mismatch")
     if skill_digest is None and receipt.get("skill_view_digest") not in {None, ""}:
@@ -938,12 +938,12 @@ def post_task_update(
         # Core owns the evidence-to-lifecycle reducer.  The formal driver
         # only supplies this task's verifier-produced events and persistence
         # callbacks; it does not make a second lifecycle decision.
-        maintenance_step = engine.maintainer.step(
+        maintenance_step = engine.maintain(
             events=[item for item in result.get("evidence_events", []) if isinstance(item, dict)],
+            subject_ids=(*engine.rule_states, *engine.relation_states),
         )
         maintenance_decisions.append({"operation": "OBSERVE", "observed": maintenance_step.observed, "assessment": maintenance_step.assessment})
-        for subject_id in (*engine.rule_states, *engine.relation_states):
-            maintenance_decisions.append(asdict(engine.evolve(subject_id)))
+        maintenance_decisions.extend(asdict(item) for item in maintenance_step.lifecycle_decisions)
         active_ledger = ledger or EvolutionDecisionLedger()
         candidates_dir = store / "evolution" / "candidates"
         candidates_dir.mkdir(parents=True, exist_ok=True)
@@ -980,13 +980,21 @@ def post_task_update(
             intervention_digest = candidate_intervention_digest(action_spec)
             identity = candidate_identity(identifier, version, action_spec)
             try:
-                from benchmark.families import FAMILY_SPECS, resolve_family_id
+                from benchmark.families.catalog import FAMILY_SPECS, resolve_family_id
                 family_spec = FAMILY_SPECS.get(resolve_family_id(str(family_id)))
             except (ImportError, AttributeError):
                 family_spec = None
             scientific_invariants = list(getattr(family_spec, "scientific_invariants", ()) or ()) or ["task_scientific_gates"]
             severity = str(getattr(family_spec, "default_severity", "P2"))
-            runtime_tokens = max(1.0, len(json.dumps(action_spec, sort_keys=True, separators=(",", ":"))) / 4.0)
+            from core.cost import PromptCostModel
+            runtime_tokens = PromptCostModel().cost({
+                "rule_id": identifier,
+                "version": version,
+                "action": action_spec,
+                "mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
+                "applicability": {"all": []},
+                "invariants": scientific_invariants,
+            })
             # Proposal fields are hypotheses only.  Applicability is generated
             # below by the harness-owned CEGIS pass.
             candidate = {
@@ -1023,6 +1031,7 @@ def post_task_update(
                 "epsilon": float(practical_epsilon),
                 "p_min": 0.8,
                 "delta": 0.05,
+                "promotion_case_ids": [],
             }
             candidate["cases"] = list(added_replay_case_ids)
             candidate["validation_artifacts"] = {
@@ -1091,7 +1100,13 @@ def post_task_update(
                                 target.setdefault(entry["case_id"], entry)
                 merged_validation = dict(validation_sources[-1])
                 merged_validation["synthesis_case_ids"] = sorted({str(item) for item in candidate["cases"]})
-                merged_validation["promotion_case_ids"] = sorted({str(item) for item in merged_validation.get("promotion_case_ids", [])})
+                # Boundary counterexamples are CEGIS evidence, not promotion
+                # trials.  Keep the two memberships disjoint and let the
+                # synthesis certificate be the source of positive anchors.
+                promotion_ids = candidate.get("promotion_case_ids")
+                if not isinstance(promotion_ids, list):
+                    promotion_ids = merged_validation.get("promotion_case_ids", [])
+                merged_validation["promotion_case_ids"] = sorted({str(item) for item in promotion_ids if isinstance(item, str)})
                 merged_validation["heldout_regression_cases"] = list(heldout_cases.values())
                 merged_validation["poison_probe_cases"] = list(poison_cases.values())
                 merged_validation["independence_groups"] = sorted(independence_groups)
@@ -1109,7 +1124,10 @@ def post_task_update(
                     "poison_probe_count": len(merged_validation["poison_probe_cases"]),
                 }
             case_values_for_cegis: list[dict[str, Any]] = []
-            for case_id in candidate.get("cases", []):
+            # The candidate card is only a hypothesis projection.  Existing
+            # membership is rehydrated from the append-only ledger; only the
+            # verifier-owned cases produced in this task may be appended now.
+            for case_id in added_replay_case_ids:
                 try:
                     case_value = json.loads((store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json").read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError, ValueError):
@@ -1161,7 +1179,13 @@ def post_task_update(
             if not isinstance(intervention, dict) or not isinstance(intervention.get("file"), str) or not isinstance(intervention.get("replacements"), list):
                 continue
             predicate, provenance = synthesized
-            promotion_ids = representative_case_ids(predicate, case_values_for_cegis)
+            certificate = provenance.get("certificate") if isinstance(provenance, dict) else None
+            promotion_ids = [
+                str(item) for item in (certificate or {}).get("positive_anchor_ids", [])
+                if isinstance(item, str)
+            ]
+            if not promotion_ids:
+                promotion_ids = representative_case_ids(predicate, case_values_for_cegis)
             if not promotion_ids or provenance.get("status") != "identified":
                 continue
             candidate["applicability"], candidate["applicability_provenance"] = predicate, provenance
@@ -1170,7 +1194,9 @@ def post_task_update(
                 "predicate": predicate,
                 "version_space_digest": provenance.get("version_space_digest"),
                 "evidence_ids": list(candidate["cases"]),
+                "certificate": certificate,
             }
+            candidate["promotion_case_ids"] = sorted(set(promotion_ids))
             rewrite_validation_membership(
                 store,
                 candidate,
@@ -1400,6 +1426,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     if not args.agent_command:
         (out_dir / "schedule.json").write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return campaign
+    if not getattr(args, "executor_digest", None):
+        raise ValueError("formal agent runs require an allowlisted --executor-digest")
 
     records: list[dict[str, Any]] = []
     stores: dict[str, Path] = {}
@@ -1442,7 +1470,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             public_routing = {}
         retrieved_context_path = agent_task_dir / "retrieved_context.json"
         if str(item["condition"]) in {"C", "C_STRESS", "D"}:
-            adapter = FormalConditionAdapter(str(item["condition"]), store, token_budget=budgets.tokens)
+            adapter = FormalConditionAdapter(
+                str(item["condition"]),
+                store,
+                token_budget=budgets.tokens,
+                family_id=str(task_spec.get("family_id", task_spec.get("family", ""))) or None,
+            )
             retrieval_input = {
                 "domain": public_routing.get("domain", "scientific-performance"),
                 "workload": dict(public_routing.get("workload", {})),
@@ -1500,7 +1533,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if item["context_mode"] == "carry" and worker_context_state.is_file():
             shutil.copy2(worker_context_state, state_path)
         agent_extensions = _read_agent_extensions(worker_result_path)
-        receipt, receipt_errors = _read_executor_receipt(receipt_path, None if item["condition"] == "A" else skill_digest, str(item["context_mode"]))
+        receipt, receipt_errors = _read_executor_receipt(
+            receipt_path,
+            None if item["condition"] == "A" else skill_digest,
+            str(item["context_mode"]),
+            getattr(args, "executor_digest", None),
+        )
         usage = receipt.get("usage", {})
         if not isinstance(usage, dict):
             usage = {}
@@ -1568,7 +1606,14 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             if len(proposals) == 1:
                 try:
                     realized_solution = trial_dir / "realized_solution"
-                    InterventionRealizer.realize(solution_dir, realized_solution, proposals[0])
+                    InterventionRealizer.realize_action(
+                        solution_dir,
+                        realized_solution,
+                        proposals[0],
+                        family_id=str(task_spec.get("family_id", task_spec.get("family", "runtime"))),
+                        task_id=task_id,
+                        context_id=task_id,
+                    )
                     causal_result = verifier.verify_task(
                         tasks_root / task_id,
                         realized_solution,
@@ -1624,6 +1669,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         "regression_tolerance": regression_tolerance,
                         "heldout_regression_cases": [{
                             "case_id": f"HELDOUT-{task_id}",
+                            "holdout_class": "replication",
                             "executed": True,
                             "execution_source": "verifier",
                             "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
@@ -1639,6 +1685,36 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                             verifier_out=trial_dir / "poison-result.json",
                         )],
                     }
+                    # The verifier seed holdout establishes replication.  The
+                    # family view supplies two additional preregistered,
+                    # disjoint contexts for transfer and boundary checks; they
+                    # are evaluated by the same FamilyEnvironment oracle and
+                    # never enter promotion evidence.
+                    try:
+                        from benchmark.families import family_views, FamilyEnvironment, EpisodeEnvironmentState
+                        family_name = str(task_spec.get("family_id", task_spec.get("family", "compile")))
+                        views = family_views(family_name, count=24, seed=int(item["outer_trial_index"]) + 17)
+                        action_id = str(semantic_action_spec(family_name, proposals[0])["action_id"])
+                        env = FamilyEnvironment(family_name)
+                        for holdout_class, pool_name in (("transfer", "representative_pool"), ("boundary", "sealed_boundary_pool")):
+                            pool = views[pool_name]
+                            instance = next((entry for entry in pool if entry.instance_id != task_id), pool[0])
+                            held = env.evaluate(instance.parameters, (action_id,), EpisodeEnvironmentState())
+                            base = env.evaluate(instance.parameters, (), EpisodeEnvironmentState())
+                            validation_evidence["heldout_regression_cases"].append({
+                                "case_id": f"HELDOUT-{holdout_class.upper()}-{instance.instance_id}",
+                                "holdout_class": holdout_class,
+                                "executed": True,
+                                "execution_source": "family-environment",
+                                "scientific_ok": all(held.scientific_gates.values()),
+                                "utility": held.utility,
+                                "effect": held.utility - base.utility,
+                                "effect_lcb": held.utility - base.utility,
+                                "effect_ucb": held.utility - base.utility,
+                                "utility_policy_id": "family-outcome-v1",
+                            })
+                    except (KeyError, ValueError, TypeError):
+                        pass
                 except (OSError, ValueError, TypeError) as exc:
                     budget_errors.append(f"causal intervention realization failed: {exc}")
         transition = post_task_update(
@@ -1726,6 +1802,7 @@ def main() -> int:
         default=None,
         help="namespace/container executor template; receives {agent_command}, {worker_root}, {task_dir}, {solution_dir}, {retrieved_context}, {skill_view}, {executor_receipt}",
     )
+    parser.add_argument("--executor-digest", default=None, help="allowlisted external executor/image digest")
     parser.add_argument("--claim-results", action="store_true", help="claim only if the formal calibration gate is passed")
     args = parser.parse_args()
     result = run_campaign(args)

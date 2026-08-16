@@ -8,6 +8,8 @@ redundancy and context-dependent relations out of the local estimator.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from typing import Mapping
 
 from .factorial import CANONICAL_RELATIONS, FactorialEstimate
@@ -83,7 +85,12 @@ class RelationIdentifier:
             "01": estimate.scientific_01,
             "11": estimate.scientific_11,
         })
-        if decision in {"confirmed_synergy", "confirmed_independence"} and self._redundant(estimate):
+        # Certificate precedence is semantic, not an ordering accident in
+        # the generic gamma classifier: conflict and directed prerequisite
+        # gates win first, then redundancy, then ordinary pairwise labels.
+        if decision in {"semantic_conflict", "prerequisite_a_to_b", "prerequisite_b_to_a"}:
+            return decision
+        if self._redundant(estimate):
             return "confirmed_redundancy"
         return decision
 
@@ -136,16 +143,19 @@ def relational_cegis(
         raise ValueError("relational CEGIS requires a context-dependent identification")
     children: list[RelationSpec] = []
     decisions = dict(identification.context_decisions)
-    for child_index, (target_context, target_decision) in enumerate(sorted(decisions.items())):
-        if target_decision == "unresolved":
+    # One child per semantic decision, not one child per context.  All
+    # contexts supporting the same certified relation form the positive set;
+    # the remaining registered contexts are certified counterexamples.
+    grouped: dict[str, list[str]] = {}
+    for name, decision in decisions.items():
+        if decision not in {"unresolved", "underidentified_context_relation"}:
+            grouped.setdefault(decision, []).append(name)
+    for child_index, (target_decision, positive_names) in enumerate(sorted(grouped.items())):
+        negative_names = [name for name, decision in decisions.items() if name not in positive_names and decision != target_decision]
+        if not positive_names or not negative_names:
             continue
-        positive = [BoundaryObservation(name, contexts[name], 1.0, True, 1.0, 1.0) for name, decision in decisions.items() if decision == target_decision]
-        negative = [
-            BoundaryObservation(name, contexts[name], 0.0, False, -1.0, 0.0)
-            for name, decision in decisions.items() if name != target_context and decision != target_decision
-        ]
-        if not negative:
-            continue
+        positive = [BoundaryObservation(name, contexts[name], 1.0, True, 1.0, 1.0) for name in positive_names]
+        negative = [BoundaryObservation(name, contexts[name], 0.0, False, -1.0, 0.0) for name in negative_names]
         synthesis = StatisticalCEGIS(grammar).synthesize(
             positive=positive, counterexamples=negative, parent_predicate=None,
             decision_contexts=list(contexts.values()),
@@ -153,14 +163,25 @@ def relational_cegis(
         if synthesis.predicate is None or synthesis.status != "identified":
             continue
         kind, orientation = _relation_kind(target_decision)
+        parent_digest = hashlib.sha256(json.dumps({
+            "relation_id": relation_id,
+            "context_decisions": sorted(decisions.items()),
+            "target_decision": target_decision,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         children.append(RelationSpec(
-            relation_id=f"{relation_id}-{child_index + 1}", version=1, parent=RevisionRef(relation_id, 1, "relational-cegis"),
+            relation_id=f"{relation_id}-{child_index + 1}", version=1,
+            parent=RevisionRef(relation_id, 1, parent_digest),
             endpoints={"left": left_rule_id, "right": right_rule_id}, orientation=orientation,
             kind=kind, applicability=synthesis.predicate,
-            contrast_definition={"contexts": [target_context], "cegis": synthesis.to_dict()},
+                contrast_definition={"contexts": sorted(positive_names), "cegis": synthesis.to_dict()},
             practical_margin=identifier.practical_margin,
             scientific_invariants=[], provenance_policy={"required": True},
         ))
+    if len(children) > 1:
+        from .router import validate_relation_nonoverlap
+        overlaps = validate_relation_nonoverlap(children, list(contexts.values()))
+        if overlaps:
+            raise ValueError("relational CEGIS produced overlapping children: " + "; ".join(overlaps))
     return tuple(children)
 
 

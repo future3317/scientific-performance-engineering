@@ -24,6 +24,7 @@ class MaintenanceResult:
     governance: Any = None
     relation_update: Any = None
     lifecycle: Any = None
+    lifecycle_decisions: tuple[Any, ...] = ()
 
 
 class AcreMaintainer:
@@ -74,20 +75,34 @@ class AcreMaintainer:
         govern: Callable[[], Any] | None = None,
         relation_update: Callable[[], Any] | None = None,
         subject_id: str | None = None,
+        subject_ids: Sequence[str] = (),
     ) -> MaintenanceResult:
         observed = self.observe(events)
         assessment = self.update_effect_process()
+        # Keep the lifecycle reducer ordered: no proposal, acquisition,
+        # replay, validation, or governance callback may run before the
+        # current evidence has been observed and assessed.  This is the
+        # single workflow ordering shared by formal and episode callers.
+        falsify_result = self.falsify(falsify)
+        synthesis_result = self.synthesize(synthesize)
+        acquisition_result = self.acquire(acquire)
+        replay_result = self.replay(replay)
+        validation_result = self.validate(validate)
+        governance_result = self.govern(govern)
+        relation_result = self.relation_update(relation_update)
+        lifecycle_decisions = tuple(self.engine.evolve(item) for item in subject_ids)
         return MaintenanceResult(
             observed=len(observed),
             assessment=assessment.to_dict() if hasattr(assessment, "__dict__") else assessment,
-            falsify=self.falsify(falsify),
-            synthesis=self.synthesize(synthesize),
-            acquisition=self.acquire(acquire),
-            replay=self.replay(replay),
-            validation=self.validate(validate),
-            governance=self.govern(govern),
-            relation_update=self.relation_update(relation_update),
+            falsify=falsify_result,
+            synthesis=synthesis_result,
+            acquisition=acquisition_result,
+            replay=replay_result,
+            validation=validation_result,
+            governance=governance_result,
+            relation_update=relation_result,
             lifecycle=self.lifecycle_update(subject_id),
+            lifecycle_decisions=lifecycle_decisions,
         )
 
 

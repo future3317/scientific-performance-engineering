@@ -15,7 +15,7 @@ from benchmark.harness import miniyaml
 from benchmark.harness.split import check_leakage
 from benchmark.taskgen.generate import ast_skeleton_hash
 from benchmark.families import resolve_family_id
-from benchmark.families.catalog import FAMILY_SPECS
+from benchmark.families.catalog import FAMILY_SPECS, family_instance_digest, reconstruct_anchor_instance
 
 
 ATOMIC_REQUIRED = (
@@ -239,8 +239,21 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
             if spec.get("family_id"):
                 try:
                     family_id = resolve_family_id(str(spec["family_id"]))
-                    if spec.get("anchor_instance_id") and spec["anchor_instance_id"] == spec.get("task_id") and spec["task_id"] not in FAMILY_SPECS[family_id].anchors:
+                    anchor_id = str(spec.get("anchor_instance_id") or spec.get("task_id"))
+                    if anchor_id not in FAMILY_SPECS[family_id].anchors:
                         errors.append(f"{task_dir.name}: task is not a declared anchor of family {family_id}")
+                    else:
+                        instance = reconstruct_anchor_instance(anchor_id, family_id)
+                        declared_parameters = spec.get("family_parameters")
+                        if not isinstance(declared_parameters, dict) or dict(declared_parameters) != dict(instance.parameters):
+                            errors.append(f"{task_dir.name}: family_parameters do not match FamilySpec anchor")
+                        expected_digest = family_instance_digest(family_id, instance.parameters)
+                        if str(spec.get("family_instance_digest", "")) != expected_digest:
+                            errors.append(f"{task_dir.name}: family_instance_digest does not match FamilySpec anchor")
+                        declared_kind = str(spec.get("kind", ""))
+                        expected_kind = "positive" if instance.applicable else "counterexample"
+                        if declared_kind in {"positive", "counterexample"} and declared_kind != expected_kind:
+                            errors.append(f"{task_dir.name}: task polarity disagrees with FamilySpec applicability")
                 except KeyError:
                     errors.append(f"{task_dir.name}: unknown family_id {spec.get('family_id')}")
             errors.extend(_artifact_findings(task_dir, spec))

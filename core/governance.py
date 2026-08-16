@@ -318,6 +318,23 @@ def apply_promotion(
     promotion_path = store / "evolution" / "promotions" / identifier_digest(decision.subject_id) / f"v{int(card.get('version', 1)):04d}.json"
     if decision.subject_type == "relation":
         target = _versioned_path(store, "relations", decision.subject_id, int(card.get("version", 1)))
+        certificate = replay_manifest.get("relation_evidence_certificate")
+        contrast_bounds = {}
+        semantic_certificate = {}
+        if isinstance(certificate, dict):
+            contrast_bounds = {
+                str(name): {
+                    "lcb": float(interval["lcb"]),
+                    "ucb": float(interval["ucb"]),
+                }
+                for name, interval in certificate.get("contrast_cs", {}).items()
+                if isinstance(interval, dict) and {"lcb", "ucb"}.issubset(interval)
+            }
+            semantic_certificate = {
+                "decision": spec.kind,
+                "orientation": spec.orientation,
+                "certificate": certificate,
+            }
         state = RelationState(
             relation_id=decision.subject_id,
             version=int(card.get("version", 1)),
@@ -327,6 +344,8 @@ def apply_promotion(
                 "utility_effect_ucb": max(-1.0, min(1.0, float(replay_result.get("utility_effect_ucb", replay_result.get("mean_effect", 0.0))))),
                 "promotion_probability_lcb": max(0.0, min(1.0, float(replay_result.get("promotion_probability_lower_bound", 0.0)))),
             },
+            contrast_bounds=contrast_bounds,
+            semantic_certificate=semantic_certificate,
             status="canonical",
         )
     else:
@@ -376,7 +395,13 @@ def apply_promotion(
     id_key = "relation_id" if decision.subject_type == "relation" else "rule_id"
     directory = "relations" if decision.subject_type == "relation" else "rules"
     entries = [entry for entry in registry.get(key, []) if entry.get(id_key) != decision.subject_id]
-    entries.append({id_key: decision.subject_id, "path": str(target.relative_to(store)).replace("\\", "/"), "status": "canonical", "version": int(card.get("version", 1))})
+    entries.append({
+        id_key: decision.subject_id,
+        "path": str(target.relative_to(store)).replace("\\", "/"),
+        "status": "canonical",
+        "version": int(card.get("version", 1)),
+        "spec_digest": hashlib.sha256(target.read_bytes()).hexdigest(),
+    })
     registry[key] = entries
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

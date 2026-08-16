@@ -72,28 +72,39 @@ def _hierarchical_ci(
     for family, lineage, task, _trial, value in observations:
         hierarchy[family][lineage][task].append(value)
     families = sorted(hierarchy)
+
+    def nested_mean(source: dict[str, dict[str, list[float]]]) -> float:
+        """Equal-weight lineage -> task -> observation estimand."""
+        lineage_means: list[float] = []
+        for tasks in source.values():
+            task_means = [sum(values) / len(values) for values in tasks.values() if values]
+            if task_means:
+                lineage_means.append(sum(task_means) / len(task_means))
+        return sum(lineage_means) / len(lineage_means) if lineage_means else 0.0
+
+    def resampled_family_mean(source: dict[str, dict[str, list[float]]], rng: random.Random) -> float:
+        lineages = sorted(source)
+        lineage_means: list[float] = []
+        for _ in lineages:
+            lineage = source[rng.choice(lineages)]
+            tasks = sorted(lineage)
+            task_means: list[float] = []
+            for _ in tasks:
+                observations = lineage[rng.choice(tasks)]
+                draws = [rng.choice(observations) for _ in observations]
+                task_means.append(sum(draws) / len(draws))
+            lineage_means.append(sum(task_means) / len(task_means))
+        return sum(lineage_means) / len(lineage_means)
     rng = random.Random(seed)
     bootstrap_means: list[float] = []
     for _ in range(samples):
         sampled_family_means: list[float] = []
         for _family_draw in families:
             family = rng.choice(families)
-            lineages = sorted(hierarchy[family])
-            family_values: list[float] = []
-            for _lineage_draw in range(len(lineages)):
-                lineage = rng.choice(lineages)
-                tasks = sorted(hierarchy[family][lineage])
-                for _task_draw in range(len(tasks)):
-                    task = rng.choice(tasks)
-                    trials = hierarchy[family][lineage][task]
-                    family_values.append(rng.choice(trials))
-            sampled_family_means.append(sum(family_values) / len(family_values))
+            sampled_family_means.append(resampled_family_mean(hierarchy[family], rng))
         bootstrap_means.append(sum(sampled_family_means) / len(sampled_family_means))
     bootstrap_means.sort()
-    family_means = []
-    for family in families:
-        values = [value for _family, _lineage, _task, _trial, value in observations if _family == family]
-        family_means.append(sum(values) / len(values))
+    family_means = [nested_mean(hierarchy[family]) for family in families]
     return {
         "estimate": sum(family_means) / len(family_means),
         "ci_low": bootstrap_means[int(0.025 * (len(bootstrap_means) - 1))],

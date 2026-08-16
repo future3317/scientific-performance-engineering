@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import json
 import ast
+import json
 import sys
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from benchmark.boundary.families import family_cases, run_boundary_family
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
 from benchmark.interaction.factorial_bench import run_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
 from benchmark.interaction.router_bench import run_router_benchmark
+from benchmark.families import family_predicate_grammar
 from core.acre.predicates import PredicateGrammar, SYNTHESIZER_VERSION
 
 
@@ -44,12 +45,14 @@ def validate_method_ownership(root: Path) -> list[str]:
 def validate(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     errors.extend(validate_method_ownership(root))
-    try:
-        grammar = PredicateGrammar.from_dict(json.loads((root / "assets" / "predicate_grammar.json").read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
-        return [f"invalid predicate grammar: {exc}"]
-    if grammar.max_depth > 3 or grammar.max_literals > 4:
-        errors.append("grammar bounds exceed ACRE-v0 limits")
+    for family in ("compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"):
+        try:
+            grammar = PredicateGrammar.from_dict(family_predicate_grammar(family))
+        except (KeyError, ValueError) as exc:
+            errors.append(f"{family}: invalid FamilySpec predicate grammar: {exc}")
+            continue
+        if grammar.max_depth > 3 or grammar.max_literals > 4:
+            errors.append(f"{family}: grammar bounds exceed ACRE-v0 limits")
     # Canonical families are the production BoundaryBench views.  The two
     # historical names remain covered by benchmark/boundary/test_cegis.py as
     # compatibility aliases, not as a second source of workload semantics.

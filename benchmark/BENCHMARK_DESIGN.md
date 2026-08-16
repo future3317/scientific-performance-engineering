@@ -400,6 +400,22 @@ Measured per condition over the sequential stream (§10):
   one-sided lower confidence sequence clears `p_min` under optional inspection;
   a fixed-sample posterior interval is not treated as a confidence sequence.
 
+Promotion evidence has three statistical levels: paired repetitions form a
+within-context effect interval; one independent context group contributes one
+promotion Bernoulli trial only when its effect LCB clears the practical floor;
+independent family contexts then form the generalization confidence sequence.
+Boundary counterexamples remain in the CEGIS version space but never enter the
+promotion case set. Held-out validation is partitioned into replication,
+within-predicate transfer, and boundary challenge, with all entries executed by
+the verifier or the registered family environment and kept disjoint from
+promotion evidence.
+
+Interaction contrasts use one normalized decision scale: the factorial
+interaction is divided by four, conditional effects by two, and redundancy by
+two, all in ``[-1, 1]``.  Raw contrasts are retained only as reporting fields;
+relation gates compare normalized confidence sets against the preregistered
+margin.
+
 ## 9. Experimental conditions A–D
 
 Four paired conditions over the *same* model, agent framework, tool budget, task

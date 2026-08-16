@@ -63,6 +63,16 @@ same FamilyEnvironment. Evolution rows must contain a canonical-rule transfer
 phase before drift/poison metrics are interpreted. Evolution Regret and the vector Performance Profile are aggregated
 only by `benchmark.formal.aggregate`.
 
+Family specifications also own the finite predicate grammar, public feature
+domains, legal semantic actions, outcome model, and transformation policy.
+Boundary and interaction generators therefore do not maintain a second global
+grammar or a label-level interaction switch. Promotion replay uses family
+representative/query contexts to obtain the preregistered number of independent
+groups required by the mixture confidence sequence; the task stream is only the
+candidate trigger. Held-out validation records replication, within-predicate
+transfer, and boundary-challenge classes separately. Outer formal trials use a
+seeded Latin-square block order and record that order in each trial manifest.
+
 The external executor must write an `executor_receipt.json` at
 `SPE_EXECUTOR_RECEIPT_PATH` with `network_mode: none`, an explicit mount
 allowlist, executor digest, worker identity, skill-view digest (for B/C/D), and
@@ -72,7 +82,8 @@ maintenance, and store-attestation transition; C remains raw-experience-only,
 while D is the only condition allowed to promote governed rules.
 
 Formal worker treatment is namespace-based: an agent run must supply an external
-container or namespace executor with `--executor-command`. B/C/D receive the same
+container or namespace executor with `--executor-command` and an allowlisted
+`--executor-digest`. B/C/D receive the same
 read-only rendered skill view; A receives no skill. The executor mounts only the
 materialized public task, solution workspace, public tests, optional skill view,
 and pre-task `retrieved_context.json`; the benchmark root, verifier, hidden task

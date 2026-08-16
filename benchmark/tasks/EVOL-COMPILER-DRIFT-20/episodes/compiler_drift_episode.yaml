@@ -13,8 +13,12 @@ phases:
         domain: compiler
         trigger:
           all:
-            - equals:
-                workload.mechanism: compile
+            - compare:
+                workload.logical_steps:
+                  gte: 128
+            - compare:
+                workload.dynamic_shape_rate:
+                  lte: 0.4
         rule:
           text: Reuse compile artifacts when runtime guards are unchanged.
         intervention:
@@ -51,70 +55,20 @@ phases:
         runtime_cost: {}
         provenance_policy:
           required: true
-        cases:
-          - case_id: compile-case-1
-            utility_on: 0.80
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-          - case_id: compile-case-2
-            utility_on: 0.81
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-          - case_id: compile-case-3
-            utility_on: 0.82
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-          - case_id: compile-case-4
-            utility_on: 0.79
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-          - case_id: compile-case-5
-            utility_on: 0.83
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-          - case_id: compile-case-6
-            utility_on: 0.80
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-          - case_id: compile-case-7
-            utility_on: 0.81
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-          - case_id: compile-case-8
-            utility_on: 0.82
-            utility_off: 0.60
-            scientific_ok: true
-            quality_ok: true
-        p_min: 0.5
+        p_min: 0.8
         epsilon: 0.0
         delta: 0.05
     inject_poisons: []
-    results:
-      - task_id: CORE-COMPILE-RECOMPILE-04
-        environment: {mechanism: compile, regime: baseline, oracle_bundle: [compile-cache-rule]}
   - index: 2
     name: same_family_transfer
     tasks: [CORE-COMPILE-TINY-12]
     inject_experiences: []
     inject_poisons: []
-    results:
-      - task_id: CORE-COMPILE-TINY-12
-        environment: {mechanism: compile, regime: same_family, oracle_bundle: [compile-cache-rule]}
   - index: 3
     name: cross_family_transfer
     tasks: [CORE-KERNEL-FUSION-09]
     inject_experiences: []
     inject_poisons: []
-    results:
-      - task_id: CORE-KERNEL-FUSION-09
-        environment: {mechanism: compile, regime: cross_family, oracle_bundle: [compile-cache-rule]}
   - index: 4
     name: drift
     family_id: compile
@@ -150,9 +104,6 @@ phases:
         collector_confidence: high
         artifacts: {}
     inject_poisons: []
-    results:
-      - task_id: CORE-COMPILE-DYNAMIC-11
-        environment: {mechanism: compile, regime: runtime_B, oracle_bundle: [compile-cache-rule]}
   - index: 5
     name: misleading_experience
     family_id: episode
@@ -185,14 +136,9 @@ phases:
           excludes: [runtime_drift]
         collector_confidence: high
         artifacts: {}
-    results:
-      - task_id: CORE-COMPILE-TINY-12
-        environment: {mechanism: compile, regime: poisoned, oracle_bundle: []}
+    poisoned: true
   - index: 6
     name: recovery
     tasks: [CORE-COMPILE-DYNAMIC-11]
     inject_experiences: []
     inject_poisons: []
-    results:
-      - task_id: CORE-COMPILE-DYNAMIC-11
-        environment: {mechanism: compile, regime: recovered, oracle_bundle: [compile-cache-rule]}

@@ -22,7 +22,7 @@ Episode YAML format (miniyaml subset)::
         tasks: [CORE-SCALAR-SYNC-01]
         inject_experiences: []          # records dropped into experience/inbox (C) or evolution/candidates (D)
         inject_poisons: []              # misleading records; poisoning_survival_rate tracks their fate
-        results: []                     # optional pre-recorded per-task result dicts (task_id, utility_on, utility_off, task_score_on, task_score_off)
+        results: []                     # optional task records; utilities are always computed by FamilyEnvironment
 """
 
 from __future__ import annotations
@@ -164,7 +164,9 @@ def _environment_result(
         workload = dict((raw.get("environment") or {}).get("workload", {})) if isinstance(raw.get("environment"), dict) else {}
     context = TaskContext(domain="runtime", workload=workload, hardware={}, software={}, evidence={}, token_budget=4096)
     environment = FamilyEnvironment(family_id)
-    deployed_ids = FormalConditionAdapter(condition, store, token_budget=context.token_budget).propose_interventions(context)
+    deployed_ids = FormalConditionAdapter(
+        condition, store, token_budget=context.token_budget, family_id=family_id
+    ).propose_interventions(context)
     state = environment_state or EpisodeEnvironmentState()
     deployed_outcome = environment.evaluate(context.workload, deployed_ids, state)
     oracle_outcome = environment.oracle(context.workload, state)
@@ -559,7 +561,10 @@ def run_episode(
         written = _apply_phase_injections(store, condition, phase)
         poison_ids.extend(written["poisons"])
         phase_results: list[dict[str, Any]] = []
-        for record in phase.get("results") or []:
+        task_records = list(phase.get("results") or [])
+        if not task_records:
+            task_records = [{"task_id": task_id} for task_id in (phase.get("tasks") or [])]
+        for record in task_records:
             visible = _environment_result(condition, phase, _strip_poison_labels(record), store, environment_state)
             phase_results.append(visible)
             paired_results.append(visible)
@@ -593,8 +598,59 @@ def run_episode(
             candidates_dir = store / "evolution" / "candidates"
             for path in sorted(candidates_dir.rglob("*.json")):
                 record = json.loads(path.read_text(encoding="utf-8"))
-                if record.get("cases") and record.get("status") == "candidate":
-                    candidates.append(record)
+                if record.get("status") == "candidate":
+                    # Episode inputs declare hypotheses and contexts only.
+                    # Generate calibration cases from the just-evaluated
+                    # FamilyEnvironment outcomes instead of accepting utility
+                    # values authored in YAML.
+                    if not record.get("cases"):
+                        family = str(record.get("family_id", phase.get("family_id", "compile")))
+                        generated_cases = []
+                        action = record.get("intervention", {})
+                        action_id = str(action.get("action", "")) if isinstance(action, dict) else ""
+                        family_environment = FamilyEnvironment(family)
+                        from benchmark.formal.schedule import PromotionReplayScheduler
+                        scheduler = PromotionReplayScheduler(
+                            p_min=float(record.get("p_min", 0.8)),
+                            delta=float(record.get("delta", 0.05)),
+                        )
+                        scheduled = []
+                        seen_contexts: set[str] = set()
+                        # Active replay may need more contexts than the first
+                        # family slice contains inside the learned predicate.
+                        # Draw additional preregistered slices until the
+                        # promotion budget can be filled; no hidden labels are
+                        # used for this scheduling decision.
+                        for schedule_seed in range(int(episode.get("seed", 0)), int(episode.get("seed", 0)) + 8):
+                            for item in scheduler.pending_contexts(family, seed=schedule_seed):
+                                context_id = str(item.get("context_id", ""))
+                                if context_id and context_id not in seen_contexts:
+                                    seen_contexts.add(context_id)
+                                    scheduled.append(item)
+                            if len(scheduled) >= scheduler.minimum_groups * 3:
+                                break
+                        for scheduled_context in scheduled:
+                            context = dict(scheduled_context.get("context", {}))
+                            workload = dict(context.get("workload", context))
+                            deployed = family_environment.evaluate(workload, (action_id,), environment_state)
+                            baseline = family_environment.evaluate(workload, (), environment_state)
+                            generated_cases.append({
+                                "case_id": f"EPISODE-{scheduled_context.get('context_id', phase.get('index', 0))}",
+                                "context": context,
+                                "intervention_measurements": [float(deployed.utility)] * 3,
+                                "baseline_measurements": [float(baseline.utility)] * 3,
+                                "control_measured": True,
+                                "higher_is_better": True,
+                                "utility_scale": 1.0,
+                                "scientific_ok": all(bool(item) for item in deployed.scientific_gates.values()),
+                                "quality_ok": all(bool(item) for item in deployed.scientific_gates.values()),
+                                "paired_replay": True,
+                                "same_fixture_id": str(scheduled_context.get("context_id", phase.get("index", 0))),
+                                "independence_group": str(scheduled_context.get("independence_group", phase.get("index", 0))),
+                            })
+                        record["cases"] = generated_cases
+                    if record.get("cases"):
+                        candidates.append(record)
             promoted_total.extend(promote_via_replay(store, candidates, core_repo, out_dir, ledger))
 
     rules_dir = store / "rules"
@@ -616,8 +672,8 @@ def run_episode(
     poison_regressions = sum(
         1
         for phase in episode["phases"]
-        for app in phase.get("results") or []
-        if _has_poison_label(app) and float(app.get("delta", 0.0)) < 0.0
+        if bool(phase.get("poisoned", False))
+        and any(float(app.get("delta", 0.0)) < 0.0 for app in paired_results if app.get("failure_source") == "poison")
     )
     metrics = {
         "transfer_gain": gain,

@@ -95,52 +95,41 @@ class FamilyEnvironment:
         from .catalog import FAMILY_SPECS, resolve_family_id
         try:
             family_spec = FAMILY_SPECS[resolve_family_id(self.family_id)]
-            family_applicable = bool(family_spec.applicability(workload))
+            try:
+                family_applicable = bool(family_spec.applicability(workload))
+            except (KeyError, TypeError, ValueError):
+                # A partial context is still sufficient to expose the family
+                # action policy (for example when computing an oracle bundle
+                # during a drift probe); missing parameters do not fabricate
+                # applicability truth.
+                family_applicable = False
+            model = dict(family_spec.outcome_model)
         except (KeyError, TypeError, ValueError):
+            family_spec = None
             family_applicable = True
-        if self.family_id == "compile":
-            drifted = state.runtime_version != "A"
-            applicable = family_applicable
-            preferred = "revalidate_compile_cache" if drifted else "reuse_compile_cache"
-            utility = 0.35 if (drifted or not applicable) and "reuse_compile_cache" in deployed else 0.80 if applicable and preferred in deployed else 0.60
-            if state.active_poison and "reuse_compile_cache" in deployed:
-                utility -= 0.20
-            return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
-        if self.family_id == "graph_cache":
-            drifted = state.scientific_regime != "default"
-            applicable = family_applicable
-            preferred = "rebuild_graph_cache" if drifted or not applicable else "reuse_graph_cache"
-            utility = 0.35 if (drifted or not applicable) and "reuse_graph_cache" in deployed else 0.78 if applicable and preferred in deployed else 0.60
-            if state.active_poison and deployed:
-                utility -= 0.20
-            return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
-        if self.family_id == "h2d_pipeline":
-            shifted = state.hardware_regime != "default" or state.scale_regime != "default"
-            applicable = family_applicable
-            preferred = "prefetch_pipeline" if shifted else "pin_memory_pipeline"
-            if not applicable:
-                preferred = "prefetch_pipeline"
-            utility = 0.76 if preferred in deployed else 0.58
-            if state.active_poison and deployed:
-                utility -= 0.20
-            return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
-        if self.family_id == "checkpoint":
-            shifted = state.scale_regime != "default"
-            applicable = family_applicable
-            preferred = "retained_graph" if shifted or not applicable else "checkpoint_recompute"
-            utility = 0.76 if preferred in deployed else 0.58
-            if state.active_poison and deployed:
-                utility -= 0.20
-            return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
-        if self.family_id == "scalar_sync":
-            shifted = state.harness_regime != "default"
-            applicable = family_applicable
-            preferred = "defer_scalar_sync" if shifted or applicable else "aggregate_scalars"
-            utility = 0.76 if preferred in deployed else 0.58
-            if state.active_poison and deployed:
-                utility -= 0.20
-            return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
-        return EnvironmentOutcome(0.60 if not deployed else 0.80, {"finite_loss": True}, ())
+            model = {"baseline": 0.60, "preferred": 0.80, "mismatch": 0.35, "poison_penalty": 0.20}
+        # FamilySpec owns the action semantics.  The environment only maps
+        # persistent regime state to the declared policy, so Boundary,
+        # Interaction, and Evolution cannot drift into separate action maps.
+        policy = dict(getattr(family_spec, "action_policy", {}) or {})
+        shifted = any((
+            state.runtime_version != "A",
+            state.hardware_regime != "default",
+            state.scale_regime != "default",
+            state.scientific_regime != "default",
+            state.harness_regime != "default",
+        ))
+        policy_key = "shifted" if shifted else "inapplicable" if not family_applicable else "default"
+        preferred = str(policy.get(policy_key, ""))
+        legal_actions = set(getattr(family_spec, "action_specs", {}) or {})
+        if preferred and preferred not in legal_actions:
+            raise ValueError(f"family {self.family_id} action policy references undeclared action {preferred}")
+        utility = model["baseline"]
+        if deployed:
+            utility = model["preferred"] if preferred and preferred in deployed else model["mismatch"]
+            if state.active_poison:
+                utility -= model["poison_penalty"]
+        return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,) if preferred else ())
 
     def oracle(self, context: Mapping[str, Any], transformation_state: Mapping[str, Any] | EpisodeEnvironmentState | None = None) -> EnvironmentOutcome:
         """Enumerate legal bundles and select the hindsight-best outcome."""

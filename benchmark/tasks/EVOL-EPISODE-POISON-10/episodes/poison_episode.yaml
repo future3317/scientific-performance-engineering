@@ -105,14 +105,8 @@ phases:
           excludes: []
         collector_confidence: medium
         artifacts: {}
-    results:
-      - task_id: SCIML-GRAPH-REBUILD-08
-        poisoned: true
-        utility_on: 0.45
-        utility_off: 0.55
-        task_score_on: 0.0
-        task_score_off: 0.8
-        delta: -0.10
+    tasks: [SCIML-GRAPH-REBUILD-08]
+    poisoned: true
   - index: 6
     name: recovery
     tasks: []

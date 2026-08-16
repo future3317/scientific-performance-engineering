@@ -73,7 +73,7 @@ class RelationEvidenceCertificate:
             if not isinstance(interval, Mapping) or not {"lcb", "ucb"}.issubset(interval):
                 raise ValueError(f"relation certificate contrast {name} needs lcb and ucb")
             lcb, ucb = float(interval["lcb"]), float(interval["ucb"])
-            if not math.isfinite(lcb) or not math.isfinite(ucb) or lcb > ucb:
+            if not math.isfinite(lcb) or not math.isfinite(ucb) or lcb > ucb or lcb < -1.0 or ucb > 1.0:
                 raise ValueError(f"relation certificate contrast {name} interval is invalid")
         from .policy import RelationDecisionPolicy
         intervals = {
@@ -160,6 +160,7 @@ class FactorialEstimate:
     scientific_11: bool
     utility_intervals: Mapping[str, tuple[float, float]] = field(default_factory=dict)
     contrast_intervals: Mapping[str, tuple[float, float]] = field(default_factory=dict)
+    raw_contrasts: Mapping[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -289,13 +290,16 @@ class FactorialEngine:
             "redundancy": [(block.outcomes["11"] - max(block.outcomes["10"], block.outcomes["01"])) / 2.0 for block in self._blocks],
         }
         contrast_intervals: dict[str, tuple[float, float]] = {}
-        contrast_scale = {"gamma": 1.0, "delta_a_given_b0": 2.0, "delta_a_given_b1": 2.0, "delta_b_given_a0": 2.0, "delta_b_given_a1": 2.0, "redundancy": 2.0}
         contrast_delta = self.delta / (self.look_count * len(contrast_samples))
         for name, samples in contrast_samples.items():
             mean = sum(samples) / n
             radius = _bounded_radius(n, contrast_delta)
-            scale = contrast_scale[name]
-            contrast_intervals[name] = (scale * max(-1.0, mean - radius), scale * min(1.0, mean + radius))
+            # Every decision contrast is normalized to [-1, 1].  In
+            # particular, conditional effects and redundancy are divided by
+            # two before their confidence sets are compared with the same
+            # practical margin as gamma.  Raw effects remain available in
+            # ``raw_contrasts`` for reporting.
+            contrast_intervals[name] = (max(-1.0, mean - radius), min(1.0, mean + radius))
         gamma_lcb, gamma_ucb = contrast_intervals["gamma"]
         # Arm intervals are retained for redundancy diagnostics.  They are
         # separate from the decision contrasts above.
@@ -305,10 +309,18 @@ class FactorialEngine:
             mean = means[arm]
             radius = min(1.0, _bounded_radius(n, arm_delta))
             utility_intervals[arm] = (max(-1.0, mean - radius), min(1.0, mean + radius))
-        delta_a_b0 = means["10"] - means["00"]
-        delta_a_b1 = means["11"] - means["01"]
-        delta_b_a0 = means["01"] - means["00"]
-        delta_b_a1 = means["11"] - means["10"]
+        raw_contrasts = {
+            "gamma": gamma * 4.0,
+            "delta_a_given_b0": means["10"] - means["00"],
+            "delta_a_given_b1": means["11"] - means["01"],
+            "delta_b_given_a0": means["01"] - means["00"],
+            "delta_b_given_a1": means["11"] - means["10"],
+            "redundancy": means["11"] - max(means["10"], means["01"]),
+        }
+        delta_a_b0 = raw_contrasts["delta_a_given_b0"] / 2.0
+        delta_a_b1 = raw_contrasts["delta_a_given_b1"] / 2.0
+        delta_b_a0 = raw_contrasts["delta_b_given_a0"] / 2.0
+        delta_b_a1 = raw_contrasts["delta_b_given_a1"] / 2.0
         scientific = {arm: all(block.scientific_gates[arm] for block in self._blocks) for arm in _ARMS}
         estimate = FactorialEstimate(
             gamma=gamma,
@@ -326,6 +338,7 @@ class FactorialEngine:
             scientific_11=scientific["11"],
             utility_intervals=utility_intervals,
             contrast_intervals=contrast_intervals,
+            raw_contrasts=raw_contrasts,
         )
         # The semantic policy is shared with cross-context RelationIdentifier;
         # the estimator itself only creates arm and contrast confidence sets.

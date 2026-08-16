@@ -49,9 +49,9 @@ class RelationDecisionPolicy:
                     return "confirmed_redundancy"
             return "unresolved"
         if gamma_lcb > margin:
-            if {"delta_b_given_a1", "delta_b_given_a0"}.issubset(intervals) and positive("delta_b_given_a1") and null("delta_b_given_a0"):
+            if kind_hint in {None, "prerequisite"} and {"delta_b_given_a1", "delta_b_given_a0"}.issubset(intervals) and positive("delta_b_given_a1") and null("delta_b_given_a0"):
                 return "prerequisite_a_to_b"
-            if {"delta_a_given_b1", "delta_a_given_b0"}.issubset(intervals) and positive("delta_a_given_b1") and null("delta_a_given_b0"):
+            if kind_hint in {None, "prerequisite"} and {"delta_a_given_b1", "delta_a_given_b0"}.issubset(intervals) and positive("delta_a_given_b1") and null("delta_a_given_b0"):
                 return "prerequisite_b_to_a"
             return "confirmed_synergy"
         if gamma_ucb < -margin:
