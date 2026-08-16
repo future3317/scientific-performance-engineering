@@ -21,6 +21,29 @@ def bounded_mean_interval(values: list[float], delta: float) -> tuple[float, flo
     return max(-1.0, mean - radius), min(1.0, mean + radius)
 
 
+def paired_repetition_interval(values: list[float], delta: float) -> tuple[float, float]:
+    """Confidence interval for repetitions within one paired context.
+
+    A context-level interval is deliberately separate from the across-context
+    confidence sequence used for promotion.  Repetitions estimate the effect
+    of one fixture; independence groups are the Bernoulli trials used by the
+    promotion gate.
+    """
+    return bounded_mean_interval(values, delta)
+
+
+def minimum_all_successes(p_min: float, delta: float, *, limit: int = 100_000) -> int:
+    """Smallest number of all-success groups whose mixture LCB reaches p_min."""
+    if not 0.0 < p_min <= 1.0 or not 0.0 < delta < 1.0:
+        raise ValueError("p_min must be in (0,1] and delta must be in (0,1)")
+    if p_min <= 0.0:
+        return 1
+    for trials in range(1, limit + 1):
+        if mixture_lower_bound(trials, trials, delta) >= p_min:
+            return trials
+    raise ValueError("promotion threshold is unreachable within the search limit")
+
+
 def mixture_e_value(
     successes: int,
     trials: int,

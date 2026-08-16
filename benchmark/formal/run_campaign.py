@@ -32,7 +32,7 @@ from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier
-from core.sequential_stats import bounded_mean_interval
+from core.sequential_stats import bounded_mean_interval, paired_repetition_interval, minimum_all_successes
 from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold, utility_effect
 from scripts.run_rule_replay import evaluate_cases
 
@@ -165,7 +165,7 @@ def _case_effect_interval(case: dict[str, Any], *, delta: float = 0.05) -> tuple
         if not intervention or len(intervention) != len(baseline):
             return None
         effects = [utility_effect(float(on), float(off), higher_is_better=higher_is_better, log_scale=log_scale) for on, off in zip(intervention, baseline)]
-        lower, upper = bounded_mean_interval(effects, delta)
+        lower, upper = paired_repetition_interval(effects, delta)
         return sum(effects) / len(effects), lower, upper
     try:
         effect = utility_effect(
@@ -227,8 +227,11 @@ def synthesize_applicability(
         ))
     if not observations:
         return None
-    grammar_path = Path(__file__).resolve().parents[2] / "assets" / "predicate_grammar.json"
-    grammar_payload = json.loads(grammar_path.read_text(encoding="utf-8"))
+    from benchmark.families import family_predicate_grammar
+    grammar_payload = family_predicate_grammar(family_id) if family_id else {}
+    if not grammar_payload:
+        grammar_path = Path(__file__).resolve().parents[2] / "assets" / "predicate_grammar.json"
+        grammar_payload = json.loads(grammar_path.read_text(encoding="utf-8"))
     observed_paths = set()
     for observation in observations:
         for feature in grammar_payload["features"]:
@@ -308,7 +311,7 @@ def hydrate_candidate_cases(
     ledger: CandidateEvidenceLedger,
 ) -> list[dict[str, Any]]:
     """Rebuild all immutable case payloads recorded for a candidate revision."""
-    subject_id = str(candidate.get("rule_id") or candidate.get("relation_id") or candidate.get("id") or "")
+    subject_id = str(candidate.get("candidate_identity") or candidate.get("rule_id") or candidate.get("relation_id") or candidate.get("id") or "")
     version = int(candidate.get("version", 1))
     case_ids = {str(item) for item in candidate.get("cases", []) if isinstance(item, str)}
     memberships = ledger.members(subject_id, version)
@@ -336,7 +339,49 @@ def hydrate_candidate_cases(
     return values
 
 
-def persist_collecting_proposals(store: Path, proposals: list[dict[str, Any]], case_ids: list[str]) -> None:
+def candidate_intervention_digest(intervention: dict[str, Any]) -> str:
+    """Digest the semantic proposal identity used to partition evidence."""
+    return hashlib.sha256(json.dumps(intervention, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def candidate_identity(rule_id: str, version: int, intervention: dict[str, Any]) -> str:
+    return f"{rule_id}:v{int(version)}:{candidate_intervention_digest(intervention)[:24]}"
+
+
+def semantic_action_spec(family_id: str | None, proposal: dict[str, Any]) -> dict[str, Any]:
+    """Project a task patch onto the reusable family action vocabulary."""
+    explicit = proposal.get("action_spec")
+    if isinstance(explicit, dict) and isinstance(explicit.get("action"), str):
+        return {"action": explicit["action"]}
+    patch = proposal.get("intervention")
+    if isinstance(patch, dict) and isinstance(patch.get("action"), str):
+        return {"action": patch["action"]}
+    if family_id is None and isinstance(patch, dict) and patch:
+        return dict(patch)
+    actions = {
+        "compile": "reuse_compile_cache",
+        "graph_cache": "reuse_graph_cache",
+        "h2d_pipeline": "pin_memory_pipeline",
+        "checkpoint": "checkpoint_recompute",
+        "scalar_sync": "aggregate_scalars",
+    }
+    resolved_family = str(family_id or "")
+    try:
+        from benchmark.families import resolve_family_id
+        resolved_family = resolve_family_id(resolved_family)
+    except (KeyError, ValueError):
+        pass
+    action = actions.get(resolved_family, "measure")
+    return {"action": action}
+
+
+def persist_collecting_proposals(
+    store: Path,
+    proposals: list[dict[str, Any]],
+    case_ids: list[str],
+    *,
+    family_id: str | None = None,
+) -> None:
     """Persist worker hypotheses before a boundary predicate is identifiable."""
     candidates_dir = Path(store) / "evolution" / "candidates"
     candidates_dir.mkdir(parents=True, exist_ok=True)
@@ -350,7 +395,12 @@ def persist_collecting_proposals(store: Path, proposals: list[dict[str, Any]], c
             validate_identifier(identifier, "candidate_id")
         except ValueError:
             continue
-        path = candidates_dir / f"{identifier_digest(identifier)}.json"
+        version = int(proposal.get("version", 1))
+        realization = proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {"action": "measure"}
+        intervention = semantic_action_spec(family_id, proposal)
+        intervention_digest = candidate_intervention_digest(intervention)
+        identity = candidate_identity(identifier, version, intervention)
+        path = candidates_dir / f"{identifier_digest(identity)}.json"
         existing: dict[str, Any] = {}
         if path.is_file():
             try:
@@ -360,10 +410,14 @@ def persist_collecting_proposals(store: Path, proposals: list[dict[str, Any]], c
         evidence_ids = sorted(set(str(item) for item in existing.get("synthesis_state", {}).get("evidence_ids", []) if isinstance(item, str)) | set(case_ids))
         candidate = {
             "rule_id": identifier,
+            "family_id": family_id,
             "version": int(proposal.get("version", existing.get("version", 1))),
+            "candidate_identity": identity,
+            "intervention_digest": intervention_digest,
             "parent": None,
             "hypothesis": {
-                "intervention": proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {"action": "measure"},
+                "intervention": intervention,
+                "realization": realization,
                 "expected_mechanism": str(proposal.get("expected_mechanism") or proposal.get("hypothesis") or "task-local performance mechanism"),
             },
             "synthesis_state": existing.get("synthesis_state", {
@@ -372,9 +426,12 @@ def persist_collecting_proposals(store: Path, proposals: list[dict[str, Any]], c
                 "version_space_digest": None,
                 "evidence_ids": evidence_ids,
             }),
-            "intervention": proposal.get("intervention") if isinstance(proposal.get("intervention"), dict) else {"action": "measure"},
+            "intervention": intervention,
+            "realization": realization,
             "expected_mechanism": str(proposal.get("expected_mechanism") or proposal.get("hypothesis") or "task-local performance mechanism"),
             "status": "collecting_evidence",
+            "p_min": 0.8,
+            "delta": 0.05,
             "cases": sorted(set(str(item) for item in existing.get("cases", []) if isinstance(item, str)) | set(case_ids)),
         }
         candidate["synthesis_state"]["evidence_ids"] = evidence_ids
@@ -390,6 +447,8 @@ def execute_poison_probe(
     proposal: dict[str, Any],
     realized_solution: Path,
     baseline_solution: Path,
+    task_dir: Path | None = None,
+    verifier_out: Path | None = None,
 ) -> dict[str, Any]:
     """Execute a poison probe against a materialized, non-empty intervention."""
     changed = False
@@ -414,6 +473,21 @@ def execute_poison_probe(
     if intervention_id is None:
         raise ValueError(f"no canonical poison probe intervention for family {family_id}")
     deployed = [intervention_id]
+    verifier_executed = False
+    verifier_scientific_ok = True
+    verifier_result_digest: str | None = None
+    if task_dir is not None:
+        result = verifier.verify_task(
+            task_dir,
+            realized_solution,
+            out_path=verifier_out or realized_solution.parent / "poison-result.json",
+            condition="D",
+            context_mode="reset",
+            seed=0,
+        )
+        verifier_executed = True
+        verifier_scientific_ok = bool(scoring.score_task(result).get("gates_passed", False))
+        verifier_result_digest = hashlib.sha256(json.dumps(result, sort_keys=True, default=str).encode("utf-8")).hexdigest()
     environment = FamilyEnvironment(family_id)
     state = EpisodeEnvironmentState(active_poison=("formal_validation_probe",))
     outcome = environment.evaluate(public_context.get("workload", {}), deployed, state)
@@ -421,13 +495,19 @@ def execute_poison_probe(
     return {
         "case_id": f"POISON-PROBE-{task_spec.get('task_id', 'task')}",
         "executed": True,
-        "execution_source": "family-environment",
-        "validation_class": "synthetic_validation_only",
-        "accepted": bool(outcome.utility > baseline.utility + 1e-9 and all(outcome.scientific_gates.values())),
+        "execution_source": "verifier+family-environment" if verifier_executed else "family-environment",
+        "validation_class": "executable_adversarial" if verifier_executed else "synthetic_validation_only",
+        "accepted": bool(
+            outcome.utility > baseline.utility + 1e-9
+            and all(outcome.scientific_gates.values())
+            and verifier_scientific_ok
+        ),
         "utility": outcome.utility,
         "baseline_utility": baseline.utility,
         "intervention_id": intervention_id,
         "realized_changed": True,
+        "verifier_scientific_ok": verifier_scientific_ok,
+        "verifier_result_digest": verifier_result_digest,
     }
 
 
@@ -742,7 +822,7 @@ def post_task_update(
             if not intervention_runs or len(intervention_runs) != len(baseline_runs) or not fixture_hashes or fixture_hashes != control_fixture_hashes:
                 # The verifier's paired record is the only accepted source of
                 # causal measurements; no task-score fallback is fabricated.
-                persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids)
+                persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids, family_id=family_id)
                 return {"transition": "no_replay_measurement", "added_experience_ids": added_experience_ids}
             case = {
                 "schema_version": 1,
@@ -778,7 +858,7 @@ def post_task_update(
             validation_dir = store / "evolution" / "validation"
             validation_dir.mkdir(parents=True, exist_ok=True)
             if not isinstance(validation_evidence, dict):
-                persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids)
+                persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids, family_id=family_id)
                 return {"transition": "no_independent_validation", "added_experience_ids": added_experience_ids}
             validation = {
                 "schema_version": 1,
@@ -825,15 +905,31 @@ def post_task_update(
                 continue
             candidate = dict(candidate)
             validate_identifier(identifier, "candidate_id")
+            task_patch = candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"}
+            version = int(candidate.get("version", 1))
+            action_spec = semantic_action_spec(family_id, candidate)
+            intervention_digest = candidate_intervention_digest(action_spec)
+            identity = candidate_identity(identifier, version, action_spec)
+            try:
+                from benchmark.families import FAMILY_SPECS, resolve_family_id
+                family_spec = FAMILY_SPECS.get(resolve_family_id(str(family_id)))
+            except (ImportError, AttributeError):
+                family_spec = None
+            scientific_invariants = list(getattr(family_spec, "scientific_invariants", ()) or ()) or ["task_scientific_gates"]
+            severity = str(getattr(family_spec, "default_severity", "P2"))
+            runtime_tokens = max(1.0, len(json.dumps(action_spec, sort_keys=True, separators=(",", ":"))) / 4.0)
             # Proposal fields are hypotheses only.  Applicability is generated
             # below by the harness-owned CEGIS pass.
             candidate = {
                 "rule_id": identifier,
-                "version": int(candidate.get("version", 1)),
+                "family_id": family_id,
+                "version": version,
+                "candidate_identity": identity,
+                "intervention_digest": intervention_digest,
                 "parent": None,
                 "applicability": {"all": []},
                 "hypothesis": {
-                    "intervention": candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"},
+                    "intervention": action_spec,
                     "expected_mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
                 },
                 "synthesis_state": {
@@ -842,19 +938,22 @@ def post_task_update(
                     "version_space_digest": None,
                     "evidence_ids": [],
                 },
-                "intervention": candidate.get("intervention") if isinstance(candidate.get("intervention"), dict) else {"action": "measure"},
+                "intervention": action_spec,
+                "realization": task_patch,
                 "expected_mechanism": str(candidate.get("expected_mechanism") or candidate.get("hypothesis") or "task-local performance mechanism"),
                 "evidence_requirements": ["paired_replay"],
-                "scientific_invariants": [],
+                "scientific_invariants": scientific_invariants,
                 "abstain_conditions": {},
                 "relations": {},
-                "runtime_cost": {"tokens": 1.0},
+                "runtime_cost": {"tokens": runtime_tokens},
                 "provenance_policy": {"required": True},
-                "severity": "P2",
+                "severity": severity,
                 "domain": "runtime",
                 "text": str(candidate.get("text", "")),
                 "status": "candidate",
                 "epsilon": float(practical_epsilon),
+                "p_min": 0.8,
+                "delta": 0.05,
             }
             candidate["cases"] = list(added_replay_case_ids)
             candidate["validation_artifacts"] = {
@@ -863,7 +962,7 @@ def post_task_update(
                 "heldout_count": 1,
                 "poison_probe_count": 1,
             }
-            path = candidates_dir / f"{identifier_digest(identifier)}.json"
+            path = candidates_dir / f"{identifier_digest(identity)}.json"
             existing: dict[str, Any] = {}
             if path.is_file():
                 try:
@@ -947,9 +1046,25 @@ def post_task_update(
                     case_values_for_cegis.append(case_value)
                     case_value = dict(case_value)
                     case_value["case_path"] = str((store / "experience" / "cases" / f"{identifier_digest(str(case_id))}.json").relative_to(store)).replace("\\", "/")
-                    candidate_evidence.append(identifier, int(candidate.get("version", 1)), case_value)
+                    candidate_evidence.append(
+                        str(candidate.get("candidate_identity") or identifier),
+                        int(candidate.get("version", 1)),
+                        case_value,
+                    )
             case_values_for_cegis = hydrate_candidate_cases(store, candidate, candidate_evidence)
             candidate["cases"] = sorted({str(case.get("case_id")) for case in case_values_for_cegis if case.get("case_id")})
+            from benchmark.formal.schedule import PromotionReplayScheduler
+            scheduler = PromotionReplayScheduler()
+            seen_groups = {str(case.get("independence_group")) for case in case_values_for_cegis if case.get("independence_group")}
+            candidate["replay_schedule"] = {
+                "minimum_groups": scheduler.minimum_groups,
+                "pending_contexts": scheduler.pending_contexts(
+                    str(family_id or "compile"), seen_group_ids=seen_groups,
+                ),
+            }
+            candidate["replay_schedule"]["experiment_cost"] = float(
+                len(candidate["replay_schedule"]["pending_contexts"])
+            )
             candidate["status"] = "collecting_evidence"
             candidate["synthesis_state"] = {
                 **dict(candidate.get("synthesis_state") or {}),
@@ -969,7 +1084,7 @@ def post_task_update(
             )
             if synthesized is None:
                 continue
-            intervention = candidate.get("intervention")
+            intervention = candidate.get("realization") or candidate.get("intervention")
             if not isinstance(intervention, dict) or not isinstance(intervention.get("file"), str) or not isinstance(intervention.get("replacements"), list):
                 continue
             predicate, provenance = synthesized
@@ -991,7 +1106,7 @@ def post_task_update(
             )
             candidate["status"] = "candidate"
             path.write_text(json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            candidates_by_id[identifier] = candidate
+            candidates_by_id[str(candidate.get("candidate_identity") or identifier)] = candidate
         for path in sorted(candidates_dir.glob("*.json")):
             candidate = json.loads(path.read_text(encoding="utf-8"))
             synthesis_state = candidate.get("synthesis_state") if isinstance(candidate.get("synthesis_state"), dict) else {}
@@ -1003,11 +1118,11 @@ def post_task_update(
                 and int(provenance.get("decision_context_count", 0)) > 0
             ):
                 identifier = str(candidate.get("relation_id") or candidate.get("rule_id") or candidate.get("id") or path.stem)
-                candidates_by_id[identifier] = candidate
+                candidates_by_id[str(candidate.get("candidate_identity") or identifier)] = candidate
         candidates = list(candidates_by_id.values())
         for candidate in candidates:
             hydrated_cases: list[dict[str, Any]] = []
-            subject_id = str(candidate.get("rule_id") or candidate.get("id") or "")
+            subject_id = str(candidate.get("candidate_identity") or candidate.get("rule_id") or candidate.get("id") or "")
             memberships = candidate_evidence.members(subject_id, int(candidate.get("version", 1)))
             membership_by_id = {str(item.get("case_id")): item for item in memberships}
             case_ids = list(membership_by_id) or candidate.get("cases", [])
@@ -1418,26 +1533,30 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
                         "quality_ok": bool(heldout_scored.get("gates_passed", False)) and bool(heldout_control_scored.get("gates_passed", False)),
                     }
-                    heldout_stats = evaluate_cases(
-                        [heldout_case],
-                        epsilon=practical_effect_threshold(float((task_spec.get("measurement") or {}).get("min_improvement_percent", 0.0))),
-                        p_min=0.0,
-                        delta=0.05,
+                    heldout_interval = _case_effect_interval(heldout_case, delta=0.05)
+                    if heldout_interval is None:
+                        raise ValueError("held-out paired effect interval is unavailable")
+                    heldout_effect, heldout_lcb, heldout_ucb = heldout_interval
+                    regression_tolerance = float(
+                        (task_spec.get("measurement") or {}).get("regression_tolerance", 0.0)
                     )
                     validation_evidence = {
+                        "regression_tolerance": regression_tolerance,
                         "heldout_regression_cases": [{
                             "case_id": f"HELDOUT-{task_id}",
                             "executed": True,
                             "execution_source": "verifier",
                             "scientific_ok": bool(heldout_scored.get("gates_passed", False)),
-                            "utility": heldout_stats.get("mean_effect"),
-                            "effect": heldout_stats.get("mean_effect"),
-                            "effect_lcb": heldout_stats.get("utility_effect_lcb"),
-                            "effect_ucb": heldout_stats.get("utility_effect_ucb"),
-                            "utility_policy_id": heldout_stats.get("utility_policy_id"),
+                            "utility": heldout_effect,
+                            "effect": heldout_effect,
+                            "effect_lcb": heldout_lcb,
+                            "effect_ucb": heldout_ucb,
+                            "utility_policy_id": "bounded_log_speedup_v1",
                         }],
                         "poison_probe_cases": [execute_poison_probe(
-                            task_spec, public_routing, proposals[0], realized_solution, solution_dir
+                            task_spec, public_routing, proposals[0], realized_solution, solution_dir,
+                            task_dir=tasks_root / task_id,
+                            verifier_out=trial_dir / "poison-result.json",
                         )],
                     }
                 except (OSError, ValueError, TypeError) as exc:

@@ -100,21 +100,29 @@ class FamilyEnvironment:
             drifted = state.scientific_regime != "default"
             preferred = "rebuild_graph_cache" if drifted else "reuse_graph_cache"
             utility = 0.35 if drifted and "reuse_graph_cache" in deployed else 0.78 if preferred in deployed else 0.60
+            if state.active_poison and deployed:
+                utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         if self.family_id == "h2d_pipeline":
             shifted = state.hardware_regime != "default" or state.scale_regime != "default"
             preferred = "prefetch_pipeline" if shifted else "pin_memory_pipeline"
             utility = 0.76 if preferred in deployed else 0.58
+            if state.active_poison and deployed:
+                utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         if self.family_id == "checkpoint":
             shifted = state.scale_regime != "default"
             preferred = "retained_graph" if shifted else "checkpoint_recompute"
             utility = 0.76 if preferred in deployed else 0.58
+            if state.active_poison and deployed:
+                utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         if self.family_id == "scalar_sync":
             shifted = state.harness_regime != "default"
             preferred = "defer_scalar_sync" if shifted else "aggregate_scalars"
             utility = 0.76 if preferred in deployed else 0.58
+            if state.active_poison and deployed:
+                utility -= 0.20
             return EnvironmentOutcome(utility, {"finite_loss": True}, (preferred,))
         return EnvironmentOutcome(0.60 if not deployed else 0.80, {"finite_loss": True}, ())
 

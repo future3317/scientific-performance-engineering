@@ -13,6 +13,7 @@ from .catalog import (
     reconstruct_anchor_instance,
     all_anchor_instances,
     family_instance_digest,
+    family_predicate_grammar,
     CompositionSpec,
     InteractionOracle,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "reconstruct_anchor_instance",
     "all_anchor_instances",
     "family_instance_digest",
+    "family_predicate_grammar",
     "CompositionSpec",
     "InteractionOracle",
     "EnvironmentOutcome", "EpisodeEnvironmentState", "FamilyEnvironment",

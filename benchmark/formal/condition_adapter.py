@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 from typing import Any, Mapping
 
 from benchmark.harness.experience_retrieval import RawExperienceRetriever
+from benchmark.formal.schedule import PendingCandidateScheduler
 from core.acre.engine import AcreEngine
 from core.models import TaskContext
 
@@ -72,6 +74,20 @@ class FormalConditionAdapter:
         routed = engine.route(typed_context, token_budget=self.token_budget)
         specs = {spec.rule_id: spec for spec in engine.rule_specs}
         actions = [str(specs[item].intervention.get("action", item)) for item in routed.selected_rule_ids if item in specs]
+        pending: list[dict[str, Any]] = []
+        candidate_dir = self.store / "evolution" / "candidates"
+        if candidate_dir.is_dir():
+            scheduler = PendingCandidateScheduler()
+            for path in sorted(candidate_dir.glob("*.json")):
+                try:
+                    candidate = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(candidate, dict) or candidate.get("status") != "collecting_evidence":
+                    continue
+                family_id = candidate.get("family_id")
+                if isinstance(family_id, str):
+                    pending.extend(scheduler.for_candidate(candidate, family_id))
         return {
             "schema_version": 1,
             "condition": self.condition,
@@ -79,6 +95,7 @@ class FormalConditionAdapter:
             "selected_rule_ids": list(routed.selected_rule_ids),
             "selected_relation_ids": [],
             "proposed_interventions": actions,
+            "pending_replay_contexts": pending,
         }
 
     def propose_interventions(self, context: TaskContext | Mapping[str, Any]) -> list[str]:

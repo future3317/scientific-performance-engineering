@@ -140,6 +140,10 @@ class FamilySpec:
         "parameters": dict(parameters),
     }
     anchor_parameters: Mapping[str, Mapping[str, Any]] | None = None
+    predicate_features: tuple[Mapping[str, str], ...] = ()
+    threshold_universe: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
+    scientific_invariants: tuple[str, ...] = ()
+    default_severity: str = "P2"
 
     def generate(self, count: int, seed: int = 0) -> list[FamilyInstance]:
         if count < 1:
@@ -152,6 +156,8 @@ class FamilySpec:
             params.pop("polarity", None)
             difficulty = str(params.pop("difficulty_tier", "medium"))
             applicable = bool(self.applicability(params))
+            truth = dict(self.scientific_truth(params) or {})
+            truth["applicable"] = applicable
             result.append(
                 FamilyInstance(
                     family_id=self.family_id,
@@ -161,7 +167,7 @@ class FamilySpec:
                     difficulty_tier=difficulty,
                     lineage={"generator_family_id": self.generator_family_id, "seed": seed, "index": index},
                     applicable=applicable,
-                    scientific_truth=dict(self.scientific_truth(params)),
+                    scientific_truth=truth,
                 )
             )
         return result
@@ -346,9 +352,55 @@ _EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
 }
 
 _CANONICAL_SPECS: list[FamilySpec] = []
+_PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
+    "compile": (
+        {"path": "workload.logical_steps", "type": "numeric"},
+        {"path": "workload.dynamic_shape_rate", "type": "numeric"},
+        {"path": "workload.graph_size", "type": "numeric"},
+    ),
+    "graph_cache": (
+        {"path": "workload.geometry_displacement", "type": "numeric"},
+        {"path": "workload.dynamic_rate", "type": "numeric"},
+        {"path": "workload.graph_size", "type": "numeric"},
+    ),
+    "h2d_pipeline": (
+        {"path": "workload.worker_count", "type": "numeric"},
+        {"path": "workload.pin_memory", "type": "categorical"},
+        {"path": "workload.batch_size", "type": "numeric"},
+    ),
+    "checkpoint": (
+        {"path": "workload.memory_pressure", "type": "numeric"},
+        {"path": "workload.segment_count", "type": "numeric"},
+    ),
+    "scalar_sync": (
+        {"path": "workload.scalar_syncs_per_step", "type": "numeric"},
+        {"path": "workload.metric_cadence", "type": "numeric"},
+    ),
+}
+_THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
+    "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.2, 0.4, 0.6)},
+    "graph_cache": {"workload.geometry_displacement": (0.02, 0.05, 0.08), "workload.dynamic_rate": (0.2, 0.6)},
+    "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0)},
+    "checkpoint": {"workload.memory_pressure": (0.4, 0.57, 0.7), "workload.segment_count": (4.0, 6.0)},
+    "scalar_sync": {"workload.scalar_syncs_per_step": (4.0, 8.0, 12.0)},
+}
+_SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
+    "compile": ("compile_correctness",),
+    "graph_cache": ("energy_force_consistency",),
+    "h2d_pipeline": ("batch_semantics_preserved",),
+    "checkpoint": ("gradient_equivalence",),
+    "scalar_sync": ("metric_semantics_preserved",),
+}
 for _spec in _SPECS:
     _applicability = _legacy_applicability if _spec.family_id in {"repeated_compute", "autograd", "equivariant_head", "crystal_generation", "crystal_sampling", "episode"} else _spec.applicability
-    _CANONICAL_SPECS.append(replace(_spec, applicability=_applicability, anchor_parameters=_EXPLICIT_ANCHORS[_spec.family_id]))
+    _CANONICAL_SPECS.append(replace(
+        _spec,
+        applicability=_applicability,
+        anchor_parameters=_EXPLICIT_ANCHORS[_spec.family_id],
+        predicate_features=_PREDICATE_FEATURES.get(_spec.family_id, ()),
+        threshold_universe=_THRESHOLDS.get(_spec.family_id, {}),
+        scientific_invariants=_SCIENTIFIC_INVARIANTS.get(_spec.family_id, ()),
+    ))
 _SPECS = tuple(_CANONICAL_SPECS)
 
 FAMILY_SPECS = {spec.family_id: spec for spec in _SPECS}
@@ -378,6 +430,20 @@ def resolve_family_id(value: str) -> str:
 
 def family_instances(family_id: str, *, count: int, seed: int = 0) -> list[FamilyInstance]:
     return FAMILY_SPECS[resolve_family_id(family_id)].generate(count, seed)
+
+
+def family_predicate_grammar(family_id: str) -> dict[str, Any]:
+    """Return the family-owned typed grammar used by harness CEGIS."""
+    spec = FAMILY_SPECS[resolve_family_id(family_id)]
+    if not spec.predicate_features:
+        return {}
+    return {
+        "schema_version": 1,
+        "features": [dict(feature) for feature in spec.predicate_features],
+        "max_depth": 3,
+        "max_literals": 4,
+        "threshold_universe": {key: list(values) for key, values in spec.threshold_universe.items()},
+    }
 
 
 def family_views(family_id: str, *, count: int = 24, seed: int = 0) -> dict[str, list[FamilyInstance]]:

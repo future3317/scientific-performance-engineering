@@ -587,6 +587,30 @@ def test_proposal_is_persisted_while_collecting_evidence(tmp_path: Path) -> None
     assert card["cases"] == []
 
 
+def test_collecting_candidates_partition_distinct_interventions(tmp_path: Path) -> None:
+    persist_collecting_proposals(tmp_path, [
+        {"rule_id": "RULE-FORK", "intervention": {"file": "solution.py", "replacements": [{"old": "x", "new": "y"}]}},
+        {"rule_id": "RULE-FORK", "intervention": {"file": "solution.py", "replacements": [{"old": "x", "new": "z"}]}},
+    ], [])
+    cards = list((tmp_path / "evolution" / "candidates").glob("*.json"))
+    assert len(cards) == 2
+    assert len({json.loads(path.read_text(encoding="utf-8")).get("intervention_digest") for path in cards}) == 2
+
+
+def test_replay_default_gate_reports_reachable_group_count() -> None:
+    from core.sequential_stats import minimum_all_successes
+    from scripts.run_rule_replay import evaluate_cases
+
+    case = {
+        "case_id": "GROUP-1", "independence_group": "GROUP-1", "paired_replay": True,
+        "same_fixture_id": "FIXTURE-1", "utility_on": 1.0, "utility_off": 0.5,
+        "scientific_ok": True, "quality_ok": True,
+    }
+    result = evaluate_cases([case], epsilon=0.0, p_min=0.8, delta=0.05)
+    assert result["minimum_replay_groups"] == minimum_all_successes(0.8, 0.05) == 29
+    assert result["outcome"] == "failed"
+
+
 def test_utility_transform_is_dimensionless_and_versioned() -> None:
     from core.utility import UTILITY_POLICY_ID, utility_effect
 

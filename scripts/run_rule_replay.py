@@ -17,7 +17,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from core.sequential_stats import bounded_mean_interval, mixture_lower_bound
+from core.sequential_stats import bounded_mean_interval, mixture_lower_bound, minimum_all_successes
 from core.models import validate_identifier
 from core.utility import UTILITY_LOG_SCALE, UTILITY_POLICY_ID, utility_effect, validate_policy
 
@@ -151,7 +151,13 @@ def evaluate_cases(
     upper_confidence_bound = mean_effect + 1.96 * standard_error
     utility_effect_lcb, utility_effect_ucb = bounded_mean_interval(effects, delta)
     promotion_probability_lower_bound = betting_lower_bound(successes, len(effects), delta)
-    outcome = "passed" if scientific_ok and mean_effect > epsilon and promotion_probability_lower_bound >= p_min else "failed"
+    minimum_replay_groups = minimum_all_successes(p_min, delta) if p_min > 0.0 else 1
+    outcome = "passed" if (
+        scientific_ok
+        and mean_effect > epsilon
+        and len(effects) >= minimum_replay_groups
+        and promotion_probability_lower_bound >= p_min
+    ) else "failed"
     return {
         "n": len(effects),
         "case_count": len(cases),
@@ -173,6 +179,8 @@ def evaluate_cases(
         "delta": delta,
         "posterior_probability": posterior_probability,
         "promotion_probability_lower_bound": promotion_probability_lower_bound,
+        "minimum_replay_groups": minimum_replay_groups,
+        "replay_groups_sufficient": len(effects) >= minimum_replay_groups,
         "confidence_method": "beta-binomial-mixture-e-process",
         "scientific_gates_passed": scientific_ok,
         "outcome": outcome,

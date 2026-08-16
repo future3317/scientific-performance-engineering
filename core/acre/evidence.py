@@ -56,7 +56,25 @@ def assess(events: Iterable[EvidenceEvent], *, delta: float = 0.05) -> EvidenceA
     canonical = _canonical(events)
     reps = representative_events(canonical)
     adv = adversarial_events(canonical)
-    values = [value for event in reps if (value := _utility(event)) is not None]
+    # Replay writes one audit event per arm, but one independence group is one
+    # statistical observation.  Prefer the explicit paired effect and fall
+    # back to a single unpaired utility only when no paired effect exists.
+    grouped: dict[str, EvidenceEvent] = {}
+    values: list[float] = []
+    for event in reps:
+        group = event.independence_group
+        paired = event.outcome_vector.get("paired_effect")
+        if paired is not None:
+            if group not in grouped:
+                grouped[group] = event
+                if not isinstance(paired, bool) and math.isfinite(float(paired)):
+                    values.append(float(paired))
+            continue
+        if group not in grouped:
+            grouped[group] = event
+            value = _utility(event)
+            if value is not None:
+                values.append(value)
     if values:
         # Allocate confidence over all prefixes so callers may inspect the
         # stream after any stopping time without reusing a fixed-sample bound.
@@ -76,4 +94,4 @@ def assess(events: Iterable[EvidenceEvent], *, delta: float = 0.05) -> EvidenceA
         for event in adv
         if event.outcome_vector.get("counterexample") is True or event.event_id in falsifying
     )
-    return EvidenceAssessment(len(reps), len(adv), lcb, None, falsifying, specializing)
+    return EvidenceAssessment(len(grouped), len(adv), lcb, None, falsifying, specializing)

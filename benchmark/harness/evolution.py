@@ -38,6 +38,7 @@ from core import governance
 from benchmark.families import poisoning_transformation, transformation
 from core.predicates import match_predicate
 from core.utility import utility_effect
+from core.sequential_stats import minimum_all_successes
 from benchmark.formal.aggregate import RegretStep, evolution_regret
 from core.models import TaskContext
 from core.models import identifier_digest, validate_identifier
@@ -233,6 +234,14 @@ def promote_via_replay(
             cases = [case for case in all_cases if match_predicate(predicate, case.get("context", {}))]
         if not cases:
             continue
+        p_min = float(candidate.get("p_min", 0.8))
+        delta = float(candidate.get("delta", 0.05))
+        minimum_groups = minimum_all_successes(p_min, delta) if p_min > 0.0 else 1
+        if len({str(case.get("independence_group") or case.get("source_id") or case.get("case_id")) for case in cases}) < minimum_groups:
+            # The pending scheduler will request more family contexts; a
+            # partial candidate is never promoted merely because its current
+            # prefix happens to contain only successful groups.
+            continue
         for case in cases:
             case.setdefault("paired_replay", True)
             case.setdefault("same_fixture_id", case.get("case_id", f"fixture-{index}"))
@@ -240,8 +249,8 @@ def promote_via_replay(
             "rule_id": candidate.get("rule_id") or candidate.get("id", f"rule-{index}"),
             "cases": cases,
             "epsilon": float(candidate.get("epsilon", 0.0)),
-            "p_min": float(candidate.get("p_min", 0.8)),
-            "delta": float(candidate.get("delta", 0.05)),
+            "p_min": p_min,
+            "delta": delta,
         }
         replay_dir = store / "evolution" / "maintenance_reports"
         replay_dir.mkdir(parents=True, exist_ok=True)
@@ -346,12 +355,13 @@ def promote_via_replay(
         }
         manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         rule_id = payload["rule_id"]
+        ledger_subject = str(candidate.get("candidate_identity") or rule_id)
         version = int(candidate.get("version", 1))
-        if ledger.has_replay(rule_id, version, replay_digest):
+        if ledger.has_replay(ledger_subject, version, replay_digest):
             continue
         try:
-            ledger.record(rule_id, version, replay_digest, "candidate")
-            ledger.record(rule_id, version, replay_digest, "evaluated", float(manifest["result"].get("mean_effect", 0.0)))
+            ledger.record(ledger_subject, version, replay_digest, "candidate")
+            ledger.record(ledger_subject, version, replay_digest, "evaluated", float(manifest["result"].get("mean_effect", 0.0)))
         except ValueError:
             continue
         decision = governance.apply_promotion(
@@ -361,10 +371,10 @@ def promote_via_replay(
             replay_path=str(manifest_path.relative_to(store)),
         )
         if decision.allowed:
-            ledger.record(rule_id, version, replay_digest, "promoted")
+            ledger.record(ledger_subject, version, replay_digest, "promoted")
             promoted.append(payload["rule_id"])
         else:
-            ledger.record(rule_id, version, replay_digest, "rejected")
+            ledger.record(ledger_subject, version, replay_digest, "rejected")
     return promoted
 
 
