@@ -150,7 +150,6 @@ def test_external_node_router_to_restart_lifecycle(tmp_path: Path):
     poison_off = _external_node({"context": {"domain": "runtime", "workload": {"x": -2}}}, arm="off")
     heldout_effect = float(heldout_on["measurements"][0]) - float(heldout_off["measurements"][0])
     poison_accepted = float(poison_on["measurements"][0]) > float(poison_off["measurements"][0])
->>>>>>> 79331a8 (refactor: simplify freeze readiness execution paths)
     validation = {
         "scope": "calibration", "promotion_case_ids": [case["case_id"] for case in cases],
         "synthesis_case_ids": [case["case_id"] for case in cases],
