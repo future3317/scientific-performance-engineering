@@ -1,5 +1,27 @@
 --- a/solution.py
 +++ b/solution.py
-@@
+@@ -1,4 +1,4 @@
+-"""Baseline for tensor-only dynamic-shape specialization."""
++"""Oracle: use one tensor-only dynamic-shape graph for the shape schedule."""
+ 
+ from __future__ import annotations
+ 
+@@ -14,7 +14,7 @@
+         self.blocks = nn.ModuleList(nn.Linear(hidden_dim, hidden_dim) for _ in range(num_blocks))
+         self.fc2 = nn.Linear(hidden_dim, 1)
+ 
+-    def forward(self, x: torch.Tensor) -> torch.Tensor:
++    def forward(self, x):
+         h = F.relu(self.fc1(x))
+         for lin in self.blocks:
+             h = h + F.relu(lin(h))
+@@ -25,8 +25,7 @@
+     config = fixtures["model_config"]
+     model = TinyResMLP(config["in_dim"], config["hidden_dim"], int(config.get("num_blocks", 4)))
+     model.load_state_dict(fixtures["init_state"])
+-    model.to(fixtures["device"])
 -    return torch.compile(model, dynamic=False)
-+    return torch.compile(model, dynamic=True)
++    return torch.compile(model.to(fixtures["device"]), dynamic=True)
+ 
+ 
+ def _batch_at(fixtures, index):

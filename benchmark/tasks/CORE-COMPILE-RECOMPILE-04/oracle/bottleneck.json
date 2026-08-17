@@ -1,5 +1,5 @@
 {
   "mechanism": "compile_recompile",
   "location": "solution.py:train_step and build_model",
-  "why": "The .item()-dependent branch creates a graph break and dynamic=False specializes each first-seen batch shape. The cold_shape_schedule_ms metric includes that first shape cycle, so the measured estimand contains the recompilation cost."
+  "why": "The .item()-dependent branch creates a graph break and dynamic=False specializes each first-seen batch shape. The schedule_wall_ms metric includes the registered shape schedule from its first encounter, so the measured estimand contains the recompilation cost."
 }

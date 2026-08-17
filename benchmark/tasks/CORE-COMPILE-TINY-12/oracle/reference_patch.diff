@@ -1,9 +1,52 @@
 --- a/solution.py
 +++ b/solution.py
-@@
- def build_model(fixtures):
-@@
+@@ -1,7 +1,7 @@
+-"""Baseline for the tiny short-lived compile counterexample.
++"""Tempting intervention for the tiny counterexample: compile the graph.
+ 
+-The correct policy for this workload is to remain eager: compile startup is
+-larger than the short schedule being measured.
++The harness should show that cold compile startup is not worthwhile for this
++short schedule; the correct deployed action is to remain eager.
+ """
+ 
+ from __future__ import annotations
+@@ -9,8 +9,6 @@
+ import torch
+ import torch.nn as nn
+ import torch.nn.functional as F
+-
+-TASK_VARIANT = "CORE-COMPILE-TINY-12"
+ 
+ 
+ class TinyResMLP(nn.Module):
+@@ -20,7 +18,7 @@
+         self.blocks = nn.ModuleList(nn.Linear(hidden_dim, hidden_dim) for _ in range(num_blocks))
+         self.fc2 = nn.Linear(hidden_dim, 1)
+ 
+-    def forward(self, x: torch.Tensor) -> torch.Tensor:
++    def forward(self, x):
+         h = F.relu(self.fc1(x))
+         for lin in self.blocks:
+             h = h + F.relu(lin(h))
+@@ -31,7 +29,7 @@
+     config = fixtures["model_config"]
+     model = TinyResMLP(config["in_dim"], config["hidden_dim"], int(config.get("num_blocks", 4)))
+     model.load_state_dict(fixtures["init_state"])
 -    return model.to(fixtures["device"])
-+    # Tempting intervention: compile the tiny graph.  Calibration should
-+    # reject it because cold startup is not amortized by this schedule.
 +    return torch.compile(model.to(fixtures["device"]), dynamic=False)
+ 
+ 
+ def _batch_at(fixtures, index):
+@@ -43,8 +41,9 @@
+ 
+ def train_step(model, batch, optimizer):
+     inputs, targets = batch[:2]
+-    preds = model(inputs.to(next(model.parameters()).device)).squeeze(-1)
+-    loss = F.mse_loss(preds, targets.to(preds.device))
++    device = next(model.parameters()).device
++    preds = model(inputs.to(device)).squeeze(-1)
++    loss = F.mse_loss(preds, targets.to(device))
+     optimizer.zero_grad()
+     loss.backward()
+     optimizer.step()

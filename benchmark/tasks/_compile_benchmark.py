@@ -91,6 +91,18 @@ def _set_compile_threads(profile: dict[str, Any]) -> None:
     os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = str(profile["compile_threads"])
 
 
+def _observed_compile_threads() -> int | None:
+    try:
+        import torch._inductor.config as inductor_config
+
+        value = inductor_config.compile_threads
+        if value is None:
+            value = inductor_config.decide_compile_threads()
+        return int(value)
+    except Exception:
+        return None
+
+
 def _make_fixtures(seed: int, device: str, profile: dict[str, Any]) -> dict[str, Any]:
     rng = torch.Generator().manual_seed(seed)
     data_config = {"num_samples": int(profile["num_samples"]), "in_dim": int(profile["in_dim"])}
@@ -187,7 +199,12 @@ def _run_performance(
             "cold_schedule_ms": cold_schedule_ms,
             "steady_state_median_ms": statistics.median(steady),
             "shape_schedule": list(fixtures["batch_sizes"]),
-            "compile_threads": int(profile["compile_threads"]),
+            "requested_compile_threads": int(profile["compile_threads"]),
+            "observed_compile_threads": _observed_compile_threads(),
+            "compile_cache": {
+                "inductor": os.environ.get("TORCHINDUCTOR_CACHE_DIR"),
+                "triton": os.environ.get("TRITON_CACHE_DIR"),
+            },
             "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "peak_rss_mb": peak_rss_mb,
             "dynamo": _dynamo_diagnostics(),
@@ -199,20 +216,25 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
     task_dir = Path(task_dir)
     checks = _import_module_by_path(task_dir / "hidden_verifier" / "checks.py", "spe_compile_checks")
     science = _import_module_by_path(task_dir / "scientific_contract.py", "spe_compile_science")
-    cache_roots: dict[str, tempfile.TemporaryDirectory[str]] = {}
+    cache_roots: list[tempfile.TemporaryDirectory[str]] = []
 
     def cleanup_compile_caches() -> None:
-        for cache in cache_roots.values():
+        for cache in cache_roots:
             cache.cleanup()
+
+    def allocate_compile_caches() -> tuple[str, str]:
+        inductor_cache = tempfile.TemporaryDirectory(prefix="spe-compile-inductor-")
+        triton_cache = tempfile.TemporaryDirectory(prefix="spe-compile-triton-")
+        cache_roots.extend((inductor_cache, triton_cache))
+        os.environ["TORCHINDUCTOR_CACHE_DIR"] = inductor_cache.name
+        os.environ["TRITON_CACHE_DIR"] = triton_cache.name
+        return inductor_cache.name, triton_cache.name
 
     atexit.register(cleanup_compile_caches)
 
     def load_solution(path: str, device: str | None = None) -> Any:
         _set_compile_threads(profile)
-        cache_key = str(Path(path).resolve())
-        if cache_key not in cache_roots:
-            cache_roots[cache_key] = tempfile.TemporaryDirectory(prefix="spe-compile-cache-")
-        os.environ["TORCHINDUCTOR_CACHE_DIR"] = cache_roots[cache_key].name
+        allocate_compile_caches()
         try:
             torch._dynamo.reset()
         except Exception:
@@ -232,6 +254,52 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
     def run_scientific_gates(solution: Any, fixtures: dict[str, Any]) -> dict[str, Any]:
         return science.run_gates(solution, fixtures)
 
+    def run_activation_evidence(
+        solution: Any,
+        baseline_solution: Any,
+        fixtures: dict[str, Any],
+    ) -> dict[str, Any]:
+        def run_trace(arm_solution: Any) -> dict[str, Any]:
+            _set_compile_threads(profile)
+            allocate_compile_caches()
+            try:
+                torch._dynamo.reset()
+            except Exception:
+                pass
+            result = _run_performance(
+                arm_solution,
+                fixtures,
+                warmup=0,
+                iterations=max(1, len(fixtures["batch_sizes"])),
+                device=str(fixtures["device"]),
+            )
+            timing = result.get("timing", {})
+            dynamo = timing.get("dynamo", {}) if isinstance(timing, dict) else {}
+            counters = dynamo.get("counters", {}) if isinstance(dynamo, dict) else {}
+            frames = counters.get("frames", {}) if isinstance(counters, dict) else {}
+            stats = counters.get("stats", {}) if isinstance(counters, dict) else {}
+            inductor = counters.get("inductor", {}) if isinstance(counters, dict) else {}
+            return {
+                "compile_cache_hit": int(inductor.get("fxgraph_cache_hit", 0)) > 0,
+                "dynamic_guard_stable": False,
+                "compile_count": int(frames.get("total", 0)),
+                "unique_graphs": int(stats.get("unique_graphs", 0)),
+                "compile_threads": timing.get("observed_compile_threads"),
+                "compile_cache": timing.get("compile_cache"),
+                "dynamo": dynamo,
+            }
+
+        candidate_metrics = run_trace(solution)
+        baseline_metrics = run_trace(baseline_solution)
+        candidate_metrics["dynamic_guard_stable"] = (
+            candidate_metrics["unique_graphs"] > 0
+            and candidate_metrics["unique_graphs"] < baseline_metrics["unique_graphs"]
+        )
+        return {
+            "candidate_metrics": candidate_metrics,
+            "baseline_metrics": baseline_metrics,
+        }
+
     def run_performance(solution: Any, fixtures: dict[str, Any], warmup: int = 0, iterations: int = 16, device: str = "cpu") -> dict[str, Any]:
         return _run_performance(solution, fixtures, warmup, iterations, device)
 
@@ -240,5 +308,6 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
         "make_fixtures": make_fixtures,
         "run_correctness": run_correctness,
         "run_scientific_gates": run_scientific_gates,
+        "run_activation_evidence": run_activation_evidence,
         "run_performance": run_performance,
     }
