@@ -8,11 +8,13 @@ short-lived workload should be compiled at all.
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import importlib.util
 import os
 import statistics
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -197,9 +199,24 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
     task_dir = Path(task_dir)
     checks = _import_module_by_path(task_dir / "hidden_verifier" / "checks.py", "spe_compile_checks")
     science = _import_module_by_path(task_dir / "scientific_contract.py", "spe_compile_science")
+    cache_roots: dict[str, tempfile.TemporaryDirectory[str]] = {}
+
+    def cleanup_compile_caches() -> None:
+        for cache in cache_roots.values():
+            cache.cleanup()
+
+    atexit.register(cleanup_compile_caches)
 
     def load_solution(path: str, device: str | None = None) -> Any:
         _set_compile_threads(profile)
+        cache_key = str(Path(path).resolve())
+        if cache_key not in cache_roots:
+            cache_roots[cache_key] = tempfile.TemporaryDirectory(prefix="spe-compile-cache-")
+        os.environ["TORCHINDUCTOR_CACHE_DIR"] = cache_roots[cache_key].name
+        try:
+            torch._dynamo.reset()
+        except Exception:
+            pass
         module = _import_module_by_path(path, "spe_compile_solution")
         violations = validate_solution_api(module, "train_loop_v1")
         if violations:
