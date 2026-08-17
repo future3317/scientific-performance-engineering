@@ -214,7 +214,7 @@ print(json.dumps(checks))
             for path in (worker_root / "solution" / ".canary-write", worker_root / "result" / ".canary-write"):
                 path.unlink(missing_ok=True)
 
-    def execute(self, command: Sequence[str], worker_root: Path, *, receipt_path: Path, worker_uid: str = "unknown", include_skill: bool = True) -> subprocess.CompletedProcess[str]:
+    def execute(self, command: Sequence[str], worker_root: Path, *, receipt_path: Path, worker_uid: str = "unknown", include_skill: bool = True, skill_view_digest: str | None = None) -> subprocess.CompletedProcess[str]:
         """Execute the namespace command and attest only observed properties."""
         argv = self.command(command, worker_root)
         started = time.monotonic()
@@ -227,6 +227,7 @@ print(json.dumps(checks))
             tuple(name for name in ("task", "solution", "skill_view", "retrieved_context", "context_state", "result", "executor_receipt") if include_skill or name != "skill_view"),
             hashlib.sha256(Path(shutil.which(self.executable)).read_bytes()).hexdigest(),
             worker_uid,
+            skill_view_digest=skill_view_digest,
             network_namespace_attested=checks["network_blocked"],
             mount_verified=all(checks[key] for key in ("readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")),
             isolation_canary=all(checks.values()),
@@ -250,10 +251,18 @@ def main() -> int:
     parser.add_argument("--worker-uid", default="reference-executor")
     args = parser.parse_args()
     include_skill = (args.worker_root / "skill_view").is_dir()
+    skill_view_digest = None
+    manifest_path = args.worker_root / "skill_view" / "skill_view_manifest.json"
+    if include_skill and manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        value = manifest.get("manifest_digest")
+        if isinstance(value, str) and value:
+            skill_view_digest = value
     completed = ReferenceExecutor().execute(
         shlex.split(args.command), args.worker_root,
         receipt_path=args.receipt, worker_uid=args.worker_uid,
         include_skill=include_skill,
+        skill_view_digest=skill_view_digest,
     )
     if completed.stdout:
         print(completed.stdout, end="")
