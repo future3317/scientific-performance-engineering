@@ -411,6 +411,9 @@ def execute_required_experiments(
         if not isinstance(outcome, Mapping):
             raise ValueError("required experiment executor must return an object")
         result = {**payload, **dict(outcome)}
+        if result.get("status") == "resource_blocked":
+            results.append(result)
+            continue
         if result.get("status") != "executed" or result.get("execution_source") != "external_executor":
             result["status"] = "blocked"
             result["reason"] = "required experiment must be executed by external verifier"

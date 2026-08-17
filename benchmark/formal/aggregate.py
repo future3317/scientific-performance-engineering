@@ -164,6 +164,7 @@ def _readiness(
             str(record.get("condition", record.get("experiment", {}).get("condition", ""))),
         )
 
+    gate_evaluated = required_cells is not None
     expected = set(required_cells or [])
     observed = {cell(record) for record in records if all(cell(record))}
     missing = sorted(expected - observed)
@@ -186,7 +187,8 @@ def _readiness(
         per_family[family][validity] += 1
     required_count = len(expected)
     all_required_execution_valid = (
-        required_count > 0
+        gate_evaluated
+        and required_count > 0
         and not missing
         and all(
             cell(record) in expected
@@ -210,7 +212,9 @@ def _readiness(
         "per_condition_coverage": {key: value for key, value in sorted(per_condition.items())},
         "per_family_coverage": {key: value for key, value in sorted(per_family.items())},
         "all_required_execution_valid": all_required_execution_valid,
-        "efficacy_aggregate_status": "available" if all_required_execution_valid else "withheld",
+        "efficacy_aggregate_status": (
+            "available" if all_required_execution_valid else ("withheld" if gate_evaluated else "not_evaluated")
+        ),
     }
 
 
@@ -257,13 +261,21 @@ def aggregate_trials(
                 hierarchical["speed:" + label].append((family, lineage, task_id, trial, log_delta))
 
     invalid_count = sum(1 for record in records if record.get("validity") == "invalid" or record.get("status") == "invalid" or record.get("execution_validity") in {"invalid", "resource_blocked"})
+    readiness = _readiness(records, required_cells)
+    paired_effects = {label: _ci(values) for label, values in effects.items()}
+    task_score_effects = {label: _ci(values) for label, values in effects.items()}
+    paired_log_speedups = {label: _ci(values) for label, values in speed_effects.items()}
+    if readiness["efficacy_aggregate_status"] == "withheld":
+        withheld = {"status": "withheld", "reason": "required execution matrix is incomplete or invalid"}
+        paired_effects = {label: withheld for label in effects}
+        task_score_effects = {label: withheld for label in effects}
+        paired_log_speedups = {label: withheld for label in speed_effects}
     return {
         "num_records": len(records),
         "num_valid_records": len(records) - invalid_count,
         "num_invalid_records": invalid_count,
-        "readiness": _readiness(records, required_cells),
-        "paired_effects": {label: _ci(values) for label, values in effects.items()},
-        "task_score_effects": {label: _ci(values) for label, values in effects.items()},
+        "paired_effects": paired_effects,
+        "task_score_effects": task_score_effects,
         "family_stratified": {
             family: {label: _ci(values) for label, values in metrics.items()}
             for family, metrics in sorted(family_effects.items())
@@ -272,15 +284,14 @@ def aggregate_trials(
             label.removeprefix("task_score:"): _hierarchical_ci(values, seed=index)
             for index, (label, values) in enumerate(sorted((k, v) for k, v in hierarchical.items() if k.startswith("task_score:")))
         },
-        "paired_log_speedups": {
-            label: _ci(values) for label, values in speed_effects.items()
-        },
+        "paired_log_speedups": paired_log_speedups,
         "hierarchical_log_speedups": {
             label.removeprefix("speed:"): _hierarchical_ci(values, seed=index)
             for index, (label, values) in enumerate(sorted((k, v) for k, v in hierarchical.items() if k.startswith("speed:")))
         },
         # Backward-compatible name with corrected log-ratio semantics.
-        "log_speedup": {label: _ci(values) for label, values in speed_effects.items()},
+        "log_speedup": paired_log_speedups,
+        "readiness": readiness,
         "counterexample_records": [
             record for record in records
             if record.get("kind") in {"counterexample", "do_not_apply"}

@@ -49,9 +49,10 @@ def _workspace_digest(root: Path) -> str:
 
 
 @contextmanager
-def _trial_compiler_cache(trial_dir: Path):
-    """Give every verifier invocation in a trial one bounded cache root."""
-    cache_root = Path(trial_dir) / "compiler-cache"
+def _trial_compiler_cache(trial_dir: Path, invocation_id: str):
+    """Give one verifier invocation an isolated compile cache."""
+    safe_id = validate_identifier(invocation_id, "compiler_invocation") or invocation_id
+    cache_root = Path(trial_dir) / "compiler-cache" / safe_id
     torchinductor = cache_root / "torchinductor"
     triton = cache_root / "triton"
     torchinductor.mkdir(parents=True, exist_ok=True)
@@ -64,7 +65,7 @@ def _trial_compiler_cache(trial_dir: Path):
     os.environ["TRITON_CACHE_DIR"] = str(triton)
     try:
         yield {
-            "policy": "trial-scoped",
+            "policy": "verifier-invocation-scoped",
             "torchinductor_cache_dir": str(torchinductor),
             "triton_cache_dir": str(triton),
         }
@@ -97,10 +98,37 @@ def _timeout_result(task_dir: Path, condition: str, context_mode: str, timeout_s
     }
 
 
-def _verify_task_with_cache(*args: Any, trial_dir: Path, timeout_s: float | None = None, **kwargs: Any) -> dict[str, Any]:
-    with _trial_compiler_cache(trial_dir):
+def _trial_failure_record(manifest: dict[str, Any], task_spec: Mapping[str, Any], item: Mapping[str, Any], error: str, *, source: str, state_untrusted: bool = False) -> dict[str, Any]:
+    """Serialize an infrastructure failure without pretending it is a task failure."""
+    return {
+        "experiment": manifest,
+        "task_id": str(item["task_id"]),
+        "family": task_spec.get("family"),
+        "family_id": task_spec.get("family_id", task_spec.get("family")),
+        "condition": item["condition"],
+        "context_mode": item["context_mode"],
+        "outer_trial_id": item["outer_trial_id"],
+        "phase": item["phase"],
+        "agent": None,
+        "agent_usage": {},
+        "budget_errors": [f"{source}: {error}"],
+        "attestation_ok": not state_untrusted,
+        "execution_validity": "resource_blocked",
+        "task_outcome": "error",
+        "efficacy_eligible": False,
+        "validity": "invalid",
+        "transition": {"status": "state_mutation_error" if state_untrusted else f"{source}_error", "pre_store_digest": None, "post_store_digest": None},
+        "score": {"task_id": str(item["task_id"]), "verdict": "error", "gates_passed": False, "task_score": 0.0},
+    }
+
+
+def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "candidate", timeout_s: float | None = None, **kwargs: Any) -> dict[str, Any]:
+    with _trial_compiler_cache(trial_dir, invocation_id):
         if timeout_s is None or os.name != "posix":
-            return verifier.verify_task(*args, **kwargs)
+            try:
+                return verifier.verify_task(*args, **kwargs)
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
+                return _timeout_result(Path(args[0]), str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s or 0.0)) | {"protocol_failure": True, "errors": [f"verifier raised: {exc}"]}
         task_dir, solution_dir = Path(args[0]), Path(args[1])
         out_path = Path(kwargs["out_path"])
         command = [
@@ -583,6 +611,7 @@ def execute_poison_probe(
     baseline_solution: Path,
     task_dir: Path | None = None,
     verifier_out: Path | None = None,
+    timeout_s: float = 900.0,
 ) -> dict[str, Any]:
     """Execute a poison probe against a materialized, non-empty intervention."""
     changed = False
@@ -612,15 +641,17 @@ def execute_poison_probe(
     verifier_scientific_ok = True
     verifier_result_digest: str | None = None
     if task_dir is not None:
-        with _trial_compiler_cache(realized_solution.parent):
-            result = verifier.verify_task(
-                task_dir,
-                realized_solution,
-                out_path=verifier_out or realized_solution.parent / "poison-result.json",
-                condition="D",
-                context_mode="reset",
-                seed=0,
-            )
+        result = _verify_task_with_cache(
+            task_dir,
+            realized_solution,
+            out_path=verifier_out or realized_solution.parent / "poison-result.json",
+            condition="D",
+            context_mode="reset",
+            seed=0,
+            trial_dir=realized_solution.parent,
+            invocation_id="poison",
+            timeout_s=timeout_s,
+        )
         verifier_executed = True
         verifier_scientific_ok = bool(scoring.score_task(result).get("gates_passed", False))
         verifier_result_digest = hashlib.sha256(json.dumps(result, sort_keys=True, default=str).encode("utf-8")).hexdigest()
@@ -644,6 +675,7 @@ def execute_poison_probe(
         "realized_changed": True,
         "verifier_scientific_ok": verifier_scientific_ok,
         "verifier_result_digest": verifier_result_digest,
+        "resource_blocked": bool(task_dir is not None and isinstance(result, Mapping) and result.get("protocol_failure")),
     }
 
 
@@ -801,9 +833,28 @@ def _build_required_experiment_executor(command_template: str | None, root: Path
             request_path, result_path = work / "request.json", work / "result.json"
             request_path.write_text(json.dumps(dict(request), ensure_ascii=False), encoding="utf-8")
             command = command_template.format(request_json=shlex.quote(str(request_path)), result_json=shlex.quote(str(result_path)), work_root=shlex.quote(str(work)))
-            completed = subprocess.run(command, shell=True, cwd=str(root), capture_output=True, text=True, timeout=timeout)
-            if completed.returncode != 0 or not result_path.is_file():
-                return {"status": "blocked", "reason": "external experiment executor failed", "execution_source": "external_executor", "stderr": completed.stderr[-2000:]}
+            process = subprocess.Popen(command, shell=True, cwd=str(root), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=(os.name == "posix"))
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+                return_code = process.returncode
+            except subprocess.TimeoutExpired as exc:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+                process.wait()
+                timeout_stderr = exc.stderr or ""
+                if isinstance(timeout_stderr, bytes):
+                    timeout_stderr = timeout_stderr.decode(errors="replace")
+                return {
+                    "status": "resource_blocked",
+                    "reason": "external required-experiment timeout",
+                    "execution_source": "external_executor",
+                    "timeout_s": timeout,
+                    "stderr": timeout_stderr[-2000:],
+                }
+            if return_code != 0 or not result_path.is_file():
+                return {"status": "blocked", "reason": "external experiment executor failed", "execution_source": "external_executor", "stderr": (stderr or "")[-2000:]}
             payload = json.loads(result_path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
                 return {"status": "blocked", "reason": "external experiment result must be an object", "execution_source": "external_executor"}
@@ -820,12 +871,13 @@ def _verify_baseline(
     context_mode: str,
     seed: int,
     trial_dir: Path | None = None,
+    invocation_id: str = "baseline",
     timeout_s: float | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Score the untouched arm on the same fixture before candidate scoring."""
     call = _verify_task_with_cache if trial_dir is not None else verifier.verify_task
     kwargs = dict(out_path=out_path, condition=condition, context_mode=context_mode, seed=seed)
-    baseline = call(task_dir, solution_dir, trial_dir=trial_dir, timeout_s=timeout_s, **kwargs) if trial_dir is not None else call(task_dir, solution_dir, **kwargs)
+    baseline = call(task_dir, solution_dir, trial_dir=trial_dir, invocation_id=invocation_id, timeout_s=timeout_s, **kwargs) if trial_dir is not None else call(task_dir, solution_dir, **kwargs)
     return baseline, scoring.score_task(baseline)
 
 
@@ -836,6 +888,8 @@ def _check_verifier_budget(result: Mapping[str, Any], task_spec: Mapping[str, An
     limit = task_spec.get("time_budget_s")
     if isinstance(elapsed, (int, float)) and isinstance(limit, (int, float)) and float(elapsed) > float(limit):
         budget_errors.append(f"{label} time_budget_s exceeded: {elapsed} > {limit}")
+    if result.get("protocol_failure") is True:
+        budget_errors.append(f"{label} failed at verifier boundary")
 
 
 def _read_executor_receipt(
@@ -995,6 +1049,23 @@ def post_task_update(
     added_replay_case_ids: list[str] = []
     maintenance_decisions: list[dict[str, Any]] = []
     promoted_rule_ids: list[str] = []
+
+    def mutation_result(status: str) -> dict[str, Any]:
+        """Finalize a mutating early return with a verified store attestation."""
+        if condition in {"C", "C_STRESS", "D"}:
+            conditions.refresh_attestation(store)
+            valid, errors = conditions.verify_attestation(store)
+            if not valid:
+                raise ValueError("store attestation failed after mutation: " + "; ".join(errors))
+        return {
+            "status": status,
+            "pre_store_digest": pre_digest,
+            "post_store_digest": conditions.store_digest(store),
+            "added_experience_ids": added_experience_ids,
+            "added_replay_case_ids": added_replay_case_ids,
+            "maintenance_decisions": maintenance_decisions,
+            "promoted_rule_ids": promoted_rule_ids,
+        }
     if execution_validity != "valid":
         # Protocol-invalid trials are recorded by the caller but never enter
         # a sequential C/D store.  An inconclusive scientific outcome remains
@@ -1058,7 +1129,7 @@ def post_task_update(
                 # The verifier's paired record is the only accepted source of
                 # causal measurements; no task-score fallback is fabricated.
                 persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids, family_id=family_id)
-                return {"transition": "no_replay_measurement", "added_experience_ids": added_experience_ids}
+                return mutation_result("no_replay_measurement")
             case = {
                 "schema_version": 1,
                 "record_type": "paired_replay_case",
@@ -1096,7 +1167,7 @@ def post_task_update(
             validation_dir.mkdir(parents=True, exist_ok=True)
             if not isinstance(validation_evidence, dict):
                 persist_collecting_proposals(store, [item for item in result.get("acre_proposals", []) if isinstance(item, dict)], added_replay_case_ids, family_id=family_id)
-                return {"transition": "no_independent_validation", "added_experience_ids": added_experience_ids}
+                return mutation_result("no_independent_validation")
             validation = {
                 "schema_version": 1,
                 "scope": "formal",
@@ -1650,6 +1721,9 @@ def post_task_update(
 
     if condition in {"C", "C_STRESS", "D"}:
         conditions.refresh_attestation(store)
+        valid, errors = conditions.verify_attestation(store)
+        if not valid:
+            raise ValueError("store attestation failed after mutation: " + "; ".join(errors))
     post_digest = conditions.store_digest(store)
     return {
         "status": transition,
@@ -1730,9 +1804,9 @@ def _experiment_manifest(
         "torch_version": fingerprint.get("torch_version"),
         "cuda_version": fingerprint.get("cuda_version"),
         "compiler_cache": {
-            "policy": "trial-scoped",
-            "torchinductor_cache_dir": str(trial_dir / "compiler-cache" / "torchinductor"),
-            "triton_cache_dir": str(trial_dir / "compiler-cache" / "triton"),
+            "policy": "verifier-invocation-scoped",
+            "root": str(trial_dir / "compiler-cache"),
+            "non_shared_between_verifier_invocations": True,
         },
     }
 
@@ -1782,6 +1856,46 @@ def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], 
         json.dumps(empirical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     ).hexdigest()
     return approval.get("empirical_report_digest") == empirical_digest
+
+
+def _resume_stream_prefix(
+    stream_dir: Path,
+    task_items: list[tuple[str, str]],
+    task_position: Mapping[str, int],
+    stream_id: str,
+    blocked_streams: set[str],
+) -> tuple[int, dict[tuple[str, str], dict[str, Any]], Path]:
+    """Load one contiguous stream prefix and validate only its final store."""
+    store = stream_dir / "condition-store"
+    records: dict[tuple[str, str], dict[str, Any]] = {}
+    expected_prefix = 0
+    last_post_digest: str | None = None
+    for _phase, task_id in task_items:
+        trial_path = stream_dir / task_id / "trial.json"
+        if not trial_path.is_file():
+            break
+        try:
+            record = json.loads(trial_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid resume trial {trial_path}: {exc}") from exc
+        if not isinstance(record, dict):
+            raise ValueError(f"resume trial must be an object: {trial_path}")
+        transition = record.get("transition") if isinstance(record.get("transition"), dict) else {}
+        if transition.get("post_store_digest") is not None:
+            last_post_digest = str(transition["post_store_digest"])
+        if transition.get("status") == "state_mutation_error" or record.get("attestation_ok") is False:
+            blocked_streams.add(stream_id)
+        records[(stream_id, task_id)] = record
+        expected_prefix += 1
+    if expected_prefix and last_post_digest is not None:
+        if not store.is_dir() or conditions.store_digest(store) != last_post_digest:
+            raise ValueError(f"resume final store digest mismatch for {stream_id}")
+    for candidate in stream_dir.iterdir() if stream_dir.is_dir() else ():
+        if candidate.name == "condition-store" or not candidate.is_dir():
+            continue
+        if candidate.name in task_position and task_position[candidate.name] >= expected_prefix and (candidate / "trial.json").is_file():
+            raise ValueError(f"resume requires a contiguous completed prefix for {stream_id}")
+    return expected_prefix, records, store
 
 
 def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
@@ -1848,6 +1962,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         "budgets": budgets.as_dict(),
         "agent_model_id": args.model_id,
         "agent_config": json.loads(args.agent_config),
+        "executor_digest": getattr(args, "executor_digest", None),
         "schedule_size": len(plan),
         "results_claimed": False,
     }
@@ -1856,6 +1971,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "population_id", "benchmark_revision", "skill_view_digest", "task_manifest_digest",
             "conditions", "context_modes", "outer_trials", "task_order", "budgets",
             "agent_model_id", "agent_config", "schedule_size",
+            "executor_digest",
         )
         mismatches = [key for key in immutable_keys if existing_campaign.get(key) != campaign.get(key)]
         if mismatches:
@@ -1882,31 +1998,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             resume_prefix.setdefault(stream_id, 0)
         for stream_id in resume_prefix:
             stream_dir = out_dir / "trials" / stream_id
-            store = stream_dir / "condition-store"
-            expected_prefix = 0
-            for _phase, task_id in task_items:
-                trial_path = stream_dir / task_id / "trial.json"
-                if not trial_path.is_file():
-                    break
-                try:
-                    record = json.loads(trial_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError) as exc:
-                    raise ValueError(f"invalid resume trial {trial_path}: {exc}") from exc
-                if not isinstance(record, dict):
-                    raise ValueError(f"resume trial must be an object: {trial_path}")
-                post_digest = record.get("transition", {}).get("post_store_digest") if isinstance(record.get("transition"), dict) else None
-                if post_digest is not None:
-                    if not store.is_dir() or conditions.store_digest(store) != post_digest:
-                        raise ValueError(f"resume store digest mismatch for {stream_id}/{task_id}")
-                resume_records[(stream_id, task_id)] = record
-                expected_prefix += 1
+            expected_prefix, stream_records, store = _resume_stream_prefix(
+                stream_dir, task_items, task_position, stream_id, blocked_streams,
+            )
+            resume_records.update(stream_records)
             if expected_prefix:
                 stores[stream_id] = store
-            for candidate in stream_dir.iterdir() if stream_dir.is_dir() else ():
-                if candidate.name == "condition-store" or not candidate.is_dir():
-                    continue
-                if candidate.name in task_position and task_position[candidate.name] >= expected_prefix and (candidate / "trial.json").is_file():
-                    raise ValueError(f"resume requires a contiguous completed prefix for {stream_id}")
             resume_prefix[stream_id] = expected_prefix
     for item in plan:
         stream_id = str(item["stream_id"])
@@ -1977,25 +2074,31 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             public_routing = {}
         retrieved_context_path = agent_task_dir / "retrieved_context.json"
         if str(item["condition"]) in {"B", "C", "C_STRESS", "D"}:
-            adapter = FormalConditionAdapter(
-                str(item["condition"]),
-                store,
-                token_budget=budgets.context_tokens,
-                family_id=str(task_spec.get("family_id", task_spec.get("family", ""))) or None,
-            )
-            retrieval_input = {
-                "domain": public_routing.get("domain", "scientific-performance"),
-                "workload": dict(public_routing.get("workload", {})),
-                "hardware": dict(public_routing.get("hardware", {})),
-                "software": dict(public_routing.get("software", {})),
-                "evidence": dict(public_routing.get("evidence", {})),
-                "token_budget": budgets.context_tokens,
-            }
-            retrieved_context = adapter.retrieved_context(retrieval_input)
-            exposed_context = retrieved_context.get("context", {})
-            for key in ("domain", "workload", "hardware", "software", "evidence"):
-                if exposed_context.get(key) != retrieval_input.get(key):
-                    raise ValueError(f"retrieval context escaped public task context at {key}")
+            try:
+                adapter = FormalConditionAdapter(
+                    str(item["condition"]),
+                    store,
+                    token_budget=budgets.context_tokens,
+                    family_id=str(task_spec.get("family_id", task_spec.get("family", ""))) or None,
+                )
+                retrieval_input = {
+                    "domain": public_routing.get("domain", "scientific-performance"),
+                    "workload": dict(public_routing.get("workload", {})),
+                    "hardware": dict(public_routing.get("hardware", {})),
+                    "software": dict(public_routing.get("software", {})),
+                    "evidence": dict(public_routing.get("evidence", {})),
+                    "token_budget": budgets.context_tokens,
+                }
+                retrieved_context = adapter.retrieved_context(retrieval_input)
+                exposed_context = retrieved_context.get("context", {})
+                for key in ("domain", "workload", "hardware", "software", "evidence"):
+                    if exposed_context.get(key) != retrieval_input.get(key):
+                        raise ValueError(f"retrieval context escaped public task context at {key}")
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
+                record = _trial_failure_record(manifest, task_spec, item, str(exc), source="context")
+                (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                records.append(record)
+                continue
         else:
             retrieved_context = {
                 "schema_version": 1,
@@ -2036,7 +2139,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         }
         if not getattr(args, "executor_command", None):
             raise ValueError("formal agent runs require --executor-command with a namespace/container executor")
-        agent = _run_isolated_agent(args.agent_command, args.executor_command, env, worker_root, budgets.wall_time_s)
+        try:
+            agent = _run_isolated_agent(args.agent_command, args.executor_command, env, worker_root, budgets.wall_time_s)
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:
+            record = _trial_failure_record(manifest, task_spec, item, str(exc), source="executor")
+            (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            records.append(record)
+            continue
         agent_extensions = _read_agent_extensions(worker_result_path)
         receipt, receipt_errors = _read_executor_receipt(
             receipt_path,
@@ -2082,6 +2191,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 context_mode=str(item["context_mode"]),
                 seed=int(item["outer_trial_index"]),
                 trial_dir=trial_dir,
+                invocation_id="control",
                 timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
             )
             _check_verifier_budget(control_result, task_spec, budget_errors, "control verifier")
@@ -2094,6 +2204,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             seed=int(item["outer_trial_index"]),
             predicted_mechanism=[str(value) for value in agent_extensions.get("predicted_mechanisms", []) if isinstance(value, str)],
             trial_dir=trial_dir,
+            invocation_id="candidate",
             timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
         )
         _check_verifier_budget(result, task_spec, budget_errors, "candidate verifier")
@@ -2117,7 +2228,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             # Router-owned requests are consumed by the harness.  A formal
             # campaign without an external executable callback remains
             # explicitly blocked; it is never replaced by synthetic replay.
-            result["required_experiments"] = schedule.execute_required_experiments(required_requests, executor=experiment_executor)
+            try:
+                result["required_experiments"] = schedule.execute_required_experiments(required_requests, executor=experiment_executor)
+                if any(isinstance(item, Mapping) and item.get("status") == "resource_blocked" for item in result["required_experiments"]):
+                    budget_errors.append("required experiment resource_blocked")
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
+                budget_errors.append(f"required experiment protocol failure: {exc}")
+                result["required_experiments"] = [
+                    {**dict(request), "status": "resource_blocked", "reason": "required experiment execution failed"}
+                    for request in required_requests if isinstance(request, Mapping)
+                ]
         result.setdefault("cost", {}).update({
             "input_tokens": usage.get("input_tokens"),
             "output_tokens": usage.get("output_tokens"),
@@ -2147,6 +2267,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         context_mode=str(item["context_mode"]),
                         seed=int(item["outer_trial_index"]),
                         trial_dir=trial_dir,
+                        invocation_id="causal",
                         timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
                     )
                     _check_verifier_budget(causal_result, task_spec, budget_errors, "causal verifier")
@@ -2183,6 +2304,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         context_mode=str(item["context_mode"]),
                         seed=int(item["outer_trial_index"]) + 1000003,
                         trial_dir=trial_dir,
+                        invocation_id="heldout",
                         timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
                     )
                     _check_verifier_budget(heldout_result, task_spec, budget_errors, "held-out verifier")
@@ -2195,6 +2317,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         context_mode=str(item["context_mode"]),
                         seed=int(item["outer_trial_index"]) + 1000003,
                         trial_dir=trial_dir,
+                        invocation_id="heldout-control",
                         timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
                     )
                     _check_verifier_budget(heldout_control, task_spec, budget_errors, "held-out control verifier")
@@ -2222,6 +2345,14 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                     regression_tolerance = float(
                         (task_spec.get("measurement") or {}).get("regression_tolerance", 0.0)
                     )
+                    poison_case = execute_poison_probe(
+                        task_spec, public_routing, proposals[0], realized_solution, solution_dir,
+                        task_dir=tasks_root / task_id,
+                        verifier_out=trial_dir / "poison-result.json",
+                        timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
+                    )
+                    if poison_case.get("resource_blocked"):
+                        budget_errors.append("poison verifier resource_blocked")
                     validation_evidence = {
                         "regression_tolerance": regression_tolerance,
                         # The promotion task is never reused as held-out
@@ -2235,11 +2366,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                             "effect_lcb": heldout_lcb,
                             "effect_ucb": heldout_ucb,
                         }],
-                        "poison_probe_cases": [execute_poison_probe(
-                            task_spec, public_routing, proposals[0], realized_solution, solution_dir,
-                            task_dir=tasks_root / task_id,
-                            verifier_out=trial_dir / "poison-result.json",
-                        )],
+                        "poison_probe_cases": [poison_case],
                     }
                     # The verifier seed holdout establishes replication.  The
                     # family view supplies two additional preregistered,
@@ -2353,6 +2480,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:
             budget_errors.extend(f"condition attestation failed: {error}" for error in attestation_errors)
+            blocked_streams.add(stream_id)
         # Carry state is part of the condition trajectory.  Commit it only
         # after all protocol/budget checks and store attestation have passed;
         # invalid trials must not advance either state source.
@@ -2377,11 +2505,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "attestation_ok": attestation_ok,
             "execution_validity": "invalid" if budget_errors else "valid",
             "task_outcome": str(scored.get("verdict", result.get("verdict", "error"))),
-            "efficacy_eligible": bool(
-                not budget_errors
-                and attestation_ok
-                and str(scored.get("verdict", result.get("verdict", "error"))) in {"pass", "inconclusive"}
-            ),
+            # A protocol-valid candidate failure is still an observed,
+            # score-zero efficacy cell.  Only infrastructure/protocol errors
+            # are excluded from the efficacy matrix.
+            "efficacy_eligible": bool(not budget_errors and attestation_ok),
             "validity": "invalid" if budget_errors else "valid",
             "transition": transition,
             "score": scored,
