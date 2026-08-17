@@ -254,10 +254,9 @@ def main() -> int:
     skill_view_digest = None
     manifest_path = args.worker_root / "skill_view" / "skill_view_manifest.json"
     if include_skill and manifest_path.is_file():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        value = manifest.get("manifest_digest")
-        if isinstance(value, str) and value:
-            skill_view_digest = value
+        from .attest import skill_view_digest as compute_skill_view_digest
+
+        skill_view_digest = compute_skill_view_digest(manifest_path.parent)
     completed = ReferenceExecutor().execute(
         shlex.split(args.command), args.worker_root,
         receipt_path=args.receipt, worker_uid=args.worker_uid,
