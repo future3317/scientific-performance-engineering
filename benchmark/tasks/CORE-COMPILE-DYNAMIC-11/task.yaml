@@ -6,20 +6,21 @@ mechanism: compile_dynamic_shapes
 kind: positive
 lineage:
   source: synthetic
-  mutation_template_id: MT-COMPILE-DYNAMIC-V1
+  mutation_template_id: MT-COMPILE-DYNAMIC-V2
   mutation_seed: 1759423612
-title: "torch.compile graph break and dynamic-shape recompilation storm"
+title: "tensor-only dynamic-shape specialization"
 requires_cuda: false
 time_budget_s: 300
 workspace:
   entrypoint: solution.py
   api: train_loop_v1
 measurement:
-  primary_metric: step_ms_p50
+  primary_metric: cold_shape_schedule_ms
   higher_is_better: false
-  warmup_iterations: 8
-  measured_iterations: 50
-  repetitions: 12
+  warmup_iterations: 0
+  measured_iterations: 16
+  repetitions: 3
+  compile_threads: 2
   min_improvement_percent: 5.0
   noise_floor_percent: 2.0
   speedup_tripwire: 20.0
@@ -32,14 +33,14 @@ correctness:
 scientific_gates: [finite_loss]
 diagnosis:
   enabled: true
-  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_recompile, memory_pressure, launch_fragmentation]
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_dynamic_shapes, compile_recompile, memory_pressure, launch_fragmentation]
 oracle:
   expected_speedup_range: [1.15, 1.5]
 generator_family_id: GEN-COMPILER-DYNAMIC
-oracle_fix_pattern_id: FIX-COMPILE-DYNAMIC-GUARD
+oracle_fix_pattern_id: FIX-COMPILE-DYNAMIC-SPECIALIZE
 scientific_contract_id: CONTRACT-COMPILER-CACHE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "b3d22a7312a7456d9f85401c169e11d9f503069f8f2f4308fb8f185b262660a3"
+workspace_ast_skeleton_hash: "8ace746fc476b1c031d9ec7f2403f724cb5b6e17c7a217485c927f4f54a935a1"
 family_id: compile
 anchor_instance_id: CORE-COMPILE-DYNAMIC-11
 family_parameters:

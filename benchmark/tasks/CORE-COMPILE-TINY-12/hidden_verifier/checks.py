@@ -40,7 +40,7 @@ class _ReferenceResMLP(nn.Module):
 
 def _make_fp64_model(fixtures: dict[str, Any]) -> torch.nn.Module:
     config = fixtures["model_config"]
-    model = _ReferenceResMLP(config["in_dim"], config["hidden_dim"], num_blocks=4, dtype=torch.float64)
+    model = _ReferenceResMLP(config["in_dim"], config["hidden_dim"], num_blocks=int(config.get("num_blocks", 4)), dtype=torch.float64)
     state = {}
     for k, v in fixtures["init_state"].items():
         state[k] = v.double()

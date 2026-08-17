@@ -101,6 +101,15 @@ population report. The approval records digests of the population and empirical
 calibration artifacts plus the governing review policy; a writable report alone
 cannot open the claim gate.
 
+The three compile anchors are intentionally non-interchangeable. `compile_recompile`
+measures a graph-break plus cold shape-specialization schedule, `compile_dynamic_shapes`
+keeps a tensor-only variable-shape workload and tests dynamic-shape handling, and
+`compile_tiny_graphs` is a short-lived counterexample where compile startup should
+be rejected. Their primary metric is `cold_shape_schedule_ms`; first encounters
+are measured rather than hidden in warmup, while steady-state latency is retained
+as a diagnostic. The compile-family contract fixes `TORCHINDUCTOR_COMPILE_THREADS=2`
+for A/B/C/D and records it in the calibration environment manifest.
+
 ## Layout
 
 Promotion evidence is collected independently of boundary evidence. Candidate

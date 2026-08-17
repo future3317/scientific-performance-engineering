@@ -1,25 +1,25 @@
 {
   "task_id": "CORE-COMPILE-DYNAMIC-11",
-  "title": "torch.compile graph break and dynamic-shape recompilation storm",
+  "title": "tensor-only dynamic-shape specialization",
   "track": "spe_core",
   "family": "compiler",
   "mechanism": "compile_dynamic_shapes",
   "kind": "positive",
   "lineage": {
     "source": "synthetic",
-    "mutation_template_id": "MT-COMPILE-DYNAMIC-V1",
+    "mutation_template_id": "MT-COMPILE-DYNAMIC-V2",
     "mutation_seed": 1759423612
   },
   "split_group": {
     "family": "compiler",
     "mechanism": "compile_dynamic_shapes",
     "source": "synthetic",
-    "mutation_template_id": "MT-COMPILE-DYNAMIC-V1"
+    "mutation_template_id": "MT-COMPILE-DYNAMIC-V2"
   },
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "medium",
-  "authoring_note": "Baseline wraps a tiny MLP in torch.compile and injects an .item()-dependent graph break; the measurement loop cycles 8 batch sizes, causing repeated recompilation. Oracle removes the graph break and compiles with dynamic=True. Scope is intentionally small so warmup fits the time budget on CPU-only CI.",
+  "authoring_note": "This anchor has no graph break. The baseline compiles a pure tensor graph with dynamic=False, so the registered shape schedule triggers specialization; the oracle uses dynamic=True on the same variable-shape workload. The primary metric includes the first shape cycle and keeps steady-state latency as a secondary diagnostic.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "compile",

@@ -1,5 +1,5 @@
 {
-  "mechanism": "compile_recompile",
-  "location": "solution.py:train_step — the .item()-dependent Python branch forces a dynamo graph break, and build_model compiles without dynamic-shape support",
-  "why": "The .item() call reads a scalar to CPU, synchronizing the host and preventing dynamo from compiling a single graph. Combined with 8 different batch sizes in the measurement loop, this causes repeated recompilation of the compiled model, wasting the compile budget on every new shape."
+  "mechanism": "compile_dynamic_shapes",
+  "location": "solution.py:build_model",
+  "why": "The tensor-only forward is graphable, but dynamic=False specializes the eight registered batch shapes. The oracle keeps the variable-shape workload and enables dynamic shape handling rather than changing the graph-break mechanism."
 }

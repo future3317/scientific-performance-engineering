@@ -228,20 +228,20 @@
     {
       "task_id": "CORE-COMPILE-DYNAMIC-11",
       "time_budget_s": 300,
-      "measured_iterations": 50,
-      "repetitions": 12
+      "measured_iterations": 16,
+      "repetitions": 3
     },
     {
       "task_id": "CORE-COMPILE-RECOMPILE-04",
       "time_budget_s": 300,
-      "measured_iterations": 50,
-      "repetitions": 12
+      "measured_iterations": 16,
+      "repetitions": 3
     },
     {
       "task_id": "CORE-COMPILE-TINY-12",
       "time_budget_s": 300,
-      "measured_iterations": 50,
-      "repetitions": 12
+      "measured_iterations": 8,
+      "repetitions": 3
     },
     {
       "task_id": "CORE-DATALOADER-FANOUT-16",
@@ -276,8 +276,8 @@
     {
       "task_id": "CORE-SCALAR-SYNC-01",
       "time_budget_s": 600,
-      "measured_iterations": 1000,
-      "repetitions": 10
+      "measured_iterations": 100,
+      "repetitions": 5
     },
     {
       "task_id": "EVOL-COMPILER-DRIFT-20",
@@ -397,7 +397,7 @@
     },
     "CORE-H2D-PIPELINE-03": {
       "workload": {
-        "batch_size": 32,
+        "batch_size": 4096,
         "worker_count": 2,
         "prefetch_factor": 2,
         "pin_memory": true

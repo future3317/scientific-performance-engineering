@@ -8,18 +8,19 @@ lineage:
   source: synthetic
   mutation_template_id: MT-COMPILE-RECOMPILE-V1
   mutation_seed: 1908234210
-title: "torch.compile graph break and dynamic-shape recompilation storm"
+title: "torch.compile graph break with compile-inclusive shape schedule"
 requires_cuda: false
 time_budget_s: 300
 workspace:
   entrypoint: solution.py
   api: train_loop_v1
 measurement:
-  primary_metric: step_ms_p50
+  primary_metric: cold_shape_schedule_ms
   higher_is_better: false
-  warmup_iterations: 8
-  measured_iterations: 50
-  repetitions: 12
+  warmup_iterations: 0
+  measured_iterations: 16
+  repetitions: 3
+  compile_threads: 2
   min_improvement_percent: 5.0
   noise_floor_percent: 2.0
   speedup_tripwire: 20.0
@@ -39,7 +40,7 @@ generator_family_id: GEN-COMPILER
 oracle_fix_pattern_id: FIX-CORE-COMPILE-RECOMPILE-04
 scientific_contract_id: CONTRACT-COMPILER-CACHE
 difficulty_tier: medium
-workspace_ast_skeleton_hash: "d101e5ed1fcb4ceb92316d422614ef637fd7dd83976859004029ded4169c78c3"
+workspace_ast_skeleton_hash: "16d4cc3a7fd87f4e03833d61f3df7b97daea974c70acf8ae7773f1ce43ae362a"
 family_id: compile
 anchor_instance_id: CORE-COMPILE-RECOMPILE-04
 family_parameters:

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.formal.reference_executor import ReferenceExecutor
+from benchmark.harness import miniyaml
 
 
 def _digest_files(paths: list[Path], root: Path) -> str:
@@ -111,6 +112,15 @@ def _environment_fingerprint(root: Path, *, executor_digest: str, skill_digest: 
         torch_version = None
         cuda_runtime = {"torch_cuda": None, "available": False}
     task_files = sorted((root / "benchmark" / "tasks").glob("*/task.yaml"))
+    compile_threads: dict[str, int] = {}
+    for task_file in task_files:
+        try:
+            spec = miniyaml.load(str(task_file))
+            value = spec.get("measurement", {}).get("compile_threads")
+            if value is not None:
+                compile_threads[str(spec.get("task_id", task_file.parent.name))] = int(value)
+        except (OSError, TypeError, ValueError):
+            continue
     population_path = root / "benchmark" / "population_report.json"
     statistical: dict[str, Any]
     try:
@@ -131,6 +141,7 @@ def _environment_fingerprint(root: Path, *, executor_digest: str, skill_digest: 
         "skill_view_digest": skill_digest,
         "population_digest": hashlib.sha256(population_path.read_bytes()).hexdigest() if population_path.is_file() else None,
         "task_manifest_digest": _digest_files(task_files, root / "benchmark" / "tasks") if task_files else None,
+        "compile_threads_by_task": compile_threads,
         "statistical_configuration": statistical,
         "executor_receipt_schema": receipt_schema,
     }

@@ -15,10 +15,7 @@ def finite_loss_gate(solution: Any, fixtures: dict[str, Any]) -> tuple[bool, dic
     )
     losses = []
     for i in range(5):
-        batch = (
-            fixtures["inputs"][i * 32 : (i + 1) * 32],
-            fixtures["targets"][i * 32 : (i + 1) * 32],
-        )
+        batch = solution._batch_at(fixtures, i)
         out = solution.train_step(model, batch, optimizer)
         losses.append(out["loss"])
     loss_tensor = torch.stack(losses)
