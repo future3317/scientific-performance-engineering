@@ -2,5 +2,5 @@
   "task_id": "EVOL-COMPILER-DRIFT-20",
   "mechanism": "episode",
   "location": "workspace/solution.py:run_episode_task",
-  "why": "The baseline episode runner keeps condition C after a compiler/runtime drift. The correct behavior is condition D (governed, replay-grounded), where compile-cache candidates are revalidated before promotion and stale drift assumptions are rejected."
+  "why": "The baseline episode runner keeps condition C after a compiler/runtime drift. The correct behavior is condition D (governed, replay-grounded), where dynamic-shape guard assumptions are revalidated before promotion and stale runtime specializations are rejected."
 }

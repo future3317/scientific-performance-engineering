@@ -10,6 +10,7 @@ import pytest
 
 from benchmark.families.activation import classify_activation
 from benchmark.families.catalog import FAMILY_SPECS
+from benchmark.families.environment import FamilyEnvironment
 
 
 def _load_compile_benchmark(task_id: str):
@@ -154,3 +155,24 @@ def test_compile_actions_use_mechanism_specific_applicability():
     assert family.action_applicable("stabilize_dynamic_guards", dynamic)
     assert not family.action_applicable("remove_compile_graph_break", dynamic)
     assert family.action_applicable("bypass_compile", tiny)
+
+
+def test_compile_deployable_actions_have_explicit_contract_and_anchor_routing():
+    family = FAMILY_SPECS["compile"]
+    assert "reuse_compile_cache" not in family.action_specs
+    assert "revalidate_compile_cache" not in family.action_specs
+    for action_id, metadata in family.action_specs.items():
+        assert metadata.get("mechanism"), action_id
+        assert metadata.get("applicability") is not None, action_id
+        assert metadata.get("scientific_policy_ref"), action_id
+        assert "activation_validator" in metadata, action_id
+
+    environment = FamilyEnvironment("compile")
+    dynamic = family.reconstruct_anchor("CORE-COMPILE-DYNAMIC-11").parameters
+    recompile = family.reconstruct_anchor("CORE-COMPILE-RECOMPILE-04").parameters
+    tiny = family.reconstruct_anchor("CORE-COMPILE-TINY-12").parameters
+    fusion = family.reconstruct_anchor("CORE-KERNEL-FUSION-09").parameters
+    assert environment.oracle(dynamic).oracle_bundle == ("stabilize_dynamic_guards",)
+    assert environment.oracle(recompile).oracle_bundle == ()
+    assert environment.oracle(tiny).oracle_bundle == ()
+    assert environment.oracle(fusion).oracle_bundle == ("fuse_pointwise_chain",)

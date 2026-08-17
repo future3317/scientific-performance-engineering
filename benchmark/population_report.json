@@ -19,7 +19,7 @@
     "retained_graph": 1,
     "repeated_compute": 2,
     "scalar_sync": 1,
-    "['compile_graph_break', 'runtime_drift']": 1,
+    "['compile_dynamic_shapes', 'runtime_drift']": 1,
     "['scalar_sync', 'h2d_blocking', 'repeated_compute', 'launch_fragmentation', 'graph_rebuild']": 1,
     "['scalar_sync', 'launch_fragmentation']": 1,
     "force_autograd": 1,

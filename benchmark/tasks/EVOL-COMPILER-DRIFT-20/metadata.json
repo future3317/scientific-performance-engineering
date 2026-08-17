@@ -4,7 +4,7 @@
   "track": "evolution",
   "family": "episode",
   "mechanism": [
-    "compile_graph_break",
+    "compile_dynamic_shapes",
     "runtime_drift"
   ],
   "kind": "positive",
@@ -16,7 +16,7 @@
   "split_group": {
     "family": "episode",
     "mechanism": [
-      "compile_graph_break",
+      "compile_dynamic_shapes",
       "runtime_drift"
     ],
     "source": "synthetic",

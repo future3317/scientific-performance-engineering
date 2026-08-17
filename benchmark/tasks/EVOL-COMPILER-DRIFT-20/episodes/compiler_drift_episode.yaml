@@ -3,10 +3,12 @@ seed: 0
 phases:
   - index: 1
     name: acquisition
-    tasks: [CORE-COMPILE-RECOMPILE-04, CORE-COMPILE-DYNAMIC-11]
+    tasks: [CORE-COMPILE-DYNAMIC-11, CORE-COMPILE-RECOMPILE-04]
     inject_experiences:
-      - id: compile-cache-rule
-        rule_id: compile-cache-rule
+      - id: compile-dynamic-guard-rule
+        rule_id: compile-dynamic-guard-rule
+        family_id: compile
+        mechanism: compile_dynamic_shapes
         schema_version: 1
         status: candidate
         severity: P2
@@ -18,19 +20,25 @@ phases:
                   gte: 128
             - compare:
                 workload.dynamic_shape_rate:
+                  gt: 0.0
+            - compare:
+                workload.dynamic_shape_rate:
                   lte: 0.4
+            - compare:
+                workload.graph_size:
+                  lt: 320
         rule:
-          text: Reuse compile artifacts when runtime guards are unchanged.
+          text: Stabilize dynamic-shape guards when logical work is substantial and shape variation is present.
         intervention:
-          action: reuse_compile_cache
-        expected_mechanism: reuse compile artifacts when runtime guards are unchanged
+          action: stabilize_dynamic_guards
+        expected_mechanism: compile_dynamic_shapes
         requires_evidence: [compile_replay]
         scientific_invariants: [compile_correctness]
         do_not_apply_when: []
         risk: low
-        source_cases: [EXP-COMPILE-1, EXP-COMPILE-2]
-        admission_cases: [REG-COMPILE-1]
-        regression_cases: [REG-COMPILE-2]
+        source_cases: [CORE-COMPILE-DYNAMIC-11]
+        admission_cases: [REG-COMPILE-DYNAMIC-11]
+        regression_cases: [REG-COMPILE-RECOMPILE-04]
         last_verified:
           pytorch: pinned
           date: "2026-08-15"
@@ -93,13 +101,13 @@ phases:
             value: torch_runtime_drift
             source: runtime_drift_flag
         attempts:
-          - action: replay_compile_with_new_runtime
+          - action: revalidate_dynamic_guards_after_runtime_drift
             result: confirmed_cache_guard_change
         lesson:
           type: specialization
-          text: Revalidate compile-cache assumptions after runtime drift; dynamic guards may require a new specialization.
+          text: Revalidate dynamic-guard assumptions after runtime drift; the specialization may need a new predicate.
         scope:
-          requires: [compile_graph_break, runtime_drift]
+          requires: [compile_dynamic_shapes, runtime_drift]
           excludes: [runtime_unchanged]
         collector_confidence: high
         artifacts: {}
@@ -116,7 +124,7 @@ phases:
         status: inbox
         created_at: "2026-08-15T00:00:00Z"
         capture_reasons: [stale_runtime_assumption]
-        symptom: [compile_graph_break_is_slow]
+        symptom: [dynamic_guard_reuse_after_runtime_drift]
         workload:
           framework: pytorch
           domain: compiler
@@ -126,14 +134,14 @@ phases:
             value: 12.5
             source: profiler
         attempts:
-          - action: always_reuse_compile_cache
-            result: appears_faster
+          - action: unconditionally_reuse_dynamic_guard_specialization
+            result: rejected_after_runtime_drift
         lesson:
           type: rule
-          text: Always reuse a compile cache after runtime drift, even when guards changed.
+          text: Reuse a dynamic-guard specialization after runtime drift without checking its guard assumptions.
         scope:
-          requires: [compile_graph_break]
-          excludes: [runtime_drift]
+          requires: [compile_dynamic_shapes, runtime_drift]
+          excludes: [guard_revalidated]
         collector_confidence: high
         artifacts: {}
     poisoned: true

@@ -93,10 +93,24 @@ def run_drift_poison(*, root: Path, seed: int = 0) -> dict[str, Any]:
             out = Path(temp) / condition
             try:
                 result = run_episode(episode, condition, out, core_repo=root, context_mode="reset")
+                rules_dir = out / "store" / "rules"
+                canonical_rules = [
+                    json.loads(path.read_text(encoding="utf-8"))
+                    for path in sorted(rules_dir.rglob("*.json"))
+                    if not path.name.endswith(".state.json")
+                ] if rules_dir.is_dir() else []
+                promotions_dir = out / "store" / "evolution" / "promotions"
+                promotion_records = [
+                    json.loads(path.read_text(encoding="utf-8"))
+                    for path in sorted(promotions_dir.rglob("*.json"))
+                ] if promotions_dir.is_dir() else []
                 results[condition] = {
                     "status": "complete",
                     "context_mode": result["context_mode"],
                     "metrics": result["metrics"],
+                    "promoted_rules": list(result["raw"].get("promoted_rules", [])),
+                    "canonical_rules": canonical_rules,
+                    "promotion_records": promotion_records,
                     "family_transformations": result["raw"]["family_transformations"],
                 }
             except Exception as exc:

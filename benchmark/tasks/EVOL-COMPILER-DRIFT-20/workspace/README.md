@@ -6,7 +6,7 @@
 skill view, and a budget, and must run the sequential episode defined in
 `../episodes/compiler_drift_episode.yaml`. The current baseline runs the episode
 under condition **C**; your job is to make it run under condition **D**
-(governed, replay-grounded) so stale compiler assumptions are revalidated after
+(governed, replay-grounded) so stale dynamic-shape guard assumptions are revalidated after
 runtime drift and the recovery score improves.
 
 ## API (fixed — `episode_v1`)
@@ -36,7 +36,7 @@ well under a minute.
 
 Before you finish, state the **bottleneck mechanism** you identified (one of:
 `scalar_sync`, `h2d_blocking`, `repeated_compute`, `launch_fragmentation`,
-`graph_rebuild`, `compile_break`, `memory_pressure`) and justify it with the
+`graph_rebuild`, `compile_dynamic_shapes`, `memory_pressure`) and justify it with the
 evidence you collected. The mechanism name is scored.
 
 ## Smoke test

@@ -69,7 +69,7 @@ measured speedup, and counterexample/do_not_apply tempting patches are rejected.
 | 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive | fairchem-shaped | population-validity pending | pilot |
 | 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample | fairchem-shaped | population-validity pending | pilot |
 | 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive | fairchem-shaped | population-validity pending | pilot |
-| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_graph_break + runtime_drift | positive | synthetic | population-validity pending | pilot |
+| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_dynamic_shapes + runtime_drift | positive | synthetic | population-validity pending | pilot |
 
 ## Sequential split (pilot)
 
@@ -138,7 +138,7 @@ fixtures, model shapes, and mutation polarity.
 
 | Episode | New mechanism emphasis | # phases | New stresses |
 |---------|------------------------|----------|--------------|
-| Compiler-drift | compile_graph_break + torch version drift | 6 | Old graph-break repairs become invalid after version bump. |
+| Compiler-drift | compile_dynamic_shapes + torch version drift | 6 | Dynamic-shape guard specializations require revalidation after a runtime version change. |
 | Multi-property GNN | rule specialization by property head | 6 | A rule valid for energy fails for forces; specialization required. |
 | Curriculum scaling | repeated_compute → distributed | 6 | Rules must retire as workload scale changes. |
 | Adversarial poisoning | misleading experience + conflicting rules | 6 | Two plausible rules conflict; governance must reject one. |

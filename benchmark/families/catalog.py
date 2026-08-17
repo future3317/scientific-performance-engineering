@@ -605,7 +605,7 @@ _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
     ),
 }
 _THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
-    "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.2, 0.4, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
+    "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.0, 0.2, 0.4, 0.6), "workload.graph_size": (64.0, 128.0, 256.0, 320.0)},
     "graph_cache": {"workload.geometry_displacement": (0.02, 0.05, 0.08), "workload.dynamic_rate": (0.2, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
     "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0, 4096.0), "workload.prefetch_factor": (2.0, 4.0)},
     "checkpoint": {"workload.memory_pressure": (0.4, 0.57, 0.7), "workload.segment_count": (4.0, 6.0), "workload.recompute_ratio": (0.2, 0.5)},
@@ -644,12 +644,12 @@ _ACTION_POLICY_GATES: dict[str, tuple[str, ...]] = {
 }
 _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
-        "reuse_compile_cache": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
-        "stabilize_dynamic_guards": {"family": "compile", "mechanism": "compile_dynamic_shapes", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"any": [{"compare": {"workload.evidence.recompile_count": {"gt": 0}}}, {"compare": {"workload.dynamic_shape_rate": {"gt": 0.0}}}]}]}, "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_dynamic_guard_stability", "realization_interface": "source_patch"},
-        "remove_compile_graph_break": {"family": "compile", "mechanism": "compile_graph_break", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"compare": {"workload.graph_size": {"gte": 128}}}, {"any": [{"compare": {"workload.evidence.graph_break_count": {"gt": 0}}}, {"equals": {"workload.dynamic_shape_rate": 0.0}}]}]}, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_graph_break_removed", "realization_interface": "source_patch"},
+        # Legacy cache actions remain only in action_policy as migration
+        # labels; they have no calibrated anchor and are not deployable.
+        "stabilize_dynamic_guards": {"family": "compile", "mechanism": "compile_dynamic_shapes", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"compare": {"workload.graph_size": {"lt": 320}}}, {"compare": {"workload.dynamic_shape_rate": {"gt": 0.0}}}, {"compare": {"workload.dynamic_shape_rate": {"lte": 0.4}}}]}, "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_dynamic_guard_stability", "realization_interface": "source_patch"},
+        "remove_compile_graph_break": {"family": "compile", "mechanism": "compile_graph_break", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"compare": {"workload.graph_size": {"gte": 128}}}, {"compare": {"workload.graph_size": {"lt": 320}}}, {"equals": {"workload.dynamic_shape_rate": 0.0}}, {"any": [{"compare": {"workload.evidence.graph_break_count": {"gt": 0}}}, {"equals": {"workload.dynamic_shape_rate": 0.0}}]}]}, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_graph_break_removed", "realization_interface": "source_patch"},
         "bypass_compile": {"family": "compile", "mechanism": "compile_tiny_graphs", "applicability": {"any": [{"equals": {"workload.evidence.compile_worthiness": False}}, {"compare": {"workload.logical_steps": {"lt": 128}}}]}, "effect": 0.60, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "", "realization_interface": "source_patch"},
-        "fuse_pointwise_chain": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-FUSION", "activation_validator": "kernel_fusion_operator_trace", "realization_interface": "source_patch"},
-        "revalidate_compile_cache": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
+        "fuse_pointwise_chain": {"family": "compile", "mechanism": "launch_fragmentation", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"compare": {"workload.graph_size": {"gte": 320}}}]}, "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-FUSION", "activation_validator": "kernel_fusion_operator_trace", "realization_interface": "source_patch"},
     },
     "graph_cache": {
         "reuse_graph_cache": {"family": "graph_cache", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-ENERGY-FORCE", "activation_validator": "graph_cache_hit_without_rebuild", "realization_interface": "source_patch"},

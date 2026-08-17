@@ -575,7 +575,7 @@ runnable with zero external downloads; CPU-capable unless noted:
 | 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive |
 | 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample |
 | 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive |
-| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_graph_break + runtime_drift | positive |
+| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_dynamic_shapes + runtime_drift | positive |
 
 Each atomic task ships with baseline/oracle validation metadata, fresh-input
 verification, an anti-cheat probe, a deterministic fixture, a declared noise

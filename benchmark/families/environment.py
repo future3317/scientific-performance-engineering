@@ -78,11 +78,21 @@ class FamilyEnvironment:
             spec = FAMILY_SPECS[resolve_family_id(self.family_id)]
         except KeyError:
             return ((),)
-        actions = tuple(spec.action_specs)
+        workload = dict(context.get("workload", context) if isinstance(context, Mapping) else {})
+        # Only action-level applicability defines a deployable intervention.
+        # Falling back to the family predicate would admit uncalibrated
+        # legacy actions into oracle/evolution bundles.
+        actions = tuple(
+            action_id for action_id in spec.action_specs
+            if spec.action_applicable(action_id, workload)
+        )
         bundles: list[tuple[str, ...]] = [()]
         for action in actions:
             bundles.extend(bundle + (action,) for bundle in list(bundles) if action not in bundle)
-        return tuple(bundles)
+        return tuple(
+            bundle for bundle in bundles
+            if not bundle or spec.action_bundle_applicable(bundle, workload)
+        )
 
     def evaluate(
         self,
@@ -134,6 +144,7 @@ class FamilyEnvironment:
             invariant_names = tuple(
                 name
                 for action_id in bundle
+                if action_id in family_spec.action_specs
                 for name in family_spec.action_policy_spec(action_id).required_gates
             ) or tuple(getattr(family_spec, "scientific_invariants", ()) or ("finite_loss",))
             raw_gates = {
