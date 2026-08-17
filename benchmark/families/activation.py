@@ -8,6 +8,7 @@ from typing import Any, Mapping
 _REQUIRED_METRICS = {
     "compile_cache_guard_hit": "compile_cache_hit",
     "compile_dynamic_guard_stability": "dynamic_guard_stable",
+    "compile_graph_break_removed": "graph_break_count",
     "kernel_fusion_operator_trace": "fused_operator_count",
     "graph_cache_hit_without_rebuild": "cache_hit_without_rebuild",
     "graph_cache_rebuild_trace": "graph_rebuild_count",
@@ -40,6 +41,8 @@ def _contrastive_observed(validator: str, candidate: Mapping[str, Any], baseline
     if not isinstance(c, (int, float)) or not isinstance(b, (int, float)):
         return False
     if "sync_count" in validator or "deferred_sync" in validator:
+        return float(c) < float(b)
+    if "graph_break" in validator:
         return float(c) < float(b)
     if "rebuild" in validator or "operator" in validator or "worker" in validator or "prefetch" in validator:
         return float(c) > float(b)

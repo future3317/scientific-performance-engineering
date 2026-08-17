@@ -8,6 +8,8 @@ import tempfile
 
 import pytest
 
+from benchmark.families.activation import classify_activation
+
 
 def _load_compile_benchmark(task_id: str):
     task_dir = Path(__file__).parents[1] / "tasks" / task_id
@@ -82,3 +84,19 @@ def test_dynamic_compile_activation_is_harness_owned_and_contrastive():
     assert evidence["candidate_metrics"]["compile_cache"] != evidence["baseline_metrics"]["compile_cache"]
     assert evidence["candidate_metrics"]["dynamic_guard_stable"] is True
     assert evidence["baseline_metrics"]["dynamic_guard_stable"] is False
+
+
+def test_recompile_activation_requires_graph_break_contrast():
+    specs = {
+        "remove_compile_graph_break": {
+            "activation_validator": "compile_graph_break_removed"
+        }
+    }
+    result = classify_activation(
+        "compile",
+        specs,
+        {"graph_break_count": 0},
+        {"graph_break_count": 1},
+    )
+    assert result["status"] == "passed"
+    assert result["matched_actions"] == ["remove_compile_graph_break"]

@@ -617,6 +617,7 @@ _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
         "reuse_compile_cache": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
         "stabilize_dynamic_guards": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_dynamic_guard_stability", "realization_interface": "source_patch"},
+        "remove_compile_graph_break": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_graph_break_removed", "realization_interface": "source_patch"},
         "fuse_pointwise_chain": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-FUSION", "activation_validator": "kernel_fusion_operator_trace", "realization_interface": "source_patch"},
         "revalidate_compile_cache": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
     },

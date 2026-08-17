@@ -288,9 +288,11 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
             frames = counters.get("frames", {}) if isinstance(counters, dict) else {}
             stats = counters.get("stats", {}) if isinstance(counters, dict) else {}
             inductor = counters.get("inductor", {}) if isinstance(counters, dict) else {}
+            unimplemented = counters.get("unimplemented", {}) if isinstance(counters, dict) else {}
             return {
                 "compile_cache_hit": int(inductor.get("fxgraph_cache_hit", 0)) > 0,
                 "dynamic_guard_stable": False,
+                "graph_break_count": sum(int(value) for value in unimplemented.values()),
                 "compile_count": int(frames.get("total", 0)),
                 "unique_graphs": int(stats.get("unique_graphs", 0)),
                 "compile_threads": timing.get("observed_compile_threads"),
