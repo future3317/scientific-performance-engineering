@@ -228,13 +228,13 @@
     {
       "task_id": "CORE-COMPILE-DYNAMIC-11",
       "time_budget_s": 300,
-      "measured_iterations": 8,
+      "measured_iterations": 64,
       "repetitions": 2
     },
     {
       "task_id": "CORE-COMPILE-RECOMPILE-04",
       "time_budget_s": 300,
-      "measured_iterations": 8,
+      "measured_iterations": 64,
       "repetitions": 2
     },
     {

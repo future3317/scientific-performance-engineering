@@ -176,11 +176,11 @@ def _run_performance(
     return {
         # The primary estimand includes the first encounter with every
         # preregistered shape; the post-cycle median remains diagnostic only.
-        "value": cold_schedule_ms,
+        "value": sum(measured) if profile.get("primary_scope") == "full_schedule" else cold_schedule_ms,
         "work_units": {"forward": iterations, "backward": iterations, "optimizer": iterations},
         "output_checksums": {"final_loss": hashlib.sha256(final_loss.detach().cpu().numpy().tobytes()).hexdigest() if final_loss is not None else None},
         "timing": {
-            "metric": "cold_shape_schedule_ms",
+            "metric": "schedule_wall_ms" if profile.get("primary_scope") == "full_schedule" else "cold_shape_schedule_ms",
             "step_times_ms": measured,
             "cold_schedule_ms": cold_schedule_ms,
             "steady_state_median_ms": statistics.median(steady),

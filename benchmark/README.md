@@ -105,8 +105,10 @@ The three compile anchors are intentionally non-interchangeable. `compile_recomp
 measures a graph-break plus cold shape-specialization schedule, `compile_dynamic_shapes`
 keeps a tensor-only variable-shape workload and tests dynamic-shape handling, and
 `compile_tiny_graphs` is a short-lived counterexample where compile startup should
-be rejected. Their primary metric is `cold_shape_schedule_ms`; first encounters
-are measured rather than hidden in warmup, while steady-state latency is retained
+be rejected. The first two use an end-to-end `schedule_wall_ms` primary metric that
+includes first compilation and subsequent registered-shape work; the tiny anchor
+uses `cold_shape_schedule_ms` so its non-amortized startup cost remains visible.
+First encounters are never hidden in warmup, while steady-state latency is retained
 as a diagnostic. The compile-family contract fixes `TORCHINDUCTOR_COMPILE_THREADS=2`
 for A/B/C/D and records it in the calibration environment manifest.
 

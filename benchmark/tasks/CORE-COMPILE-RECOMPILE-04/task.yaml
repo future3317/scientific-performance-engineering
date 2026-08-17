@@ -15,10 +15,10 @@ workspace:
   entrypoint: solution.py
   api: train_loop_v1
 measurement:
-  primary_metric: cold_shape_schedule_ms
+  primary_metric: schedule_wall_ms
   higher_is_better: false
   warmup_iterations: 0
-  measured_iterations: 8
+  measured_iterations: 64
   repetitions: 2
   compile_threads: 2
   min_improvement_percent: 5.0

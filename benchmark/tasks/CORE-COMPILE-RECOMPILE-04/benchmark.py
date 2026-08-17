@@ -13,6 +13,7 @@ _API = configure(
         "num_blocks": 1,
         "batch_sizes": [8, 12, 16, 20],
         "compile_threads": 2,
+        "primary_scope": "full_schedule",
     },
 )
 globals().update(_API)
