@@ -48,3 +48,12 @@ def train_step(model, batch, optimizer):
     loss.backward()
     optimizer.step()
     return {"loss": loss.detach(), "work_units": {"forward": 1, "backward": 1, "optimizer": 1}}
+
+
+def run_training(fixtures, steps):
+    model = build_model(fixtures)
+    optimizer = torch.optim.SGD(model.parameters(), lr=fixtures["optimizer_config"]["lr"])
+    losses = []
+    for index in range(steps):
+        losses.append(train_step(model, _batch_at(fixtures, index), optimizer)["loss"])
+    return {"losses": torch.stack(losses), "final_loss": losses[-1].item()}
