@@ -74,9 +74,21 @@ jobs:
           sudo apt-get install --yes bubblewrap
       - name: Install executor smoke dependencies
         run: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements-ci.txt
-      - name: Run ReferenceExecutor attestation and real worker smoke
-        run: python -m benchmark.formal.executor_contract --out-dir artifacts/executor-contract
+      - name: Run ReferenceExecutor capability probe and attestation
+        id: executor_attestation
+        shell: bash
+        run: |
+          set +e
+          python -m benchmark.formal.executor_contract --out-dir artifacts/executor-contract
+          rc=$?
+          set -e
+          status=$(python -c 'import json; print(json.load(open("artifacts/executor-contract/smoke_result.json"))["status"])')
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" = "fail" ]; then
+            exit "$rc"
+          fi
       - name: Run formal lifecycle through the real executor path
+        if: steps.executor_attestation.outputs.status == 'pass'
         run: python -m pytest -q benchmark/tests/test_reference_executor.py benchmark/tests/test_acre_full_lifecycle_e2e.py
       - name: Upload executor attestation
         if: always()

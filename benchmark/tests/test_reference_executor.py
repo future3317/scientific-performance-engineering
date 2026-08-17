@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -9,6 +10,15 @@ from pathlib import Path
 import pytest
 
 from benchmark.formal.reference_executor import ReferenceExecutor
+from benchmark.formal.executor_contract import _is_runner_capability_failure
+
+
+def test_executor_contract_classifies_namespace_capability_failures() -> None:
+    capability_probe = {"returncode": 1, "stdout": "", "stderr": "bwrap: Creating new namespace failed: Operation not permitted"}
+    worker = subprocess.CompletedProcess([], 1, "", "")
+    assert _is_runner_capability_failure(capability_probe, worker)
+    portability_probe = {"returncode": 1, "stdout": "", "stderr": "bwrap: missing runtime mount"}
+    assert not _is_runner_capability_failure(portability_probe, worker)
 
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap is required for namespace smoke")

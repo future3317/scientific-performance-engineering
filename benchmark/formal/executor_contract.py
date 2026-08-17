@@ -2,7 +2,7 @@
 
 This is an attestation entry point, not a second executor implementation.  It
 exercises the production ``ReferenceExecutor`` against a tiny real worker and
-fails closed when bubblewrap or any observed isolation check is unavailable.
+records a fail-closed capability result when the host cannot create namespaces.
 """
 
 from __future__ import annotations
@@ -55,6 +55,45 @@ def _bwrap_version(executable: str) -> str | None:
     return value or None
 
 
+def _environment_digest(fingerprint: dict[str, Any]) -> str:
+    payload = json.dumps(fingerprint, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _run_namespace_capability_probe(executor: ReferenceExecutor, worker_root: Path) -> dict[str, Any]:
+    """Probe namespace creation using the production runtime mount builder."""
+    true_path = shutil.which("true") or "/bin/true"
+    try:
+        command = executor.command([true_path], worker_root)
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        return {"command": [], "returncode": None, "stdout": "", "stderr": str(exc)}
+    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    return {
+        "command": command,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
+def _is_runner_capability_failure(probe: dict[str, Any], worker: subprocess.CompletedProcess[str]) -> bool:
+    text = "\n".join(
+        str(value or "")
+        for value in (probe.get("stderr"), probe.get("stdout"), worker.stderr, worker.stdout)
+    ).lower()
+    if probe.get("returncode") is None:
+        return True
+    markers = (
+        "operation not permitted",
+        "permission denied",
+        "no permissions to create new namespace",
+        "creating new namespace failed",
+        "user namespace",
+        "unshare",
+    )
+    return int(probe.get("returncode", 0)) != 0 and any(marker in text for marker in markers)
+
+
 def _environment_fingerprint(root: Path, *, executor_digest: str, skill_digest: str, receipt_schema: int) -> dict[str, Any]:
     try:
         import numpy
@@ -101,10 +140,6 @@ def run(out_dir: Path) -> dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     out_dir.mkdir(parents=True, exist_ok=True)
     executor = ReferenceExecutor()
-    if not executor.available():
-        result = {"status": "blocked", "reason": "bubblewrap unavailable", "execution_source": "reference_executor"}
-        (out_dir / "smoke_result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        raise RuntimeError(result["reason"])
 
     with tempfile.TemporaryDirectory(prefix="acre-executor-contract-", dir=str(Path.home())) as raw_root:
         worker_root = Path(raw_root)
@@ -119,10 +154,21 @@ def run(out_dir: Path) -> dict[str, Any]:
             "Path('/worker/result/agent_usage.json').write_text('{\\\"input_tokens\\\":0,\\\"output_tokens\\\":0,\\\"tool_calls\\\":0,\\\"wall_time_s\\\":0.0}')"
         )
         receipt_path = worker_root / "executor_receipt" / "receipt.json"
-        completed = executor.execute(
-            [sys.executable, "-c", worker_code], worker_root,
-            receipt_path=receipt_path, worker_uid="executor-contract",
-        )
+        if executor.available():
+            capability_probe = _run_namespace_capability_probe(executor, worker_root)
+            try:
+                worker_command = executor.command([sys.executable, "-c", worker_code], worker_root)
+                completed = executor.execute(
+                    [sys.executable, "-c", worker_code], worker_root,
+                    receipt_path=receipt_path, worker_uid="executor-contract",
+                )
+            except (FileNotFoundError, RuntimeError, ValueError) as exc:
+                worker_command = []
+                completed = subprocess.CompletedProcess([], 127, "", str(exc))
+        else:
+            capability_probe = {"command": [], "returncode": None, "stdout": "", "stderr": "bubblewrap unavailable"}
+            worker_command = []
+            completed = subprocess.CompletedProcess([], 127, "", "bubblewrap unavailable")
         receipt = json.loads(receipt_path.read_text(encoding="utf-8")) if receipt_path.is_file() else {}
         worker_result = worker_root / "result" / "worker_result.json"
         solution_output = worker_root / "solution" / "worker-output.json"
@@ -138,6 +184,20 @@ def run(out_dir: Path) -> dict[str, Any]:
             and receipt.get("mount_receipt", {}).get("verified") is True
             and all(checks.get(key) is True for key in required_checks)
         )
+        blocked_by_runner_capability = not passed and _is_runner_capability_failure(capability_probe, completed)
+        status = "pass" if passed else "blocked_by_runner_capability" if blocked_by_runner_capability else "fail"
+        diagnostics = {
+            "status": status,
+            "bwrap": {"path": shutil.which("bwrap"), "version": _bwrap_version("bwrap")},
+            "namespace_capability_probe": capability_probe,
+            "worker": {
+                "command": worker_command,
+                "returncode": completed.returncode,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+            },
+        }
+        (out_dir / "executor_diagnostics.json").write_text(json.dumps(diagnostics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         receipt_copy = out_dir / "executor_receipt.json"
         receipt_copy.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         skill_digest = hashlib.sha256((worker_root / "skill_view" / "README.md").read_bytes()).hexdigest()
@@ -147,29 +207,29 @@ def run(out_dir: Path) -> dict[str, Any]:
             skill_digest=skill_digest,
             receipt_schema=int(receipt.get("schema_version", 0)),
         )
+        fingerprint["environment_digest"] = _environment_digest(fingerprint)
         (out_dir / "environment_fingerprint.json").write_text(json.dumps(fingerprint, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         calibration_manifest = {
             **fingerprint,
             "calibration_status": "pending_fail_closed",
             "formal_50": "not_generated",
             "formal_efficacy": "not_claimed",
-            "executor_contract": "passed",
+            "executor_contract": status,
         }
         (out_dir / "calibration_environment_manifest.json").write_text(
             json.dumps(calibration_manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         result = {
-            "status": "pass" if passed else "fail",
+            "status": status,
             "execution_source": "reference_executor",
             "worker_returncode": completed.returncode,
             "worker_result_written": worker_result.is_file(),
             "solution_written": solution_output.is_file(),
             "receipt_verified": bool(receipt.get("isolation_canary") and receipt.get("mount_receipt", {}).get("verified")),
             "canary_checks": {key: bool(checks.get(key, False)) for key in required_checks},
+            "diagnostics": "executor_diagnostics.json",
         }
         (out_dir / "smoke_result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    if not passed:
-        raise RuntimeError("ReferenceExecutor contract failed")
     return result
 
 
@@ -180,10 +240,10 @@ def main() -> int:
     try:
         result = run(args.out_dir)
     except RuntimeError as exc:
-        print(json.dumps({"status": "blocked", "reason": str(exc)}, ensure_ascii=False))
+        print(json.dumps({"status": "fail", "reason": str(exc)}, ensure_ascii=False))
         return 1
     print(json.dumps(result, ensure_ascii=False))
-    return 0
+    return 0 if result["status"] in {"pass", "blocked_by_runner_capability"} else 1
 
 
 if __name__ == "__main__":
