@@ -11,7 +11,7 @@ _API = configure(
         "in_dim": 16,
         "hidden_dim": 32,
         "num_blocks": 1,
-        "batch_sizes": [8, 12, 16, 20],
+        "batch_sizes": [8, 10, 12, 14, 16, 18, 20, 22],
         "compile_threads": 2,
         "primary_scope": "full_schedule",
     },
