@@ -19,7 +19,7 @@
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "medium",
-  "authoring_note": "This anchor measures graph-break overhead and first-encounter shape specialization. The baseline has an .item()-dependent graph break with dynamic=False; the oracle removes the break and buckets the eight registered shapes into one fixed graph. The primary metric is the cold shape schedule, not post-warmup step latency.",
+  "authoring_note": "This anchor measures graph-break overhead and first-encounter shape specialization on a one-block, four-shape schedule. The baseline has an .item()-dependent graph break with dynamic=False; the oracle removes the break and buckets the registered shapes into one fixed graph. The primary metric is the cold shape schedule, not post-warmup step latency.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "compile",

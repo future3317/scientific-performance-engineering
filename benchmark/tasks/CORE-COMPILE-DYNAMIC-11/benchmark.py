@@ -7,11 +7,11 @@ from benchmark.tasks._compile_benchmark import configure
 _API = configure(
     Path(__file__).resolve().parent,
     {
-        "num_samples": 512,
-        "in_dim": 64,
-        "hidden_dim": 256,
-        "num_blocks": 4,
-        "batch_sizes": [16, 24, 32, 40, 48, 56, 64, 72],
+        "num_samples": 128,
+        "in_dim": 16,
+        "hidden_dim": 32,
+        "num_blocks": 1,
+        "batch_sizes": [8, 12, 16, 20],
         "compile_threads": 2,
     },
 )

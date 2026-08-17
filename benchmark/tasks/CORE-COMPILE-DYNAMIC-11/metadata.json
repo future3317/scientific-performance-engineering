@@ -19,7 +19,7 @@
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "medium",
-  "authoring_note": "This anchor has no graph break. The baseline compiles a pure tensor graph with dynamic=False, so the registered shape schedule triggers specialization; the oracle uses dynamic=True on the same variable-shape workload. The primary metric includes the first shape cycle and keeps steady-state latency as a secondary diagnostic.",
+  "authoring_note": "This anchor has no graph break. The baseline compiles a pure tensor graph with dynamic=False, so the registered four-shape schedule triggers specialization; the oracle uses dynamic=True on the same variable-shape workload. The primary metric includes the first shape cycle and keeps steady-state latency as a secondary diagnostic.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "compile",
