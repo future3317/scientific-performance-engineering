@@ -11,9 +11,10 @@ class Budget:
     tokens: int
     tool_calls: int
     wall_time_s: float
+    context_tokens: int = 4096
 
     def __post_init__(self) -> None:
-        if self.tokens < 1 or self.tool_calls < 1 or self.wall_time_s <= 0:
+        if self.tokens < 1 or self.tool_calls < 1 or self.wall_time_s <= 0 or self.context_tokens < 1:
             raise ValueError("budget values must be positive")
 
     def as_dict(self) -> dict[str, Any]:
@@ -63,4 +64,5 @@ def parse_budget(value: dict[str, Any] | None) -> Budget:
         tokens=int(value.get("tokens", 12000)),
         tool_calls=int(value.get("tool_calls", 80)),
         wall_time_s=float(value.get("wall_time_s", 900.0)),
+        context_tokens=int(value.get("context_tokens", 4096)),
     )

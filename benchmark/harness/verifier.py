@@ -305,15 +305,23 @@ def verify_task(
         "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "canary_tripped": False},
         "fingerprint": capture_fingerprint(),
         "measurement": {},
+        "stage_times_s": {},
         "harness_hash": {},
         "errors": errors,
     }
+    stage_started = time.perf_counter()
+
+    def mark_stage(name: str) -> None:
+        nonlocal stage_started
+        result["stage_times_s"][name] = round(time.perf_counter() - stage_started, 6)
+        stage_started = time.perf_counter()
 
     # --- S0: sandbox + harness hashing --------------------------------------
     harness_hash_s0 = runner.hash_harness_files()
     result["harness_hash"] = harness_hash_s0
     sandbox = runner.materialize_sandbox(task_dir)
     result["sandbox_dir"] = str(sandbox)
+    mark_stage("S0")
 
     # --- S1: static scan ------------------------------------------------------
     oracle_dir = task_dir / "oracle"
@@ -324,13 +332,16 @@ def verify_task(
     result["anticheat"]["canary_tripped"] = any(f["rule"] == "canary" for f in findings)
     if hard_fail:
         result["verdict"] = "fail"
+        mark_stage("S1")
         return _finalize(result, started, out_path)
+    mark_stage("S1")
 
     # --- S2/S3: correctness + scientific gates --------------------------------
     device, usable = runner.select_device(bool(spec.get("requires_cuda")))
     if not usable:
         result["verdict"] = "inconclusive"
         result["verified_speedup"]["reason"] = "task requires CUDA; host has none"
+        mark_stage("S2")
         return _finalize(result, started, out_path)
 
     benchmark_module = runner.import_module_by_path(task_dir / "benchmark.py")
@@ -344,6 +355,7 @@ def verify_task(
         else:
             result["verdict"] = "error"
             errors.append(f"candidate entrypoint {entrypoint_name} not found under {solution_dir}")
+            mark_stage("S2")
             return _finalize(result, started, out_path)
 
     runner.set_global_seeds(seed)
@@ -352,13 +364,16 @@ def verify_task(
     except Exception as exc:
         result["verdict"] = "error"
         errors.append(f"S2 correctness raised: {exc!r}")
+        mark_stage("S2")
         return _finalize(result, started, out_path)
     result["correctness_pass"] = correctness["passed"]
     result["correctness_details"] = correctness
 
     if not correctness["passed"]:
         result["verdict"] = "fail"
+        mark_stage("S2")
         return _finalize(result, started, out_path)
+    mark_stage("S2")
 
     try:
         fixtures = runner.call_benchmark_fn(benchmark_module.make_fixtures, seed=seed * 100003 + 9000, device=device)
@@ -369,12 +384,15 @@ def verify_task(
     except Exception as exc:
         result["verdict"] = "error"
         errors.append(f"S3 scientific gates raised: {exc!r}")
+        mark_stage("S3")
         return _finalize(result, started, out_path)
     result["scientific_gates"] = {name: gate["passed"] for name, gate in gates.items()}
     result["scientific_gate_details"] = {name: gate["details"] for name, gate in gates.items()}
     if not all(result["scientific_gates"].values()):
         result["verdict"] = "fail"
+        mark_stage("S3")
         return _finalize(result, started, out_path)
+    mark_stage("S3")
 
     # --- S4: activation evidence (absence = inconclusive note, not failure) ---
     activation_fn = getattr(benchmark_module, "run_activation_evidence", None)
@@ -406,6 +424,7 @@ def verify_task(
         # benchmark-owned instrumentation is explicitly unavailable for
         # formal causal attribution.
         result["activation"] = {"status": "not_declared", "required": True}
+    mark_stage("S4")
 
     # --- S5: paired interleaved performance -----------------------------------
     measurement_cfg = spec["measurement"]
@@ -435,6 +454,7 @@ def verify_task(
     except Exception as exc:
         result["verdict"] = "error"
         errors.append(f"S5 performance raised: {exc!r}")
+        mark_stage("S5")
         return _finalize(result, started, out_path)
 
     # Work-unit counters must match the baseline exactly (section 7).
@@ -451,6 +471,7 @@ def verify_task(
         result["verdict"] = "fail"
         errors.extend(f"work-unit mismatch: {d}" for d in work_diffs)
         result["measurement"] = record
+        mark_stage("S5")
         return _finalize(result, started, out_path)
 
     higher_is_better = bool(measurement_cfg.get("higher_is_better", False))
@@ -489,6 +510,10 @@ def verify_task(
             all(bool(flag) for flag in reached_flags) if reached_flags else None
         )
 
+    # S5 ends after the paired result and tripwire have been recorded; S6
+    # diagnosis and manifest checks must have their own timing bucket.
+    mark_stage("S5")
+
     # Tripwire: verified speedup above tripwire is flagged, not auto-passed.
     tripped, trip_message = anticheat.tripwire_check(
         verdict["median_speedup"], float(measurement_cfg.get("speedup_tripwire", 20.0))
@@ -510,9 +535,11 @@ def verify_task(
     if not same:
         result["verdict"] = "fail"
         errors.append(f"harness files mutated during evaluation: {diffs}")
+        mark_stage("S6")
         return _finalize(result, started, out_path)
 
     result["verdict"] = "pass" if verdict["verified"] else "inconclusive"
+    mark_stage("S6")
     return _finalize(result, started, out_path)
 
 

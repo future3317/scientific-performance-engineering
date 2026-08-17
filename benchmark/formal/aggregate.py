@@ -151,10 +151,81 @@ def _identity(record: dict[str, Any], task_id: str) -> tuple[str, str, str]:
     return family, lineage, trial
 
 
-def aggregate_trials(records: list[dict[str, Any]]) -> dict[str, Any]:
+def _readiness(
+    records: list[dict[str, Any]],
+    required_cells: list[tuple[str, str, str, str]] | None = None,
+) -> dict[str, Any]:
+    """Summarize execution coverage before exposing any paired effect."""
+    def cell(record: dict[str, Any]) -> tuple[str, str, str, str]:
+        return (
+            str(record.get("task_id", "")),
+            str(record.get("outer_trial_id", record.get("experiment", {}).get("outer_trial_id", ""))),
+            str(record.get("context_mode", "reset")),
+            str(record.get("condition", record.get("experiment", {}).get("condition", ""))),
+        )
+
+    expected = set(required_cells or [])
+    observed = {cell(record) for record in records if all(cell(record))}
+    missing = sorted(expected - observed)
+    execution_counts = {"valid": 0, "invalid": 0, "resource_blocked": 0}
+    efficacy_eligible_count = 0
+    outcome_counts: dict[str, int] = defaultdict(int)
+    per_condition: dict[str, dict[str, int]] = defaultdict(lambda: {"valid": 0, "invalid": 0, "resource_blocked": 0})
+    per_family: dict[str, dict[str, int]] = defaultdict(lambda: {"valid": 0, "invalid": 0, "resource_blocked": 0})
+    for record in records:
+        validity = str(record.get("execution_validity", "invalid" if record.get("validity") == "invalid" else "valid"))
+        if validity not in execution_counts:
+            validity = "invalid"
+        execution_counts[validity] += 1
+        if bool(record.get("efficacy_eligible", False)):
+            efficacy_eligible_count += 1
+        outcome_counts[str(record.get("task_outcome", record.get("score", {}).get("verdict", "unknown") if isinstance(record.get("score"), dict) else "unknown"))] += 1
+        condition = str(record.get("condition", record.get("experiment", {}).get("condition", "")))
+        family = str(record.get("family_id", record.get("family", "unknown")))
+        per_condition[condition][validity] += 1
+        per_family[family][validity] += 1
+    required_count = len(expected)
+    all_required_execution_valid = (
+        required_count > 0
+        and not missing
+        and all(
+            cell(record) in expected
+            and str(record.get("execution_validity", "")) == "valid"
+            and bool(record.get("efficacy_eligible", True))
+            for record in records
+            if cell(record) in expected
+        )
+        and sum(1 for record in records if cell(record) in expected) == required_count
+    )
+    return {
+        "required_cells": [list(item) for item in sorted(expected)],
+        "observed_cells": [list(item) for item in sorted(observed)],
+        "missing_cells": [list(item) for item in missing],
+        "execution_valid_count": execution_counts["valid"],
+        "execution_invalid_count": execution_counts["invalid"],
+        "resource_blocked_count": execution_counts["resource_blocked"],
+        "efficacy_eligible_count": efficacy_eligible_count,
+        "execution_counts": execution_counts,
+        "outcome_counts": dict(sorted(outcome_counts.items())),
+        "per_condition_coverage": {key: value for key, value in sorted(per_condition.items())},
+        "per_family_coverage": {key: value for key, value in sorted(per_family.items())},
+        "all_required_execution_valid": all_required_execution_valid,
+        "efficacy_aggregate_status": "available" if all_required_execution_valid else "withheld",
+    }
+
+
+def aggregate_trials(
+    records: list[dict[str, Any]],
+    *,
+    required_cells: list[tuple[str, str, str, str]] | None = None,
+) -> dict[str, Any]:
     indexed: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
     for record in records:
-        if record.get("validity") == "invalid" or record.get("status") == "invalid":
+        if (
+            record.get("validity") == "invalid"
+            or record.get("status") == "invalid"
+            or record.get("execution_validity") in {"invalid", "resource_blocked"}
+        ):
             continue
         task_id = str(record.get("task_id", ""))
         condition = str(record.get("condition", record.get("experiment", {}).get("condition", "")))
@@ -185,11 +256,12 @@ def aggregate_trials(records: list[dict[str, Any]]) -> dict[str, Any]:
                 family, lineage, _ = _identity(values[left], task_id)
                 hierarchical["speed:" + label].append((family, lineage, task_id, trial, log_delta))
 
-    invalid_count = sum(1 for record in records if record.get("validity") == "invalid" or record.get("status") == "invalid")
+    invalid_count = sum(1 for record in records if record.get("validity") == "invalid" or record.get("status") == "invalid" or record.get("execution_validity") in {"invalid", "resource_blocked"})
     return {
         "num_records": len(records),
         "num_valid_records": len(records) - invalid_count,
         "num_invalid_records": invalid_count,
+        "readiness": _readiness(records, required_cells),
         "paired_effects": {label: _ci(values) for label, values in effects.items()},
         "task_score_effects": {label: _ci(values) for label, values in effects.items()},
         "family_stratified": {

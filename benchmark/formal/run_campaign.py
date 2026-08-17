@@ -9,13 +9,16 @@ solution workspace for each task and then invokes the immutable verifier.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 import shlex
+import signal
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +46,104 @@ def _workspace_digest(root: Path) -> str:
         digest.update(str(path.relative_to(root)).replace("\\", "/").encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+@contextmanager
+def _trial_compiler_cache(trial_dir: Path):
+    """Give every verifier invocation in a trial one bounded cache root."""
+    cache_root = Path(trial_dir) / "compiler-cache"
+    torchinductor = cache_root / "torchinductor"
+    triton = cache_root / "triton"
+    torchinductor.mkdir(parents=True, exist_ok=True)
+    triton.mkdir(parents=True, exist_ok=True)
+    previous = {
+        "TORCHINDUCTOR_CACHE_DIR": os.environ.get("TORCHINDUCTOR_CACHE_DIR"),
+        "TRITON_CACHE_DIR": os.environ.get("TRITON_CACHE_DIR"),
+    }
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = str(torchinductor)
+    os.environ["TRITON_CACHE_DIR"] = str(triton)
+    try:
+        yield {
+            "policy": "trial-scoped",
+            "torchinductor_cache_dir": str(torchinductor),
+            "triton_cache_dir": str(triton),
+        }
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _timeout_result(task_dir: Path, condition: str, context_mode: str, timeout_s: float) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "task_id": task_dir.name,
+        "condition": condition,
+        "context_mode": context_mode,
+        "verdict": "inconclusive",
+        "validity": "invalid",
+        "correctness_pass": False,
+        "scientific_gates": {},
+        "task": {"track": "unknown", "family": "unknown", "kind": "positive", "expected_speedup_range": None},
+        "diagnosis": {"enabled": False, "predicted": None, "expected": None, "diagnosis_correct": None},
+        "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "canary_tripped": False},
+        "verified_speedup": {"median_speedup": None, "verified": False, "inconclusive": True, "reason": "verifier time budget exceeded"},
+        "measurement": {},
+        "cost": {"wall_time_s": float(timeout_s) + 1e-6, "tokens": None, "tool_calls": None, "retries": 0},
+        "errors": ["verifier subprocess exceeded task time budget"],
+        "stage_times_s": {},
+    }
+
+
+def _verify_task_with_cache(*args: Any, trial_dir: Path, timeout_s: float | None = None, **kwargs: Any) -> dict[str, Any]:
+    with _trial_compiler_cache(trial_dir):
+        if timeout_s is None or os.name != "posix":
+            return verifier.verify_task(*args, **kwargs)
+        task_dir, solution_dir = Path(args[0]), Path(args[1])
+        out_path = Path(kwargs["out_path"])
+        command = [
+            sys.executable, "-m", "benchmark.harness.cli", "run-task", str(task_dir),
+            "--solution", str(solution_dir), "--out", str(out_path),
+            "--condition", str(kwargs.get("condition", "standalone")),
+            "--context-mode", str(kwargs.get("context_mode", "reset")),
+            "--seed", str(int(kwargs.get("seed", 0))),
+        ]
+        predicted = kwargs.get("predicted_mechanism")
+        if isinstance(predicted, list) and predicted:
+            command.extend(["--predict-mechanism", ",".join(str(item) for item in predicted)])
+        process = subprocess.Popen(
+            command,
+            cwd=str(Path(__file__).resolve().parents[2]),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=float(timeout_s))
+            return_code = process.returncode
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            result = _timeout_result(task_dir, str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s))
+            result["errors"].append("verifier process group terminated after timeout")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            return result
+        if out_path.is_file():
+            try:
+                result = json.loads(out_path.read_text(encoding="utf-8"))
+                if isinstance(result, dict):
+                    return result
+            except (OSError, json.JSONDecodeError):
+                pass
+        result = _timeout_result(task_dir, str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s))
+        result["errors"] = [f"verifier subprocess failed with return code {return_code}"]
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        return result
 
 
 class InterventionRealizer:
@@ -511,14 +612,15 @@ def execute_poison_probe(
     verifier_scientific_ok = True
     verifier_result_digest: str | None = None
     if task_dir is not None:
-        result = verifier.verify_task(
-            task_dir,
-            realized_solution,
-            out_path=verifier_out or realized_solution.parent / "poison-result.json",
-            condition="D",
-            context_mode="reset",
-            seed=0,
-        )
+        with _trial_compiler_cache(realized_solution.parent):
+            result = verifier.verify_task(
+                task_dir,
+                realized_solution,
+                out_path=verifier_out or realized_solution.parent / "poison-result.json",
+                condition="D",
+                context_mode="reset",
+                seed=0,
+            )
         verifier_executed = True
         verifier_scientific_ok = bool(scoring.score_task(result).get("gates_passed", False))
         verifier_result_digest = hashlib.sha256(json.dumps(result, sort_keys=True, default=str).encode("utf-8")).hexdigest()
@@ -717,17 +819,23 @@ def _verify_baseline(
     condition: str,
     context_mode: str,
     seed: int,
+    trial_dir: Path | None = None,
+    timeout_s: float | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Score the untouched arm on the same fixture before candidate scoring."""
-    baseline = verifier.verify_task(
-        task_dir,
-        solution_dir,
-        out_path=out_path,
-        condition=condition,
-        context_mode=context_mode,
-        seed=seed,
-    )
+    call = _verify_task_with_cache if trial_dir is not None else verifier.verify_task
+    kwargs = dict(out_path=out_path, condition=condition, context_mode=context_mode, seed=seed)
+    baseline = call(task_dir, solution_dir, trial_dir=trial_dir, timeout_s=timeout_s, **kwargs) if trial_dir is not None else call(task_dir, solution_dir, **kwargs)
     return baseline, scoring.score_task(baseline)
+
+
+def _check_verifier_budget(result: Mapping[str, Any], task_spec: Mapping[str, Any], budget_errors: list[str], label: str) -> None:
+    """Turn a verifier overrun into a protocol/resource failure."""
+    cost = result.get("cost") if isinstance(result, Mapping) else None
+    elapsed = cost.get("wall_time_s") if isinstance(cost, Mapping) else None
+    limit = task_spec.get("time_budget_s")
+    if isinstance(elapsed, (int, float)) and isinstance(limit, (int, float)) and float(elapsed) > float(limit):
+        budget_errors.append(f"{label} time_budget_s exceeded: {elapsed} > {limit}")
 
 
 def _read_executor_receipt(
@@ -876,6 +984,7 @@ def post_task_update(
     validation_evidence: dict[str, Any] | None = None,
     practical_epsilon: float = 0.0,
     seed: int = 0,
+    execution_validity: str = "valid",
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
@@ -886,6 +995,20 @@ def post_task_update(
     added_replay_case_ids: list[str] = []
     maintenance_decisions: list[dict[str, Any]] = []
     promoted_rule_ids: list[str] = []
+    if execution_validity != "valid":
+        # Protocol-invalid trials are recorded by the caller but never enter
+        # a sequential C/D store.  An inconclusive scientific outcome remains
+        # execution-valid and therefore takes the normal path.
+        return {
+            "transition": "protocol_invalid_no_mutation",
+            "execution_validity": execution_validity,
+            "pre_store_digest": pre_digest,
+            "post_store_digest": pre_digest,
+            "added_experience_ids": [],
+            "added_replay_case_ids": [],
+            "maintenance_decisions": [],
+            "promoted_rule_ids": [],
+        }
     if condition in {"C", "C_STRESS", "D"}:
         from core.mutation_journal import MutationJournal
         mutation_journal = MutationJournal(store / "evolution" / "mutation_journal.jsonl") if condition == "D" else None
@@ -1539,6 +1662,26 @@ def post_task_update(
     }
 
 
+def _safe_post_task_update(*, budget_errors: list[str], **kwargs: Any) -> dict[str, Any]:
+    """Record a lifecycle/audit failure without aborting other streams."""
+    try:
+        return post_task_update(**kwargs)
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        budget_errors.append(f"state mutation/audit error: {exc}")
+        store = Path(kwargs["store"])
+        digest = conditions.store_digest(store)
+        return {
+            "status": "state_mutation_error",
+            "error": repr(exc),
+            "pre_store_digest": digest,
+            "post_store_digest": digest,
+            "added_experience_ids": [],
+            "added_replay_case_ids": [],
+            "maintenance_decisions": [],
+            "promoted_rule_ids": [],
+        }
+
+
 def _experiment_manifest(
     *,
     repo_root: Path,
@@ -1551,6 +1694,7 @@ def _experiment_manifest(
     agent_config: dict[str, Any],
     budgets: budget.Budget,
     fingerprint: dict[str, Any],
+    trial_dir: Path,
 ) -> dict[str, Any]:
     task_spec = miniyaml.load(str(tasks_root / item["task_id"] / "task.yaml"))
     lineage = task_spec.get("lineage", {}) if isinstance(task_spec, dict) else {}
@@ -1585,6 +1729,11 @@ def _experiment_manifest(
         },
         "torch_version": fingerprint.get("torch_version"),
         "cuda_version": fingerprint.get("cuda_version"),
+        "compiler_cache": {
+            "policy": "trial-scoped",
+            "torchinductor_cache_dir": str(trial_dir / "compiler-cache" / "torchinductor"),
+            "triton_cache_dir": str(trial_dir / "compiler-cache" / "triton"),
+        },
     }
 
 
@@ -1641,6 +1790,21 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     split_path = Path(args.split).resolve()
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    resume = bool(getattr(args, "resume", False))
+    existing_campaign: dict[str, Any] | None = None
+    if resume:
+        campaign_path = out_dir / "campaign.json"
+        if not campaign_path.is_file():
+            raise ValueError("--resume requires an existing campaign.json")
+        try:
+            loaded_campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid campaign manifest for resume: {exc}") from exc
+        if not isinstance(loaded_campaign, dict):
+            raise ValueError("campaign manifest for resume must be an object")
+        if loaded_campaign.get("status") == "complete":
+            return loaded_campaign
+        existing_campaign = loaded_campaign
     task_items = schedule.task_order(split_path)
     task_ids = [task_id for _, task_id in task_items]
     if args.skill_view:
@@ -1651,7 +1815,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError("--skill-view failed bundle validation")
     else:
         skill_view = out_dir / "skill-view"
-        render_skill_view(args.skill_source, skill_view)
+        if not resume or not (skill_view / "skill_view_manifest.json").is_file():
+            render_skill_view(args.skill_source, skill_view)
     skill_digest = attest.skill_view_digest(skill_view)
     task_digest = attest.task_manifest_digest(tasks_root, task_ids)
     conditions_list = tuple(item.strip().upper() for item in args.conditions.split(",") if item.strip())
@@ -1686,6 +1851,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         "schedule_size": len(plan),
         "results_claimed": False,
     }
+    if existing_campaign is not None:
+        immutable_keys = (
+            "population_id", "benchmark_revision", "skill_view_digest", "task_manifest_digest",
+            "conditions", "context_modes", "outer_trials", "task_order", "budgets",
+            "agent_model_id", "agent_config", "schedule_size",
+        )
+        mismatches = [key for key in immutable_keys if existing_campaign.get(key) != campaign.get(key)]
+        if mismatches:
+            raise ValueError("resume manifest mismatch: " + ", ".join(mismatches))
+        campaign["created_utc"] = existing_campaign.get("created_utc", campaign["created_utc"])
     (out_dir / "campaign.json").write_text(json.dumps(campaign, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     if not args.agent_command:
         (out_dir / "schedule.json").write_text(json.dumps(plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -1697,9 +1872,48 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     stores: dict[str, Path] = {}
     context_paths: dict[str, Path] = {}
     ledgers: dict[str, EvolutionDecisionLedger] = {}
+    task_position = {task_id: index for index, (_phase, task_id) in enumerate(task_items)}
+    resume_records: dict[tuple[str, str], dict[str, Any]] = {}
+    resume_prefix: dict[str, int] = {}
+    blocked_streams: set[str] = set()
+    if resume:
+        for item in plan:
+            stream_id = str(item["stream_id"])
+            resume_prefix.setdefault(stream_id, 0)
+        for stream_id in resume_prefix:
+            stream_dir = out_dir / "trials" / stream_id
+            store = stream_dir / "condition-store"
+            expected_prefix = 0
+            for _phase, task_id in task_items:
+                trial_path = stream_dir / task_id / "trial.json"
+                if not trial_path.is_file():
+                    break
+                try:
+                    record = json.loads(trial_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise ValueError(f"invalid resume trial {trial_path}: {exc}") from exc
+                if not isinstance(record, dict):
+                    raise ValueError(f"resume trial must be an object: {trial_path}")
+                post_digest = record.get("transition", {}).get("post_store_digest") if isinstance(record.get("transition"), dict) else None
+                if post_digest is not None:
+                    if not store.is_dir() or conditions.store_digest(store) != post_digest:
+                        raise ValueError(f"resume store digest mismatch for {stream_id}/{task_id}")
+                resume_records[(stream_id, task_id)] = record
+                expected_prefix += 1
+            if expected_prefix:
+                stores[stream_id] = store
+            for candidate in stream_dir.iterdir() if stream_dir.is_dir() else ():
+                if candidate.name == "condition-store" or not candidate.is_dir():
+                    continue
+                if candidate.name in task_position and task_position[candidate.name] >= expected_prefix and (candidate / "trial.json").is_file():
+                    raise ValueError(f"resume requires a contiguous completed prefix for {stream_id}")
+            resume_prefix[stream_id] = expected_prefix
     for item in plan:
         stream_id = str(item["stream_id"])
         task_id = str(item["task_id"])
+        if resume and task_position[task_id] < resume_prefix.get(stream_id, 0):
+            records.append(resume_records[(stream_id, task_id)])
+            continue
         task_spec = miniyaml.load(str(tasks_root / task_id / "task.yaml"))
         trial_dir = out_dir / "trials" / stream_id / task_id
         trial_dir.mkdir(parents=True, exist_ok=True)
@@ -1714,8 +1928,33 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             agent_config=json.loads(args.agent_config),
             budgets=budgets,
             fingerprint=fingerprint,
+            trial_dir=trial_dir,
         )
         attest.write_experiment(trial_dir / "experiment.json", manifest)
+        if stream_id in blocked_streams:
+            record = {
+                "experiment": manifest,
+                "task_id": task_id,
+                "family": task_spec.get("family"),
+                "family_id": task_spec.get("family_id", task_spec.get("family")),
+                "condition": item["condition"],
+                "context_mode": item["context_mode"],
+                "outer_trial_id": item["outer_trial_id"],
+                "phase": item["phase"],
+                "agent": None,
+                "agent_usage": {},
+                "budget_errors": ["stream blocked after prior state mutation/audit error"],
+                "attestation_ok": False,
+                "execution_validity": "resource_blocked",
+                "task_outcome": "error",
+                "efficacy_eligible": False,
+                "validity": "invalid",
+                "transition": {"status": "stream_blocked"},
+                "score": {"task_id": task_id, "verdict": "error", "gates_passed": False, "task_score": 0.0},
+            }
+            (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
+            records.append(record)
+            continue
         state_path = context_paths.setdefault(stream_id, trial_dir.parent / "context.json")
         if item["context_mode"] == "reset" and state_path.exists():
             state_path.unlink()
@@ -1724,6 +1963,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             store = trial_dir.parent / "condition-store"
             conditions.materialize_condition(item["condition"], skill_view if item["condition"] != "A" else None, store, item["context_mode"])
             stores[stream_id] = store
+        elif resume:
+            valid_store, store_errors = conditions.verify_attestation(store)
+            if not valid_store:
+                raise ValueError("resume condition store failed attestation: " + "; ".join(store_errors))
         solution_dir = trial_dir / "solution"
         _copy_workspace(tasks_root / task_id, solution_dir)
         agent_task_dir = trial_dir / "agent-task"
@@ -1737,7 +1980,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             adapter = FormalConditionAdapter(
                 str(item["condition"]),
                 store,
-                token_budget=budgets.tokens,
+                token_budget=budgets.context_tokens,
                 family_id=str(task_spec.get("family_id", task_spec.get("family", ""))) or None,
             )
             retrieval_input = {
@@ -1746,7 +1989,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 "hardware": dict(public_routing.get("hardware", {})),
                 "software": dict(public_routing.get("software", {})),
                 "evidence": dict(public_routing.get("evidence", {})),
-                "token_budget": budgets.tokens,
+                "token_budget": budgets.context_tokens,
             }
             retrieved_context = adapter.retrieved_context(retrieval_input)
             exposed_context = retrieved_context.get("context", {})
@@ -1794,8 +2037,6 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if not getattr(args, "executor_command", None):
             raise ValueError("formal agent runs require --executor-command with a namespace/container executor")
         agent = _run_isolated_agent(args.agent_command, args.executor_command, env, worker_root, budgets.wall_time_s)
-        if item["context_mode"] == "carry" and worker_context_state.is_file():
-            shutil.copy2(worker_context_state, state_path)
         agent_extensions = _read_agent_extensions(worker_result_path)
         receipt, receipt_errors = _read_executor_receipt(
             receipt_path,
@@ -1840,8 +2081,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 condition=str(item["condition"]),
                 context_mode=str(item["context_mode"]),
                 seed=int(item["outer_trial_index"]),
+                trial_dir=trial_dir,
+                timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
             )
-        result = verifier.verify_task(
+            _check_verifier_budget(control_result, task_spec, budget_errors, "control verifier")
+        result = _verify_task_with_cache(
             tasks_root / task_id,
             submitted_solution_dir,
             out_path=trial_dir / "result.json",
@@ -1849,7 +2093,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             context_mode=str(item["context_mode"]),
             seed=int(item["outer_trial_index"]),
             predicted_mechanism=[str(value) for value in agent_extensions.get("predicted_mechanisms", []) if isinstance(value, str)],
+            trial_dir=trial_dir,
+            timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
         )
+        _check_verifier_budget(result, task_spec, budget_errors, "candidate verifier")
         result["seed"] = int(item["outer_trial_index"])
         result.update(agent_extensions)
         predicted = [str(value) for value in result.get("predicted_mechanisms", []) if isinstance(value, str)]
@@ -1892,14 +2139,17 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         task_id=task_id,
                         context_id=task_id,
                     )
-                    causal_result = verifier.verify_task(
+                    causal_result = _verify_task_with_cache(
                         tasks_root / task_id,
                         realized_solution,
                         out_path=trial_dir / "causal-result.json",
                         condition=str(item["condition"]),
                         context_mode=str(item["context_mode"]),
                         seed=int(item["outer_trial_index"]),
+                        trial_dir=trial_dir,
+                        timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
                     )
+                    _check_verifier_budget(causal_result, task_spec, budget_errors, "causal verifier")
                     causal_result["seed"] = int(item["outer_trial_index"])
                     verifier_digest = hashlib.sha256(json.dumps(causal_result, sort_keys=True, default=str).encode("utf-8")).hexdigest()
                     family_name = str(task_spec.get("family_id", task_spec.get("family", "runtime")))
@@ -1925,14 +2175,17 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         json.dumps(finalized.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
                     )
                     causal_scored = scoring.score_task(causal_result)
-                    heldout_result = verifier.verify_task(
+                    heldout_result = _verify_task_with_cache(
                         tasks_root / task_id,
                         realized_solution,
                         out_path=trial_dir / "heldout-result.json",
                         condition=str(item["condition"]),
                         context_mode=str(item["context_mode"]),
                         seed=int(item["outer_trial_index"]) + 1000003,
+                        trial_dir=trial_dir,
+                        timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
                     )
+                    _check_verifier_budget(heldout_result, task_spec, budget_errors, "held-out verifier")
                     heldout_scored = scoring.score_task(heldout_result)
                     heldout_control, heldout_control_scored = _verify_baseline(
                         tasks_root / task_id,
@@ -1941,7 +2194,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         condition=str(item["condition"]),
                         context_mode=str(item["context_mode"]),
                         seed=int(item["outer_trial_index"]) + 1000003,
+                        trial_dir=trial_dir,
+                        timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
                     )
+                    _check_verifier_budget(heldout_control, task_spec, budget_errors, "held-out control verifier")
                     heldout_measurement = heldout_result.get("measurement", {}) if isinstance(heldout_result.get("measurement"), dict) else {}
                     heldout_candidate_runs = list(heldout_measurement.get("candidate_runs", []))
                     heldout_baseline_runs = list(heldout_measurement.get("baseline_runs", []))
@@ -2061,7 +2317,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         "attacker_controlled_fields": [],
                     }
                 ]
-        transition = post_task_update(
+        transition = _safe_post_task_update(
+            budget_errors=budget_errors,
             condition=str(item["condition"]),
             store=store,
             task_id=task_id,
@@ -2089,10 +2346,18 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 float((task_spec.get("measurement") or {}).get("min_improvement_percent", 0.0))
             ),
             seed=int(item["outer_trial_index"]),
+            execution_validity="invalid" if budget_errors else "valid",
         )
+        if transition.get("status") == "state_mutation_error":
+            blocked_streams.add(stream_id)
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:
             budget_errors.extend(f"condition attestation failed: {error}" for error in attestation_errors)
+        # Carry state is part of the condition trajectory.  Commit it only
+        # after all protocol/budget checks and store attestation have passed;
+        # invalid trials must not advance either state source.
+        if item["context_mode"] == "carry" and not budget_errors and attestation_ok and worker_context_state.is_file():
+            shutil.copy2(worker_context_state, state_path)
         record = {
             "experiment": manifest,
             "task_id": task_id,
@@ -2110,6 +2375,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "agent_usage": usage,
             "budget_errors": budget_errors,
             "attestation_ok": attestation_ok,
+            "execution_validity": "invalid" if budget_errors else "valid",
+            "task_outcome": str(scored.get("verdict", result.get("verdict", "error"))),
+            "efficacy_eligible": bool(
+                not budget_errors
+                and attestation_ok
+                and str(scored.get("verdict", result.get("verdict", "error"))) in {"pass", "inconclusive"}
+            ),
             "validity": "invalid" if budget_errors else "valid",
             "transition": transition,
             "score": scored,
@@ -2121,7 +2393,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         getattr(args, "claim_results", False)
         and _formal_claim_gate(campaign, records, repo_root / "benchmark" / "population_report.json")
     )
-    campaign["aggregate"] = aggregate.aggregate_trials(records)
+    required_cells = [
+        (
+            str(item["task_id"]),
+            str(item["outer_trial_id"]),
+            str(item["context_mode"]),
+            str(item["condition"]),
+        )
+        for item in plan
+    ]
+    campaign["aggregate"] = aggregate.aggregate_trials(records, required_cells=required_cells)
     (out_dir / "campaign.json").write_text(json.dumps(campaign, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
     return campaign
 
@@ -2154,6 +2435,7 @@ def main() -> int:
         help="external node/pair/three-way experiment executor; receives {request_json}, {result_json}, {work_root}",
     )
     parser.add_argument("--claim-results", action="store_true", help="claim only if the formal calibration gate is passed")
+    parser.add_argument("--resume", action="store_true", help="resume an exact, digest-matched campaign from contiguous trial prefixes")
     args = parser.parse_args()
     result = run_campaign(args)
     print(json.dumps({"status": result["status"], "schedule_size": result["schedule_size"], "results_claimed": result["results_claimed"]}, ensure_ascii=False))
