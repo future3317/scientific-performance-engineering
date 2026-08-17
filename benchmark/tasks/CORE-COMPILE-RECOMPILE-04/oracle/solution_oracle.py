@@ -43,7 +43,11 @@ def _batch_at(fixtures, index):
 
 
 def train_step(model, batch, optimizer):
-    inputs, targets, mask = batch
+    if len(batch) == 3:
+        inputs, targets, mask = batch
+    else:
+        inputs, targets = batch
+        mask = torch.ones(inputs.shape[0], dtype=torch.bool)
     device = next(model.parameters()).device
     preds = model(inputs.to(device)).squeeze(-1)
     diff = preds - targets.to(device)
