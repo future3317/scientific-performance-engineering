@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -95,19 +97,41 @@ def _write_rule_store(store: Path, specs: list[RuleSpec], *, relations: list[Rel
 
 _NODE_EXECUTOR = r'''
 import json, sys
+from pathlib import Path
 request = json.loads(sys.argv[1])
 arm = sys.argv[2]
 context = request.get("context", request)
 workload = context.get("workload", context)
 positive = arm == "on" and float(workload.get("x", -1)) >= 0.0
 value = 1.1 if positive else 1.0
-print(json.dumps({"measurements": [value, value, value, value], "scientific_ok": True,
-                  "higher_is_better": True, "utility_scale": 0.5,
-                  "activation": {"status": "verified", "matched_actions": ["RULE-E2E"]}}))
+payload = {"measurements": [value, value, value, value], "scientific_ok": True,
+           "higher_is_better": True, "utility_scale": 0.5,
+           "activation": {"status": "verified", "matched_actions": ["RULE-E2E"]}}
+if Path('/worker/result').is_dir():
+    Path('/worker/solution/worker-output.json').write_text(json.dumps(payload))
+    Path('/worker/result/result.json').write_text(json.dumps(payload))
+print(json.dumps(payload))
 '''
 
 
 def _external_node(context: dict[str, object], *, arm: str) -> dict[str, object]:
+    if shutil.which("bwrap") is not None:
+        from benchmark.formal.reference_executor import ReferenceExecutor
+        with tempfile.TemporaryDirectory(prefix="acre-formal-worker-", dir=str(Path.home())) as raw_root:
+            root = Path(raw_root)
+            for name in ("task", "skill_view", "retrieved_context", "context_state", "solution", "result", "executor_receipt"):
+                (root / name).mkdir()
+            (root / "task" / "public_task.json").write_text("{}\n", encoding="utf-8")
+            receipt_path = root / "executor_receipt" / "receipt.json"
+            completed = ReferenceExecutor().execute(
+                [sys.executable, "-c", _NODE_EXECUTOR, json.dumps(context), arm], root,
+                receipt_path=receipt_path, worker_uid="formal-smoke",
+            )
+            if completed.returncode != 0:
+                raise RuntimeError(completed.stderr)
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            assert receipt["isolation_canary"] is True
+            return json.loads((root / "result" / "result.json").read_text(encoding="utf-8"))
     completed = subprocess.run(
         [sys.executable, "-c", _NODE_EXECUTOR, json.dumps(context), arm],
         check=True, capture_output=True, text=True,
