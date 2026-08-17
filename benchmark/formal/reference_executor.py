@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -27,7 +28,7 @@ class ExecutorReceipt:
     network_namespace_attested: bool = False
     mount_verified: bool = False
     isolation_canary: bool = False
-    usage: dict[str, int] | None = None
+    usage: dict[str, float | int] | None = None
     canary_checks: dict[str, bool] | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -42,7 +43,7 @@ class ExecutorReceipt:
             "mount_receipt": {"verified": self.mount_verified, "root": "/worker"},
             "isolation_canary": self.isolation_canary,
             "canary_checks": dict(self.canary_checks or {}),
-            "usage": dict(self.usage or {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0}),
+            "usage": dict(self.usage or {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "wall_time_s": 0.0}),
             "usage_meter_source": "reference-executor-observed",
             "skill_view_digest": self.skill_view_digest,
         }
@@ -210,22 +211,26 @@ print(json.dumps(checks))
             return {"python_started": False, "network_blocked": False, "readonly_enforced": False, "host_path_hidden": False, "benchmark_root_hidden": False, "nonallowlist_hidden": False, "writable_dirs": False}
         finally:
             host_sentinel.unlink(missing_ok=True)
+            for path in (worker_root / "solution" / ".canary-write", worker_root / "result" / ".canary-write"):
+                path.unlink(missing_ok=True)
 
     def execute(self, command: Sequence[str], worker_root: Path, *, receipt_path: Path, worker_uid: str = "unknown", include_skill: bool = True) -> subprocess.CompletedProcess[str]:
         """Execute the namespace command and attest only observed properties."""
         argv = self.command(command, worker_root)
+        started = time.monotonic()
         completed = subprocess.run(argv, text=True, capture_output=True, check=False)
         canary = self._run_isolation_canary(Path(worker_root)) if completed.returncode == 0 else {}
+        wall_time_s = time.monotonic() - started
         checks = {key: bool(canary.get(key, False)) for key in ("python_started", "network_blocked", "readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")}
         receipt = ExecutorReceipt(
             "external_namespace_executor", "none",
-            tuple(name for name in ("task", "skill_view", "retrieved_context", "context_state", "result", "executor_receipt") if include_skill or name != "skill_view"),
+            tuple(name for name in ("task", "solution", "skill_view", "retrieved_context", "context_state", "result", "executor_receipt") if include_skill or name != "skill_view"),
             hashlib.sha256(Path(shutil.which(self.executable)).read_bytes()).hexdigest(),
             worker_uid,
             network_namespace_attested=checks["network_blocked"],
             mount_verified=all(checks[key] for key in ("readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")),
             isolation_canary=all(checks.values()),
-            usage={"input_tokens": 0, "output_tokens": 0, "tool_calls": 0},
+            usage={"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "wall_time_s": wall_time_s},
             canary_checks=checks,
         )
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
