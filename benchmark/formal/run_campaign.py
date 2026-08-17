@@ -662,7 +662,11 @@ def _run_isolated_agent(
         skill_view=shlex.quote(env.get("SPE_SKILL_VIEW_DIR", "")),
         executor_receipt=shlex.quote(env["SPE_EXECUTOR_RECEIPT_PATH"]),
     )
-    return _run_agent(executor, env, worker_root, timeout)
+    # The namespace launcher is a host-side harness command.  Run it from the
+    # repository root so a module-based ReferenceExecutor adapter resolves
+    # without exposing that root to the worker namespace; all worker paths are
+    # still passed explicitly and mounted by the executor.
+    return _run_agent(executor, env, Path(__file__).resolve().parents[2], timeout)
 
 
 def _prepare_worker_root(
@@ -676,6 +680,8 @@ def _prepare_worker_root(
     if worker_root.exists():
         shutil.rmtree(worker_root)
     worker_root.mkdir(parents=True, exist_ok=True)
+    for name in ("retrieved_context", "context_state", "result", "executor_receipt"):
+        (worker_root / name).mkdir(parents=True, exist_ok=True)
     shutil.copytree(agent_task_dir, worker_root / "task")
     shutil.copytree(solution_dir, worker_root / "solution")
     if skill_view is not None:
@@ -1756,34 +1762,34 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             }
         retrieved_context_path.write_text(json.dumps(retrieved_context, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         worker_root = _prepare_worker_root(trial_dir, agent_task_dir, solution_dir, None if item["condition"] == "A" else skill_view)
-        worker_context_state = worker_root / "context_state.json"
+        worker_context_state = worker_root / "context_state" / "context_state.json"
         if item["context_mode"] == "carry" and state_path.is_file():
             shutil.copy2(state_path, worker_context_state)
         else:
             worker_context_state.write_text(json.dumps({"context_mode": item["context_mode"], "trajectory": []}) + "\n", encoding="utf-8")
         worker_task_dir = worker_root / "task"
         worker_solution_dir = worker_root / "solution"
-        worker_retrieved_context_path = worker_task_dir / "retrieved_context.json"
+        worker_retrieved_context_path = worker_root / "retrieved_context" / "retrieved_context.json"
         worker_retrieved_context_path.write_text(retrieved_context_path.read_text(encoding="utf-8"), encoding="utf-8")
-        worker_result_path = worker_root / "worker_result.json"
+        worker_result_path = worker_root / "result" / "worker_result.json"
         # The receipt is written by the executor outside the worker namespace;
         # placing it under worker/ would let the worker author its own trust
         # metadata.
         receipt_path = trial_dir / "executor_receipt.json"
         env = {
             "SPE_TASK_ID": task_id,
-            "SPE_TASK_DIR": str(worker_task_dir),
-            "SPE_SOLUTION_DIR": str(worker_solution_dir),
+            "SPE_TASK_DIR": "/worker/task",
+            "SPE_SOLUTION_DIR": "/worker/solution",
             "SPE_CONDITION": str(item["condition"]),
             "SPE_CONTEXT_MODE": str(item["context_mode"]),
-            "SPE_RETRIEVED_CONTEXT": str(worker_retrieved_context_path),
-            "SPE_RESULT_PATH": str(worker_result_path),
-            "SPE_AGENT_USAGE_PATH": str(worker_root / "agent_usage.json"),
+            "SPE_RETRIEVED_CONTEXT": "/worker/retrieved_context/retrieved_context.json",
+            "SPE_RESULT_PATH": "/worker/result/worker_result.json",
+            "SPE_AGENT_USAGE_PATH": "/worker/result/agent_usage.json",
             "SPE_EXECUTOR_RECEIPT_PATH": str(receipt_path),
-            "SPE_SKILL_VIEW_DIR": str(worker_root / "skill_view") if item["condition"] != "A" else "",
+            "SPE_SKILL_VIEW_DIR": "/worker/skill_view" if item["condition"] != "A" else "",
             "SPE_BUDGET_JSON": json.dumps(budgets.as_dict(), sort_keys=True),
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
-            "SPE_CONTEXT_STATE_PATH": str(worker_context_state),
+            "SPE_CONTEXT_STATE_PATH": "/worker/context_state/context_state.json",
         }
         if not getattr(args, "executor_command", None):
             raise ValueError("formal agent runs require --executor-command with a namespace/container executor")

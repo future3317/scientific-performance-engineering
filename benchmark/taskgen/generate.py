@@ -46,9 +46,16 @@ def generate_family_slots(family_id: str, *, count: int, seed: int = 0) -> list[
 
 def ast_skeleton_hash(task_dir: Path) -> str:
     """Versioned interpreter-independent AST skeleton identity."""
+    # ``type_params`` was added to function/class nodes in Python 3.12.  Keep
+    # its canonical empty-list field when an older parser omits it so hashes
+    # remain identical without changing the sealed v2 digests.  ``type_ignores``
+    # is present in both supported interpreters and remains part of v2.
+
     def normalize(node: ast.AST) -> Any:
         fields: list[Any] = [node.__class__.__name__]
+        seen_names: set[str] = set()
         for name, value in ast.iter_fields(node):
+            seen_names.add(name)
             if isinstance(value, ast.AST):
                 fields.append((name, normalize(value)))
             elif isinstance(value, list):
@@ -57,6 +64,8 @@ def ast_skeleton_hash(task_dir: Path) -> str:
                 fields.append((name, type(value).__name__ if value is not None else None))
             else:
                 fields.append((name, type(value).__name__))
+        if node.__class__.__name__ in {"FunctionDef", "AsyncFunctionDef", "ClassDef"} and "type_params" not in seen_names:
+            fields.append(("type_params", []))
         return fields
     chunks: list[str] = []
     for path in sorted((task_dir / "workspace").rglob("*.py")):

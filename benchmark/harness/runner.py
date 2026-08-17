@@ -102,6 +102,20 @@ def import_module_by_path(path: str | Path, module_name: str | None = None):
     # directory is still available for ordinary sibling imports, but only
     # after the package root.
     repo_root = Path(__file__).resolve().parents[2]
+    task_packages_root = repo_root / "benchmark" / "tasks"
+    # Task packages commonly use sibling names such as ``scientific_contract``.
+    # Remove a prior task's sibling modules before loading the next package;
+    # otherwise Python reuses the first task's module from ``sys.modules`` and
+    # a multi-task campaign can execute the wrong verifier contract.
+    for key, loaded in list(sys.modules.items()):
+        loaded_path = getattr(loaded, "__file__", None)
+        if not loaded_path:
+            continue
+        try:
+            if Path(loaded_path).resolve().is_relative_to(task_packages_root.resolve()):
+                del sys.modules[key]
+        except (OSError, ValueError):
+            continue
     added_paths: list[str] = []
     root_text = str(repo_root)
     task_text = str(path.parent)

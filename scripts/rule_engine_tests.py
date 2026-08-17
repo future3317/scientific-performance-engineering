@@ -84,6 +84,7 @@ def main() -> None:
 
     v2_event = dict(normalized)
     v2_event["evidence_stream"] = "adversarial"
+    v2_event["evidence_role"] = "adversarial"
     v2_event["query_id"] = "Q-1"
     v2_event["assignment"] = {"interventions": {"A": 1, "B": 0}, "propensity": 0.25, "design_id": "FACT-2X2-v1"}
     parsed_v2 = EvidenceEvent.from_dict(v2_event)

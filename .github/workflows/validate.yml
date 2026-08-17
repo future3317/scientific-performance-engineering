@@ -60,6 +60,32 @@ jobs:
             python -m benchmark.harness.cli validate-task "$task"
           done
 
+  executor-contract:
+    name: executor-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+      - name: Install executor smoke dependencies
+        run: python -m pip install --disable-pip-version-check --no-cache-dir -r requirements-ci.txt
+      - name: Run ReferenceExecutor attestation and real worker smoke
+        run: python -m benchmark.formal.executor_contract --out-dir artifacts/executor-contract
+      - name: Run formal lifecycle through the real executor path
+        run: python -m pytest -q benchmark/tests/test_reference_executor.py benchmark/tests/test_acre_full_lifecycle_e2e.py
+      - name: Upload executor attestation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: executor-contract
+          path: artifacts/executor-contract
+          if-no-files-found: error
+
   gpu-contract:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.gpu_validation == true }}
     runs-on: [self-hosted, linux, gpu]

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import argparse
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -30,6 +32,7 @@ class ExecutorReceipt:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "schema_version": 1,
             "mode": self.mode,
             "network_mode": self.network_mode,
             "mount_allowlist": list(self.mount_allowlist),
@@ -231,3 +234,26 @@ print(json.dumps(checks))
 
 
 __all__ = ["ExecutorReceipt", "ReferenceExecutor"]
+
+
+def main() -> int:
+    """Small CLI adapter for the existing executor used by dry-run drivers."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--worker-root", type=Path, required=True)
+    parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--command", required=True, help="worker command as one shell-style string")
+    parser.add_argument("--worker-uid", default="reference-executor")
+    args = parser.parse_args()
+    completed = ReferenceExecutor().execute(
+        shlex.split(args.command), args.worker_root,
+        receipt_path=args.receipt, worker_uid=args.worker_uid,
+    )
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    return int(completed.returncode)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
