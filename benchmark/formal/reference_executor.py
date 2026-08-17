@@ -244,9 +244,11 @@ def main() -> int:
     parser.add_argument("--command", required=True, help="worker command as one shell-style string")
     parser.add_argument("--worker-uid", default="reference-executor")
     args = parser.parse_args()
+    include_skill = (args.worker_root / "skill_view").is_dir()
     completed = ReferenceExecutor().execute(
         shlex.split(args.command), args.worker_root,
         receipt_path=args.receipt, worker_uid=args.worker_uid,
+        include_skill=include_skill,
     )
     if completed.stdout:
         print(completed.stdout, end="")
