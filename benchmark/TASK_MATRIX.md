@@ -48,7 +48,7 @@ remain public anchors; they are not duplicated into a second workload source.
 | 1 | CORE-SCALAR-SYNC-01 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **1.51×** | ✅ |
 | 2 | CORE-REPEATED-BACKBONE-02 | spe_core | repeated_compute | repeated_compute | positive | synthetic | **2.38×** | ✅ |
 | 3 | CORE-H2D-PIPELINE-03 | spe_core | data_pipeline | h2d_blocking | positive | synthetic | **4.77×** (CUDA) | ✅ |
-| 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_break | positive | synthetic | **1.16×** | ✅ |
+| 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | positive | synthetic | calibration pending | pilot |
 | 5 | SCIML-GNN-RAGGED-05 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive | fairchem-shaped | **6.23×** | ✅ |
 | 6 | SCIML-EQUIV-RECOMPUTE-06 | sciml | equivariant_head | repeated_compute | counterexample | fairchem-shaped | abstain (≈1.0×); tempting fails equivariance gate | ✅ |
 | 7 | SCIML-CRYSTAL-DIFFUSION-07 | sciml | crystal_generation | scalar_sync + launch_fragmentation | positive | cdvae-shaped | **21.3×** time-to-quality | ✅ |
@@ -69,7 +69,7 @@ measured speedup, and counterexample/do_not_apply tempting patches are rejected.
 | 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive | fairchem-shaped | population-validity pending | pilot |
 | 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample | fairchem-shaped | population-validity pending | pilot |
 | 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive | fairchem-shaped | population-validity pending | pilot |
-| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_recompile + runtime_drift | positive | synthetic | population-validity pending | pilot |
+| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_graph_break + runtime_drift | positive | synthetic | population-validity pending | pilot |
 
 ## Sequential split (pilot)
 
@@ -120,7 +120,7 @@ fixtures, model shapes, and mutation polarity.
 | training_loop_overhead | scalar_sync | 4 | `.item()` on loss/grads/metrics; logging cadence; mixed-precision sync; CPU vs CUDA prominence. |
 | repeated_compute | repeated_compute | 3 | Shared backbone, cached embeddings, repeated feature extraction; changing-input traps. |
 | data_pipeline | h2d_blocking | 3 | pin_memory/non_blocking, worker fan-out, prefetch, CPU-only inconclusive path. |
-| compiler | compile_break, launch_fragmentation | 5 | graph breaks, dynamic shapes, recompilation, pointwise fusion, custom op fallback. |
+| compiler | compile_graph_break, compile_dynamic_shapes, launch_fragmentation | 5 | graph-break repair, targeted dynamic shapes, pointwise fusion, custom-op fallback. |
 | memory_pressure | checkpoint_cadence, activation_memory | 3 | checkpoint granularity, retained graphs, OOM-edge cases. |
 | distributed | ddp_sync, process_contention | 3 | all_reduce timing, gradient bucketing, host thread contention (simulated or DDP when available). |
 | autograd | autograd_overhead, unbatched_vjp | 3 | repeated backward, per-sample VJP, higher-order overhead. |
@@ -138,7 +138,7 @@ fixtures, model shapes, and mutation polarity.
 
 | Episode | New mechanism emphasis | # phases | New stresses |
 |---------|------------------------|----------|--------------|
-| Compiler-drift | compile_break + torch version drift | 6 | Old `torch.compile` flags become invalid after version bump. |
+| Compiler-drift | compile_graph_break + torch version drift | 6 | Old graph-break repairs become invalid after version bump. |
 | Multi-property GNN | rule specialization by property head | 6 | A rule valid for energy fails for forces; specialization required. |
 | Curriculum scaling | repeated_compute → distributed | 6 | Rules must retire as workload scale changes. |
 | Adversarial poisoning | misleading experience + conflicting rules | 6 | Two plausible rules conflict; governance must reject one. |

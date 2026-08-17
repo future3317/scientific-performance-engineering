@@ -1,5 +1,5 @@
 {
   "mechanism": "compile_dynamic_shapes",
   "location": "solution.py:build_model",
-  "why": "The tensor-only forward is graphable, but dynamic=False specializes the eight registered batch shapes. The oracle keeps the variable-shape workload and enables dynamic shape handling rather than changing the graph-break mechanism."
+  "why": "The tensor-only forward is graphable, but dynamic=False specializes the registered batch shapes. The oracle keeps the variable-shape workload and annotates only the varying batch dimension before compilation rather than changing the graph-break mechanism."
 }

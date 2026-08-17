@@ -9,10 +9,13 @@ _API = configure(
     {
         "num_samples": 128,
         "in_dim": 16,
-        "hidden_dim": 32,
-        "num_blocks": 1,
+        "logical_steps": 8,
+        "measurement_iterations": 8,
+        "graph_size": 64,
         "batch_sizes": [8, 12],
+        "dynamic_shape_rate": 0.8,
         "compile_threads": 2,
+        "primary_scope": "full_schedule",
     },
 )
 globals().update(_API)

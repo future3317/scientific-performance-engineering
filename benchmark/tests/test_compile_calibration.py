@@ -9,6 +9,7 @@ import tempfile
 import pytest
 
 from benchmark.families.activation import classify_activation
+from benchmark.families.catalog import FAMILY_SPECS
 
 
 def _load_compile_benchmark(task_id: str):
@@ -100,3 +101,54 @@ def test_recompile_activation_requires_graph_break_contrast():
     )
     assert result["status"] == "passed"
     assert result["matched_actions"] == ["remove_compile_graph_break"]
+
+
+def test_compile_anchors_have_mechanism_pure_oracles_and_frozen_horizons():
+    task_root = Path(__file__).parents[1] / "tasks"
+    expected = {
+        "CORE-COMPILE-RECOMPILE-04": ("compile_graph_break", 128, 5),
+        "CORE-COMPILE-DYNAMIC-11": ("compile_dynamic_shapes", 256, 5),
+        "CORE-COMPILE-TINY-12": ("compile_tiny_graphs", 8, 3),
+    }
+    for task_id, (mechanism, horizon, repetitions) in expected.items():
+        task_dir = task_root / task_id
+        task_text = (task_dir / "task.yaml").read_text(encoding="utf-8")
+        oracle_text = (task_dir / "oracle" / "solution_oracle.py").read_text(encoding="utf-8")
+        assert f"mechanism: {mechanism}" in task_text
+        assert f"logical_steps: {horizon}" in task_text
+        assert f"measured_iterations: {horizon}" in task_text
+        assert f"repetitions: {repetitions}" in task_text
+        assert "primary_metric: schedule_wall_ms" in task_text
+        if task_id == "CORE-COMPILE-RECOMPILE-04":
+            assert "padded_inputs" not in oracle_text
+            assert "mask =" not in oracle_text
+            assert "dynamic=True" not in oracle_text
+        if task_id == "CORE-COMPILE-DYNAMIC-11":
+            assert "mark_dynamic" in oracle_text
+            assert "dynamic=True" not in oracle_text
+
+
+def test_compile_profile_projects_graph_size_and_horizon():
+    for task_id in (
+        "CORE-COMPILE-RECOMPILE-04",
+        "CORE-COMPILE-DYNAMIC-11",
+        "CORE-COMPILE-TINY-12",
+    ):
+        module, _ = _load_compile_benchmark(task_id)
+        fixtures = module.make_fixtures(0)
+        profile = fixtures["compile_profile"]
+        assert profile["logical_steps"] == profile["measurement_iterations"]
+        assert profile["graph_size"] == profile["model_config"]["hidden_dim"] * (profile["model_config"]["num_blocks"] + 1)
+        assert profile["primary_scope"] == "full_schedule"
+
+
+def test_compile_actions_use_mechanism_specific_applicability():
+    family = FAMILY_SPECS["compile"]
+    recompile = {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.0}
+    dynamic = {"logical_steps": 256, "graph_size": 128, "dynamic_shape_rate": 0.3}
+    tiny = {"logical_steps": 8, "graph_size": 64, "dynamic_shape_rate": 0.8}
+    assert family.action_applicable("remove_compile_graph_break", recompile)
+    assert not family.action_applicable("stabilize_dynamic_guards", recompile)
+    assert family.action_applicable("stabilize_dynamic_guards", dynamic)
+    assert not family.action_applicable("remove_compile_graph_break", dynamic)
+    assert family.action_applicable("bypass_compile", tiny)

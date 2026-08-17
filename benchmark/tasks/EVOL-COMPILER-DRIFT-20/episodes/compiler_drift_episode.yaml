@@ -99,7 +99,7 @@ phases:
           type: specialization
           text: Revalidate compile-cache assumptions after runtime drift; dynamic guards may require a new specialization.
         scope:
-          requires: [compile_recompile, runtime_drift]
+          requires: [compile_graph_break, runtime_drift]
           excludes: [runtime_unchanged]
         collector_confidence: high
         artifacts: {}
@@ -116,7 +116,7 @@ phases:
         status: inbox
         created_at: "2026-08-15T00:00:00Z"
         capture_reasons: [stale_runtime_assumption]
-        symptom: [compile_recompile_is_slow]
+        symptom: [compile_graph_break_is_slow]
         workload:
           framework: pytorch
           domain: compiler
@@ -132,7 +132,7 @@ phases:
           type: rule
           text: Always reuse a compile cache after runtime drift, even when guards changed.
         scope:
-          requires: [compile_recompile]
+          requires: [compile_graph_break]
           excludes: [runtime_drift]
         collector_confidence: high
         artifacts: {}

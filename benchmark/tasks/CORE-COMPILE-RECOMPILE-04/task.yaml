@@ -2,13 +2,13 @@ schema_version: 1
 task_id: CORE-COMPILE-RECOMPILE-04
 track: spe_core
 family: compiler
-mechanism: compile_recompile
+mechanism: compile_graph_break
 kind: positive
 lineage:
   source: synthetic
   mutation_template_id: MT-COMPILE-RECOMPILE-V1
   mutation_seed: 1908234210
-title: "torch.compile graph break with compile-inclusive shape schedule"
+title: "torch.compile graph break with fixed-shape compile-inclusive schedule"
 requires_cuda: false
 time_budget_s: 300
 workspace:
@@ -18,12 +18,14 @@ measurement:
   primary_metric: schedule_wall_ms
   higher_is_better: false
   warmup_iterations: 0
-  measured_iterations: 64
-  repetitions: 2
+  measured_iterations: 128
+  repetitions: 5
   compile_threads: 2
   min_improvement_percent: 5.0
   noise_floor_percent: 2.0
   speedup_tripwire: 20.0
+  horizon_candidates: [64, 128, 256, 512, 1024]
+  horizon_selection: minimum_paired_positive_ci
 correctness:
   num_fresh_inputs: 3
   reference: fp64_recompute
@@ -33,7 +35,7 @@ correctness:
 scientific_gates: [finite_loss]
 diagnosis:
   enabled: true
-  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_recompile, memory_pressure, launch_fragmentation]
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_graph_break, memory_pressure, launch_fragmentation]
 oracle:
   expected_speedup_range: [1.15, 1.5]
 generator_family_id: GEN-COMPILER
@@ -46,11 +48,11 @@ anchor_instance_id: CORE-COMPILE-RECOMPILE-04
 family_parameters:
   logical_steps: 128
   graph_size: 64
-  dynamic_shape_rate: 0.2
-family_instance_digest: "4e92590f861726a41b0ec393f1902d9994c46669682238caf8aa03784f416f15"
+  dynamic_shape_rate: 0.0
+family_instance_digest: "4d466dec833cd044305d80dde74e361ab9bfa1fe929012427b8d8ef9513e618d"
 public_context:
   workload:
     logical_steps: 128
     graph_size: 64
-    dynamic_shape_rate: 0.2
+    dynamic_shape_rate: 0.0
 ast_skeleton_version: 2

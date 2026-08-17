@@ -231,7 +231,7 @@ correctness:
 scientific_gates: []                # gate names implemented in scientific_contract.py
 diagnosis:
   enabled: true                     # agent must name the mechanism before/without seeing oracle
-  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_recompile, ...]
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_graph_break, ...]
 oracle:
   expected_speedup_range: [1.2, 6.0]  # calibration range from reference patch
 ```
@@ -249,7 +249,7 @@ generate both positive and counterexample instances). The catalog (v1):
 | `launch_fragmentation` | split fusible pointwise chain into many tiny kernels | fusion/compile slower for tiny tensors (fixed overhead) |
 | `repeated_compute` | recompute shared backbone/features per head/step | caching invalid under changing inputs (semantic trap) |
 | `graph_rebuild` | rebuild radius graph / neighbor list every step though structure fixed | rebuild required when positions actually change (do-not-apply for MD) |
-| `compile_break` | `.item()`-dependent control flow, dynamic shapes → recompiles | compile harmful for short-lived/small models (do-not-apply) |
+| `compile_graph_break` | `.item()`-dependent control flow inside a compiled region | graph-break repair is distinct from dynamic-shape handling |
 | `autograd_overhead` | per-sample VJP loop instead of batched backward; redundant `backward()` calls | — |
 | `checkpoint_cadence` | checkpoint+validation every step; blocking saves | — |
 | `memory_pressure` | needless fp64 intermediates, retained graphs, no checkpointing | activation checkpointing slower when memory is ample (do-not-apply) |
@@ -559,7 +559,7 @@ runnable with zero external downloads; CPU-capable unless noted:
 | 1 | CORE-SCALAR-SYNC-01 | spe_core | training_loop_overhead | scalar_sync | positive |
 | 2 | CORE-REPEATED-BACKBONE-02 | spe_core | repeated_compute | repeated_compute | positive (+ semantic-trap counterexample variant in-task) |
 | 3 | CORE-H2D-PIPELINE-03 | spe_core | data_pipeline | h2d_blocking | positive; requires_cuda (degrades to inconclusive on CPU) |
-| 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_break | positive; requires_cuda optional |
+| 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | positive; requires_cuda optional |
 | 5 | SCIML-GNN-RAGGED-05 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive |
 | 6 | SCIML-EQUIV-RECOMPUTE-06 | sciml | equivariant_head | repeated_compute | counterexample (caching-equivariant-basis vs changing positions) |
 | 7 | SCIML-CRYSTAL-DIFFUSION-07 | sciml | crystal_generation | scalar_sync + launch_fragmentation | positive, time-to-quality |
@@ -575,7 +575,7 @@ runnable with zero external downloads; CPU-capable unless noted:
 | 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive |
 | 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample |
 | 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive |
-| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_recompile + runtime_drift | positive |
+| 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_graph_break + runtime_drift | positive |
 
 Each atomic task ships with baseline/oracle validation metadata, fresh-input
 verification, an anti-cheat probe, a deterministic fixture, a declared noise

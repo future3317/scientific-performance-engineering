@@ -15,7 +15,7 @@ workspace:
   entrypoint: solution.py
   api: train_loop_v1
 measurement:
-  primary_metric: cold_shape_schedule_ms
+  primary_metric: schedule_wall_ms
   higher_is_better: false
   warmup_iterations: 0
   measured_iterations: 8
@@ -33,7 +33,7 @@ correctness:
 scientific_gates: [finite_loss]
 diagnosis:
   enabled: true
-  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_tiny_graphs, compile_recompile, memory_pressure, launch_fragmentation]
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_tiny_graphs, compile_graph_break, memory_pressure, launch_fragmentation]
 oracle:
   expected_speedup_range: [0.9, 1.1]
 generator_family_id: GEN-COMPILER-TINY
@@ -44,13 +44,13 @@ workspace_ast_skeleton_hash: "110d8d7005e659a69c576ab4b5c0d41b35cbc3ff2424ba56fa
 family_id: compile
 anchor_instance_id: CORE-COMPILE-TINY-12
 family_parameters:
-  logical_steps: 64
+  logical_steps: 8
   graph_size: 64
   dynamic_shape_rate: 0.8
-family_instance_digest: d38bc66b6b1d84d44e3e7b1282a6dcd5036dd62dc6838b8cbed45addeead4ec1
+family_instance_digest: eb93db049b7dfbfdaef6de7ba1da9472e397981aef9a0f7aecc95de922f09257
 public_context:
   workload:
-    logical_steps: 64
+    logical_steps: 8
     graph_size: 64
     dynamic_shape_rate: 0.8
 ast_skeleton_version: 2

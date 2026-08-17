@@ -106,6 +106,45 @@ def _isolated_validate_task(task_dir: Path) -> list[str]:
     return [output or "isolated validate-task failed"]
 
 
+def _compile_projection_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
+    """Check that compile task metadata reaches the executable benchmark."""
+    if str(spec.get("task_id")) not in {
+        "CORE-COMPILE-RECOMPILE-04",
+        "CORE-COMPILE-DYNAMIC-11",
+        "CORE-COMPILE-TINY-12",
+    }:
+        return []
+    errors: list[str] = []
+    params = spec.get("family_parameters", {})
+    measurement = spec.get("measurement", {})
+    if int(measurement.get("measured_iterations", -1)) != int(params.get("logical_steps", -2)):
+        errors.append(f"{task_dir.name}: measured_iterations must equal family logical_steps")
+    if str(measurement.get("primary_metric")) != "schedule_wall_ms":
+        errors.append(f"{task_dir.name}: compile primary metric must be schedule_wall_ms")
+    if str(spec.get("kind")) == "positive" and int(measurement.get("repetitions", 0)) < 5:
+        errors.append(f"{task_dir.name}: positive compile anchor requires at least five repetitions")
+    try:
+        import importlib.util
+        module_spec = importlib.util.spec_from_file_location(f"compile_profile_{task_dir.name}", task_dir / "benchmark.py")
+        if module_spec is None or module_spec.loader is None:
+            raise ImportError("benchmark module unavailable")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        profile = dict(getattr(module, "compile_profile"))
+        fixtures = module.make_fixtures(0)
+        projected = fixtures["model_config"]
+        if int(profile.get("logical_steps", -1)) != int(params.get("logical_steps", -2)):
+            errors.append(f"{task_dir.name}: benchmark logical_steps projection disagrees with FamilySpec")
+        if int(profile.get("graph_size", -1)) != int(params.get("graph_size", -2)):
+            errors.append(f"{task_dir.name}: benchmark graph_size projection disagrees with FamilySpec")
+        expected_graph_size = int(projected["hidden_dim"]) * (int(projected["num_blocks"]) + 1)
+        if expected_graph_size != int(params.get("graph_size", -2)):
+            errors.append(f"{task_dir.name}: executable model graph size does not equal declared graph_size")
+    except Exception as exc:
+        errors.append(f"{task_dir.name}: compile executable projection unavailable: {exc}")
+    return errors
+
+
 def _empirical_flags(
     specs: list[dict[str, Any]], empirical_path: Path | None, duplicate_findings: list[dict[str, Any]],
 ) -> tuple[dict[str, list[str]], dict[str, Any]]:
@@ -223,6 +262,7 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         spec["_task_dir"] = task_dir
         specs.append(spec)
         errors.extend(_metadata_findings(task_dir, spec))
+        errors.extend(_compile_projection_findings(task_dir, spec))
         public_context = spec.get("public_context")
         if not isinstance(public_context, dict) or not isinstance(public_context.get("workload"), dict) or not public_context.get("workload"):
             errors.append(f"{task_dir.name}: missing explicit public routing context")

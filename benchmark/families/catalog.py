@@ -437,7 +437,27 @@ def _compile_applicability(parameters: Mapping[str, Any]) -> bool:
 
 def _compile_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
     applicable = _compile_applicability(parameters)
-    return {"applicable": applicable, "boundary": {"logical_steps": 128, "dynamic_shape_rate": 0.4}}
+    logical_steps = int(parameters["logical_steps"])
+    dynamic_rate = float(parameters["dynamic_shape_rate"])
+    graph_size = int(parameters.get("graph_size", 0))
+    if graph_size >= 320:
+        mechanism = "kernel_fusion"
+        preferred_action = "fuse_pointwise_chain"
+    elif logical_steps < 128:
+        mechanism = "compile_tiny_graphs"
+        preferred_action = "bypass_compile"
+    elif dynamic_rate > 0.0:
+        mechanism = "compile_dynamic_shapes"
+        preferred_action = "stabilize_dynamic_guards"
+    else:
+        mechanism = "compile_graph_break"
+        preferred_action = "remove_compile_graph_break"
+    return {
+        "applicable": applicable,
+        "mechanism": mechanism,
+        "preferred_action": preferred_action,
+        "boundary": {"logical_steps": 128, "dynamic_shape_rate": 0.4},
+    }
 
 
 def _graph_applicability(parameters: Mapping[str, Any]) -> bool:
@@ -491,9 +511,9 @@ _SPECS: tuple[FamilySpec, ...] = (
 # but never define an anchor's applicability.
 _EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
-        "CORE-COMPILE-RECOMPILE-04": {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.2},
+        "CORE-COMPILE-RECOMPILE-04": {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.0},
         "CORE-COMPILE-DYNAMIC-11": {"logical_steps": 256, "graph_size": 128, "dynamic_shape_rate": 0.3},
-        "CORE-COMPILE-TINY-12": {"logical_steps": 64, "graph_size": 64, "dynamic_shape_rate": 0.8},
+        "CORE-COMPILE-TINY-12": {"logical_steps": 8, "graph_size": 64, "dynamic_shape_rate": 0.8},
         "CORE-KERNEL-FUSION-09": {"logical_steps": 192, "graph_size": 320, "dynamic_shape_rate": 0.2},
     },
     "graph_cache": {
@@ -525,6 +545,9 @@ _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
         {"path": "workload.logical_steps", "type": "numeric"},
         {"path": "workload.dynamic_shape_rate", "type": "numeric"},
         {"path": "workload.graph_size", "type": "numeric"},
+        {"path": "workload.evidence.graph_break_count", "type": "numeric"},
+        {"path": "workload.evidence.recompile_count", "type": "numeric"},
+        {"path": "workload.evidence.compile_worthiness", "type": "categorical"},
     ),
     "graph_cache": (
         {"path": "workload.geometry_displacement", "type": "numeric"},
@@ -616,8 +639,9 @@ _ACTION_POLICY_GATES: dict[str, tuple[str, ...]] = {
 _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
         "reuse_compile_cache": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
-        "stabilize_dynamic_guards": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_dynamic_guard_stability", "realization_interface": "source_patch"},
-        "remove_compile_graph_break": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_graph_break_removed", "realization_interface": "source_patch"},
+        "stabilize_dynamic_guards": {"family": "compile", "mechanism": "compile_dynamic_shapes", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"any": [{"compare": {"workload.evidence.recompile_count": {"gt": 0}}}, {"compare": {"workload.dynamic_shape_rate": {"gt": 0.0}}}]}]}, "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_dynamic_guard_stability", "realization_interface": "source_patch"},
+        "remove_compile_graph_break": {"family": "compile", "mechanism": "compile_graph_break", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"any": [{"compare": {"workload.evidence.graph_break_count": {"gt": 0}}}, {"equals": {"workload.dynamic_shape_rate": 0.0}}]}]}, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_graph_break_removed", "realization_interface": "source_patch"},
+        "bypass_compile": {"family": "compile", "mechanism": "compile_tiny_graphs", "applicability": {"any": [{"equals": {"workload.evidence.compile_worthiness": False}}, {"compare": {"workload.logical_steps": {"lt": 128}}}]}, "effect": 0.60, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "", "realization_interface": "source_patch"},
         "fuse_pointwise_chain": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-FUSION", "activation_validator": "kernel_fusion_operator_trace", "realization_interface": "source_patch"},
         "revalidate_compile_cache": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
     },

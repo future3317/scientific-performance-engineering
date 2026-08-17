@@ -1,5 +1,5 @@
 {
-  "mechanism": "compile_recompile",
+  "mechanism": "compile_graph_break",
   "location": "solution.py:train_step and build_model",
-  "why": "The .item()-dependent branch creates a graph break and dynamic=False specializes each first-seen batch shape. The schedule_wall_ms metric includes the registered shape schedule from its first encounter, so the measured estimand contains the recompilation cost."
+  "why": "The .item()-dependent branch creates a graph break inside the compiled region. The baseline and oracle use the same fixed shape, model, optimizer, schedule, and dynamic=False mode; schedule_wall_ms therefore isolates graph-break repair while including the first compilation."
 }

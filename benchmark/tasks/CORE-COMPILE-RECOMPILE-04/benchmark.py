@@ -9,9 +9,12 @@ _API = configure(
     {
         "num_samples": 128,
         "in_dim": 16,
-        "hidden_dim": 32,
-        "num_blocks": 1,
-        "batch_sizes": [8, 10, 12, 14, 16, 18, 20, 22],
+        "logical_steps": 128,
+        "measurement_iterations": 128,
+        "graph_size": 64,
+        # Recompile isolates graph-break cost: every step has the same shape.
+        "batch_sizes": [16],
+        "dynamic_shape_rate": 0.0,
         "compile_threads": 2,
         "primary_scope": "full_schedule",
     },

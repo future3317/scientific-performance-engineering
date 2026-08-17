@@ -19,7 +19,7 @@
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "hard",
-  "authoring_note": "This is a counterexample: a one-block, short-lived eager workload where compile startup is expected to dominate. The baseline remains eager; the tempting oracle intervention compiles the same variable-shape graph and should be rejected as not worthwhile.",
+  "authoring_note": "This is a counterexample: a one-block, eight-step eager workload where compile startup is expected to dominate. The baseline remains eager; the tempting intervention compiles the same short schedule and should be rejected as not worthwhile.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "compile",

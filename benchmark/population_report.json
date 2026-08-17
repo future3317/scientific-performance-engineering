@@ -11,7 +11,7 @@
     "batched_vjp": 1,
     "checkpoint_ample_memory": 1,
     "compile_dynamic_shapes": 1,
-    "compile_recompile": 1,
+    "compile_graph_break": 1,
     "compile_tiny_graphs": 1,
     "dataloader_worker_fanout": 1,
     "h2d_blocking": 1,
@@ -19,7 +19,7 @@
     "retained_graph": 1,
     "repeated_compute": 2,
     "scalar_sync": 1,
-    "['compile_recompile', 'runtime_drift']": 1,
+    "['compile_graph_break', 'runtime_drift']": 1,
     "['scalar_sync', 'h2d_blocking', 'repeated_compute', 'launch_fragmentation', 'graph_rebuild']": 1,
     "['scalar_sync', 'launch_fragmentation']": 1,
     "force_autograd": 1,
@@ -228,14 +228,14 @@
     {
       "task_id": "CORE-COMPILE-DYNAMIC-11",
       "time_budget_s": 300,
-      "measured_iterations": 64,
-      "repetitions": 2
+      "measured_iterations": 256,
+      "repetitions": 5
     },
     {
       "task_id": "CORE-COMPILE-RECOMPILE-04",
       "time_budget_s": 300,
-      "measured_iterations": 64,
-      "repetitions": 2
+      "measured_iterations": 128,
+      "repetitions": 5
     },
     {
       "task_id": "CORE-COMPILE-TINY-12",
@@ -377,12 +377,12 @@
       "workload": {
         "logical_steps": 128,
         "graph_size": 64,
-        "dynamic_shape_rate": 0.2
+        "dynamic_shape_rate": 0.0
       }
     },
     "CORE-COMPILE-TINY-12": {
       "workload": {
-        "logical_steps": 64,
+        "logical_steps": 8,
         "graph_size": 64,
         "dynamic_shape_rate": 0.8
       }

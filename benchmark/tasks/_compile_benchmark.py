@@ -1,9 +1,9 @@
 """Shared harness for the three compile-family calibration anchors.
 
-The anchors deliberately share measurement plumbing but not workload semantics:
-recompile measures graph-break plus cold shape specialization, dynamic measures
-shape specialization with a tensor-only graph, and tiny measures whether a
-short-lived workload should be compiled at all.
+The anchors share measurement plumbing but keep mechanism semantics separate:
+graph-break repair uses a fixed-shape schedule, dynamic-shape repair uses a
+tensor-only variable-shape schedule, and tiny measures whether a short-lived
+workload should be compiled at all.
 """
 
 from __future__ import annotations
@@ -115,10 +115,15 @@ def _observed_compile_threads() -> int | None:
 def _make_fixtures(seed: int, device: str, profile: dict[str, Any]) -> dict[str, Any]:
     rng = torch.Generator().manual_seed(seed)
     data_config = {"num_samples": int(profile["num_samples"]), "in_dim": int(profile["in_dim"])}
+    graph_size = int(profile["graph_size"])
+    hidden_dim = int(profile.get("hidden_dim", 32 if graph_size <= 128 else 64))
+    num_blocks = int(profile.get("num_blocks", graph_size // hidden_dim - 1))
+    if hidden_dim * (num_blocks + 1) != graph_size:
+        raise ValueError("compile graph_size must equal hidden_dim * (num_blocks + 1)")
     model_config = {
         "in_dim": data_config["in_dim"],
-        "hidden_dim": int(profile["hidden_dim"]),
-        "num_blocks": int(profile["num_blocks"]),
+        "hidden_dim": hidden_dim,
+        "num_blocks": num_blocks,
     }
     batch_sizes = list(profile["batch_sizes"])
     inputs = torch.randn(
@@ -136,6 +141,16 @@ def _make_fixtures(seed: int, device: str, profile: dict[str, Any]) -> dict[str,
     with torch.no_grad():
         for parameter in init_model.parameters():
             parameter.normal_(0.0, 0.01, generator=rng)
+    compile_profile = dict(profile)
+    compile_profile.update(
+        {
+            "logical_steps": int(profile["logical_steps"]),
+            "measurement_iterations": int(profile["measurement_iterations"]),
+            "graph_size": graph_size,
+            "model_config": dict(model_config),
+            "primary_scope": str(profile.get("primary_scope", "full_schedule")),
+        }
+    )
     return {
         "device": device,
         "data_config": data_config,
@@ -146,7 +161,7 @@ def _make_fixtures(seed: int, device: str, profile: dict[str, Any]) -> dict[str,
         "targets": targets,
         "init_state": init_model.state_dict(),
         "eval_inputs": torch.randn(128, data_config["in_dim"], generator=rng, dtype=torch.float32),
-        "compile_profile": dict(profile),
+        "compile_profile": compile_profile,
     }
 
 
@@ -196,6 +211,14 @@ def _run_performance(
         peak_rss_mb = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / (1024.0 if sys.platform != "darwin" else 1024.0 * 1024.0)
     except Exception:
         pass
+    dynamo = _dynamo_diagnostics()
+    counters = dynamo.get("counters", {}) if isinstance(dynamo, dict) else {}
+    frames = counters.get("frames", {}) if isinstance(counters, dict) else {}
+    stats = counters.get("stats", {}) if isinstance(counters, dict) else {}
+    unimplemented = counters.get("unimplemented", {}) if isinstance(counters, dict) else {}
+    graph_break_count = sum(int(value) for value in unimplemented.values()) if isinstance(unimplemented, dict) else 0
+    unique_graphs = int(stats.get("unique_graphs", 0)) if isinstance(stats, dict) else 0
+    compile_count = int(frames.get("total", 0)) if isinstance(frames, dict) else 0
     return {
         # The primary estimand includes the first encounter with every
         # preregistered shape; the post-cycle median remains diagnostic only.
@@ -210,13 +233,18 @@ def _run_performance(
             "shape_schedule": list(fixtures["batch_sizes"]),
             "requested_compile_threads": int(profile["compile_threads"]),
             "observed_compile_threads": _observed_compile_threads(),
+            "graph_break_count": graph_break_count,
+            "recompile_count": max(0, unique_graphs - 1),
+            "unique_graphs": unique_graphs,
+            "compile_count": compile_count,
+            "compile_time": dynamo.get("compile_times") if isinstance(dynamo, dict) else None,
             "compile_cache": {
                 "inductor": os.environ.get("TORCHINDUCTOR_CACHE_DIR"),
                 "triton": os.environ.get("TRITON_CACHE_DIR"),
             },
             "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "peak_rss_mb": peak_rss_mb,
-            "dynamo": _dynamo_diagnostics(),
+            "dynamo": dynamo,
         },
     }
 
@@ -295,6 +323,10 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
                 "graph_break_count": sum(int(value) for value in unimplemented.values()),
                 "compile_count": int(frames.get("total", 0)),
                 "unique_graphs": int(stats.get("unique_graphs", 0)),
+                # Dynamo does not expose a stable cross-version named
+                # ``recompile_count`` counter.  For one loaded compiled
+                # function, every graph after the first is a recompilation.
+                "recompile_count": max(0, int(stats.get("unique_graphs", 0)) - 1),
                 "compile_threads": timing.get("observed_compile_threads"),
                 "compile_cache": timing.get("compile_cache"),
                 "dynamo": dynamo,
@@ -305,6 +337,8 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
         candidate_metrics["dynamic_guard_stable"] = (
             candidate_metrics["unique_graphs"] > 0
             and candidate_metrics["unique_graphs"] < baseline_metrics["unique_graphs"]
+            and candidate_metrics["recompile_count"] < baseline_metrics["recompile_count"]
+            and candidate_metrics["graph_break_count"] <= baseline_metrics["graph_break_count"]
         )
         return {
             "candidate_metrics": candidate_metrics,
@@ -315,6 +349,7 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
         return _run_performance(solution, fixtures, warmup, iterations, device)
 
     return {
+        "compile_profile": dict(profile),
         "load_solution": load_solution,
         "make_fixtures": make_fixtures,
         "run_correctness": run_correctness,

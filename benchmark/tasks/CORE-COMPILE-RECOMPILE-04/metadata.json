@@ -1,9 +1,9 @@
 {
   "task_id": "CORE-COMPILE-RECOMPILE-04",
-  "title": "torch.compile graph break with compile-inclusive shape schedule",
+  "title": "torch.compile graph break with fixed-shape compile-inclusive schedule",
   "track": "spe_core",
   "family": "compiler",
-  "mechanism": "compile_recompile",
+  "mechanism": "compile_graph_break",
   "kind": "positive",
   "lineage": {
     "source": "synthetic",
@@ -12,14 +12,14 @@
   },
   "split_group": {
     "family": "compiler",
-    "mechanism": "compile_recompile",
+    "mechanism": "compile_graph_break",
     "source": "synthetic",
     "mutation_template_id": "MT-COMPILE-RECOMPILE-V1"
   },
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "medium",
-  "authoring_note": "This anchor measures graph-break overhead and first-encounter shape specialization on a one-block, eight-shape schedule. The baseline has an .item()-dependent graph break with dynamic=False; the oracle removes the break and buckets the registered shapes into one fixed graph. The primary metric is the end-to-end registered schedule, including first compilation.",
+  "authoring_note": "This anchor isolates graph-break overhead on a fixed-shape, compile-inclusive schedule. The baseline has an .item()-dependent graph break with dynamic=False; the oracle removes only that break and keeps the same model, optimizer, shape, and schedule. The primary metric includes the first compilation.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "compile",

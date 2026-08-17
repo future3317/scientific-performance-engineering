@@ -2,7 +2,7 @@ schema_version: 1
 task_id: EVOL-COMPILER-DRIFT-20
 track: evolution
 family: episode
-mechanism: [compile_recompile, runtime_drift]
+mechanism: [compile_graph_break, runtime_drift]
 kind: positive
 lineage:
   source: synthetic

@@ -101,16 +101,25 @@ population report. The approval records digests of the population and empirical
 calibration artifacts plus the governing review policy; a writable report alone
 cannot open the claim gate.
 
-The three compile anchors are intentionally non-interchangeable. `compile_recompile`
-measures a graph-break plus cold shape-specialization schedule, `compile_dynamic_shapes`
-keeps a tensor-only variable-shape workload and tests dynamic-shape handling, and
-`compile_tiny_graphs` is a short-lived counterexample where compile startup should
-be rejected. The first two use an end-to-end `schedule_wall_ms` primary metric that
-includes first compilation and subsequent registered-shape work; the tiny anchor
-uses `cold_shape_schedule_ms` so its non-amortized startup cost remains visible.
-First encounters are never hidden in warmup, while steady-state latency is retained
-as a diagnostic. The compile-family contract fixes `TORCHINDUCTOR_COMPILE_THREADS=2`
-for A/B/C/D and records it in the calibration environment manifest.
+The three compile anchors are intentionally non-interchangeable. `compile_graph_break`
+isolates a graph break on a fixed-shape schedule, `compile_dynamic_shapes` keeps a
+tensor-only variable-shape workload and uses targeted `torch._dynamo.mark_dynamic`
+annotation, and `compile_tiny_graphs` is an eight-step counterexample where compile
+startup should be rejected. All three use end-to-end `schedule_wall_ms`, including
+the required cold compilation; steady-state latency, graph-break count, recompile
+count, unique graphs, compile count, and compile time remain diagnostics. The
+compile-family contract fixes `TORCHINDUCTOR_COMPILE_THREADS=2` for A/B/C/D and
+records it in the calibration environment manifest. Family `logical_steps`, public
+context, and measured schedule horizon are validated to be identical, and
+`graph_size = hidden_dim * (num_blocks + 1)` is the executable projection.
+An optional `scripts/run_compile_transfer_check.py` probes one installed
+TorchBench model as calibration-only evidence; missing TorchBench is reported
+as blocked and never substituted with a synthetic workload or formal evidence.
+Recompile horizon selection is preregistered over 64/128/256/512/1024 steps;
+the checked-in 128-step anchor remains provisional until the paired CI and time
+budget gates are observed on the calibration host. Dynamic-mode comparisons are
+automatic, targeted annotation, and global diagnostic mode; only targeted is
+eligible as the canonical oracle.
 
 ## Layout
 

@@ -18,8 +18,8 @@ measurement:
   primary_metric: schedule_wall_ms
   higher_is_better: false
   warmup_iterations: 0
-  measured_iterations: 64
-  repetitions: 2
+  measured_iterations: 256
+  repetitions: 5
   compile_threads: 2
   min_improvement_percent: 5.0
   noise_floor_percent: 2.0
@@ -33,9 +33,12 @@ correctness:
 scientific_gates: [finite_loss]
 diagnosis:
   enabled: true
-  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_dynamic_shapes, compile_recompile, memory_pressure, launch_fragmentation]
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_dynamic_shapes, compile_graph_break, memory_pressure, launch_fragmentation]
 oracle:
   expected_speedup_range: [1.15, 1.5]
+calibration:
+  dynamic_modes: [automatic, targeted, global_diagnostic]
+  canonical_mode: targeted
 generator_family_id: GEN-COMPILER-DYNAMIC
 oracle_fix_pattern_id: FIX-COMPILE-DYNAMIC-SPECIALIZE
 scientific_contract_id: CONTRACT-COMPILER-CACHE

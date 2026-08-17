@@ -1,4 +1,4 @@
-"""Oracle: use one tensor-only dynamic-shape graph for the shape schedule."""
+"""Oracle: annotate the varying batch dimension before compilation."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ class TinyResMLP(nn.Module):
         self.blocks = nn.ModuleList(nn.Linear(hidden_dim, hidden_dim) for _ in range(num_blocks))
         self.fc2 = nn.Linear(hidden_dim, 1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = F.relu(self.fc1(x))
         for lin in self.blocks:
             h = h + F.relu(lin(h))
@@ -25,7 +25,8 @@ def build_model(fixtures):
     config = fixtures["model_config"]
     model = TinyResMLP(config["in_dim"], config["hidden_dim"], int(config.get("num_blocks", 4)))
     model.load_state_dict(fixtures["init_state"])
-    return torch.compile(model.to(fixtures["device"]), dynamic=True)
+    model._spe_dynamic_bounds = (min(fixtures["batch_sizes"]), max(fixtures["batch_sizes"]))
+    return torch.compile(model.to(fixtures["device"]))
 
 
 def _batch_at(fixtures, index):
@@ -38,7 +39,20 @@ def _batch_at(fixtures, index):
 def train_step(model, batch, optimizer):
     inputs, targets = batch[:2]
     device = next(model.parameters()).device
-    preds = model(inputs.to(device)).squeeze(-1)
+    inputs = inputs.to(device)
+    # Targeted dynamic-shape annotation is the preferred PyTorch path.  The
+    # annotation is applied to the actual tensor immediately before it enters
+    # the compiled function; the global dynamic mode is intentionally not used.
+    mark_dynamic = getattr(torch._dynamo, "mark_dynamic", None)
+    if callable(mark_dynamic):
+        min_batch, max_batch = getattr(model, "_spe_dynamic_bounds", (int(inputs.shape[0]), int(inputs.shape[0])))
+        mark_dynamic(
+            inputs,
+            0,
+            min=min_batch,
+            max=max_batch,
+        )
+    preds = model(inputs).squeeze(-1)
     loss = F.mse_loss(preds, targets.to(device))
     optimizer.zero_grad()
     loss.backward()
