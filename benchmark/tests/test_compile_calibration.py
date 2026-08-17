@@ -145,9 +145,11 @@ def test_compile_profile_projects_graph_size_and_horizon():
 def test_compile_actions_use_mechanism_specific_applicability():
     family = FAMILY_SPECS["compile"]
     recompile = {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.0}
+    graph_positive = {"logical_steps": 128, "graph_size": 128, "dynamic_shape_rate": 0.0}
     dynamic = {"logical_steps": 256, "graph_size": 128, "dynamic_shape_rate": 0.3}
     tiny = {"logical_steps": 8, "graph_size": 64, "dynamic_shape_rate": 0.8}
-    assert family.action_applicable("remove_compile_graph_break", recompile)
+    assert not family.action_applicable("remove_compile_graph_break", recompile)
+    assert family.action_applicable("remove_compile_graph_break", graph_positive)
     assert not family.action_applicable("stabilize_dynamic_guards", recompile)
     assert family.action_applicable("stabilize_dynamic_guards", dynamic)
     assert not family.action_applicable("remove_compile_graph_break", dynamic)

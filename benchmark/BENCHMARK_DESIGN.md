@@ -559,7 +559,7 @@ runnable with zero external downloads; CPU-capable unless noted:
 | 1 | CORE-SCALAR-SYNC-01 | spe_core | training_loop_overhead | scalar_sync | positive |
 | 2 | CORE-REPEATED-BACKBONE-02 | spe_core | repeated_compute | repeated_compute | positive (+ semantic-trap counterexample variant in-task) |
 | 3 | CORE-H2D-PIPELINE-03 | spe_core | data_pipeline | h2d_blocking | positive; requires_cuda (degrades to inconclusive on CPU) |
-| 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | positive; requires_cuda optional |
+| 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | counterexample; cold calibration found no positive CI through 1024 steps |
 | 5 | SCIML-GNN-RAGGED-05 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive |
 | 6 | SCIML-EQUIV-RECOMPUTE-06 | sciml | equivariant_head | repeated_compute | counterexample (caching-equivariant-basis vs changing positions) |
 | 7 | SCIML-CRYSTAL-DIFFUSION-07 | sciml | crystal_generation | scalar_sync + launch_fragmentation | positive, time-to-quality |

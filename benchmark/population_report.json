@@ -99,8 +99,8 @@
     ]
   },
   "polarity_distribution": {
-    "positive": 15,
-    "counterexample": 4,
+    "positive": 14,
+    "counterexample": 5,
     "do_not_apply": 1
   },
   "difficulty_distribution": {
@@ -122,8 +122,8 @@
       1.5
     ],
     [
-      1.15,
-      1.5
+      0.9,
+      1.1
     ],
     [
       0.9,
@@ -339,8 +339,8 @@
     "CORE-SCALAR-SYNC-01"
   ],
   "positive_counterexample_balance": {
-    "positive": 13,
-    "counterexample_or_do_not_apply": 5
+    "positive": 12,
+    "counterexample_or_do_not_apply": 6
   },
   "lineage_leakage_checked": true,
   "empirical_calibration": {

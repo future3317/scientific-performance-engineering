@@ -6,7 +6,16 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import sys
 from pathlib import Path
+
+# Support both `python -m scripts.run_compile_horizon_sweep` and the
+# documented direct-script form.  The latter sets `sys.path[0]` to
+# `scripts/`; the repository root must be explicit for the benchmark
+# package import below.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from benchmark.harness import runner, stats
 

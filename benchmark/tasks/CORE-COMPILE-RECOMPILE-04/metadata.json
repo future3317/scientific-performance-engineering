@@ -1,10 +1,10 @@
 {
   "task_id": "CORE-COMPILE-RECOMPILE-04",
-  "title": "torch.compile graph break with fixed-shape compile-inclusive schedule",
+  "title": "fixed-shape graph-break repair counterexample under cold compile-inclusive schedule",
   "track": "spe_core",
   "family": "compiler",
   "mechanism": "compile_graph_break",
-  "kind": "positive",
+  "kind": "counterexample",
   "lineage": {
     "source": "synthetic",
     "mutation_template_id": "MT-COMPILE-RECOMPILE-V1",
@@ -19,7 +19,7 @@
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "medium",
-  "authoring_note": "This anchor isolates graph-break overhead on a fixed-shape, compile-inclusive schedule. The baseline has an .item()-dependent graph break with dynamic=False; the oracle removes only that break and keeps the same model, optimizer, shape, and schedule. The primary metric includes the first compilation.",
+  "authoring_note": "This anchor isolates graph-break overhead on a fixed-shape, compile-inclusive schedule. Cold calibration over logical_steps in {64, 128, 256, 512, 1024} found no positive paired CI for removing the break at graph_size=64; the sealed point is therefore retained as a counterexample to unconditional graph-break repair. The baseline and tempting oracle keep the same model, optimizer, shape, and schedule.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "compile",

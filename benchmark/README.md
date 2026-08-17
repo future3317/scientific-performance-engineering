@@ -116,8 +116,9 @@ An optional `scripts/run_compile_transfer_check.py` probes one installed
 TorchBench model as calibration-only evidence; missing TorchBench is reported
 as blocked and never substituted with a synthetic workload or formal evidence.
 Recompile horizon selection is preregistered over 64/128/256/512/1024 steps;
-the checked-in 128-step anchor remains provisional until the paired CI and time
-budget gates are observed on the calibration host. Dynamic-mode comparisons are
+the checked-in graph-break anchor is retained as a calibrated counterexample; a
+future positive graph-break workload must be a new family point with its own cold
+CI before it can be promoted. Dynamic-mode comparisons are
 automatic, targeted annotation, and global diagnostic mode; only targeted is
 eligible as the canonical oracle.
 

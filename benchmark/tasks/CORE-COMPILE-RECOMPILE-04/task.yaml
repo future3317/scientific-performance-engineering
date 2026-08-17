@@ -3,7 +3,7 @@ task_id: CORE-COMPILE-RECOMPILE-04
 track: spe_core
 family: compiler
 mechanism: compile_graph_break
-kind: positive
+kind: counterexample
 lineage:
   source: synthetic
   mutation_template_id: MT-COMPILE-RECOMPILE-V1
@@ -37,7 +37,7 @@ diagnosis:
   enabled: true
   choices: [scalar_sync, h2d_blocking, repeated_compute, compile_graph_break, memory_pressure, launch_fragmentation]
 oracle:
-  expected_speedup_range: [1.15, 1.5]
+  expected_speedup_range: [0.9, 1.1]
 generator_family_id: GEN-COMPILER
 oracle_fix_pattern_id: FIX-CORE-COMPILE-RECOMPILE-04
 scientific_contract_id: CONTRACT-COMPILER-CACHE

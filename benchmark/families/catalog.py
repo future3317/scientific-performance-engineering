@@ -432,9 +432,15 @@ def _legacy_applicability(parameters: Mapping[str, Any]) -> bool:
 
 
 def _compile_applicability(parameters: Mapping[str, Any]) -> bool:
-    return float(parameters["logical_steps"]) >= 128 and float(parameters["dynamic_shape_rate"]) <= 0.4
-
-
+    logical_steps = int(parameters["logical_steps"])
+    dynamic_rate = float(parameters["dynamic_shape_rate"])
+    graph_size = int(parameters.get("graph_size", 0))
+    if dynamic_rate > 0.0:
+        return logical_steps >= 128 and dynamic_rate <= 0.4
+    # Cold compilation is not worth applying to the calibrated tiny fixed-shape
+    # graph-break point (graph_size=64); keep that point as an explicit
+    # counterexample instead of claiming a positive graph-break repair.
+    return logical_steps >= 128 and graph_size >= 128
 def _compile_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
     applicable = _compile_applicability(parameters)
     logical_steps = int(parameters["logical_steps"])
@@ -456,7 +462,7 @@ def _compile_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
         "applicable": applicable,
         "mechanism": mechanism,
         "preferred_action": preferred_action,
-        "boundary": {"logical_steps": 128, "dynamic_shape_rate": 0.4},
+        "boundary": {"logical_steps": 128, "dynamic_shape_rate": 0.4, "graph_size": 128},
     }
 
 
@@ -493,7 +499,7 @@ def _scalar_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 _SPECS: tuple[FamilySpec, ...] = (
-    FamilySpec("compile", "GEN-COMPILER", "spe_core", "CONTRACT-COMPILER-CACHE", ("logical_steps", "graph_size", "dynamic_shape_rate"), ("compile", "checkpoint"), ("software", "hardware", "scale", "model"), _compile, ("CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-DYNAMIC-11", "CORE-COMPILE-TINY-12", "CORE-KERNEL-FUSION-09"), _compile_applicability, _compile_truth, {"CORE-COMPILE-RECOMPILE-04": True, "CORE-COMPILE-DYNAMIC-11": True, "CORE-COMPILE-TINY-12": False, "CORE-KERNEL-FUSION-09": True}),
+    FamilySpec("compile", "GEN-COMPILER", "spe_core", "CONTRACT-COMPILER-CACHE", ("logical_steps", "graph_size", "dynamic_shape_rate"), ("compile", "checkpoint"), ("software", "hardware", "scale", "model"), _compile, ("CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-DYNAMIC-11", "CORE-COMPILE-TINY-12", "CORE-KERNEL-FUSION-09"), _compile_applicability, _compile_truth, {"CORE-COMPILE-RECOMPILE-04": False, "CORE-COMPILE-DYNAMIC-11": True, "CORE-COMPILE-TINY-12": False, "CORE-KERNEL-FUSION-09": True}),
     FamilySpec("graph_cache", "GEN-GRAPH-CACHE", "sciml", "CONTRACT-ENERGY-FORCE", ("geometry_displacement", "skin", "graph_size", "dynamic_rate"), ("graph_cache", "geometry_motion"), ("software", "scale", "scientific_regime"), _graph_cache, ("SCIML-GNN-RAGGED-05", "SCIML-GNN-STATIC-GRAPH-CACHE-17", "SCIML-GNN-DYNAMIC-GRAPH-18", "SCIML-FORCE-AUTOGRAD-19"), _graph_applicability, _graph_truth, {"SCIML-GNN-RAGGED-05": True, "SCIML-GNN-STATIC-GRAPH-CACHE-17": True, "SCIML-GNN-DYNAMIC-GRAPH-18": False, "SCIML-FORCE-AUTOGRAD-19": True}),
     FamilySpec("h2d_pipeline", "GEN-H2D-PIPELINE", "spe_core", "CONTRACT-DATA-PIPELINE", ("batch_size", "worker_count", "prefetch_factor", "pin_memory"), ("pin_memory", "non_blocking", "prefetch"), ("hardware", "scale", "harness"), _h2d, ("CORE-H2D-PIPELINE-03", "CORE-DATALOADER-FANOUT-16"), _h2d_applicability, _h2d_truth, {"CORE-H2D-PIPELINE-03": True, "CORE-DATALOADER-FANOUT-16": True}),
     FamilySpec("checkpoint", "GEN-CHECKPOINT", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("memory_pressure", "segment_count", "recompute_ratio"), ("checkpoint", "gradient_accumulation"), ("scale", "hardware", "scientific_regime"), _checkpoint, ("CORE-MEM-RETAINED-GRAPH-13", "CORE-CHECKPOINT-AMPLE-MEM-14"), _checkpoint_applicability, _checkpoint_truth, {"CORE-MEM-RETAINED-GRAPH-13": True, "CORE-CHECKPOINT-AMPLE-MEM-14": False}),
@@ -640,7 +646,7 @@ _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
         "reuse_compile_cache": {"family": "compile", "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
         "stabilize_dynamic_guards": {"family": "compile", "mechanism": "compile_dynamic_shapes", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"any": [{"compare": {"workload.evidence.recompile_count": {"gt": 0}}}, {"compare": {"workload.dynamic_shape_rate": {"gt": 0.0}}}]}]}, "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_dynamic_guard_stability", "realization_interface": "source_patch"},
-        "remove_compile_graph_break": {"family": "compile", "mechanism": "compile_graph_break", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"any": [{"compare": {"workload.evidence.graph_break_count": {"gt": 0}}}, {"equals": {"workload.dynamic_shape_rate": 0.0}}]}]}, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_graph_break_removed", "realization_interface": "source_patch"},
+        "remove_compile_graph_break": {"family": "compile", "mechanism": "compile_graph_break", "applicability": {"all": [{"compare": {"workload.logical_steps": {"gte": 128}}}, {"compare": {"workload.graph_size": {"gte": 128}}}, {"any": [{"compare": {"workload.evidence.graph_break_count": {"gt": 0}}}, {"equals": {"workload.dynamic_shape_rate": 0.0}}]}]}, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_graph_break_removed", "realization_interface": "source_patch"},
         "bypass_compile": {"family": "compile", "mechanism": "compile_tiny_graphs", "applicability": {"any": [{"equals": {"workload.evidence.compile_worthiness": False}}, {"compare": {"workload.logical_steps": {"lt": 128}}}]}, "effect": 0.60, "risk_class": "bounded", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "", "realization_interface": "source_patch"},
         "fuse_pointwise_chain": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-FUSION", "activation_validator": "kernel_fusion_operator_trace", "realization_interface": "source_patch"},
         "revalidate_compile_cache": {"family": "compile", "risk_class": "review", "scientific_policy_ref": "CONTRACT-COMPILER-CACHE", "activation_validator": "compile_cache_guard_hit", "realization_interface": "source_patch"},
