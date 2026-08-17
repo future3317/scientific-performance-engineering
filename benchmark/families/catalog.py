@@ -503,7 +503,7 @@ _EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
         "SCIML-FORCE-AUTOGRAD-19": {"geometry_displacement": 0.02, "skin": 0.8, "graph_size": 128, "dynamic_rate": 0.3},
     },
     "h2d_pipeline": {
-        "CORE-H2D-PIPELINE-03": {"batch_size": 32, "worker_count": 2, "prefetch_factor": 2, "pin_memory": True},
+        "CORE-H2D-PIPELINE-03": {"batch_size": 4096, "worker_count": 2, "prefetch_factor": 2, "pin_memory": True},
         "CORE-DATALOADER-FANOUT-16": {"batch_size": 64, "worker_count": 3, "prefetch_factor": 4, "pin_memory": True},
     },
     "checkpoint": {
@@ -578,7 +578,7 @@ _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
 _THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
     "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.2, 0.4, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
     "graph_cache": {"workload.geometry_displacement": (0.02, 0.05, 0.08), "workload.dynamic_rate": (0.2, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
-    "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0), "workload.prefetch_factor": (2.0, 4.0)},
+    "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0, 4096.0), "workload.prefetch_factor": (2.0, 4.0)},
     "checkpoint": {"workload.memory_pressure": (0.4, 0.57, 0.7), "workload.segment_count": (4.0, 6.0), "workload.recompute_ratio": (0.2, 0.5)},
     "scalar_sync": {"workload.scalar_syncs_per_step": (4.0, 8.0, 12.0), "workload.metric_cadence": (4.0, 8.0, 12.0)},
     "repeated_compute": {"workload.repeat_count": (2.0, 4.0, 8.0), "workload.backbone_width": (128.0, 256.0, 512.0), "workload.batch_size": (16.0, 32.0, 64.0)},

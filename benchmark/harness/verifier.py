@@ -410,6 +410,7 @@ def verify_task(
     # --- S5: paired interleaved performance -----------------------------------
     measurement_cfg = spec["measurement"]
     kernel_task = str(spec.get("family", "")) == "compiler" or spec["workspace"].get("api") == "kernel_module_v1"
+    reuse_fixture_per_repetition = str(spec.get("family_id", "")) == "h2d_pipeline"
     try:
         record = runner.run_paired_measurement(
             benchmark_module,
@@ -419,6 +420,7 @@ def verify_task(
             seed=seed,
             device=device,
             l2_thrash_between=kernel_task,
+            reuse_fixture_per_repetition=reuse_fixture_per_repetition,
         )
         control = runner.run_paired_measurement(
             benchmark_module,
@@ -428,6 +430,7 @@ def verify_task(
             seed=seed + 1,
             device=device,
             l2_thrash_between=kernel_task,
+            reuse_fixture_per_repetition=reuse_fixture_per_repetition,
         )
     except Exception as exc:
         result["verdict"] = "error"

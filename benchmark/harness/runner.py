@@ -378,6 +378,7 @@ def run_paired_measurement(
     seed: int = 0,
     device: str = "cpu",
     l2_thrash_between: bool = False,
+    reuse_fixture_per_repetition: bool = False,
 ) -> dict[str, Any]:
     """Run the seeded, interleaved paired measurement.
 
@@ -385,6 +386,8 @@ def run_paired_measurement(
     from ``task.yaml: measurement``. Per repetition the order of
     baseline/candidate is shuffled with ``random.Random(seed)`` and recorded as
     ``run_order``; fixtures are re-drawn per repetition from a seeded generator.
+    H2D tasks may request one generated/hashed fixture per repetition and provide
+    ``clone_fixtures`` so each arm remains mutable-state isolated.
     Returns the raw measurement record for result.json.
     """
     repetitions = int(measurement_cfg.get("repetitions", 5))
@@ -400,6 +403,8 @@ def run_paired_measurement(
         "output_checksums": {},
         "fixture_hashes": {},
         "timing": [],
+        "fixture_build_time_s": 0.0,
+        "fixture_hash_time_s": 0.0,
     }
     order_plan: list[tuple[str, int]] = []
     for rep in range(repetitions):
@@ -408,13 +413,35 @@ def run_paired_measurement(
         for arm in pair:
             order_plan.append((arm, rep))
 
+    fixtures_by_rep: dict[int, Any] = {}
+    fixture_hash_by_rep: dict[int, str] = {}
     for arm, rep in order_plan:
         record["run_order"].append(arm)
         fixture_seed = seed * 100003 + rep
-        fixtures = call_benchmark_fn(
-            benchmark_module.make_fixtures, seed=fixture_seed, device=device
-        )
-        record["fixture_hashes"][f"{arm}:{rep}"] = fixture_hash(fixtures)
+        if reuse_fixture_per_repetition:
+            if rep not in fixtures_by_rep:
+                build_started = time.perf_counter()
+                fixtures_by_rep[rep] = call_benchmark_fn(
+                    benchmark_module.make_fixtures, seed=fixture_seed, device=device
+                )
+                record["fixture_build_time_s"] += time.perf_counter() - build_started
+                hash_started = time.perf_counter()
+                fixture_hash_by_rep[rep] = fixture_hash(fixtures_by_rep[rep])
+                record["fixture_hash_time_s"] += time.perf_counter() - hash_started
+            clone_fn = getattr(benchmark_module, "clone_fixtures", None)
+            if not callable(clone_fn):
+                raise ValueError("fixture reuse requires benchmark_module.clone_fixtures()")
+            fixtures = call_benchmark_fn(clone_fn, fixtures=fixtures_by_rep[rep])
+            record["fixture_hashes"][f"{arm}:{rep}"] = fixture_hash_by_rep[rep]
+        else:
+            build_started = time.perf_counter()
+            fixtures = call_benchmark_fn(
+                benchmark_module.make_fixtures, seed=fixture_seed, device=device
+            )
+            record["fixture_build_time_s"] += time.perf_counter() - build_started
+            hash_started = time.perf_counter()
+            record["fixture_hashes"][f"{arm}:{rep}"] = fixture_hash(fixtures)
+            record["fixture_hash_time_s"] += time.perf_counter() - hash_started
         path = baseline_path if arm == "baseline" else candidate_path
         solution = call_benchmark_fn(benchmark_module.load_solution, path=str(path), device=device)
         if l2_thrash_between:

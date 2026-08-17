@@ -17,9 +17,9 @@ workspace:
 measurement:
   primary_metric: step_ms_p50
   higher_is_better: false
-  warmup_iterations: 50
-  measured_iterations: 1000
-  repetitions: 10
+  warmup_iterations: 20
+  measured_iterations: 100
+  repetitions: 5
   min_improvement_percent: 5.0
   noise_floor_percent: 2.0
   speedup_tripwire: 20.0

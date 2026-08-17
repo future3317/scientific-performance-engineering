@@ -75,7 +75,7 @@ def load_solution(path: str, device: str | None = None) -> Any:
 def make_fixtures(seed: int, device: str = "cpu") -> dict[str, Any]:
     """Build a deterministic in-memory regression fixture."""
     rng = torch.Generator().manual_seed(seed)
-    data_config = {"num_samples": 32768, "in_dim": 4096, "batch_size": 4096}
+    data_config = {"num_samples": 4096, "in_dim": 4096, "batch_size": 4096}
     model_config = {"in_dim": data_config["in_dim"], "hidden_dim": 64}
 
     # Synthetic inputs and targets derived from a random teacher.
@@ -116,6 +116,18 @@ def make_fixtures(seed: int, device: str = "cpu") -> dict[str, Any]:
         "init_state": init_state,
         "eval_inputs": eval_inputs,
     }
+
+
+def clone_fixtures(fixtures: dict[str, Any]) -> dict[str, Any]:
+    """Clone mutable tensors for one measurement arm without regenerating data."""
+    cloned = dict(fixtures)
+    for key in ("inputs", "targets", "eval_inputs"):
+        cloned[key] = fixtures[key].clone()
+    cloned["init_state"] = {name: value.clone() for name, value in fixtures["init_state"].items()}
+    cloned["data_config"] = dict(fixtures["data_config"])
+    cloned["model_config"] = dict(fixtures["model_config"])
+    cloned["optimizer_config"] = dict(fixtures["optimizer_config"])
+    return cloned
 
 
 def run_correctness(solution: Any, fixtures: dict[str, Any]) -> dict[str, Any]:

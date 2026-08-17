@@ -43,14 +43,14 @@ workspace_ast_skeleton_hash: "6e0796e3e70030a19b537f90e4a3baf2055b26cf25b0106d1f
 family_id: h2d_pipeline
 anchor_instance_id: CORE-H2D-PIPELINE-03
 family_parameters:
-  batch_size: 32
+  batch_size: 4096
   worker_count: 2
   prefetch_factor: 2
   pin_memory: true
-family_instance_digest: fbd23c6da2cda8e8c9f919a2a99c857698dfbb106d41dc78e233db6d8983c50f
+family_instance_digest: c33fe039248d002f6f223ce980322eb2a5a14534a7092fff028f5fac973495a0
 public_context:
   workload:
-    batch_size: 32
+    batch_size: 4096
     worker_count: 2
     prefetch_factor: 2
     pin_memory: true

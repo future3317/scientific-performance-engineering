@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from core.acre.engine import AcreEngine
 from core.acre.experiments import ExperimentPlan
-from core.acre.maintainer import AcreMaintainer
+from core.acre.maintainer import AcreMaintainer, MaintenanceInput
 from core.acre.factorial import FactorialBlock
 from core.acre.router import RequiredExperiment
 from benchmark.formal.schedule import FamilyReplayExecutor, RelationExperimentScheduler
+from benchmark.harness import runner
 
 
 def test_core_paired_plan_executes_family_replay_and_records_measurements() -> None:
@@ -33,6 +36,12 @@ def test_core_paired_plan_executes_family_replay_and_records_measurements() -> N
     assert recorded[0]["paired_replay"] is True
     assert len(recorded[0]["intervention_measurements"]) == 8
     assert len(recorded[0]["baseline_measurements"]) == 8
+
+
+def test_maintainer_serializes_evidence_assessment() -> None:
+    transition = AcreMaintainer(AcreEngine()).run(MaintenanceInput())
+    assert transition.assessment["representative_count"] == 0
+    assert transition.assessment["adversarial_count"] == 0
 
 
 def test_relation_scheduler_executes_factorial_blocks_through_core() -> None:
@@ -70,3 +79,49 @@ def test_required_experiment_is_typed_and_serializable() -> None:
     payload = experiment.to_dict()
     assert payload["experiment_type"] == "three_way_factorial"
     assert payload["required_arms"][-1] == "111"
+
+
+def test_h2d_fixture_reuse_keeps_identity_and_arm_isolation(tmp_path) -> None:
+    def make_fixtures(seed: int, device: str = "cpu") -> dict:
+        return {"mutable": [seed], "device": device}
+
+    def clone_fixtures(fixtures: dict) -> dict:
+        return {"mutable": list(fixtures["mutable"]), "device": fixtures["device"]}
+
+    def load_solution(path: str, device: str = "cpu") -> str:
+        return "candidate" if "candidate" in path else "baseline"
+
+    def run_performance(
+        solution: str,
+        fixtures: dict,
+        warmup: int,
+        iterations: int,
+        device: str = "cpu",
+    ) -> dict:
+        fixtures["mutable"][0] += 1
+        return {
+            "value": 1.0 if solution == "baseline" else 0.5,
+            "work_units": {"steps": iterations},
+            "output_checksums": {},
+        }
+
+    module = SimpleNamespace(
+        make_fixtures=make_fixtures,
+        clone_fixtures=clone_fixtures,
+        load_solution=load_solution,
+        run_performance=run_performance,
+    )
+    baseline = tmp_path / "baseline.py"
+    candidate = tmp_path / "candidate.py"
+    record = runner.run_paired_measurement(
+        module,
+        baseline,
+        candidate,
+        {"warmup_iterations": 1, "measured_iterations": 2, "repetitions": 2},
+        reuse_fixture_per_repetition=True,
+    )
+
+    assert record["fixture_hashes"]["baseline:0"] == record["fixture_hashes"]["candidate:0"]
+    assert record["fixture_hashes"]["baseline:1"] == record["fixture_hashes"]["candidate:1"]
+    assert record["fixture_build_time_s"] >= 0.0
+    assert record["fixture_hash_time_s"] >= 0.0

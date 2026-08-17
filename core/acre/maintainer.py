@@ -6,7 +6,7 @@ remain in core so calibration and evolution use the same sequence.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 from core.models import EvidenceEvent
@@ -77,7 +77,7 @@ class AcreMaintainer:
                     observed += self.observe(execution.evidence_events)
         decisions = tuple(self.engine.evolve(subject_id) for subject_id in maintenance_input.subject_ids)
         assessment = self.engine.assess()
-        return MaintenanceTransition(observed, decisions, assessment.to_dict() if hasattr(assessment, "to_dict") else dict(assessment))
+        return MaintenanceTransition(observed, decisions, asdict(assessment))
 
     def execute_node_experiment(
         self,
