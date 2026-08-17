@@ -29,6 +29,9 @@ def test_compile_solution_loads_get_fresh_inductor_and_triton_caches():
         os.environ.get("TORCHINDUCTOR_CACHE_DIR"),
         os.environ.get("TRITON_CACHE_DIR"),
     )
+    import torch._inductor.config as inductor_config
+
+    assert inductor_config.compile_threads == 2
     module.load_solution(str(solution_path))
     second = (
         os.environ.get("TORCHINDUCTOR_CACHE_DIR"),

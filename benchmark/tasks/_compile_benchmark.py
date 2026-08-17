@@ -88,7 +88,16 @@ def _reset_dynamo_diagnostics() -> None:
 def _set_compile_threads(profile: dict[str, Any]) -> None:
     # The task contract fixes this value for A/B/C/D; it must not depend on the
     # host's affinity-derived default (which can fan out to dozens of workers).
-    os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = str(profile["compile_threads"])
+    requested = int(profile["compile_threads"])
+    os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = str(requested)
+    try:
+        import torch._inductor.config as inductor_config
+
+        # Some torch versions import Inductor config while importing torch, so
+        # changing the environment alone is too late for the in-process value.
+        inductor_config.compile_threads = requested
+    except Exception:
+        pass
 
 
 def _observed_compile_threads() -> int | None:
