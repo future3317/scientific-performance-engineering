@@ -391,6 +391,7 @@ def verify_task(
         expected = dict(noise_control_expected or {})
         expected.setdefault("task_id", str(spec.get("task_id")))
         expected.setdefault("hardware_fingerprint", result["fingerprint"])
+        expected.setdefault("software_fingerprint", result["fingerprint"])
         expected.setdefault("primary_metric", spec["measurement"].get("primary_metric"))
         expected.setdefault("higher_is_better", bool(spec["measurement"].get("higher_is_better", False)))
         expected.setdefault("compile_threads", int(spec["measurement"].get("compile_threads", 0)))
