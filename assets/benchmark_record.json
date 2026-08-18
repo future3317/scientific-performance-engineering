@@ -44,6 +44,17 @@
       "swap_percent": null,
       "trainer_worker_rss_mb": null,
       "cpu_governor": ""
+    },
+    "gpu_state": {
+      "power_limit_w": null,
+      "avg_power_w": null,
+      "sm_clock_mhz": null,
+      "mem_clock_mhz": null,
+      "pstate": "",
+      "temperature_c": null,
+      "throttle_reason": "",
+      "mig_mode": "",
+      "persistence_mode": ""
     }
   },
   "software": {

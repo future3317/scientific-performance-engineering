@@ -115,9 +115,19 @@ This list is an audit map, not a package lock. Release numbers are a point-in-ti
 
 - Nsight Systems User Guide: https://docs.nvidia.com/nsight-systems/UserGuide/index.html
 - Nsight Compute Documentation: https://docs.nvidia.com/nsight-compute/
+- Nsight Compute Profiling Guide (clock/cache/thermal reproducibility): https://docs.nvidia.com/nsight-compute/2025.2/ProfilingGuide/index.html
+- CUDA C++ Best Practices Guide: https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html
+- Compute Sanitizer: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html
+- NVIDIA System Management Interface: https://docs.nvidia.com/deploy/nvidia-smi/index.html
 - CUDA Graph sync-free code guidance: https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/sync-free-code.html
 - Transformer Engine User Guide: https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html
 - CUDA Programming Guide: https://docs.nvidia.com/cuda/cuda-c-programming-guide/
+
+## Agent execution and review workflow
+
+- Anthropic Claude Code engineering best practices: https://www.anthropic.com/engineering/claude-code-best-practices
+- OpenAI Codex use cases and validation workflows: https://developers.openai.com/codex/use-cases
+- OpenAI model guidance and sandbox boundaries: https://developers.openai.com/api/docs/guides/latest-model
 
 ## Project sources
 

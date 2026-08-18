@@ -33,7 +33,16 @@
       "type": "object",
       "required": ["repository", "base_revision", "benchmark_harness_hash", "candidate_patch_hash", "declared_change_set"]
     },
-    "hardware": {"type": "object", "required": ["gpu_uuid", "device_index", "world_size"]},
+    "hardware": {
+      "type": "object",
+      "required": ["gpu_uuid", "device_index", "world_size", "gpu_state"],
+      "properties": {
+        "gpu_state": {
+          "type": "object",
+          "required": ["power_limit_w", "avg_power_w", "sm_clock_mhz", "mem_clock_mhz", "pstate", "temperature_c", "throttle_reason", "mig_mode", "persistence_mode"]
+        }
+      }
+    },
     "software": {"type": "object", "required": ["python", "pytorch", "compile_backend", "compile_mode"]},
     "compiler": {"type": "object", "required": ["compile_cache_state", "cache_fingerprint", "cache_hit_miss_evidence", "fallback"]},
     "contract": {

@@ -35,6 +35,13 @@ Use this sequence:
 
 `Preflight -> Contract Freeze -> Lifecycle Census -> Baseline/Noise -> Profile/Classify -> Hypothesis/Amdahl -> Minimal Intervention -> Activation Proof -> Micro/Module/Logical Update/Amortized Job -> Scientific/Resume/Distributed/Failure Gates -> Statistical Gate`
 
+For candidate performance work, apply the repository workflow in
+`references/EXPERIMENT_WORKFLOW.md`: isolate each candidate in its own
+worktree, write and fail a reference reproducer before patching, and use a
+fresh-context reviewer whenever available. GPU state is part of comparability;
+profiler traces are diagnostic only, and new CUDA/C++/Triton kernels require a
+real Compute Sanitizer gate before acceptance.
+
 1. **Preflight:** record model construction order, rank/device mapping, topology, CPU/NUMA/thread state, allocator, and the compatibility matrix for compile, checkpointing, DDP/FSDP, CUDA Graphs, custom ops, dynamic shapes, and higher-order autograd. Reject known-incompatible combinations before a long run.
 2. **Contract Freeze:** freeze model/data/sampler/objective/effective batch/seed/world size, initialization checkpoint, anchor provenance and scope, constraint stack, auxiliary cadence/masks, cache keys, timing boundaries, and acceptance policy. A code change is `base_revision + benchmark_harness_hash + candidate_patch_hash + declared_change_set`; `--allow-difference` cannot bypass scientific fields.
 3. **Lifecycle Census:** enumerate precompute/cache construction, campaign orchestration, the logical-update DAG, and the synchronization census before focusing on a kernel. Include fetch, CPU/GPU preprocessing, H2D, forward/heads, loss, auxiliary derivatives, backward, gradient transforms, clipping, communication, optimizer, scheduler, EMA/SWA, metrics, checkpoint, and validation; record the full process/worker/thread topology for concurrent seeds or endpoints. In the benchmark record, explicitly classify `startup`, `precompute`, `logical_update`, `evaluation_sampling`, `checkpoint_resume`, `teardown`, and `failure_retry`; an included stage needs measured time and evidence, while an excluded stage needs an explicit reason.

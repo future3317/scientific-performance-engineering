@@ -24,7 +24,8 @@ except ImportError:  # Host telemetry is optional; GPU monitoring remains usable
 
 QUERY_FIELDS = (
     "timestamp,index,uuid,name,utilization.gpu,utilization.memory,memory.used,"
-    "power.draw,clocks.sm,temperature.gpu"
+    "power.draw,power.limit,clocks.sm,clocks.mem,pstate,temperature.gpu,"
+    "clocks_throttle_reasons.active,mig.mode.current,persistence_mode"
 )
 
 
@@ -172,7 +173,7 @@ def sample_gpu(
         captured = datetime.now(timezone.utc).isoformat()
         if result.returncode == 0:
             for row in csv.reader(result.stdout.splitlines(), skipinitialspace=True):
-                if len(row) != 10:
+                if len(row) != 16:
                     continue
                 physical_index = int(row[1])
                 uuid = row[2].strip()
@@ -188,8 +189,14 @@ def sample_gpu(
                         "memory_util_percent": parse_number(row[5]),
                         "memory_used_mb": parse_number(row[6]),
                         "power_w": parse_number(row[7]),
-                        "sm_clock_mhz": parse_number(row[8]),
-                        "temperature_c": parse_number(row[9]),
+                        "power_limit_w": parse_number(row[8]),
+                        "sm_clock_mhz": parse_number(row[9]),
+                        "mem_clock_mhz": parse_number(row[10]),
+                        "pstate": row[11].strip(),
+                        "temperature_c": parse_number(row[12]),
+                        "throttle_reason": row[13].strip(),
+                        "mig_mode": row[14].strip(),
+                        "persistence_mode": row[15].strip(),
                     }
                 )
         elapsed = time.monotonic() - start
@@ -255,7 +262,9 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
             "memory_util_percent",
             "memory_used_mb",
             "power_w",
+            "power_limit_w",
             "sm_clock_mhz",
+            "mem_clock_mhz",
             "temperature_c",
         )
         stats: dict[str, Any] = {
@@ -267,12 +276,17 @@ def summarize(samples: list[dict[str, Any]]) -> dict[str, Any]:
         for field in fields:
             values = [float(sample[field]) for sample in current if sample[field] is not None]
             if values:
-                stats[field] = {
+                output_field = "avg_power_w" if field == "power_w" else field
+                stats[output_field] = {
                     "mean": statistics.fmean(values),
                     "p50": percentile(values, 0.50),
                     "p95": percentile(values, 0.95),
                     "max": max(values),
                 }
+        for field in ("pstate", "throttle_reason", "mig_mode", "persistence_mode"):
+            values = sorted({str(sample[field]) for sample in current if sample.get(field) not in {None, "", "[N/A]"}})
+            if values:
+                stats[field] = values if len(values) > 1 else values[0]
         summary[str(index)] = stats
     return summary
 

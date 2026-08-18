@@ -40,6 +40,7 @@ COMPARABILITY_PATHS = (
     "hardware.gpu",
     "hardware.gpu_uuid",
     "hardware.device_index",
+    "hardware.gpu_state",
     "hardware.world_size",
     "hardware.storage",
     "software.python",
@@ -170,6 +171,7 @@ REQUIRED_PATHS = (
     "hardware.gpu",
     "hardware.gpu_uuid",
     "hardware.device_index",
+    "hardware.gpu_state",
     "hardware.world_size",
     "software.python",
     "software.pytorch",
@@ -462,6 +464,48 @@ def host_contention_status(baseline: dict[str, Any], candidate: dict[str, Any]) 
     return reasons
 
 
+def _state_value(value: Any) -> float | str | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+        return float(value)
+    if isinstance(value, dict):
+        for key in ("p50", "mean", "value"):
+            nested = _state_value(value.get(key))
+            if nested is not None:
+                return nested
+    if isinstance(value, str) and value.strip() and value not in {"[N/A]", "N/A"}:
+        return value.strip()
+    return None
+
+
+def gpu_state_status(baseline: dict[str, Any], candidate: dict[str, Any]) -> list[str]:
+    """Reject material clock/power/thermal state changes as inconclusive."""
+    before = get_path(baseline, "hardware.gpu_state")
+    after = get_path(candidate, "hardware.gpu_state")
+    if before is None and after is None:
+        return []
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return ["GPU state is missing on one side"]
+    reasons: list[str] = []
+    numeric = {
+        "power_limit_w": (0.10, 0.0),
+        "avg_power_w": (0.20, 5.0),
+        "sm_clock_mhz": (0.10, 100.0),
+        "mem_clock_mhz": (0.10, 200.0),
+        "temperature_c": (0.0, 10.0),
+    }
+    for key, (relative, absolute) in numeric.items():
+        left, right = _state_value(before.get(key)), _state_value(after.get(key))
+        if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            continue
+        if abs(float(left) - float(right)) > max(absolute, relative * max(abs(float(left)), abs(float(right)), 1.0)):
+            reasons.append(f"GPU state materially differs for {key}")
+    for key in ("pstate", "throttle_reason", "mig_mode", "persistence_mode"):
+        left, right = _state_value(before.get(key)), _state_value(after.get(key))
+        if left is not None and right is not None and left != right:
+            reasons.append(f"GPU state differs for {key}")
+    return reasons
+
+
 def declared_intervention_paths(record: dict[str, Any]) -> set[str]:
     values = get_path(record, "identity.declared_change_set")
     if not isinstance(values, list):
@@ -577,6 +621,7 @@ def compare_records(
         if get_path(record, "evidence_level") in {"amortized_job", "time_to_quality"}:
             inconclusive_reasons.extend(f"{label}: {reason}" for reason in lifecycle_status(record))
     inconclusive_reasons.extend(f"host: {reason}" for reason in host_contention_status(baseline, candidate))
+    inconclusive_reasons.extend(f"gpu: {reason}" for reason in gpu_state_status(baseline, candidate))
     acceptance = get_path(baseline, "acceptance")
     candidate_acceptance = get_path(candidate, "acceptance")
     if acceptance != candidate_acceptance:
@@ -794,6 +839,17 @@ def self_test() -> None:
             "device_index": 0,
             "world_size": 1,
             "storage": "ssd",
+            "gpu_state": {
+                "power_limit_w": 450.0,
+                "avg_power_w": 180.0,
+                "sm_clock_mhz": 2500.0,
+                "mem_clock_mhz": 10000.0,
+                "pstate": "P2",
+                "temperature_c": 50.0,
+                "throttle_reason": "0x0",
+                "mig_mode": "[N/A]",
+                "persistence_mode": "Disabled",
+            },
         },
         "software": {
             **{key: "same" for key in (
