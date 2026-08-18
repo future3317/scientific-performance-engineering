@@ -71,7 +71,7 @@ def main() -> int:
                 "repetitions": args.repetitions,
                 "baseline_runs": record["baseline_runs"],
                 "candidate_runs": record["candidate_runs"],
-                "control_runs": record.get("control_runs"),
+                "noise_control": "calibrated artifact required for formal verifier; sweep remains diagnostic-only",
                 "fixture_build_time_s": record.get("fixture_build_time_s"),
                 "fixture_hash_time_s": record.get("fixture_hash_time_s"),
                 "verified_speedup": verdict,

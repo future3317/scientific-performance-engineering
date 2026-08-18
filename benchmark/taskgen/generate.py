@@ -174,7 +174,7 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     (oracle / "noise_floor.json").write_text(
-        json.dumps({"declared_percent": float(spec["measurement"].get("noise_floor_percent", 2.0)), "measurement": "paired_control_runs"}, indent=2) + "\n",
+        json.dumps({"declared_percent": float(spec["measurement"].get("noise_floor_percent", 2.0)), "measurement": "preregistered_noise_control_artifact"}, indent=2) + "\n",
         encoding="utf-8",
     )
     oracle_reference = "oracle/reference_patch.diff" if (oracle / "reference_patch.diff").is_file() else "hidden_verifier/reference.py"

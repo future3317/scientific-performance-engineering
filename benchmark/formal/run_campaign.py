@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from benchmark.harness import conditions, miniyaml, scoring, verifier
+from benchmark.harness import conditions, miniyaml, scoring, stats, verifier
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
@@ -254,6 +254,14 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
         predicted = kwargs.get("predicted_mechanism")
         if isinstance(predicted, list) and predicted:
             command.extend(["--predict-mechanism", ",".join(str(item) for item in predicted)])
+        noise_path = kwargs.get("noise_control_path")
+        if noise_path is not None:
+            command.extend(["--noise-control", str(noise_path)])
+        if kwargs.get("noise_control_required"):
+            command.append("--noise-control-required")
+        for flag, key in (("--outer-trial-id", "noise_outer_trial_id"), ("--benchmark-revision", "noise_benchmark_revision"), ("--task-manifest-digest", "noise_task_manifest_digest")):
+            if kwargs.get(key) is not None:
+                command.extend([flag, str(kwargs[key])])
         process = subprocess.Popen(
             command,
             cwd=str(Path(__file__).resolve().parents[2]),
@@ -319,6 +327,50 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return result
+
+
+def _calibrate_noise_control_with_cache(
+    task_dir: Path,
+    out_path: Path,
+    *,
+    calibration_dir: Path,
+    task_id: str,
+    outer_trial_id: str,
+    benchmark_revision: str,
+    task_manifest_digest: str,
+    timeout_s: float,
+) -> dict[str, Any]:
+    """Run one calibration subprocess under the normal cache/process boundary."""
+    calibration_dir.mkdir(parents=True, exist_ok=True)
+    solution_dir = task_dir / "workspace"
+    with _trial_compiler_cache(calibration_dir, "noise-control"):
+        command = [
+            sys.executable, "-m", "benchmark.harness.cli", "calibrate-noise-control", str(task_dir),
+            "--solution", str(solution_dir), "--out", str(out_path),
+            "--task-id", task_id, "--outer-trial-id", outer_trial_id,
+            "--benchmark-revision", benchmark_revision,
+            "--task-manifest-digest", task_manifest_digest,
+        ]
+        process = subprocess.Popen(
+            command,
+            cwd=str(Path(__file__).resolve().parents[2]),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=(os.name == "posix"),
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=float(timeout_s))
+        except subprocess.TimeoutExpired as exc:
+            if os.name == "posix":
+                _cleanup_process_group(process)
+            else:
+                process.kill()
+                process.wait()
+            return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration timed out", "stdout": exc.stdout or "", "stderr": exc.stderr or ""}
+        if process.returncode != 0 or not out_path.is_file():
+            return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration failed", "stdout": stdout, "stderr": stderr}
+    return {"ok": True, "status": "calibrated", "path": str(out_path)}
 
 
 class InterventionRealizer:
@@ -759,6 +811,8 @@ def execute_poison_probe(
     task_dir: Path | None = None,
     verifier_out: Path | None = None,
     timeout_s: float = 900.0,
+    noise_control_path: Path | None = None,
+    noise_control_expected: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a poison probe against a materialized, non-empty intervention."""
     changed = False
@@ -798,6 +852,12 @@ def execute_poison_probe(
             trial_dir=realized_solution.parent,
             invocation_id="poison",
             timeout_s=timeout_s,
+            noise_control_path=noise_control_path,
+            noise_control_required=task_dir is not None,
+            noise_outer_trial_id=str(noise_control_expected.get("outer_trial_id")) if noise_control_expected else None,
+            noise_benchmark_revision=str(noise_control_expected.get("benchmark_revision")) if noise_control_expected else None,
+            noise_task_manifest_digest=str(noise_control_expected.get("task_manifest_digest")) if noise_control_expected else None,
+            noise_control_expected=noise_control_expected,
         )
         verifier_executed = True
         verifier_scientific_ok = bool(scoring.score_task(result).get("gates_passed", False))
@@ -1020,10 +1080,17 @@ def _verify_baseline(
     trial_dir: Path | None = None,
     invocation_id: str = "baseline",
     timeout_s: float | None = None,
+    noise_control_path: Path | None = None,
+    noise_control_expected: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Score the untouched arm on the same fixture before candidate scoring."""
     call = _verify_task_with_cache if trial_dir is not None else verifier.verify_task
-    kwargs = dict(out_path=out_path, condition=condition, context_mode=context_mode, seed=seed)
+    kwargs = dict(
+        out_path=out_path, condition=condition, context_mode=context_mode, seed=seed,
+        noise_control_path=noise_control_path,
+        noise_control_required=trial_dir is not None,
+        noise_control_expected=noise_control_expected,
+    )
     baseline = call(task_dir, solution_dir, trial_dir=trial_dir, invocation_id=invocation_id, timeout_s=timeout_s, **kwargs) if trial_dir is not None else call(task_dir, solution_dir, **kwargs)
     return baseline, scoring.score_task(baseline)
 
@@ -2144,6 +2211,58 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     if not getattr(args, "executor_digest", None):
         raise ValueError("formal agent runs require an allowlisted --executor-digest")
 
+    # Calibrate each task×outer-trial once.  All A/B/C/D verifier invocations
+    # below consume this immutable artifact; no invocation reruns controls.
+    noise_control_root = out_dir / "noise-control"
+    noise_control_paths: dict[tuple[str, str], Path] = {}
+    noise_control_failures: dict[tuple[str, str], dict[str, Any]] = {}
+    unique_noise_cells = sorted({(str(item["task_id"]), str(item["outer_trial_id"])) for item in plan})
+    for noise_task_id, noise_outer_trial_id in unique_noise_cells:
+        artifact_path = noise_control_root / noise_outer_trial_id / f"{noise_task_id}.json"
+        expected_noise = {
+            "task_id": noise_task_id,
+            "outer_trial_id": noise_outer_trial_id,
+            "benchmark_revision": campaign["benchmark_revision"],
+            "task_manifest_digest": task_digest,
+            "hardware_fingerprint": fingerprint,
+            "software_fingerprint": fingerprint,
+            "compiler_cache_policy": "verifier-invocation-scoped",
+        }
+        if resume and artifact_path.is_file():
+            try:
+                stats.read_noise_control(artifact_path, expected_noise)
+                noise_control_paths[(noise_task_id, noise_outer_trial_id)] = artifact_path
+                continue
+            except ValueError as exc:
+                noise_control_failures[(noise_task_id, noise_outer_trial_id)] = {"status": "resource_blocked", "error": str(exc)}
+                continue
+        calibration = _calibrate_noise_control_with_cache(
+            tasks_root / noise_task_id,
+            artifact_path,
+            calibration_dir=out_dir / "noise-control" / noise_outer_trial_id / f"{noise_task_id}-runtime",
+            task_id=noise_task_id,
+            outer_trial_id=noise_outer_trial_id,
+            benchmark_revision=campaign["benchmark_revision"],
+            task_manifest_digest=task_digest,
+            timeout_s=float(min(300.0, budgets.wall_time_s)),
+        )
+        if calibration.get("ok"):
+            try:
+                stats.read_noise_control(artifact_path, expected_noise)
+                noise_control_paths[(noise_task_id, noise_outer_trial_id)] = artifact_path
+            except ValueError as exc:
+                noise_control_failures[(noise_task_id, noise_outer_trial_id)] = {"status": "resource_blocked", "error": str(exc)}
+        else:
+            noise_control_failures[(noise_task_id, noise_outer_trial_id)] = calibration
+    campaign["noise_control"] = {
+        "policy": "task-outer-trial-preregistered-shared",
+        "root": str(noise_control_root),
+        "cells": len(unique_noise_cells),
+        "calibrated": len(noise_control_paths),
+        "resource_blocked": len(noise_control_failures),
+    }
+    (out_dir / "campaign.json").write_text(json.dumps(campaign, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
     records: list[dict[str, Any]] = []
     stores: dict[str, Path] = {}
     context_paths: dict[str, Path] = {}
@@ -2172,6 +2291,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             records.append(resume_records[(stream_id, task_id)])
             continue
         task_spec = miniyaml.load(str(tasks_root / task_id / "task.yaml"))
+        noise_control_path = noise_control_paths.get((task_id, str(item["outer_trial_id"])))
+        noise_expected = {
+            "task_id": task_id,
+            "outer_trial_id": str(item["outer_trial_id"]),
+            "benchmark_revision": campaign["benchmark_revision"],
+            "task_manifest_digest": task_digest,
+            "hardware_fingerprint": fingerprint,
+            "software_fingerprint": fingerprint,
+            "compiler_cache_policy": "verifier-invocation-scoped",
+        }
         trial_dir = out_dir / "trials" / stream_id / task_id
         trial_dir.mkdir(parents=True, exist_ok=True)
         manifest = _experiment_manifest(
@@ -2417,6 +2546,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 trial_dir=trial_dir,
                 invocation_id="control",
                 timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
+                noise_control_path=noise_control_path,
+                noise_control_expected=noise_expected,
             )
             _check_verifier_budget(control_result, task_spec, budget_errors, "control verifier")
         result = _verify_task_with_cache(
@@ -2430,6 +2561,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             trial_dir=trial_dir,
             invocation_id="candidate",
             timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
+            noise_control_path=noise_control_path,
+            noise_control_required=True,
+            noise_outer_trial_id=str(item["outer_trial_id"]),
+            noise_benchmark_revision=campaign["benchmark_revision"],
+            noise_task_manifest_digest=task_digest,
+            noise_control_expected=noise_expected,
         )
         _check_verifier_budget(result, task_spec, budget_errors, "candidate verifier")
         result["seed"] = int(item["outer_trial_index"])
@@ -2493,6 +2630,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         trial_dir=trial_dir,
                         invocation_id="causal",
                         timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
+                        noise_control_path=noise_control_path,
+                        noise_control_required=True,
+                        noise_outer_trial_id=str(item["outer_trial_id"]),
+                        noise_benchmark_revision=campaign["benchmark_revision"],
+                        noise_task_manifest_digest=task_digest,
+                        noise_control_expected=noise_expected,
                     )
                     _check_verifier_budget(causal_result, task_spec, budget_errors, "causal verifier")
                     causal_result["seed"] = int(item["outer_trial_index"])
@@ -2530,6 +2673,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         trial_dir=trial_dir,
                         invocation_id="heldout",
                         timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
+                        noise_control_path=noise_control_path,
+                        noise_control_required=True,
+                        noise_outer_trial_id=str(item["outer_trial_id"]),
+                        noise_benchmark_revision=campaign["benchmark_revision"],
+                        noise_task_manifest_digest=task_digest,
+                        noise_control_expected=noise_expected,
                     )
                     _check_verifier_budget(heldout_result, task_spec, budget_errors, "held-out verifier")
                     heldout_scored = scoring.score_task(heldout_result)
@@ -2543,6 +2692,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         trial_dir=trial_dir,
                         invocation_id="heldout-control",
                         timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
+                        noise_control_path=noise_control_path,
+                        noise_control_expected=noise_expected,
                     )
                     _check_verifier_budget(heldout_control, task_spec, budget_errors, "held-out control verifier")
                     heldout_measurement = heldout_result.get("measurement", {}) if isinstance(heldout_result.get("measurement"), dict) else {}
@@ -2574,6 +2725,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         task_dir=tasks_root / task_id,
                         verifier_out=trial_dir / "poison-result.json",
                         timeout_s=float(task_spec.get("time_budget_s", budgets.wall_time_s)),
+                        noise_control_path=noise_control_path,
+                        noise_control_expected=noise_expected,
                     )
                     if poison_case.get("resource_blocked"):
                         budget_errors.append("poison verifier resource_blocked")

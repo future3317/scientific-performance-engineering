@@ -18,12 +18,18 @@ Conventions:
 from __future__ import annotations
 
 import math
+import hashlib
+import json
 import random
+from pathlib import Path
 from typing import Any
+
+from .fingerprint import fingerprints_compatible
 
 DEFAULT_BOOTSTRAP_SAMPLES = 2000
 DEFAULT_CONFIDENCE = 0.95
 DEFAULT_SEED = 0
+NOISE_CONTROL_SCHEMA_VERSION = 1
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -123,6 +129,91 @@ def estimate_noise_floor(
         "noise_floor_percent_observed": abs(ci_high) if ci_high is not None else None,
         "control_median_percent": med,
     }
+
+
+def effective_noise_floor(declared: float, observed: float | None) -> float:
+    """Return the conservative floor used by every matched verifier cell."""
+    declared_value = float(declared)
+    if not math.isfinite(declared_value) or declared_value < 0:
+        raise ValueError("declared noise floor must be a finite non-negative number")
+    if observed is None:
+        return declared_value
+    observed_value = float(observed)
+    if not math.isfinite(observed_value) or observed_value < 0:
+        raise ValueError("observed noise floor must be a finite non-negative number")
+    return max(declared_value, observed_value)
+
+
+def _noise_control_digest(payload: dict[str, Any]) -> str:
+    body = {key: value for key, value in payload.items() if key != "artifact_digest"}
+    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def write_noise_control(path: str | Path, artifact: dict[str, Any]) -> dict[str, Any]:
+    """Write one immutable task×outer-trial same-host control artifact."""
+    payload = dict(artifact)
+    payload["schema_version"] = NOISE_CONTROL_SCHEMA_VERSION
+    payload["effective_noise_floor_percent"] = effective_noise_floor(
+        float(payload["declared_noise_floor_percent"]),
+        payload.get("observed_noise_floor_percent"),
+    )
+    payload["artifact_digest"] = _noise_control_digest(payload)
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return payload
+
+
+def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Load and fail closed on an incompatible or tampered control artifact."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"noise control artifact unavailable: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("noise control artifact must be an object")
+    if payload.get("schema_version") != NOISE_CONTROL_SCHEMA_VERSION:
+        raise ValueError("noise control schema_version mismatch")
+    digest = payload.get("artifact_digest")
+    if not isinstance(digest, str) or digest != _noise_control_digest(payload):
+        raise ValueError("noise control artifact digest mismatch")
+    required = {
+        "task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest",
+        "hardware_fingerprint", "software_fingerprint", "compile_threads",
+        "compiler_cache_policy", "control_a_runs", "control_b_runs",
+        "observed_noise_floor_percent", "declared_noise_floor_percent",
+        "effective_noise_floor_percent",
+    }
+    missing = sorted(key for key in required if key not in payload)
+    if missing:
+        raise ValueError("noise control artifact missing: " + ", ".join(missing))
+    if not isinstance(payload["control_a_runs"], list) or not isinstance(payload["control_b_runs"], list):
+        raise ValueError("noise control control runs must be arrays")
+    if len(payload["control_a_runs"]) != 5 or len(payload["control_b_runs"]) != 5:
+        raise ValueError("noise control artifact requires five control repetitions per arm")
+    for key in ("control_a_runs", "control_b_runs"):
+        if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in payload[key]):
+            raise ValueError(f"noise control {key} must contain positive finite measurements")
+    expected = expected or {}
+    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better"):
+        if key in expected and payload.get(key) != expected[key]:
+            raise ValueError(f"noise control {key} mismatch")
+    for key in ("hardware_fingerprint", "software_fingerprint"):
+        if key not in expected:
+            continue
+        observed = payload.get(key)
+        reference = expected[key]
+        if not isinstance(observed, dict) or not isinstance(reference, dict):
+            raise ValueError(f"noise control {key} missing")
+        compatible, reasons = fingerprints_compatible(observed, reference)
+        if not compatible:
+            raise ValueError(f"noise control {key} mismatch: {'; '.join(reasons)}")
+    observed_floor = payload.get("observed_noise_floor_percent")
+    expected_floor = effective_noise_floor(float(payload["declared_noise_floor_percent"]), observed_floor)
+    if float(payload.get("effective_noise_floor_percent")) != expected_floor:
+        raise ValueError("noise control effective floor mismatch")
+    return payload
 
 
 def robust_speedup_verdict(

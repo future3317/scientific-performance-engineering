@@ -416,6 +416,7 @@ def run_paired_measurement(
     fixtures_by_rep: dict[int, Any] = {}
     fixture_hash_by_rep: dict[int, str] = {}
     for arm, rep in order_plan:
+        arm_started = time.perf_counter()
         record["run_order"].append(arm)
         fixture_seed = seed * 100003 + rep
         if reuse_fixture_per_repetition:
@@ -443,9 +444,12 @@ def run_paired_measurement(
             record["fixture_hashes"][f"{arm}:{rep}"] = fixture_hash(fixtures)
             record["fixture_hash_time_s"] += time.perf_counter() - hash_started
         path = baseline_path if arm == "baseline" else candidate_path
+        load_started = time.perf_counter()
         solution = call_benchmark_fn(benchmark_module.load_solution, path=str(path), device=device)
+        load_wall = time.perf_counter() - load_started
         if l2_thrash_between:
             l2_thrash(device)
+        performance_started = time.perf_counter()
         result = call_benchmark_fn(
             benchmark_module.run_performance,
             solution=solution,
@@ -454,10 +458,19 @@ def run_paired_measurement(
             iterations=iterations,
             device=device,
         )
+        performance_wall = time.perf_counter() - performance_started
         perf = normalize_performance(result)
         record[f"{arm}_runs"].append(perf["value"])
         record["work_units"][f"{arm}:{rep}"] = perf["work_units"]
         record["output_checksums"][f"{arm}:{rep}"] = perf["output_checksums"]
         raw = perf["raw"] if isinstance(perf["raw"], dict) else {}
-        record["timing"].append({"arm": arm, "rep": rep, "timing": raw.get("timing", {})})
+        record["timing"].append({
+            "arm": arm,
+            "rep": rep,
+            "repetition": rep,
+            "arm_total_wall_s": time.perf_counter() - arm_started,
+            "load_solution_wall_s": load_wall,
+            "run_performance_wall_s": performance_wall,
+            "timing": raw.get("timing", {}),
+        })
     return record

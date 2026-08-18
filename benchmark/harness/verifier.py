@@ -21,7 +21,7 @@ import json
 import time
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from . import anticheat, miniyaml, runner, stats
 from .fingerprint import capture_fingerprint
@@ -258,6 +258,76 @@ def _fresh_input_correctness(
     return {"passed": all_passed, "per_input": per_input, "output_checksums": checksums}
 
 
+def calibrate_noise_control(
+    task_dir: str | Path,
+    solution_dir: str | Path,
+    out_path: str | Path,
+    *,
+    task_id: str,
+    outer_trial_id: str,
+    benchmark_revision: str,
+    task_manifest_digest: str,
+    hardware_fingerprint: dict[str, Any] | None = None,
+    compiler_cache_policy: str = "verifier-invocation-scoped",
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Run the one preregistered baseline-vs-baseline calibration.
+
+    This path intentionally performs only the control measurement.  Candidate
+    verifiers consume its immutable artifact and never rerun these controls.
+    """
+    task_dir = Path(task_dir)
+    solution_dir = Path(solution_dir)
+    spec = load_task_yaml(task_dir)
+    device, usable = runner.select_device(bool(spec.get("requires_cuda")))
+    if not usable:
+        raise RuntimeError("noise control requires CUDA but no usable device is available")
+    module = runner.import_module_by_path(task_dir / "benchmark.py")
+    entrypoint = str(spec["workspace"]["entrypoint"])
+    baseline_path = solution_dir / entrypoint
+    if not baseline_path.is_file():
+        baseline_path = task_dir / "workspace" / entrypoint
+    measurement_cfg = spec["measurement"]
+    calibration_cfg = dict(measurement_cfg)
+    calibration_cfg["repetitions"] = 5
+    is_kernel = str(spec.get("family", "")) == "compiler" or spec["workspace"].get("api") == "kernel_module_v1"
+    record = runner.run_paired_measurement(
+        module,
+        baseline_path=baseline_path,
+        candidate_path=baseline_path,
+        measurement_cfg=calibration_cfg,
+        seed=seed,
+        device=device,
+        l2_thrash_between=is_kernel,
+        reuse_fixture_per_repetition=str(spec.get("family_id", "")) == "h2d_pipeline",
+    )
+    control_a = [float(value) for value in record.get("baseline_runs", []) if value is not None]
+    control_b = [float(value) for value in record.get("candidate_runs", []) if value is not None]
+    if len(control_a) != 5 or len(control_b) != 5:
+        raise RuntimeError("noise control requires five complete repetitions per arm")
+    higher_is_better = bool(measurement_cfg.get("higher_is_better", False))
+    floor = stats.estimate_noise_floor(control_a, control_b, higher_is_better)
+    fingerprint = hardware_fingerprint or capture_fingerprint()
+    artifact = {
+        "task_id": task_id,
+        "outer_trial_id": outer_trial_id,
+        "benchmark_revision": benchmark_revision,
+        "task_manifest_digest": task_manifest_digest,
+        "hardware_fingerprint": fingerprint,
+        "software_fingerprint": fingerprint,
+        "compile_threads": int(measurement_cfg.get("compile_threads", 0)),
+        "compiler_cache_policy": compiler_cache_policy,
+        "primary_metric": measurement_cfg.get("primary_metric"),
+        "higher_is_better": higher_is_better,
+        "control_a_runs": control_a,
+        "control_b_runs": control_b,
+        "observed_noise_floor_percent": floor["noise_floor_percent_observed"],
+        "declared_noise_floor_percent": float(measurement_cfg.get("noise_floor_percent", 2.0)),
+        "calibration_record": {"timing": record.get("timing", []), "fixture_hashes": record.get("fixture_hashes", {})},
+    }
+    return stats.write_noise_control(out_path, artifact)
+
+
 def verify_task(
     task_dir: str | Path,
     solution_dir: str | Path,
@@ -266,6 +336,9 @@ def verify_task(
     seed: int = 0,
     condition: str = "standalone",
     context_mode: str = "reset",
+    noise_control_path: str | Path | None = None,
+    noise_control_required: bool = False,
+    noise_control_expected: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the S0-S6 pipeline; return (and optionally write) the result dict."""
     started = time.perf_counter()
@@ -310,6 +383,33 @@ def verify_task(
         "harness_hash": {},
         "errors": errors,
     }
+    # Formal cells must use the immutable, same-host calibration artifact.  A
+    # missing or incompatible artifact is a resource block, never a fallback
+    # to the task's declared floor.
+    noise_control: dict[str, Any] | None = None
+    if noise_control_path is not None or noise_control_required:
+        expected = dict(noise_control_expected or {})
+        expected.setdefault("task_id", str(spec.get("task_id")))
+        expected.setdefault("hardware_fingerprint", result["fingerprint"])
+        expected.setdefault("primary_metric", spec["measurement"].get("primary_metric"))
+        expected.setdefault("higher_is_better", bool(spec["measurement"].get("higher_is_better", False)))
+        expected.setdefault("compile_threads", int(spec["measurement"].get("compile_threads", 0)))
+        expected.setdefault("compiler_cache_policy", "verifier-invocation-scoped")
+        try:
+            if noise_control_path is None:
+                raise ValueError("noise control artifact is required")
+            noise_control = stats.read_noise_control(noise_control_path, expected)
+            result["noise_control_digest"] = noise_control["artifact_digest"]
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            result.update({
+                "verdict": "inconclusive",
+                "validity": "invalid",
+                "execution_validity": "resource_blocked",
+                "protocol_failure": False,
+                "noise_control_error": str(exc),
+            })
+            errors.append(f"noise control unavailable or incompatible: {exc}")
+            return _finalize(result, started, out_path)
     stage_started = time.perf_counter()
 
     def mark_stage(name: str) -> None:
@@ -442,16 +542,6 @@ def verify_task(
             l2_thrash_between=kernel_task,
             reuse_fixture_per_repetition=reuse_fixture_per_repetition,
         )
-        control = runner.run_paired_measurement(
-            benchmark_module,
-            baseline_path=baseline_path,
-            candidate_path=baseline_path,  # baseline-vs-baseline control
-            measurement_cfg=measurement_cfg,
-            seed=seed + 1,
-            device=device,
-            l2_thrash_between=kernel_task,
-            reuse_fixture_per_repetition=reuse_fixture_per_repetition,
-        )
     except Exception as exc:
         result["verdict"] = "error"
         result["protocol_failure"] = True
@@ -485,23 +575,23 @@ def verify_task(
         return _finalize(result, started, out_path)
 
     higher_is_better = bool(measurement_cfg.get("higher_is_better", False))
-    floor = stats.estimate_noise_floor(
-        [v for v in control["baseline_runs"] if v is not None],
-        [v for v in control["candidate_runs"] if v is not None],
-        higher_is_better,
-    )
+    declared_floor = float(measurement_cfg.get("noise_floor_percent", 2.0))
+    observed_floor = noise_control.get("observed_noise_floor_percent") if noise_control else None
+    effective_floor = float(noise_control["effective_noise_floor_percent"]) if noise_control else stats.effective_noise_floor(declared_floor, observed_floor)
     verdict = stats.robust_speedup_verdict(
         [v for v in record["baseline_runs"] if v is not None],
         [v for v in record["candidate_runs"] if v is not None],
         higher_is_better,
         float(measurement_cfg.get("min_improvement_percent", 5.0)),
-        float(measurement_cfg.get("noise_floor_percent", 2.0)),
+        effective_floor,
     )
-    if floor["noise_floor_percent_observed"] is not None:
-        record["noise_floor_percent_observed"] = floor["noise_floor_percent_observed"]
+    record["noise_floor_percent_declared"] = declared_floor
+    record["noise_floor_percent_observed"] = observed_floor
+    record["noise_floor_percent_effective"] = effective_floor
+    if noise_control:
+        record["noise_control_digest"] = noise_control["artifact_digest"]
     record["primary_metric"] = measurement_cfg.get("primary_metric")
     record["higher_is_better"] = higher_is_better
-    record["control_runs"] = control["candidate_runs"]
     result["measurement"] = record
     result["verified_speedup"] = verdict
 

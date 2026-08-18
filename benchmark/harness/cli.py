@@ -49,6 +49,15 @@ def _cmd_run_task(args: argparse.Namespace) -> int:
         seed=args.seed,
         condition=args.condition,
         context_mode=args.context_mode,
+        noise_control_path=args.noise_control,
+        noise_control_required=args.noise_control_required,
+        noise_control_expected={
+            key: value for key, value in {
+                "outer_trial_id": args.outer_trial_id,
+                "benchmark_revision": args.benchmark_revision,
+                "task_manifest_digest": args.task_manifest_digest,
+            }.items() if value is not None
+        },
     )
     verdict = result["verdict"]
     speedup = result.get("verified_speedup", {})
@@ -58,6 +67,24 @@ def _cmd_run_task(args: argparse.Namespace) -> int:
         f"-> {args.out}"
     )
     return {"pass": 0, "fail": 1, "inconclusive": 3, "error": 2}.get(verdict, 2)
+
+
+def _cmd_calibrate_noise_control(args: argparse.Namespace) -> int:
+    from . import verifier
+
+    verifier.calibrate_noise_control(
+        args.task_dir,
+        args.solution,
+        args.out,
+        task_id=args.task_id,
+        outer_trial_id=args.outer_trial_id,
+        benchmark_revision=args.benchmark_revision,
+        task_manifest_digest=args.task_manifest_digest,
+        compiler_cache_policy=args.compiler_cache_policy,
+        seed=args.seed,
+    )
+    print(f"calibrate-noise-control: {args.task_id}/{args.outer_trial_id} -> {args.out}")
+    return 0
 
 
 def _cmd_materialize_condition(args: argparse.Namespace) -> int:
@@ -134,7 +161,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--condition", default="standalone", choices=["A", "B", "C", "D", "standalone"])
     p.add_argument("--context-mode", default="reset", choices=["reset", "carry"])
+    p.add_argument("--noise-control", type=Path, default=None)
+    p.add_argument("--noise-control-required", action="store_true")
+    p.add_argument("--outer-trial-id", default=None)
+    p.add_argument("--benchmark-revision", default=None)
+    p.add_argument("--task-manifest-digest", default=None)
     p.set_defaults(func=_cmd_run_task)
+
+    p = sub.add_parser("calibrate-noise-control", help="run one same-host baseline-vs-baseline calibration")
+    p.add_argument("task_dir", type=Path)
+    p.add_argument("--solution", type=Path, required=True)
+    p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--outer-trial-id", required=True)
+    p.add_argument("--benchmark-revision", required=True)
+    p.add_argument("--task-manifest-digest", required=True)
+    p.add_argument("--compiler-cache-policy", default="verifier-invocation-scoped")
+    p.add_argument("--seed", type=int, default=0)
+    p.set_defaults(func=_cmd_calibrate_noise_control)
 
     p = sub.add_parser("materialize-condition", help="build an A/B/C/D condition store from a snapshot")
     p.add_argument("condition", choices=["A", "B", "C", "C_STRESS", "D"])

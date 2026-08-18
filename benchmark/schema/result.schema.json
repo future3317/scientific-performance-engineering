@@ -112,15 +112,17 @@
     },
     "measurement": {
       "type": "object",
-      "description": "Raw measurement record: run_order, per-run baseline/candidate primary metric values, work-unit counters, output checksums, fixture hashes, noise floor.",
+      "description": "Raw paired measurement record. Same-host noise control is a preregistered artifact shared by matched cells, not rerun here.",
       "properties": {
         "primary_metric": {"type": "string"},
         "higher_is_better": {"type": "boolean"},
         "run_order": {"type": "array", "items": {"type": "string", "enum": ["baseline", "candidate"]}},
         "baseline_runs": {"type": "array", "items": {"type": "number"}},
         "candidate_runs": {"type": "array", "items": {"type": "number"}},
-        "control_runs": {"type": "array", "items": {"type": "number"}},
+        "noise_control_digest": {"type": "string"},
         "noise_floor_percent_observed": {"type": ["number", "null"]},
+        "noise_floor_percent_declared": {"type": "number"},
+        "noise_floor_percent_effective": {"type": "number"},
         "work_units": {"type": "object"},
         "output_checksums": {"type": "object"},
         "fixture_hashes": {"type": "object"}

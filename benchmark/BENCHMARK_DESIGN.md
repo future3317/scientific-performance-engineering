@@ -294,8 +294,12 @@ S6 verdict        -> emit result.json (schema/result.schema.json): gates, verifi
   from statistics, kept in raw).
 - Statistics (mirroring `scripts/compare_benchmarks.py` semantics): per-run paired
   improvement %, median/IQR/MAD, bootstrap CI (seeded `random.Random(0)`,
-  `bootstrap_samples=2000`, confidence 0.95), noise floor from a baseline-vs-baseline
-  control measurement run on the same host.
+  `bootstrap_samples=2000`, confidence 0.95). The noise floor comes from a
+  same-host, preregistered baseline-vs-baseline calibration artifact run once per
+  `task × outer_trial × execution environment`; that artifact is shared by all
+  matched A/B/C/D cells and records its task/revision, fingerprint, compiler-thread,
+  and cache-policy bindings. A missing or incompatible artifact is
+  `resource_blocked`; the verifier never falls back to the declared floor.
 - **Verified speedup** = CI lower bound ≥ `max(min_improvement_percent,
   noise_floor_percent)`. Otherwise `inconclusive` (not zero-speedup).
 - Formal campaign aggregation keeps this task-level measurement separate from
