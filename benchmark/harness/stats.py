@@ -116,15 +116,20 @@ def estimate_noise_floor(
 ) -> dict[str, float | None]:
     """Noise floor from baseline-vs-baseline control runs on the same host.
 
-    The observed floor is the bootstrap CI *upper* bound of the control-vs-control
-    median improvement: any real effect must clear both the declared floor and
-    what identical code demonstrably produces here.
+    The observed floor is the bootstrap CI *upper* bound of the median symmetric
+    multiplicative deviation between identical controls.  The construction is
+    label-symmetric, so swapping the two control arms cannot change the floor.
     """
-    improvements = paired_improvements(control_a_runs, control_b_runs, higher_is_better)
-    if not improvements:
+    del higher_is_better  # identical controls have no directional improvement
+    deviations = [
+        (max(float(a) / float(b), float(b) / float(a)) - 1.0) * 100.0
+        for a, b in zip(control_a_runs, control_b_runs)
+        if float(a) > 0 and float(b) > 0
+    ]
+    if not deviations:
         return {"noise_floor_percent_observed": None, "control_median_percent": None}
-    med = median(improvements)
-    _, ci_high = bootstrap_ci(improvements, confidence, samples)
+    med = median(deviations)
+    _, ci_high = bootstrap_ci(deviations, confidence, samples)
     return {
         "noise_floor_percent_observed": abs(ci_high) if ci_high is not None else None,
         "control_median_percent": med,
@@ -183,7 +188,7 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         "hardware_fingerprint", "software_fingerprint", "compile_threads",
         "compiler_cache_policy", "control_a_runs", "control_b_runs",
         "observed_noise_floor_percent", "declared_noise_floor_percent",
-        "effective_noise_floor_percent",
+        "effective_noise_floor_percent", "expected_speedup_range",
     }
     missing = sorted(key for key in required if key not in payload)
     if missing:
@@ -196,7 +201,7 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in payload[key]):
             raise ValueError(f"noise control {key} must contain positive finite measurements")
     expected = expected or {}
-    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better"):
+    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better", "expected_speedup_range"):
         if key in expected and payload.get(key) != expected[key]:
             raise ValueError(f"noise control {key} mismatch")
     for key in ("hardware_fingerprint", "software_fingerprint"):

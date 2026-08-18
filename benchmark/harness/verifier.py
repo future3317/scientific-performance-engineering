@@ -268,7 +268,7 @@ def calibrate_noise_control(
     benchmark_revision: str,
     task_manifest_digest: str,
     hardware_fingerprint: dict[str, Any] | None = None,
-    compiler_cache_policy: str = "verifier-invocation-scoped",
+    compiler_cache_policy: str = "arm-repetition-fresh",
     seed: int = 0,
 ) -> dict[str, Any]:
     """Run the one preregistered baseline-vs-baseline calibration.
@@ -317,6 +317,7 @@ def calibrate_noise_control(
         "software_fingerprint": fingerprint,
         "compile_threads": int(measurement_cfg.get("compile_threads", 0)),
         "compiler_cache_policy": compiler_cache_policy,
+        "expected_speedup_range": spec.get("oracle", {}).get("expected_speedup_range"),
         "primary_metric": measurement_cfg.get("primary_metric"),
         "higher_is_better": higher_is_better,
         "control_a_runs": control_a,
@@ -378,6 +379,7 @@ def verify_task(
         "cost": {"wall_time_s": 0.0, "tokens": None, "tool_calls": None, "retries": 0},
         "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "canary_tripped": False},
         "fingerprint": capture_fingerprint(),
+        "calibration_status": "not_evaluated",
         "measurement": {},
         "stage_times_s": {},
         "harness_hash": {},
@@ -395,12 +397,24 @@ def verify_task(
         expected.setdefault("primary_metric", spec["measurement"].get("primary_metric"))
         expected.setdefault("higher_is_better", bool(spec["measurement"].get("higher_is_better", False)))
         expected.setdefault("compile_threads", int(spec["measurement"].get("compile_threads", 0)))
-        expected.setdefault("compiler_cache_policy", "verifier-invocation-scoped")
+        expected.setdefault("compiler_cache_policy", "arm-repetition-fresh")
+        expected.setdefault("expected_speedup_range", spec.get("oracle", {}).get("expected_speedup_range"))
         try:
             if noise_control_path is None:
                 raise ValueError("noise control artifact is required")
             noise_control = stats.read_noise_control(noise_control_path, expected)
             result["noise_control_digest"] = noise_control["artifact_digest"]
+            expected_range = spec.get("oracle", {}).get("expected_speedup_range")
+            effective_floor = float(noise_control["effective_noise_floor_percent"])
+            if isinstance(expected_range, (list, tuple)) and len(expected_range) == 2:
+                oracle_upper = float(expected_range[1])
+                if 1.0 + effective_floor / 100.0 >= oracle_upper:
+                    result["calibration_status"] = "blocked"
+                    result["calibration_block_reason"] = (
+                        "effective noise floor reaches or exceeds oracle speedup cap"
+                    )
+                else:
+                    result["calibration_status"] = "eligible"
         except (OSError, ValueError, TypeError, KeyError) as exc:
             result.update({
                 "verdict": "inconclusive",

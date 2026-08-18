@@ -25,6 +25,10 @@ _COMPARABLE_FIELDS = (
     "gpu_name",
     "gpu_count",
     "torch_geometric_version",
+    "cpu_affinity",
+    "driver_version",
+    "cuda_visible_devices",
+    "gpu_uuid",
 )
 
 
@@ -40,6 +44,37 @@ def _nvidia_smi_driver() -> str | None:
         return output.strip().splitlines()[0].strip() or None
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
         return None
+
+
+def _nvidia_smi_gpu_uuids() -> list[str]:
+    """Return physical GPU UUIDs in nvidia-smi order when available."""
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+        return [line.strip() for line in output.splitlines() if line.strip()]
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return []
+
+
+def _selected_gpu_uuid() -> str | None:
+    uuids = _nvidia_smi_gpu_uuids()
+    if not uuids:
+        return None
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible:
+        first = visible.split(",", 1)[0].strip()
+        if first.startswith("GPU-"):
+            return first
+        try:
+            index = int(first)
+        except ValueError:
+            index = 0
+        return uuids[index] if 0 <= index < len(uuids) else None
+    return uuids[0]
 
 
 def _optional_pyg_version() -> str | None:
@@ -76,6 +111,9 @@ def capture_fingerprint() -> dict[str, Any]:
         "gpu_name": None,
         "gpu_count": 0,
         "driver_version": None,
+        "gpu_uuid": None,
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
         "torch_geometric_version": _optional_pyg_version(),
         "env": {key: os.environ.get(key) for key in _ENV_KEYS},
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -90,6 +128,7 @@ def capture_fingerprint() -> dict[str, Any]:
             fingerprint["gpu_count"] = torch.cuda.device_count()
             fingerprint["gpu_name"] = torch.cuda.get_device_name(0)
             fingerprint["driver_version"] = _nvidia_smi_driver()
+            fingerprint["gpu_uuid"] = _selected_gpu_uuid()
     except Exception as exc:  # torch missing/broken must not kill the harness
         fingerprint["torch_error"] = repr(exc)
     fingerprint["psutil_extras"] = _psutil_extras()

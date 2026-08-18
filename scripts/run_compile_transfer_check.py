@@ -39,7 +39,11 @@ def _first_tensor(inputs: tuple[Any, ...]) -> Any:
 def _run(module: Any, inputs: tuple[Any, ...], *, targeted_dynamic: bool) -> dict[str, Any]:
     import torch
 
-    torch._dynamo.reset()
+    reset = getattr(getattr(torch, "compiler", None), "reset", None)
+    if callable(reset):
+        reset()
+    else:
+        torch._dynamo.reset()
     compiled = torch.compile(module, dynamic=False)
     call_inputs = list(inputs)
     first = _first_tensor(inputs)

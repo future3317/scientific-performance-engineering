@@ -17,7 +17,8 @@ def _artifact(**overrides: object) -> dict[str, object]:
         "hardware_fingerprint": {"python_version": "3.11", "platform": "test", "torch_version": "2", "cuda_version": None, "gpu_name": None, "gpu_count": 0, "torch_geometric_version": None, "cuda_available": False},
         "software_fingerprint": {"python_version": "3.11", "platform": "test", "torch_version": "2", "cuda_version": None, "gpu_name": None, "gpu_count": 0, "torch_geometric_version": None, "cuda_available": False},
         "compile_threads": 2,
-        "compiler_cache_policy": "verifier-invocation-scoped",
+        "compiler_cache_policy": "arm-repetition-fresh",
+        "expected_speedup_range": [0.9, 1.1],
         "higher_is_better": False,
         "primary_metric": "step_ms_p50",
         "control_a_runs": [10.0, 10.0, 10.0, 10.0, 10.0],
@@ -35,13 +36,19 @@ def test_noise_control_effective_floor_uses_observed_maximum() -> None:
     assert stats.effective_noise_floor(2.0, 0.8) == 2.0
 
 
+def test_noise_floor_is_label_symmetric() -> None:
+    a = [10.0, 8.0, 12.0, 10.0, 9.0]
+    b = [9.0, 10.0, 10.0, 12.0, 10.0]
+    assert stats.estimate_noise_floor(a, b, False) == stats.estimate_noise_floor(b, a, False)
+
+
 def test_noise_control_artifact_round_trip_and_digest() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "noise_control.json"
         stats.write_noise_control(path, _artifact())
         loaded = stats.read_noise_control(
             path,
-            {"task_id": "TASK-1", "outer_trial_id": "outer-0", "benchmark_revision": "abc123", "task_manifest_digest": "tasks-digest", "compile_threads": 2, "compiler_cache_policy": "verifier-invocation-scoped", "hardware_fingerprint": _artifact()["hardware_fingerprint"]},
+            {"task_id": "TASK-1", "outer_trial_id": "outer-0", "benchmark_revision": "abc123", "task_manifest_digest": "tasks-digest", "compile_threads": 2, "compiler_cache_policy": "arm-repetition-fresh", "expected_speedup_range": [0.9, 1.1], "hardware_fingerprint": _artifact()["hardware_fingerprint"]},
         )
         assert loaded["artifact_digest"]
         path.write_text(path.read_text(encoding="utf-8").replace("abc123", "tampered"), encoding="utf-8")
@@ -74,6 +81,7 @@ def test_noise_control_environment_bindings_are_fail_closed() -> None:
             {"compile_threads": 4},
             {"compiler_cache_policy": "shared"},
             {"hardware_fingerprint": dict(artifact["hardware_fingerprint"], torch_version="other")},
+            {"hardware_fingerprint": dict(artifact["hardware_fingerprint"], cpu_affinity=[99])},
         ):
             try:
                 stats.read_noise_control(path, expected)
@@ -133,7 +141,7 @@ def test_formal_verifier_consumes_artifact_without_rerunning_control(monkeypatch
 
     monkeypatch.setattr(verifier.runner, "run_paired_measurement", paired)
     fp = verifier.capture_fingerprint()
-    artifact = _artifact(task_id="CORE-COMPILE-TINY-12", hardware_fingerprint=fp, software_fingerprint=fp, compile_threads=2, primary_metric="schedule_wall_ms", higher_is_better=False)
+    artifact = _artifact(task_id="CORE-COMPILE-TINY-12", hardware_fingerprint=fp, software_fingerprint=fp, compile_threads=2, primary_metric="schedule_wall_ms", higher_is_better=False, expected_speedup_range=[0.9, 1.1])
     artifact_path = tmp_path / "noise.json"
     stats.write_noise_control(artifact_path, artifact)
     result = verifier.verify_task(
@@ -146,6 +154,7 @@ def test_formal_verifier_consumes_artifact_without_rerunning_control(monkeypatch
     assert len(calls) == 1, result
     assert "control_runs" not in result.get("measurement", {})
     assert result["measurement"]["noise_floor_percent_effective"] == 3.5
+    assert result["calibration_status"] == "eligible"
 
 
 def test_required_noise_control_missing_is_resource_blocked(monkeypatch, tmp_path) -> None:

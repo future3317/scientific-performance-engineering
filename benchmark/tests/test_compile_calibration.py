@@ -143,6 +143,39 @@ def test_compile_profile_projects_graph_size_and_horizon():
         assert profile["primary_scope"] == "full_schedule"
 
 
+def test_compile_primary_uses_complete_schedule_bracket(monkeypatch):
+    from benchmark.tasks import _compile_benchmark as module
+    sync_calls = []
+    monkeypatch.setattr(module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(module.torch.cuda, "synchronize", lambda: sync_calls.append(True))
+    monkeypatch.setattr(module, "_set_compile_threads", lambda profile: None)
+    fixtures = {
+        "batch_sizes": [2, 2],
+        "inputs": module.torch.randn(4, 2),
+        "targets": module.torch.randn(4, 1),
+        "optimizer_config": {"lr": 0.001},
+        "compile_profile": {"compile_threads": 2, "primary_scope": "full_schedule"},
+    }
+
+    class Solution:
+        @staticmethod
+        def build_model(_fixtures):
+            return module.torch.nn.Linear(2, 1)
+
+        @staticmethod
+        def train_step(model, batch, optimizer):
+            optimizer.zero_grad()
+            loss = (model(batch[0]) - batch[1]).pow(2).mean()
+            loss.backward()
+            optimizer.step()
+            return {"loss": loss}
+
+    result = module._run_performance(Solution, fixtures, warmup=1, iterations=2, device="cuda")
+    assert result["value"] == result["timing"]["schedule_wall_ms"]
+    assert result["timing"]["step_timing_scope"] == "host_dispatch_diagnostic"
+    assert len(sync_calls) == 2
+
+
 def test_compile_actions_use_mechanism_specific_applicability():
     family = FAMILY_SPECS["compile"]
     recompile = {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.0}

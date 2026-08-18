@@ -288,17 +288,18 @@ S6 verdict        -> emit result.json (schema/result.schema.json): gates, verifi
 - Warmup `warmup_iterations`, then `measured_iterations` timed iterations per run;
   `repetitions` paired runs, **interleaved** baseline/candidate ordering with the order
   itself seeded and recorded (`run_order`).
-- CUDA tasks: `torch.cuda.synchronize` bracketing, CUDA events *and* host wall clock
-  (cross-checked; divergence beyond tolerance → inconclusive), L2-cache thrash between
-  trials for kernel-level tasks, steady-state only (first measured iteration dropped
-  from statistics, kept in raw).
+- CUDA tasks: after warmup, synchronize once, bracket the complete measured schedule
+  with a host wall clock, then synchronize once before stopping it. CUDA events may be
+  retained as diagnostics; per-step host-dispatch timings are diagnostic only and do
+  not define the primary `full_schedule` value. L2-cache thrash is used between trials
+  for kernel-level tasks.
 - Statistics (mirroring `scripts/compare_benchmarks.py` semantics): per-run paired
   improvement %, median/IQR/MAD, bootstrap CI (seeded `random.Random(0)`,
   `bootstrap_samples=2000`, confidence 0.95). The noise floor comes from a
   same-host, preregistered baseline-vs-baseline calibration artifact run once per
   `task × outer_trial × execution environment`; that artifact is shared by all
   matched A/B/C/D cells and records its task/revision, fingerprint, compiler-thread,
-  and cache-policy bindings. A missing or incompatible artifact is
+  and cache-policy bindings (`arm-repetition-fresh` for compile anchors). A missing or incompatible artifact is
   `resource_blocked`; the verifier never falls back to the declared floor.
 - **Verified speedup** = CI lower bound ≥ `max(min_improvement_percent,
   noise_floor_percent)`. Otherwise `inconclusive` (not zero-speedup).
@@ -348,6 +349,8 @@ formal runs; the static scan is defense-in-depth, not a proof.
 
 - `correctness_pass` (bool), `scientific_gates` (map name→bool)
 - `verified_speedup`: median paired speedup, CI low/high, `verified` bool, `inconclusive` bool
+- `calibration_status`: `eligible` only when the effective noise floor is below the task oracle cap;
+  otherwise `blocked` and the cell cannot supply a positive calibration anchor.
 - `time_to_quality_s` + `reached` (where applicable)
 - `diagnosis`: predicted mechanism(s) vs `expected_mechanism.json` → `diagnosis_correct`
 - `cost`: wall time, token/tool counts (filled by the outer agent driver)

@@ -85,6 +85,21 @@ def _reset_dynamo_diagnostics() -> None:
         pass
 
 
+def _reset_compiler_state() -> None:
+    """Reset in-process compiler state before each fresh arm/repetition."""
+    compiler = getattr(torch, "compiler", None)
+    reset = getattr(compiler, "reset", None)
+    if callable(reset):
+        reset()
+        return
+    # PyTorch versions before torch.compiler.reset exposed the same operation
+    # through the private Dynamo entry point.
+    dynamo = getattr(torch, "_dynamo", None)
+    reset = getattr(dynamo, "reset", None)
+    if callable(reset):
+        reset()
+
+
 def _set_compile_threads(profile: dict[str, Any]) -> None:
     # The task contract fixes this value for A/B/C/D; it must not depend on the
     # host's affinity-derived default (which can fan out to dozens of workers).
@@ -196,10 +211,18 @@ def _run_performance(
 
     for index in range(warmup):
         run_step(index)
+    if device.startswith("cuda") and torch.cuda.is_available():
+        # Warmup may enqueue compilation and kernels.  Complete it before the
+        # authoritative schedule bracket without synchronizing each step.
+        torch.cuda.synchronize()
+    schedule_started = time.perf_counter()
     for index in range(iterations):
         start = time.perf_counter()
         run_step(index)
         measured.append((time.perf_counter() - start) * 1000.0)
+    if device.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.synchronize()
+    schedule_wall_ms = (time.perf_counter() - schedule_started) * 1000.0
 
     cycle = max(1, len(fixtures["batch_sizes"]))
     cold_schedule_ms = sum(measured[:cycle])
@@ -222,12 +245,14 @@ def _run_performance(
     return {
         # The primary estimand includes the first encounter with every
         # preregistered shape; the post-cycle median remains diagnostic only.
-        "value": sum(measured) if profile.get("primary_scope") == "full_schedule" else cold_schedule_ms,
+        "value": schedule_wall_ms if profile.get("primary_scope") == "full_schedule" else cold_schedule_ms,
         "work_units": {"forward": iterations, "backward": iterations, "optimizer": iterations},
         "output_checksums": {"final_loss": hashlib.sha256(final_loss.detach().cpu().numpy().tobytes()).hexdigest() if final_loss is not None else None},
         "timing": {
             "metric": "schedule_wall_ms" if profile.get("primary_scope") == "full_schedule" else "cold_shape_schedule_ms",
             "step_times_ms": measured,
+            "step_timing_scope": "host_dispatch_diagnostic",
+            "schedule_wall_ms": schedule_wall_ms,
             "cold_schedule_ms": cold_schedule_ms,
             "steady_state_median_ms": statistics.median(steady),
             "shape_schedule": list(fixtures["batch_sizes"]),
@@ -273,7 +298,7 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
         _set_compile_threads(profile)
         allocate_compile_caches()
         try:
-            torch._dynamo.reset()
+            _reset_compiler_state()
         except Exception:
             pass
         module = _import_module_by_path(path, "spe_compile_solution")
@@ -300,7 +325,7 @@ def configure(task_dir: str | Path, profile: dict[str, Any]) -> dict[str, Any]:
             _set_compile_threads(profile)
             allocate_compile_caches()
             try:
-                torch._dynamo.reset()
+                _reset_compiler_state()
             except Exception:
                 pass
             result = _run_performance(

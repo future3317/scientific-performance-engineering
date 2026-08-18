@@ -2226,7 +2226,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "task_manifest_digest": task_digest,
             "hardware_fingerprint": fingerprint,
             "software_fingerprint": fingerprint,
-            "compiler_cache_policy": "verifier-invocation-scoped",
+            "compiler_cache_policy": "arm-repetition-fresh",
+            "expected_speedup_range": miniyaml.load(str(tasks_root / noise_task_id / "task.yaml")).get("oracle", {}).get("expected_speedup_range"),
         }
         if resume and artifact_path.is_file():
             try:
@@ -2299,7 +2300,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "task_manifest_digest": task_digest,
             "hardware_fingerprint": fingerprint,
             "software_fingerprint": fingerprint,
-            "compiler_cache_policy": "verifier-invocation-scoped",
+            "compiler_cache_policy": "arm-repetition-fresh",
+            "expected_speedup_range": task_spec.get("oracle", {}).get("expected_speedup_range"),
         }
         trial_dir = out_dir / "trials" / stream_id / task_id
         trial_dir.mkdir(parents=True, exist_ok=True)
@@ -2792,7 +2794,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                         pass
                 except (OSError, ValueError, TypeError) as exc:
                     budget_errors.append(f"causal intervention realization failed: {exc}")
-        if str(item["condition"]) == "D" and causal_result is not None and control_result is not None:
+        if (
+            str(item["condition"]) == "D"
+            and causal_result is not None
+            and control_result is not None
+            and result.get("calibration_status") != "blocked"
+        ):
             # The immutable verifier's paired outcome is fed back into the
             # canonical lifecycle.  Worker result JSON is never treated as an
             # EvidenceEvent source.
@@ -2882,6 +2889,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "attestation_ok": attestation_ok,
             "execution_validity": "invalid" if budget_errors else "valid",
             "task_outcome": str(scored.get("verdict", result.get("verdict", "error"))),
+            "calibration_status": result.get("calibration_status", "not_evaluated"),
             # A protocol-valid candidate failure is still an observed,
             # score-zero efficacy cell.  Only infrastructure/protocol errors
             # are excluded from the efficacy matrix.

@@ -25,6 +25,7 @@
     "task_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
     "condition": {"type": "string", "enum": ["A", "B", "C", "C_STRESS", "D", "standalone"]},
     "context_mode": {"type": "string", "enum": ["reset", "carry"]},
+    "calibration_status": {"type": "string", "enum": ["not_evaluated", "eligible", "blocked"]},
     "verdict": {
       "type": "string",
       "enum": ["pass", "fail", "inconclusive", "error"],
