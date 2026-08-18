@@ -279,6 +279,7 @@ def calibrate_noise_control(
     task_dir = Path(task_dir)
     solution_dir = Path(solution_dir)
     spec = load_task_yaml(task_dir)
+    fingerprint = hardware_fingerprint or capture_fingerprint()
     device, usable = runner.select_device(bool(spec.get("requires_cuda")))
     if not usable:
         raise RuntimeError("noise control requires CUDA but no usable device is available")
@@ -307,7 +308,6 @@ def calibrate_noise_control(
         raise RuntimeError("noise control requires five complete repetitions per arm")
     higher_is_better = bool(measurement_cfg.get("higher_is_better", False))
     floor = stats.estimate_noise_floor(control_a, control_b, higher_is_better)
-    fingerprint = hardware_fingerprint or capture_fingerprint()
     artifact = {
         "task_id": task_id,
         "outer_trial_id": outer_trial_id,
