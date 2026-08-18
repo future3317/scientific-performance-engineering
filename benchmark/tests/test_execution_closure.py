@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from types import SimpleNamespace
 
 from core.acre.engine import AcreEngine
@@ -125,3 +127,27 @@ def test_h2d_fixture_reuse_keeps_identity_and_arm_isolation(tmp_path) -> None:
     assert record["fixture_hashes"]["baseline:1"] == record["fixture_hashes"]["candidate:1"]
     assert record["fixture_build_time_s"] >= 0.0
     assert record["fixture_hash_time_s"] >= 0.0
+
+
+def test_s5_exception_is_protocol_invalid(monkeypatch, tmp_path) -> None:
+    from types import SimpleNamespace
+    from benchmark.harness import verifier
+
+    task_dir = Path(__file__).resolve().parents[1] / "tasks" / "CORE-COMPILE-TINY-12"
+    solution_dir = tmp_path / "solution"
+    solution_dir.mkdir()
+    (solution_dir / "solution.py").write_text("x = 1\n", encoding="utf-8")
+    fake_module = SimpleNamespace(make_fixtures=lambda **kwargs: {}, load_solution=lambda **kwargs: {}, run_scientific_gates=lambda **kwargs: {})
+    monkeypatch.setattr(verifier.runner, "select_device", lambda requires_cuda: ("cpu", True))
+    monkeypatch.setattr(verifier.runner, "import_module_by_path", lambda path: fake_module)
+    monkeypatch.setattr(verifier, "_fresh_input_correctness", lambda *args, **kwargs: {"passed": True, "per_input": [], "output_checksums": {}})
+    monkeypatch.setattr(verifier.runner, "call_benchmark_fn", lambda *args, **kwargs: {"gate": {"passed": True, "details": {}}})
+    def raise_s5(*args, **kwargs):
+        raise RuntimeError("synthetic S5 infrastructure failure")
+    monkeypatch.setattr(verifier.runner, "run_paired_measurement", raise_s5)
+
+    result = verifier.verify_task(task_dir, solution_dir, out_path=tmp_path / "result.json")
+
+    assert result.get("protocol_failure") is True, result.get("errors")
+    assert result["validity"] == "invalid"
+    assert result["verdict"] == "error"

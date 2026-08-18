@@ -113,6 +113,18 @@ def test_verifier_process_group_cleanup_reaps_grandchild() -> None:
     assert _cleanup_process_group(process) == []
 
 
+
+def test_verifier_process_group_cleanup_kills_term_resistant_grandchild() -> None:
+    import subprocess
+    import sys
+
+    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+    parent_code = f"import subprocess,sys; subprocess.Popen([sys.executable, '-c', {child_code!r}]); raise SystemExit(3)"
+    process = subprocess.Popen([sys.executable, "-c", parent_code], start_new_session=True)
+    process.wait(timeout=5)
+    assert process.returncode == 3
+    assert _cleanup_process_group(process, grace_s=0.05) == []
+
 def test_resume_uses_final_digest_and_persists_stream_block(tmp_path: Path) -> None:
     from scripts.render_skill_view import render_skill_view
 

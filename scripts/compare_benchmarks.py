@@ -40,7 +40,6 @@ COMPARABILITY_PATHS = (
     "hardware.gpu",
     "hardware.gpu_uuid",
     "hardware.device_index",
-    "hardware.gpu_state",
     "hardware.world_size",
     "hardware.storage",
     "software.python",
@@ -481,10 +480,8 @@ def gpu_state_status(baseline: dict[str, Any], candidate: dict[str, Any]) -> lis
     """Reject material clock/power/thermal state changes as inconclusive."""
     before = get_path(baseline, "hardware.gpu_state")
     after = get_path(candidate, "hardware.gpu_state")
-    if before is None and after is None:
-        return []
     if not isinstance(before, dict) or not isinstance(after, dict):
-        return ["GPU state is missing on one side"]
+        return ["GPU state telemetry is missing on one side"]
     reasons: list[str] = []
     numeric = {
         "power_limit_w": (0.10, 0.0),
@@ -496,12 +493,18 @@ def gpu_state_status(baseline: dict[str, Any], candidate: dict[str, Any]) -> lis
     for key, (relative, absolute) in numeric.items():
         left, right = _state_value(before.get(key)), _state_value(after.get(key))
         if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
+            reasons.append(f"GPU state telemetry missing for {key}")
             continue
         if abs(float(left) - float(right)) > max(absolute, relative * max(abs(float(left)), abs(float(right)), 1.0)):
             reasons.append(f"GPU state materially differs for {key}")
     for key in ("pstate", "throttle_reason", "mig_mode", "persistence_mode"):
-        left, right = _state_value(before.get(key)), _state_value(after.get(key))
-        if left is not None and right is not None and left != right:
+        raw_left, raw_right = before.get(key), after.get(key)
+        if key == "mig_mode" and raw_left in {"[N/A]", "N/A"} and raw_right in {"[N/A]", "N/A"}:
+            continue
+        left, right = _state_value(raw_left), _state_value(raw_right)
+        if left is None or right is None:
+            reasons.append(f"GPU state telemetry missing for {key}")
+        elif left != right:
             reasons.append(f"GPU state differs for {key}")
     return reasons
 

@@ -454,6 +454,8 @@ def verify_task(
         )
     except Exception as exc:
         result["verdict"] = "error"
+        result["protocol_failure"] = True
+        result["validity"] = "invalid"
         errors.append(f"S5 performance raised: {exc!r}")
         result["failure_detail"] = {
             "exception_type": type(exc).__name__,

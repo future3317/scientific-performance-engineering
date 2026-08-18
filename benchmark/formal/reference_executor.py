@@ -245,8 +245,8 @@ print(json.dumps(checks))
         argv = self.command(command, worker_root)
         started = time.monotonic()
         completed = subprocess.run(argv, text=True, capture_output=True, check=False)
-        canary_executed = completed.returncode == 0
-        canary = self._run_isolation_canary(Path(worker_root)) if canary_executed else {}
+        canary = self._run_isolation_canary(Path(worker_root))
+        canary_executed = True
         wall_time_s = time.monotonic() - started
         checks = {key: bool(canary.get(key, False)) for key in ("python_started", "network_blocked", "readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")}
         executor_digest = hashlib.sha256(Path(shutil.which(self.executable)).read_bytes()).hexdigest()

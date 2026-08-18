@@ -20,6 +20,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -198,18 +199,38 @@ def _cleanup_process_group(process: subprocess.Popen[str], grace_s: float = 1.0)
         process.wait()
         return []
     pgid = process.pid
-    if process.poll() is None or _process_group_pids(pgid):
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
-            pass
     try:
-        process.wait(timeout=grace_s)
-    except subprocess.TimeoutExpired:
+        if process.poll() is None or _process_group_pids(pgid):
+            os.killpg(pgid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        pass
+
+    deadline = time.monotonic() + max(0.0, grace_s)
+    while time.monotonic() < deadline:
+        survivors = _process_group_pids(pgid)
+        if not survivors:
+            break
+        if process.poll() is None:
+            try:
+                process.wait(timeout=min(0.05, max(0.0, deadline - time.monotonic())))
+            except subprocess.TimeoutExpired:
+                pass
+        else:
+            time.sleep(0.05)
+
+    survivors = _process_group_pids(pgid)
+    if survivors:
         try:
             os.killpg(pgid, signal.SIGKILL)
         except (OSError, ProcessLookupError):
             pass
+        kill_deadline = time.monotonic() + 1.0
+        while time.monotonic() < kill_deadline:
+            survivors = _process_group_pids(pgid)
+            if not survivors:
+                break
+            time.sleep(0.05)
+    if process.poll() is None:
         process.wait()
     return _process_group_pids(pgid)
 
@@ -242,7 +263,6 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
             start_new_session=True,
         )
         identity = _process_identity(process.pid)
-        workers_before_cleanup = _compiler_process_snapshot()
         timed_out = False
         try:
             stdout, stderr = process.communicate(timeout=float(timeout_s))
@@ -257,6 +277,7 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
                 stderr = stderr.decode(errors="replace")
             return_code = 124
         finally:
+            workers_before_cleanup = _compiler_process_snapshot()
             survivors = _cleanup_process_group(process)
         diagnostics = {
             "verifier_pid": identity["pid"],
@@ -281,11 +302,19 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
                 result = json.loads(out_path.read_text(encoding="utf-8"))
                 if isinstance(result, dict):
                     result.setdefault("failure_detail", {}).update(diagnostics)
+                    if survivors:
+                        result["protocol_failure"] = True
+                        result["validity"] = "invalid"
+                        result.setdefault("errors", []).append("verifier process group survivors remained after cleanup")
                     return result
             except (OSError, json.JSONDecodeError):
                 pass
         result = _timeout_result(task_dir, str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s))
         result["errors"] = [f"verifier subprocess failed with return code {return_code}"]
+        if survivors:
+            result["protocol_failure"] = True
+            result["validity"] = "invalid"
+            result["errors"].append("verifier process group survivors remained after cleanup")
         result["failure_detail"] = diagnostics
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -2298,8 +2327,6 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             if key in receipt
         }
         attest.write_experiment(trial_dir / "experiment.json", manifest)
-        if agent["returncode"] != 0:
-            receipt_errors.append(f"agent command failed with return code {agent['returncode']}")
         if receipt_errors:
             failure = _trial_failure_record(
                 manifest,
@@ -2320,6 +2347,41 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 "activation": "not_evaluated",
                 "cleanup_status": "executor_returned",
                 "store_mutated": False,
+            })
+            (trial_dir / "trial.json").write_text(
+                json.dumps(failure, indent=2, ensure_ascii=False, default=str) + "\n",
+                encoding="utf-8",
+            )
+            records.append(failure)
+            continue
+        if agent["returncode"] != 0:
+            worker_budget_errors = list(budget_errors)
+            failure = _trial_failure_record(
+                manifest,
+                task_spec,
+                item,
+                f"agent command failed with return code {agent['returncode']}",
+                source="worker",
+            )
+            worker_valid = not worker_budget_errors
+            failure.update({
+                "agent": agent,
+                "receipt_valid": True,
+                "attestation_ok": True,
+                "execution_validity": "valid" if worker_valid else "invalid",
+                "executor_receipt": receipt,
+                "failure_stage": "worker",
+                "failure_class": "candidate",
+                "verifier_called": False,
+                "activation": "not_evaluated",
+                "cleanup_status": "executor_returned",
+                "store_mutated": False,
+                "budget_errors": worker_budget_errors,
+                "task_outcome": "fail",
+                "efficacy_eligible": worker_valid,
+                "validity": "valid" if worker_valid else "invalid",
+                "score": {"task_id": str(task_id), "verdict": "fail", "gates_passed": False, "task_score": 0.0},
+                "transition": {"status": "worker_failed", "pre_store_digest": None, "post_store_digest": None},
             })
             (trial_dir / "trial.json").write_text(
                 json.dumps(failure, indent=2, ensure_ascii=False, default=str) + "\n",

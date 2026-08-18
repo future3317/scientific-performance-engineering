@@ -51,7 +51,7 @@ def test_reference_executor_real_worker_and_negative_probes() -> None:
 
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bubblewrap is required for namespace smoke")
-def test_reference_executor_failed_worker_is_not_attested() -> None:
+def test_reference_executor_failed_worker_is_separately_attested() -> None:
     executor = ReferenceExecutor()
     with tempfile.TemporaryDirectory(prefix="acre-reference-worker-fail-", dir=str(Path.home())) as raw_root:
         root = Path(raw_root)
@@ -62,7 +62,7 @@ def test_reference_executor_failed_worker_is_not_attested() -> None:
         completed = executor.execute([sys.executable, "-c", "raise SystemExit(7)"], root, receipt_path=receipt_path)
         assert completed.returncode == 7
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        assert receipt["canary_executed_this_invocation"] is False
-        assert receipt["canary_mode"] == "not_executed"
-        assert receipt["executor_attested"] is False
-        assert receipt["isolation_canary"] is False
+        assert receipt["canary_executed_this_invocation"] is True
+        assert receipt["canary_mode"] == "executed"
+        assert receipt["executor_attested"] is True
+        assert receipt["isolation_canary"] is True
