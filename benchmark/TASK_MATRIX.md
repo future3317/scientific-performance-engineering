@@ -60,7 +60,7 @@ Verification meaning: “✅” = `validate-task` passes, baseline is
 `inconclusive` (no verified speedup), oracle/reference is `pass` with a real
 measured speedup, and counterexample/do_not_apply tempting patches are rejected.
 
-| 11 | CORE-COMPILE-DYNAMIC-11 | spe_core | compiler | compile_dynamic_shapes | positive | synthetic | population-validity pending | pilot |
+| 11 | CORE-COMPILE-DYNAMIC-11 | spe_core | compiler | compile_dynamic_shapes | positive | synthetic | calibrated positive anchor; population calibration pending | pilot |
 | 12 | CORE-COMPILE-TINY-12 | spe_core | compiler | compile_tiny_graphs | counterexample | synthetic | population-validity pending | pilot |
 | 13 | CORE-MEM-RETAINED-GRAPH-13 | spe_core | memory | retained_graph | positive | synthetic | population-validity pending | pilot |
 | 14 | CORE-CHECKPOINT-AMPLE-MEM-14 | spe_core | memory | checkpoint_ample_memory | counterexample | synthetic | population-validity pending | pilot |
