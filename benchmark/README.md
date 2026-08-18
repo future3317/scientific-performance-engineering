@@ -5,9 +5,9 @@ the **evolution** of the `scientific-performance-engineering` skill itself.
 
 **Read [BENCHMARK_DESIGN.md](BENCHMARK_DESIGN.md) first** — it is the normative spec
 (task packages §4, verification pipeline §6, threat model §7, scoring §8,
-conditions A–D §9, sequential split §10, harness architecture §11).
-[INTEGRATION_REQUIREMENTS.md](INTEGRATION_REQUIREMENTS.md) lists the benchmark-local
-workarounds for core-skill gaps (no core file is ever modified).
+conditions A–D §9, sequential split §10, harness architecture §11). The former
+integration-requirements note is archived; its resolved boundaries and remaining
+optional integrations are summarized below.
 
 ## Contents
 
@@ -15,6 +15,8 @@ workarounds for core-skill gaps (no core file is ever modified).
 - [Family source of truth](#family-source-of-truth)
 - [Layout](#layout)
 - [Quickstart](#quickstart)
+- [Pilot modules](#pilot-modules)
+- [Integration boundary](#integration-boundary)
 - [Dependencies](#dependencies)
 
 ## Status and calibration scope
@@ -101,6 +103,35 @@ population report. The approval records digests of the population and empirical
 calibration artifacts plus the governing review policy; a writable report alone
 cannot open the claim gate.
 
+## Pilot modules
+
+The pilot modules are calibration diagnostics over the same family catalog:
+
+- **BoundaryBench** (`benchmark/boundary/`) evaluates typed predicate synthesis
+  after certified counterexamples. `core/acre/cegis.py` owns synthesis; the
+  benchmark only constructs disjoint representative/query/sealed pools and
+  scores the returned predicate. Hidden sealed truth is an offline score, never
+  an acquisition stopping signal.
+- **InteractionBench** (`benchmark/interaction/`) runs factorial relation,
+  acquisition, and routing pilots. Cross-context relations, normalized
+  three-way residuals, alpha-spent contrast confidence sequences, and
+  effect-strength × noise power curves are calibration evidence only.
+- **Real-artifact feasibility** (`benchmark/formal/real_artifacts/`) contains
+  two tiny offline packaging prototypes. They are not part of v1.0-20, do not
+  produce benchmark results, and require a network-disabled evaluator with the
+  pinned upstream checkout supplied externally.
+
+## Integration boundary
+
+The benchmark consumes the core skill as-is and never edits core files during a
+run. The old integration note is archived because its resolved items are now in
+the production path: rendered skill views provide the worker boundary, replay
+uses the versioned `bounded_log_speedup_v1` utility, and the harness owns the
+benchmark fingerprint and condition semantics. The remaining items are
+non-blocking: a convenience bridge from telemetry JSON into
+`benchmark_record.json`, and a single schema-version index if the core schemas
+change. Neither is required for the v1.0-20 population-validity pilot.
+
 The three compile anchors are intentionally non-interchangeable. `compile_graph_break`
 isolates a graph break on a fixed-shape schedule, `compile_dynamic_shapes` keeps a
 tensor-only variable-shape workload and uses targeted `torch._dynamo.mark_dynamic`
@@ -144,7 +175,7 @@ Higher-order bundles remain blocked until a typed `RequiredExperiment` and its
 ```
 benchmark/
   BENCHMARK_DESIGN.md          # normative spec
-  INTEGRATION_REQUIREMENTS.md  # core-skill gap requests + local workarounds
+  archive/                     # historical integration and pilot notes
   sources/sources.yaml         # upstream pins/licenses
   schema/                      # documentation schemas (validation is in-code)
     task.schema.json           #   task.yaml contract (§4.1)

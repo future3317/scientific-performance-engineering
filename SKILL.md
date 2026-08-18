@@ -27,7 +27,7 @@ Act as an end-to-end scientific training systems workflow, not a list of GPU tri
 
 Do not use this skill for CUDA/runtime correctness bugs, installation/build failures, generic distributed correctness, or numerical instability unless performance is the primary decision.
 
-Load only the relevant reference: `MEASUREMENT_CONTRACT.md` first; then route to `CODE_AND_RUNTIME_AUDIT.md`, `DATA_AND_TRAINING_LIFECYCLE.md`, `MEMORY_COMPILER_DISTRIBUTED.md`, `PERFORMANCE_PLAYBOOK.md`, `PATCH_PATTERNS.md`, `TECHNOLOGY_MATRIX.md`, `GNN_PREDICTION_WORKLOADS.md`, `CRYSTAL_GENERATION.md`, `EQUIVARIANT_OPERATOR_DESIGN.md`, or `REPOSITORY_NOTES.md`.
+Load only the relevant reference: `MEASUREMENT_CONTRACT.md` first; then route to `CODE_AND_RUNTIME_AUDIT.md`, `DATA_AND_TRAINING_LIFECYCLE.md`, `MEMORY_COMPILER_DISTRIBUTED.md`, `PERFORMANCE_PLAYBOOK.md`, `PATCH_PATTERNS.md`, `TECHNOLOGY_MATRIX.md`, `GNN_PREDICTION_WORKLOADS.md`, `CRYSTAL_GENERATION.md`, or `EQUIVARIANT_OPERATOR_DESIGN.md`. The old external-repository snapshot is archived and is not a current route.
 
 ## Policy and evidence lifecycle
 
@@ -133,6 +133,7 @@ zero distortion means “preserve utility,” not “retire automatically.”
 ## Detailed references
 
 - [Measurement contract](references/MEASUREMENT_CONTRACT.md)
+- [Performance experiment workflow](references/EXPERIMENT_WORKFLOW.md)
 - [Experience-driven evolution](references/EXPERIENCE_EVOLUTION.md)
 - [Code and runtime audit](references/CODE_AND_RUNTIME_AUDIT.md)
 - [Data and training lifecycle](references/DATA_AND_TRAINING_LIFECYCLE.md)
