@@ -28,6 +28,12 @@ class ExecutorReceipt:
     network_namespace_attested: bool = False
     mount_verified: bool = False
     isolation_canary: bool = False
+    canary_executed_this_invocation: bool = False
+    canary_mode: str = "not_executed"
+    executor_attested: bool = False
+    attestation_digest: str | None = None
+    attested_executor_digest: str | None = None
+    attested_environment_digest: str | None = None
     usage: dict[str, float | int] | None = None
     canary_checks: dict[str, bool] | None = None
 
@@ -42,6 +48,12 @@ class ExecutorReceipt:
             "network_namespace_attested": self.network_namespace_attested,
             "mount_receipt": {"verified": self.mount_verified, "root": "/worker"},
             "isolation_canary": self.isolation_canary,
+            "canary_executed_this_invocation": self.canary_executed_this_invocation,
+            "canary_mode": self.canary_mode,
+            "executor_attested": self.executor_attested,
+            "attestation_digest": self.attestation_digest,
+            "attested_executor_digest": self.attested_executor_digest,
+            "attested_environment_digest": self.attested_environment_digest,
             "canary_checks": dict(self.canary_checks or {}),
             "usage": dict(self.usage or {"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "wall_time_s": 0.0}),
             "usage_meter_source": "reference-executor-observed",
@@ -64,7 +76,12 @@ class ReferenceExecutor:
         mounts = ["task", "solution", "retrieved_context", "context_state", "result", "executor_receipt"]
         if include_skill:
             mounts.insert(1, "skill_view")
-        return ExecutorReceipt("external_namespace_executor", "none", tuple(mounts), digest, worker_uid, network_namespace_attested=False, mount_verified=False, isolation_canary=False)
+        return ExecutorReceipt(
+            "external_namespace_executor", "none", tuple(mounts), digest, worker_uid,
+            network_namespace_attested=False, mount_verified=False, isolation_canary=False,
+            canary_executed_this_invocation=False, canary_mode="not_executed",
+            executor_attested=False,
+        )
 
     @staticmethod
     def _resolve_executable(command: Sequence[str]) -> Path:
@@ -136,6 +153,15 @@ class ReferenceExecutor:
         paths.update(self._elf_dependencies(executable))
         paths.update(self._python_runtime(executable))
         return tuple(sorted(paths, key=str))
+
+    def _environment_digest(self, command: Sequence[str]) -> str:
+        payload = {
+            "interpreter": str(self._resolve_executable(command)),
+            "runtime_mounts": [str(path) for path in self._runtime_mounts(command)],
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
     def command(self, command: Sequence[str], worker_root: Path) -> list[str]:
         if not self.available():
@@ -219,18 +245,42 @@ print(json.dumps(checks))
         argv = self.command(command, worker_root)
         started = time.monotonic()
         completed = subprocess.run(argv, text=True, capture_output=True, check=False)
-        canary = self._run_isolation_canary(Path(worker_root)) if completed.returncode == 0 else {}
+        canary_executed = completed.returncode == 0
+        canary = self._run_isolation_canary(Path(worker_root)) if canary_executed else {}
         wall_time_s = time.monotonic() - started
         checks = {key: bool(canary.get(key, False)) for key in ("python_started", "network_blocked", "readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")}
+        executor_digest = hashlib.sha256(Path(shutil.which(self.executable)).read_bytes()).hexdigest()
+        environment_digest = self._environment_digest(command)
+        canary_mode = "executed" if canary_executed else "not_executed"
+        executor_attested = canary_executed and all(checks.values())
+        attestation_digest = None
+        if canary_executed:
+            attestation_digest = hashlib.sha256(
+                json.dumps(
+                    {
+                        "executor_digest": executor_digest,
+                        "environment_digest": environment_digest,
+                        "canary_checks": checks,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
         receipt = ExecutorReceipt(
             "external_namespace_executor", "none",
             tuple(name for name in ("task", "solution", "skill_view", "retrieved_context", "context_state", "result", "executor_receipt") if include_skill or name != "skill_view"),
-            hashlib.sha256(Path(shutil.which(self.executable)).read_bytes()).hexdigest(),
+            executor_digest,
             worker_uid,
             skill_view_digest=skill_view_digest,
             network_namespace_attested=checks["network_blocked"],
             mount_verified=all(checks[key] for key in ("readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")),
             isolation_canary=all(checks.values()),
+            canary_executed_this_invocation=canary_executed,
+            canary_mode=canary_mode,
+            executor_attested=executor_attested,
+            attestation_digest=attestation_digest,
+            attested_executor_digest=executor_digest if executor_attested else None,
+            attested_environment_digest=environment_digest if executor_attested else None,
             usage={"input_tokens": 0, "output_tokens": 0, "tool_calls": 0, "wall_time_s": wall_time_s},
             canary_checks=checks,
         )

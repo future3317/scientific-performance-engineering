@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -454,6 +455,13 @@ def verify_task(
     except Exception as exc:
         result["verdict"] = "error"
         errors.append(f"S5 performance raised: {exc!r}")
+        result["failure_detail"] = {
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "missing_path": str(getattr(exc, "filename", "") or "") or None,
+            "traceback": traceback.format_exc(),
+            "stage": "S5",
+        }
         mark_stage("S5")
         return _finalize(result, started, out_path)
 

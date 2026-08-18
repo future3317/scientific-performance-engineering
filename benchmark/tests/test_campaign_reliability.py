@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from benchmark.formal import aggregate, attest
-from benchmark.formal.run_campaign import _build_required_experiment_executor, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from benchmark.formal.run_campaign import _build_required_experiment_executor, _cleanup_process_group, _resume_stream_prefix, _trial_compiler_cache, post_task_update
 from benchmark.harness import conditions
 from core.cost import BudgetedContextRenderer
 
@@ -100,6 +100,17 @@ def test_required_experiment_timeout_is_resource_blocked(tmp_path: Path) -> None
     )
     result = executor({"experiment_id": "E1", "required_arms": ["00"]})
     assert result["status"] == "resource_blocked"
+
+
+def test_verifier_process_group_cleanup_reaps_grandchild() -> None:
+    import subprocess
+    import sys
+
+    child_code = "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); raise SystemExit(3)"
+    process = subprocess.Popen([sys.executable, "-c", child_code], start_new_session=True)
+    process.wait(timeout=5)
+    assert process.returncode == 3
+    assert _cleanup_process_group(process) == []
 
 
 def test_resume_uses_final_digest_and_persists_stream_block(tmp_path: Path) -> None:

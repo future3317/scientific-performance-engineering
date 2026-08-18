@@ -20,6 +20,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -111,6 +112,15 @@ def _trial_failure_record(manifest: dict[str, Any], task_spec: Mapping[str, Any]
         "phase": item["phase"],
         "agent": None,
         "agent_usage": {},
+        "failure_stage": source,
+        "failure_class": "infrastructure",
+        "exception": {"type": "RuntimeError", "message": error},
+        "receipt_valid": False if source == "executor" else None,
+        "verifier_called": False,
+        "activation": "not_evaluated",
+        "cleanup_status": "not_observed",
+        "surviving_pids": [],
+        "store_mutated": False,
         "budget_errors": [f"{source}: {error}"],
         "attestation_ok": not state_untrusted,
         "execution_validity": "resource_blocked",
@@ -122,13 +132,95 @@ def _trial_failure_record(manifest: dict[str, Any], task_spec: Mapping[str, Any]
     }
 
 
+def _process_identity(pid: int) -> dict[str, int | None]:
+    """Capture the verifier process identifiers before it exits."""
+    identity: dict[str, int | None] = {"pid": int(pid), "pgid": None, "sid": None}
+    if os.name != "posix":
+        return identity
+    for name, getter in (("pgid", os.getpgid), ("sid", os.getsid)):
+        try:
+            identity[name] = int(getter(pid))
+        except (OSError, ProcessLookupError):
+            pass
+    return identity
+
+
+def _compiler_process_snapshot() -> list[dict[str, Any]]:
+    """Report live TorchInductor workers for failure diagnostics."""
+    if os.name != "posix":
+        return []
+    try:
+        completed = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,pgid=,sid=,args="],
+            text=True, capture_output=True, check=False,
+        )
+    except OSError:
+        return []
+    workers: list[dict[str, Any]] = []
+    for line in completed.stdout.splitlines():
+        parts = line.strip().split(None, 4)
+        if len(parts) != 5 or "torch/_inductor/compile_worker" not in parts[4]:
+            continue
+        try:
+            workers.append({"pid": int(parts[0]), "ppid": int(parts[1]), "pgid": int(parts[2]), "sid": int(parts[3]), "command": parts[4]})
+        except ValueError:
+            continue
+    return workers
+
+
+def _process_group_pids(pgid: int) -> list[int]:
+    if os.name != "posix":
+        return []
+    try:
+        completed = subprocess.run(
+            ["ps", "-eo", "pid=,pgid="], text=True, capture_output=True, check=False,
+        )
+    except OSError:
+        return []
+    pids: list[int] = []
+    for line in completed.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            if int(parts[1]) == int(pgid):
+                pids.append(int(parts[0]))
+        except ValueError:
+            continue
+    return pids
+
+
+def _cleanup_process_group(process: subprocess.Popen[str], grace_s: float = 1.0) -> list[int]:
+    """Terminate the verifier session and reap every descendant on all exits."""
+    if os.name != "posix":
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        return []
+    pgid = process.pid
+    if process.poll() is None or _process_group_pids(pgid):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            pass
+    try:
+        process.wait(timeout=grace_s)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+        process.wait()
+    return _process_group_pids(pgid)
+
+
 def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "candidate", timeout_s: float | None = None, **kwargs: Any) -> dict[str, Any]:
     with _trial_compiler_cache(trial_dir, invocation_id):
         if timeout_s is None or os.name != "posix":
             try:
                 return verifier.verify_task(*args, **kwargs)
             except (OSError, ValueError, TypeError, RuntimeError) as exc:
-                return _timeout_result(Path(args[0]), str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s or 0.0)) | {"protocol_failure": True, "errors": [f"verifier raised: {exc}"]}
+                return _timeout_result(Path(args[0]), str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s or 0.0)) | {"protocol_failure": True, "errors": [f"verifier raised: {exc}"], "failure_detail": {"exception_type": type(exc).__name__, "exception_message": str(exc), "traceback": traceback.format_exc()}}
         task_dir, solution_dir = Path(args[0]), Path(args[1])
         out_path = Path(kwargs["out_path"])
         command = [
@@ -149,14 +241,38 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
             text=True,
             start_new_session=True,
         )
+        identity = _process_identity(process.pid)
+        workers_before_cleanup = _compiler_process_snapshot()
+        timed_out = False
         try:
             stdout, stderr = process.communicate(timeout=float(timeout_s))
             return_code = process.returncode
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode(errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode(errors="replace")
+            return_code = 124
+        finally:
+            survivors = _cleanup_process_group(process)
+        diagnostics = {
+            "verifier_pid": identity["pid"],
+            "verifier_pgid": identity["pgid"],
+            "verifier_sid": identity["sid"],
+            "known_compiler_workers": workers_before_cleanup,
+            "surviving_pids": survivors,
+            "stdout": stdout if "stdout" in locals() else "",
+            "stderr": stderr if "stderr" in locals() else "",
+            "cache_env": {key: os.environ.get(key) for key in ("TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR")},
+            "timeout": timed_out,
+        }
+        if timed_out:
             result = _timeout_result(task_dir, str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s))
             result["errors"].append("verifier process group terminated after timeout")
+            result["failure_detail"] = diagnostics
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             return result
@@ -164,11 +280,13 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
             try:
                 result = json.loads(out_path.read_text(encoding="utf-8"))
                 if isinstance(result, dict):
+                    result.setdefault("failure_detail", {}).update(diagnostics)
                     return result
             except (OSError, json.JSONDecodeError):
                 pass
         result = _timeout_result(task_dir, str(kwargs.get("condition", "standalone")), str(kwargs.get("context_mode", "reset")), float(timeout_s))
         result["errors"] = [f"verifier subprocess failed with return code {return_code}"]
+        result["failure_detail"] = diagnostics
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return result
@@ -908,6 +1026,7 @@ def _read_executor_receipt(
     required = (
         "mode", "network_mode", "mount_allowlist", "executor_digest", "worker_uid", "usage",
         "network_namespace_attested", "mount_receipt", "isolation_canary", "usage_meter_source",
+        "canary_executed_this_invocation", "canary_mode", "executor_attested",
     )
     errors.extend(f"executor receipt missing {key}" for key in required if key not in receipt)
     if receipt.get("mode") != "external_namespace_executor":
@@ -920,6 +1039,18 @@ def _read_executor_receipt(
         errors.append("external executor mount receipt is not verified")
     if receipt.get("isolation_canary") is not True:
         errors.append("external executor isolation canary did not pass")
+    if receipt.get("canary_executed_this_invocation") is not True:
+        errors.append("external executor did not execute an invocation canary")
+    if receipt.get("canary_mode") not in {"executed", "referenced_attestation"}:
+        errors.append("external executor canary_mode is not attested")
+    if receipt.get("executor_attested") is not True:
+        errors.append("external executor attestation is not valid")
+    if not isinstance(receipt.get("attestation_digest"), str) or not receipt.get("attestation_digest"):
+        errors.append("external executor attestation_digest is required")
+    if receipt.get("attested_executor_digest") != receipt.get("executor_digest"):
+        errors.append("external executor attested digest mismatch")
+    if not isinstance(receipt.get("attested_environment_digest"), str) or not receipt.get("attested_environment_digest"):
+        errors.append("external executor environment attestation is required")
     if not isinstance(receipt.get("usage_meter_source"), str) or not receipt.get("usage_meter_source"):
         errors.append("external executor usage meter source is required")
     mounts = receipt.get("mount_allowlist")
@@ -2146,7 +2277,6 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             records.append(record)
             continue
-        agent_extensions = _read_agent_extensions(worker_result_path)
         receipt, receipt_errors = _read_executor_receipt(
             receipt_path,
             None if item["condition"] == "A" else skill_digest,
@@ -2160,12 +2290,44 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         budget_errors.extend(receipt_errors)
         manifest["worker_isolation"]["executor_receipt"] = {
             key: receipt.get(key)
-            for key in ("mode", "network_mode", "mount_allowlist", "executor_digest", "worker_uid", "skill_view_digest")
+            for key in (
+                "mode", "network_mode", "mount_allowlist", "executor_digest", "worker_uid",
+                "skill_view_digest", "canary_executed_this_invocation", "canary_mode",
+                "executor_attested", "attestation_digest", "attested_environment_digest",
+            )
             if key in receipt
         }
         attest.write_experiment(trial_dir / "experiment.json", manifest)
         if agent["returncode"] != 0:
-            budget_errors.append(f"agent command failed with return code {agent['returncode']}")
+            receipt_errors.append(f"agent command failed with return code {agent['returncode']}")
+        if receipt_errors:
+            failure = _trial_failure_record(
+                manifest,
+                task_spec,
+                item,
+                "; ".join(receipt_errors),
+                source="executor",
+            )
+            failure.update({
+                "agent": agent,
+                "receipt_valid": False,
+                "attestation_ok": False,
+                "execution_validity": "invalid",
+                "executor_receipt": receipt,
+                "failure_stage": "executor",
+                "failure_class": "infrastructure",
+                "verifier_called": False,
+                "activation": "not_evaluated",
+                "cleanup_status": "executor_returned",
+                "store_mutated": False,
+            })
+            (trial_dir / "trial.json").write_text(
+                json.dumps(failure, indent=2, ensure_ascii=False, default=str) + "\n",
+                encoding="utf-8",
+            )
+            records.append(failure)
+            continue
+        agent_extensions = _read_agent_extensions(worker_result_path)
         submitted_solution_dir = trial_dir / "submitted_solution"
         try:
             sanitize_submission(
