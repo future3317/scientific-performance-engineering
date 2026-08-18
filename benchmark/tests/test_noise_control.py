@@ -65,6 +65,24 @@ def test_noise_control_mismatch_is_rejected() -> None:
             raise AssertionError("mismatched outer trial was accepted")
 
 
+def test_noise_control_environment_bindings_are_fail_closed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "noise_control.json"
+        artifact = _artifact()
+        stats.write_noise_control(path, artifact)
+        for expected in (
+            {"compile_threads": 4},
+            {"compiler_cache_policy": "shared"},
+            {"hardware_fingerprint": dict(artifact["hardware_fingerprint"], torch_version="other")},
+        ):
+            try:
+                stats.read_noise_control(path, expected)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"incompatible environment was accepted: {expected}")
+
+
 def test_paired_measurement_exposes_arm_wall_diagnostics() -> None:
     class Benchmark:
         @staticmethod
