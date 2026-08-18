@@ -18,7 +18,7 @@ TOOLS = ("memcheck", "racecheck", "initcheck", "synccheck")
 
 
 def run_tool(tool: str, command: list[str], timeout: float) -> dict[str, Any]:
-    argv = ["compute-sanitizer", "--tool", tool, "--error-exitcode", "1", "--target-processes", "all", "--", *command]
+    argv = ["compute-sanitizer", "--tool", tool, "--error-exitcode", "1", "--target-processes", "all", *command]
     started = time.monotonic()
     process = subprocess.Popen(
         argv,
