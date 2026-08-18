@@ -118,8 +118,8 @@
       1.1
     ],
     [
-      1.15,
-      1.5
+      2.56,
+      3.34
     ],
     [
       0.9,
@@ -348,6 +348,27 @@
     "source": null,
     "hard_flags": [],
     "calibration_gate": "blocked"
+  },
+  "task_calibration": {
+    "CORE-COMPILE-DYNAMIC-11": {
+      "status": "eligible",
+      "revision": "abd36b9",
+      "artifact": "benchmark/calibration/dynamic-calibration-v3-summary.json",
+      "runs": 3,
+      "expected_speedup_range": [
+        2.56,
+        3.34
+      ],
+      "expected_speedup_range_unrounded": [
+        2.5604136348325395,
+        3.3380573070779573
+      ],
+      "effective_noise_floor_percent_max": 61.216512794665576,
+      "compile_threads": 2,
+      "cache_policy": "arm-repetition-fresh",
+      "formal_50": "not_generated",
+      "efficacy_claim": "not_claimed"
+    }
   },
   "public_context": {
     "CORE-AUTOGRAD-BATCHED-VJP-15": {

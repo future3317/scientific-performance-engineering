@@ -302,7 +302,14 @@ S6 verdict        -> emit result.json (schema/result.schema.json): gates, verifi
   and cache-policy bindings (`arm-repetition-fresh` for compile anchors). A missing or incompatible artifact is
   `resource_blocked`; the verifier never falls back to the declared floor.
 - **Verified speedup** = CI lower bound ≥ `max(min_improvement_percent,
-  noise_floor_percent)`. Otherwise `inconclusive` (not zero-speedup).
+  effective_noise_floor_percent)`, where the effective floor is the maximum of
+  the declared minimum and the observed same-host control floor. Population
+  calibration uses the same separation rule: an oracle is unstable when its CI
+  lower bound is at or below `max(min_improvement_percent, max(control_noise))`,
+  and `noise_too_high` is reserved for the case where the observed control floor
+  reaches the oracle CI lower bound. A control floor larger than the declared
+  minimum is therefore not, by itself, a benchmark failure. Otherwise the cell
+  is `inconclusive` (not zero-speedup).
 - Formal campaign aggregation keeps this task-level measurement separate from
   evolution promotion: performance effects use paired log ratios of raw median
   speedups, while task-score effects remain linear differences.

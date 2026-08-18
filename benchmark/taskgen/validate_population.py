@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -196,22 +197,25 @@ def _empirical_flags(
         measurement = spec.get("measurement", {})
         noise_limit = float(measurement.get("noise_floor_percent", 2.0))
         min_improvement = float(measurement.get("min_improvement_percent", 5.0))
-        threshold = max(noise_limit, min_improvement)
         low = record.get("oracle_ci_low_percent")
         high = record.get("oracle_ci_high_percent")
-        if isinstance(high, (int, float)) and high < threshold:
+        control_noise = record.get("control_noise_percent")
+        observed_noise = [
+            float(value)
+            for value in control_noise
+            if isinstance(value, (int, float)) and math.isfinite(float(value)) and float(value) >= 0
+        ] if isinstance(control_noise, list) else []
+        empirical_floor = max(min_improvement, max(observed_noise, default=noise_limit))
+        if isinstance(high, (int, float)) and float(high) < empirical_floor:
             flags["oracle_effect_too_small"].append(task_id)
-        elif isinstance(low, (int, float)) and low < threshold:
+        elif isinstance(low, (int, float)) and float(low) <= empirical_floor:
             flags["oracle_effect_unstable"].append(task_id)
         baseline = record.get("baseline_speedups")
         if isinstance(baseline, list) and baseline and all(
-            isinstance(value, (int, float)) and float(value) <= 1.0 + noise_limit / 100.0 for value in baseline
+            isinstance(value, (int, float)) and float(value) <= 1.0 + empirical_floor / 100.0 for value in baseline
         ):
             flags["baseline_already_optimal"].append(task_id)
-        control_noise = record.get("control_noise_percent")
-        if isinstance(control_noise, list) and control_noise and any(
-            isinstance(value, (int, float)) and float(value) > noise_limit for value in control_noise
-        ):
+        if observed_noise and isinstance(low, (int, float)) and max(observed_noise) >= float(low):
             flags["noise_too_high"].append(task_id)
         gate_rate = record.get("semantic_gate_pass_rate")
         if isinstance(gate_rate, (int, float)) and float(gate_rate) < 1.0:
@@ -345,6 +349,16 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
     empirical_flags, empirical_calibration = _empirical_flags(
         specs, Path(empirical_path) if empirical_path is not None else None, duplicate_findings
     )
+    task_calibration: dict[str, Any] = {}
+    for spec in specs:
+        metadata_path = Path(spec["_task_dir"]) / "metadata.json"
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        calibration = metadata.get("calibration")
+        if isinstance(calibration, dict):
+            task_calibration[str(spec.get("task_id"))] = calibration
 
     report = {
         "schema_version": 1,
@@ -376,6 +390,7 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         },
         "lineage_leakage_checked": True,
         "empirical_calibration": empirical_calibration,
+        "task_calibration": task_calibration,
         "public_context": {
             str(spec.get("task_id")): spec.get("public_context")
             for spec in specs

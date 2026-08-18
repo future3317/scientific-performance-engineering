@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "task_id": "CORE-COMPILE-DYNAMIC-11",
+  "revision": "abd36b9",
+  "authoring_rule": "lower=min independent oracle CI lows; upper=max independent oracle CI highs; displayed range outward-rounded",
+  "expected_speedup_range": [2.56, 3.34],
+  "expected_speedup_range_unrounded": [2.5604136348325395, 3.3380573070779573],
+  "runs": [
+    {
+      "run": 1,
+      "control_artifact_digest": "6d7433849f090494391ced48469117ba0dece692364c97752231bbc287fdf709",
+      "effective_noise_floor_percent": 58.46586574578261,
+      "oracle_ci": [2.5604136348325395, 3.1973639878917894]
+    },
+    {
+      "run": 2,
+      "control_artifact_digest": "e2aef7ba41c5e2ca5e4f68c27178e61286e67eb5a4972e5adf5f227ce5051fb7",
+      "effective_noise_floor_percent": 61.216512794665576,
+      "oracle_ci": [2.7651616475798084, 3.337597737830408]
+    },
+    {
+      "run": 3,
+      "control_artifact_digest": "be79db9599136086ec151b8091d1e5ff3d1371d56cae5a78245ee22271be18c6",
+      "effective_noise_floor_percent": 51.866535619768975,
+      "oracle_ci": [2.801714878599789, 3.3380573070779573]
+    }
+  ],
+  "hardware": {
+    "gpu_uuid": "GPU-a40e8c73-adfc-eb76-9aa1-63b6569cd9f7",
+    "cuda_visible_devices": "5",
+    "driver_version": "535.247.01",
+    "compile_threads": 2,
+    "cache_policy": "arm-repetition-fresh"
+  },
+  "formal_50": "not_generated",
+  "efficacy_claim": "not_claimed"
+}

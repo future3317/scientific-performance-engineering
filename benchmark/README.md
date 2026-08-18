@@ -29,6 +29,14 @@ Evolution). The current pilot contains 11 Core, 7 SciML, and 2 Evolution
 tasks; 13 Core, 13 SciML, and 4 Evolution slots remain ungenerated and are
 gated on pilot calibration.
 
+`CORE-COMPILE-DYNAMIC-11` is the first re-frozen empirical positive anchor:
+three independent same-host oracle runs give the outward-rounded expected
+speedup range `[2.56, 3.34]` and observed control floors of 51.87--61.22%.
+The high cold-compile variance is retained as a task characteristic; the
+anchor is eligible only because every oracle CI clears the corresponding
+observed floor. This does not complete population calibration, start an
+efficacy campaign, or generate formal-50.
+
 ## Family source of truth
 
 The workload source of truth is now the Family catalog. All eleven canonical

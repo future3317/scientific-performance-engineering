@@ -35,7 +35,7 @@ diagnosis:
   enabled: true
   choices: [scalar_sync, h2d_blocking, repeated_compute, compile_dynamic_shapes, compile_graph_break, memory_pressure, launch_fragmentation]
 oracle:
-  expected_speedup_range: [1.15, 1.5]
+  expected_speedup_range: [2.56, 3.34]
 calibration:
   dynamic_modes: [automatic, targeted, global_diagnostic]
   canonical_mode: targeted

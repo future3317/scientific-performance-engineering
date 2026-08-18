@@ -79,6 +79,18 @@ def test_noise_control_mismatch_is_rejected() -> None:
             raise AssertionError("mismatched outer trial was accepted")
 
 
+def test_noise_control_range_change_invalidates_old_artifact() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "noise_control.json"
+        stats.write_noise_control(path, _artifact(expected_speedup_range=[1.15, 1.5]))
+        try:
+            stats.read_noise_control(path, {"expected_speedup_range": [2.56, 3.34]})
+        except ValueError as exc:
+            assert "expected_speedup_range" in str(exc)
+        else:
+            raise AssertionError("noise artifact from the stale oracle range was accepted")
+
+
 def test_noise_control_environment_bindings_are_fail_closed() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "noise_control.json"
