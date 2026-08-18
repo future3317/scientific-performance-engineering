@@ -2219,6 +2219,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     unique_noise_cells = sorted({(str(item["task_id"]), str(item["outer_trial_id"])) for item in plan})
     for noise_task_id, noise_outer_trial_id in unique_noise_cells:
         artifact_path = noise_control_root / noise_outer_trial_id / f"{noise_task_id}.json"
+        noise_spec = miniyaml.load(str(tasks_root / noise_task_id / "task.yaml"))
         expected_noise = {
             "task_id": noise_task_id,
             "outer_trial_id": noise_outer_trial_id,
@@ -2226,8 +2227,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "task_manifest_digest": task_digest,
             "hardware_fingerprint": fingerprint,
             "software_fingerprint": fingerprint,
-            "compiler_cache_policy": "arm-repetition-fresh",
-            "expected_speedup_range": miniyaml.load(str(tasks_root / noise_task_id / "task.yaml")).get("oracle", {}).get("expected_speedup_range"),
+            "compiler_cache_policy": verifier.cache_policy_for_task(noise_spec),
+            "expected_speedup_range": noise_spec.get("oracle", {}).get("expected_speedup_range"),
         }
         if resume and artifact_path.is_file():
             try:
@@ -2300,7 +2301,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "task_manifest_digest": task_digest,
             "hardware_fingerprint": fingerprint,
             "software_fingerprint": fingerprint,
-            "compiler_cache_policy": "arm-repetition-fresh",
+            "compiler_cache_policy": verifier.cache_policy_for_task(task_spec),
             "expected_speedup_range": task_spec.get("oracle", {}).get("expected_speedup_range"),
         }
         trial_dir = out_dir / "trials" / stream_id / task_id

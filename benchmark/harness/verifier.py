@@ -258,6 +258,13 @@ def _fresh_input_correctness(
     return {"passed": all_passed, "per_input": per_input, "output_checksums": checksums}
 
 
+def cache_policy_for_task(spec: Mapping[str, Any]) -> str:
+    """Return the cache scope actually established by the task harness."""
+    if str(spec.get("family", "")) == "compiler":
+        return "arm-repetition-fresh"
+    return "verifier-invocation-scoped"
+
+
 def calibrate_noise_control(
     task_dir: str | Path,
     solution_dir: str | Path,
@@ -268,7 +275,7 @@ def calibrate_noise_control(
     benchmark_revision: str,
     task_manifest_digest: str,
     hardware_fingerprint: dict[str, Any] | None = None,
-    compiler_cache_policy: str = "arm-repetition-fresh",
+    compiler_cache_policy: str | None = None,
     seed: int = 0,
 ) -> dict[str, Any]:
     """Run the one preregistered baseline-vs-baseline calibration.
@@ -279,6 +286,7 @@ def calibrate_noise_control(
     task_dir = Path(task_dir)
     solution_dir = Path(solution_dir)
     spec = load_task_yaml(task_dir)
+    compiler_cache_policy = compiler_cache_policy or cache_policy_for_task(spec)
     fingerprint = hardware_fingerprint or capture_fingerprint()
     device, usable = runner.select_device(bool(spec.get("requires_cuda")))
     if not usable:
@@ -397,7 +405,7 @@ def verify_task(
         expected.setdefault("primary_metric", spec["measurement"].get("primary_metric"))
         expected.setdefault("higher_is_better", bool(spec["measurement"].get("higher_is_better", False)))
         expected.setdefault("compile_threads", int(spec["measurement"].get("compile_threads", 0)))
-        expected.setdefault("compiler_cache_policy", "arm-repetition-fresh")
+        expected.setdefault("compiler_cache_policy", cache_policy_for_task(spec))
         expected.setdefault("expected_speedup_range", spec.get("oracle", {}).get("expected_speedup_range"))
         try:
             if noise_control_path is None:

@@ -36,6 +36,13 @@ def test_noise_control_effective_floor_uses_observed_maximum() -> None:
     assert stats.effective_noise_floor(2.0, 0.8) == 2.0
 
 
+def test_cache_policy_matches_task_family() -> None:
+    from benchmark.harness.verifier import cache_policy_for_task
+
+    assert cache_policy_for_task({"family": "compiler"}) == "arm-repetition-fresh"
+    assert cache_policy_for_task({"family": "scalar_sync"}) == "verifier-invocation-scoped"
+
+
 def test_noise_floor_is_label_symmetric() -> None:
     a = [10.0, 8.0, 12.0, 10.0, 9.0]
     b = [9.0, 10.0, 10.0, 12.0, 10.0]

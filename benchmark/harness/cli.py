@@ -176,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--outer-trial-id", required=True)
     p.add_argument("--benchmark-revision", required=True)
     p.add_argument("--task-manifest-digest", required=True)
-    p.add_argument("--compiler-cache-policy", default="arm-repetition-fresh")
+    p.add_argument("--compiler-cache-policy", default=None)
     p.add_argument("--seed", type=int, default=0)
     p.set_defaults(func=_cmd_calibrate_noise_control)
 
