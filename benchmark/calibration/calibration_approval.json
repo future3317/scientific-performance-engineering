@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "approved": false,
+  "status": "blocked",
+  "population_report_digest": "3cb0b1379550229bc403b459cf1d48dc0e6fd654f21e8041e8c4ac4805c6612d",
+  "pilot_calibration_digest": "5fee34e467e0819d3a3a9f70c9a36fc64d0a72a27ece2ec837eabe21974b7c53",
+  "validator_revision": "strict-formal-v1",
+  "review_policy": "sealed-35-primary-public-dev-secondary",
+  "approved_task_ids": [],
+  "blocked_task_ids": ["CORE-H2D-OVERFANOUT-23", "CORE-REPEATED-BACKBONE-02", "CORE-SCALAR-SYNC-01"],
+  "replacement_task_ids": ["CORE-H2D-PIPELINE-03"],
+  "approver": null,
+  "timestamp": null,
+  "approval_digest": null
+}

@@ -1,0 +1,656 @@
+{
+  "schema_version": 1,
+  "population_id": "SPE-EvoBench-v1.0-30-pilot",
+  "population_report_digest": "3cb0b1379550229bc403b459cf1d48dc0e6fd654f21e8041e8c4ac4805c6612d",
+  "calibration_gate": "blocked",
+  "tasks": [
+    {
+      "task_id": "CORE-AUTOGRAD-BATCHED-VJP-15",
+      "task_digest": "d985fe6fd6757cd344c788083a6f9d1b0b61f94b92f7b69d295d645b1148edb7",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25",
+      "task_digest": "652bc12b4c346acfc348c3f8b73790e43a75323cc83e5fa607eae0ce08ea9dec",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "gradient_equivalence"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14",
+      "task_digest": "eba29c5d2f6290287656b7e9d787964fa5efc2e2ec55de401d4f86b85e355653",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+      "task_digest": "dcddf0796d03c401020c4fef0ae6b9f06e81b4f054999e353b0eee0f1814e7ab",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "gradient_equivalence"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-COMPILE-DYNAMIC-11",
+      "task_digest": "a53ade320c284b439596e253231ac054bd56b5dc9d95d3d6e15e67247078dfd1",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": true,
+      "status": "eligible",
+      "block_reason": []
+    },
+    {
+      "task_id": "CORE-COMPILE-RECOMPILE-04",
+      "task_digest": "3fae39ccd4d523ae742d9575e3d36484fdaa17f5508b1b4d47c9b33a91c9a889",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-COMPILE-TINY-12",
+      "task_digest": "7b28ff41586ae79fe8c43dcd29316b4e79a5b609bfe08c75d37a519a4f23f29b",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-DATALOADER-FANOUT-16",
+      "task_digest": "dbbf34abb43ff27503f61305c63e4b14af233ea85cc3991e9823ef13a35fd252",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-H2D-OVERFANOUT-23",
+      "task_digest": "fce0a5cfc5b95db930b7ebfb952c6f195fc0ad9e91cc3e2e2679b1d39e11f156",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "batch_semantics_preserved"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "blocked",
+      "block_reason": [
+        "retired_for_formal"
+      ]
+    },
+    {
+      "task_id": "CORE-H2D-PIPELINE-03",
+      "task_digest": "43519b6e85b87593f5ce1b5d3809e167a9224898202c3e2e0dbe80ef850dd1b3",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-KERNEL-FUSION-09",
+      "task_digest": "089ac2aab72c1b30b2d2170b79bb81dc46a8f282109888a99fbc16d952a8f5d0",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_output",
+          "output_moment_match"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-MEM-RETAINED-GRAPH-13",
+      "task_digest": "c2d862a53e431170883283cf77e69154a7282914d2cba994574625ba821533c4",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-REPEATED-BACKBONE-02",
+      "task_digest": "32cb32572f47cc93a0db4c9108502dac0eab61d834e4d318b015bc1d8df95f94",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "changing_regime_prediction_close",
+          "fixed_regime_prediction_close"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
+      "task_digest": "cc4bc3e57ffb34dca947c7e9c5150449717c400b4a14048ef710a873b9724d04",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "output_equivalence"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-SCALAR-SYNC-01",
+      "task_digest": "3149d54e2aad13af45362701c839de857cd76cdbea3be12f1be73d26c401cf9b",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "metric_semantics_preserved",
+          "finite_loss"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+      "task_digest": "502aec2a6eed26103d93286c80db31845217ddb7d55434574b8b504e505a4109",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "metric_semantics_preserved"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "EVOL-COMPILER-DRIFT-20",
+      "task_digest": "b803e82b926335ffbbace8cbbb47e2f67177f9fa4835ae80aefe101a1b06fb49",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "episode_runnable",
+          "poison_survives_governance"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "EVOL-EPISODE-POISON-10",
+      "task_digest": "7b62e2c89de1aeb34fc6038c8e3c1e95c81d0ac9168cc1942113b6a7c181d63c",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "episode_runnable",
+          "poison_survives_governance"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+      "task_digest": "c55d0cb6e33df99f5ef0e8871c1ce95a9ff5d77c2730bcf05639539e1ce07b7b",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "state_transition_valid",
+          "specialization_applied"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-DIFFUSION-07",
+      "task_digest": "aac1cefe9e7f871735cd80404984677d1e5faa0da2fac3ce08c31a2524d55102",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "crystal_validity",
+          "distribution_moment_check"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
+      "task_digest": "415bdd2f3b11060a527fa63b3ed8e58f06b5c0895cbc9213f7d66595eb6f66d3",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "structure_validity"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+      "task_digest": "274c564ce1e84378fb4eac4c886375b29863269d79a332086d24c06274f99276",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "neighbor_consistency"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-EQUIV-LOWORDER-26",
+      "task_digest": "1bc6b8f6b25424bf5d5e6ecbbbef8050fe96182d0d0c78f5be64cf1048abe5ec",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "equivariance_preserved"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-EQUIV-RECOMPUTE-06",
+      "task_digest": "5f183ebf3acf960834071368ab85f4e05047b57718d272e2cc67888e28077553",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "equivariance_rank3",
+          "translation_invariance"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-FORCE-AUTOGRAD-19",
+      "task_digest": "8daa17cc6c0a412a8da9a7da343a221baccf725aeb9e86b3f716e13896004da6",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "energy_force_consistency",
+          "gradient_agreement",
+          "translation_invariance"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-GNN-DYNAMIC-GRAPH-18",
+      "task_digest": "aebe55de06be73e5e079573e4571aef7ffc5b3cae6d3731149f95673fc1b35d9",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "energy_force_consistency",
+          "gradient_agreement",
+          "translation_invariance"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-GNN-RAGGED-05",
+      "task_digest": "42478badfa6ced3f6ef3330150568ad474f6a6d2b186ccadbbef5d44af01ed0f",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "energy_force_consistency",
+          "gradient_agreement",
+          "translation_invariance"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+      "task_digest": "16ec91796c66744aee63c6392339dc91f9a9c5d6e3aa48c23dc7d78dd63888cb",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "energy_force_consistency",
+          "gradient_agreement",
+          "translation_invariance"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
+      "task_digest": "e7db257a8efd2812379a22608d8c8e62d26028d37c17e285846731c7600881dd",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "energy_force_consistency"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    },
+    {
+      "task_id": "SCIML-GRAPH-REBUILD-08",
+      "task_digest": "6c800ee2a93928e60632cb8872b6a937d48d3be1b0a60e44ab930b29299b4886",
+      "revision": "unknown",
+      "environment": {},
+      "outer_trials": [],
+      "noise_control": {},
+      "oracle_ci": {},
+      "semantic_gates": {
+        "declared": [
+          "energy_force_consistency",
+          "neighbor_consistency",
+          "distribution_moment_check"
+        ],
+        "failures": []
+      },
+      "anti_cheat": {},
+      "eligibility": false,
+      "status": "pending",
+      "block_reason": [
+        "calibration_pending"
+      ]
+    }
+  ],
+  "formal_50_generation": "withheld",
+  "artifact_digest": "5fee34e467e0819d3a3a9f70c9a36fc64d0a72a27ece2ec837eabe21974b7c53"
+}
