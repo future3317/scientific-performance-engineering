@@ -244,6 +244,7 @@ def _empirical_flags(
             if not isinstance(record.get("revision"), str) or record.get("revision") in {"", "unknown", "pending"}:
                 flags["agent_shortcut_detected"].append(task_id)
         measurement = spec.get("measurement", {})
+        kind = str(spec.get("kind", "positive"))
         noise_limit = float(measurement.get("noise_floor_percent", 2.0))
         min_improvement = float(measurement.get("min_improvement_percent", 5.0))
         low = record.get("oracle_ci_low_percent")
@@ -255,16 +256,21 @@ def _empirical_flags(
             if isinstance(value, (int, float)) and math.isfinite(float(value)) and float(value) >= 0
         ] if isinstance(control_noise, list) else []
         empirical_floor = max(min_improvement, max(observed_noise, default=noise_limit))
-        if isinstance(high, (int, float)) and float(high) < empirical_floor:
-            flags["oracle_effect_too_small"].append(task_id)
-        elif isinstance(low, (int, float)) and float(low) <= empirical_floor:
-            flags["oracle_effect_unstable"].append(task_id)
+        # Positive anchors must clear their registered improvement margin.
+        # Counterexamples are deliberately eligible when the measured oracle
+        # is null or regressive; treating a correctly rejected intervention as
+        # a weak positive would make the polarity itself a calibration failure.
+        if kind == "positive":
+            if isinstance(high, (int, float)) and float(high) < empirical_floor:
+                flags["oracle_effect_too_small"].append(task_id)
+            elif isinstance(low, (int, float)) and float(low) <= empirical_floor:
+                flags["oracle_effect_unstable"].append(task_id)
         baseline = record.get("baseline_speedups")
-        if isinstance(baseline, list) and baseline and all(
+        if kind == "positive" and isinstance(baseline, list) and baseline and all(
             isinstance(value, (int, float)) and float(value) <= 1.0 + empirical_floor / 100.0 for value in baseline
         ):
             flags["baseline_already_optimal"].append(task_id)
-        if observed_noise and isinstance(low, (int, float)) and max(observed_noise) >= float(low):
+        if kind == "positive" and observed_noise and isinstance(low, (int, float)) and max(observed_noise) >= float(low):
             flags["noise_too_high"].append(task_id)
         gate_rate = record.get("semantic_gate_pass_rate")
         if isinstance(gate_rate, (int, float)) and float(gate_rate) < 1.0:
