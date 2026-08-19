@@ -63,6 +63,14 @@ harness: C produced no canonical promotion, while D produced one validated
 promotion with replay and poison checks passing. These are execution and
 governance observations only, not efficacy or superiority claims.
 
+The server-side staged probes from 2026-08-19 are recorded under
+[`calibration/staged-probes/2026-08-19/`](calibration/staged-probes/2026-08-19/).
+They include a blocked SciML oracle (observed noise 320.85%), a task-level H2D
+replacement probe (valid paired result, observed noise 40.92%, activation not
+declared), and a D evolution governance episode (one canonical rule and poison
+survival 1.0). These artifacts extend the audit trail only; they do not update
+the population approval gate or create formal-50 content.
+
 ## Family source of truth
 
 The workload source of truth is now the Family catalog. All eleven canonical

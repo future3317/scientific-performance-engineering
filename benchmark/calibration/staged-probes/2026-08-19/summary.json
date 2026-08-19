@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "revision": "580e1d6",
+  "environment": {
+    "host": "dbcloud",
+    "conda_environment": "equivcompiler",
+    "python": "3.11.15",
+    "torch": "2.6.0+cu126",
+    "cuda": "12.6",
+    "driver": "535.247.01",
+    "gpu_index": 2,
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "cuda_visible_devices": "2"
+  },
+  "claims": {
+    "formal_50": "not_generated",
+    "efficacy": "not_claimed",
+    "calibration_approval": "blocked"
+  },
+  "probes": [
+    {
+      "task_id": "SCIML-EQUIV-LOWORDER-26",
+      "kind": "atomic_oracle",
+      "status": "blocked_by_observed_noise",
+      "correctness_pass": true,
+      "scientific_gates_pass": true,
+      "median_speedup": 1.7729466979275297,
+      "ci": [1.203751421891431, 1.9667158041999275],
+      "observed_noise_floor_percent": 320.8547202781271,
+      "effective_noise_floor_percent": 320.8547202781271,
+      "verdict": "inconclusive",
+      "wall_time_s": 9.911
+    },
+    {
+      "task_id": "CORE-H2D-PIPELINE-03",
+      "kind": "atomic_oracle",
+      "status": "task_level_calibration_pass_with_activation_gap",
+      "correctness_pass": true,
+      "scientific_gates_pass": true,
+      "median_speedup": 2.855953010487702,
+      "ci": [2.0663445477840794, 3.2549884574691634],
+      "observed_noise_floor_percent": 40.91570965396265,
+      "effective_noise_floor_percent": 40.91570965396265,
+      "verdict": "pass",
+      "activation_status": "not_declared",
+      "headline_claim": false
+    },
+    {
+      "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+      "kind": "evolution_episode",
+      "status": "governance_execution_observed",
+      "condition": "D",
+      "canonical_rule_count": 1,
+      "poisoning_survival_rate": 1.0,
+      "rule_precision": 1.0,
+      "rule_reuse_utility": null,
+      "transfer_gain": 0.0,
+      "evolution_regret_total": 5.76,
+      "efficacy_claim": false
+    }
+  ],
+  "remaining": [
+    "full 30-task server calibration",
+    "sealed contamination materialization and audit",
+    "real-pilot power/MDE and promotion-cost simulation",
+    "registered ablations",
+    "external-distribution slice",
+    "secondary model/backbone",
+    "independent calibration approval review"
+  ]
+}

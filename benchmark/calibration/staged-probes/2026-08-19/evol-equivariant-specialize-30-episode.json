@@ -1,0 +1,444 @@
+{
+  "schema_version": 1,
+  "episode_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+  "condition": "D",
+  "context_mode": "reset",
+  "metrics": {
+    "transfer_gain": 0.0,
+    "rule_reuse_utility": null,
+    "negative_transfer_rate": 0.0,
+    "rule_precision": 1.0,
+    "library_growth": {
+      "canonical_rule_count": 1,
+      "description_length": 630
+    },
+    "utility_per_rule": 0.0,
+    "utility_per_token": null,
+    "conflict_rate": null,
+    "drift_recovery_latency": null,
+    "poisoning_survival_rate": 1.0,
+    "evolution_regret": {
+      "total": 5.76,
+      "utility_gap": 0.7600000000000001,
+      "acquisition": 0.0,
+      "negative_transfer": 0.0,
+      "interaction": 0.0,
+      "drift_recovery": 0.0,
+      "experiment_cost": 5.0
+    }
+  },
+  "raw": {
+    "paired_results": [
+      {
+        "task_id": "SCIML-EQUIV-LOWORDER-26",
+        "family_id": "equivariant_head",
+        "public_context": {
+          "domain": "runtime",
+          "workload": {
+            "irrep_order": 1,
+            "node_count": 64,
+            "recompute_rate": 0.75,
+            "fixture_index": 1,
+            "seed": 0
+          },
+          "hardware": {},
+          "software": {},
+          "evidence": {},
+          "token_budget": 4096
+        },
+        "utility_on": 0.58,
+        "utility_off": 0.58,
+        "task_score_on": 0.58,
+        "task_score_off": 0.58,
+        "delta": 0.0,
+        "noise_floor": 0.05,
+        "reused": false,
+        "oracle_bundle": [
+          "equivariant_recompute"
+        ],
+        "deployed_bundle": [],
+        "oracle_utility": 0.76,
+        "deployed_utility": 0.58,
+        "scientific_gates": {
+          "equivariance_preserved": true
+        },
+        "experiment_cost": 1.0,
+        "failure_source": "acquisition"
+      },
+      {
+        "task_id": "SCIML-EQUIV-RECOMPUTE-06",
+        "family_id": "equivariant_head",
+        "public_context": {
+          "domain": "runtime",
+          "workload": {
+            "irrep_order": 2,
+            "node_count": 64,
+            "recompute_rate": 0.5,
+            "fixture_index": 0,
+            "seed": 0
+          },
+          "hardware": {},
+          "software": {},
+          "evidence": {},
+          "token_budget": 4096
+        },
+        "utility_on": 0.58,
+        "utility_off": 0.58,
+        "task_score_on": 0.58,
+        "task_score_off": 0.58,
+        "delta": 0.0,
+        "noise_floor": 0.05,
+        "reused": false,
+        "oracle_bundle": [],
+        "deployed_bundle": [],
+        "oracle_utility": 0.58,
+        "deployed_utility": 0.58,
+        "scientific_gates": {
+          "equivariance_preserved": true
+        },
+        "experiment_cost": 1.0,
+        "failure_source": "negative_transfer"
+      },
+      {
+        "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+        "family_id": "graph_cache",
+        "public_context": {
+          "domain": "runtime",
+          "workload": {
+            "geometry_displacement": 0.03,
+            "skin": 0.4,
+            "graph_size": 96,
+            "dynamic_rate": 0.1
+          },
+          "hardware": {},
+          "software": {},
+          "evidence": {},
+          "token_budget": 4096
+        },
+        "utility_on": 0.6,
+        "utility_off": 0.6,
+        "task_score_on": 0.6,
+        "task_score_off": 0.6,
+        "delta": 0.0,
+        "noise_floor": 0.05,
+        "reused": false,
+        "oracle_bundle": [
+          "rebuild_graph_cache",
+          "reuse_graph_cache",
+          "reuse_neighbor_graph"
+        ],
+        "deployed_bundle": [],
+        "oracle_utility": 1.0,
+        "deployed_utility": 0.6,
+        "scientific_gates": {
+          "energy_force_consistency": true
+        },
+        "experiment_cost": 1.0,
+        "failure_source": "negative_transfer"
+      },
+      {
+        "task_id": "SCIML-EQUIV-LOWORDER-26",
+        "family_id": "equivariant_head",
+        "public_context": {
+          "domain": "runtime",
+          "workload": {
+            "irrep_order": 1,
+            "node_count": 64,
+            "recompute_rate": 0.75,
+            "fixture_index": 1,
+            "seed": 0
+          },
+          "hardware": {},
+          "software": {},
+          "evidence": {},
+          "token_budget": 4096
+        },
+        "utility_on": 0.58,
+        "utility_off": 0.58,
+        "task_score_on": 0.58,
+        "task_score_off": 0.58,
+        "delta": 0.0,
+        "noise_floor": 0.05,
+        "reused": false,
+        "oracle_bundle": [
+          "equivariant_recompute"
+        ],
+        "deployed_bundle": [],
+        "oracle_utility": 0.76,
+        "deployed_utility": 0.58,
+        "scientific_gates": {
+          "equivariance_preserved": true
+        },
+        "experiment_cost": 1.0,
+        "failure_source": "recovery"
+      },
+      {
+        "task_id": "SCIML-EQUIV-RECOMPUTE-06",
+        "family_id": "equivariant_head",
+        "public_context": {
+          "domain": "runtime",
+          "workload": {
+            "irrep_order": 2,
+            "node_count": 64,
+            "recompute_rate": 0.5,
+            "fixture_index": 0,
+            "seed": 0
+          },
+          "hardware": {},
+          "software": {},
+          "evidence": {},
+          "token_budget": 4096
+        },
+        "utility_on": 0.58,
+        "utility_off": 0.58,
+        "task_score_on": 0.58,
+        "task_score_off": 0.58,
+        "delta": 0.0,
+        "noise_floor": 0.05,
+        "reused": false,
+        "oracle_bundle": [],
+        "deployed_bundle": [],
+        "oracle_utility": 0.58,
+        "deployed_utility": 0.58,
+        "scientific_gates": {
+          "equivariance_preserved": true
+        },
+        "experiment_cost": 1.0,
+        "failure_source": "recovery"
+      }
+    ],
+    "poison_ids": [
+      "poison-5-0"
+    ],
+    "promoted_rules": [
+      "equiv-loworder-reuse-rule"
+    ],
+    "canonical_rule_ids": [
+      "equiv-loworder-reuse-rule"
+    ],
+    "utility_series": [
+      0.58,
+      0.58,
+      0.6,
+      0.58
+    ],
+    "decision_ledger": [
+      {
+        "rule_id": "equiv-loworder-reuse-rule:v1",
+        "version": 1,
+        "replay_digest": "fbf2eb5b783b24242f2603ee868bf1687e0c36612cc3698f2102df58a1bac987:2a1120066d86f1c362bea376b335b8e244d137a9eeb3048a357dd933ffae2747",
+        "status": "promoted",
+        "utility": 0.26391300285100133
+      }
+    ],
+    "family_transformations": [
+      {
+        "name": "equivariant_head:scientific_regime",
+        "kind": "scientific_regime",
+        "parameters": {
+          "from_property": "vector_l1",
+          "to_property": "rank2_tensor"
+        }
+      },
+      {
+        "name": "equivariant_head:poison:overbroad_rule",
+        "kind": "poison",
+        "parameters": {
+          "family_id": "equivariant_head",
+          "operator": "overbroad_rule"
+        }
+      }
+    ],
+    "regret_steps": [
+      {
+        "context_id": "SCIML-EQUIV-LOWORDER-26",
+        "oracle_bundle": [
+          "equivariant_recompute"
+        ],
+        "deployed_bundle": [],
+        "oracle_utility": 0.76,
+        "deployed_utility": 0.58,
+        "experiment_cost": 1.0,
+        "failure_source": "acquisition",
+        "acquisition_regret": 0.0,
+        "negative_transfer_regret": 0.0,
+        "interaction_regret": 0.0,
+        "drift_recovery_regret": 0.0
+      },
+      {
+        "context_id": "SCIML-EQUIV-RECOMPUTE-06",
+        "oracle_bundle": [],
+        "deployed_bundle": [],
+        "oracle_utility": 0.58,
+        "deployed_utility": 0.58,
+        "experiment_cost": 1.0,
+        "failure_source": "negative_transfer",
+        "acquisition_regret": 0.0,
+        "negative_transfer_regret": 0.0,
+        "interaction_regret": 0.0,
+        "drift_recovery_regret": 0.0
+      },
+      {
+        "context_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+        "oracle_bundle": [
+          "rebuild_graph_cache",
+          "reuse_graph_cache",
+          "reuse_neighbor_graph"
+        ],
+        "deployed_bundle": [],
+        "oracle_utility": 1.0,
+        "deployed_utility": 0.6,
+        "experiment_cost": 1.0,
+        "failure_source": "negative_transfer",
+        "acquisition_regret": 0.0,
+        "negative_transfer_regret": 0.0,
+        "interaction_regret": 0.0,
+        "drift_recovery_regret": 0.0
+      },
+      {
+        "context_id": "SCIML-EQUIV-LOWORDER-26",
+        "oracle_bundle": [
+          "equivariant_recompute"
+        ],
+        "deployed_bundle": [],
+        "oracle_utility": 0.76,
+        "deployed_utility": 0.58,
+        "experiment_cost": 1.0,
+        "failure_source": "recovery",
+        "acquisition_regret": 0.0,
+        "negative_transfer_regret": 0.0,
+        "interaction_regret": 0.0,
+        "drift_recovery_regret": 0.0
+      },
+      {
+        "context_id": "SCIML-EQUIV-RECOMPUTE-06",
+        "oracle_bundle": [],
+        "deployed_bundle": [],
+        "oracle_utility": 0.58,
+        "deployed_utility": 0.58,
+        "experiment_cost": 1.0,
+        "failure_source": "recovery",
+        "acquisition_regret": 0.0,
+        "negative_transfer_regret": 0.0,
+        "interaction_regret": 0.0,
+        "drift_recovery_regret": 0.0
+      }
+    ]
+  },
+  "store_manifest": {
+    "schema_version": 1,
+    "condition": "D",
+    "context_mode": "reset",
+    "injection_policy": {
+      "mode": "canonical_only",
+      "retrieval_budget_tokens": 4096,
+      "description": "only canonical rules in rules/ + registry/rules.json are eligible"
+    },
+    "source_snapshot": "redacted",
+    "created_utc": "2026-08-19T09:10:34.914135+00:00",
+    "files": {
+      "SKILL.md": "6dc4f3c59955b41b5f894efe79ef3ad0520ce9ada3947990e226895641c88e05",
+      "agents/openai.yaml": "f4d403b094480954e7d23077c24d32c07c26fee65a26556e372085da82069d1d",
+      "assets/benchmark_record.json": "d38b67c46a7de8d981a675e7c44c916174a4ecfa6ef94507b7844f9d251f2a10",
+      "assets/benchmark_record.schema.json": "c3a5b687fbde48b2f6158d7de0b16cce67d43c1b498f7b3d65cb72d85ce67230",
+      "assets/evidence_event.json": "618e6aead125005018e0d8b1ca86543f469ca4e4441342a7aba88adf69eb6451",
+      "assets/evidence_event.schema.json": "6bc04e25540eae455c838842dcaf3de7f5b6bb1fb2e3ad5f30ffd48f70b9c7ca",
+      "assets/experience_record.json": "1a0184c95350af2bf34b0e937052b99c6a871de25779efa8f4046af8ba0844c6",
+      "assets/experience_record.schema.json": "282838cc6dd52853a6880c5d7db4784b16f321a88e8a1593468b8ae4282fca7c",
+      "assets/materials_gnn_checks.py": "aa37294d31e4374eee02bbf39f3a3ae3db1734dd37dd966918b9612bdbc27ea4",
+      "assets/performance_report.md": "3f48191599a6e681068d67e9d6a4771ae3ee98ca053c2034431f6d8181608c1d",
+      "assets/relation_spec.json": "63941f916649424952061cbca04e8cfe3a5088da583161ceff2b03d29159992b",
+      "assets/relation_spec.schema.json": "7d19a126b77789d9881d93d44ab1a1922c8ca3aa66bd2aa036182d9a69df9ce3",
+      "assets/relation_state.json": "43770807583a1bd7ba414c205b33677331b7cf3e1531029358d9ec18ec2a25f3",
+      "assets/relation_state.schema.json": "63d3f9738b4e82a4e645cbbd0e6457b607a49c60dd23127cda4c752a78ee3d55",
+      "assets/rule_candidate.json": "222427fbe628c09fdc9cd4fa59725b71d19ffd6f8fb2a069e62e7be750f395e2",
+      "assets/rule_candidate.schema.json": "2f4eded4dd2f23235e580c0b8fbbe78e01f79074d8593bcd992382fc3a6b2dbc",
+      "assets/rule_card.json": "51e50fdd26e351c67e53349d6630904c61a190b534202e32700c7c91cf4e6a21",
+      "assets/rule_card.schema.json": "38cc3312b2e7906490b9c362079b1d871045201a908da9c5e9783fd297b8162a",
+      "assets/rule_regression_case.json": "1c498434243fb600516387ed25858e751b129832ae90c434e632d29756ff0671",
+      "assets/rule_regression_case.schema.json": "54d4a40b85eb552c0ac1f7588327226897bc5c053e49f850ff5e4c4219736fce",
+      "assets/rule_spec.json": "118d13b322b1e221a7f175133ea86d0695170ea89605863f1375c88bad975860",
+      "assets/rule_spec.schema.json": "6cfa048f28d8c5cc68cdaf6fe4283477d8801c5c94b934f6000c42632d182ccf",
+      "assets/rule_state.json": "f9726e04d8fce94d799b227b1cd969ae73ed29afd1e43f3eedf2eb229a7f1771",
+      "assets/rule_state.schema.json": "6af244b1fc0a33737698b8ad35c3f88963bb99221c78d4ed73856ad7b066ecb7",
+      "assets/rule_usage_record.json": "ada58bdb068ada18590301ae0e40eb4ba505271a912a06e8b76c7f7433ce48bf",
+      "assets/rule_usage_record.schema.json": "76c4ed3e430a16a38081d97526f2dbe70ac1be11990fd20c64046fa852c26997",
+      "core/__init__.py": "362a2a3bdeb80999ba39ac983359f19a88233a6d907186ab052fcfcb63053e91",
+      "core/acre/__init__.py": "6e392be21e91e80182861f608318f294d9e16148f0229d7d7ed78d1268f839ca",
+      "core/acre/acquisition.py": "38d455cbcf48be80d2343debdbeb3f8d995434ad0d6dff71cde54ef4d2e2621e",
+      "core/acre/actions.py": "dc0199cb63b795d9777677fa66679cdc2ce981c69735ac6ecd5b4d00caf6923e",
+      "core/acre/budget.py": "2bb05ea7b7ed7b0a2dbf2593a2cd36917ad4eae1948809ebbfd248517715eae3",
+      "core/acre/cegis.py": "7c8dacdd5064fa4b569ba99796daa9f007ab633baf6a555a78bf636c3106b20e",
+      "core/acre/controller.py": "07d10ac11373c279b11e2827913d0b10b2c89843039c2bfa4e49a990d629b0a8",
+      "core/acre/decision_probe.py": "dd91a03b4067a5462e332985296073cd14ca948f7a2e636209a1ae0c63310276",
+      "core/acre/engine.py": "8bea2d46c7c5be7c04e23ed30c9bced08cff2832bfbb23159577983ad24db4a5",
+      "core/acre/evidence.py": "1cfdd5fdcd21e26d7cc79e40c6b7247fca17f9e9c8c2493ad8cbf4738743a619",
+      "core/acre/experiments.py": "eafc574650766bc7306024b85836bf54e4b09a64b178d7fb7282116cc1fbc14b",
+      "core/acre/factorial.py": "159c14696ec15b8235a5487363e362d6e8b6f242834f3e5fdd10ffab2d8e50e2",
+      "core/acre/maintainer.py": "09a4c26beac6b72003f08cdccf0ed14e802233e132f64e7d5b3e5e3d90a7d556",
+      "core/acre/planner.py": "c5797d801551cb94a01866a21c4d38e6d7b645348df32103281ca13ec200cd88",
+      "core/acre/policy.py": "571c1efac1fc2dcfb828c6e832bcf2eb23624e2b03f82b100789f917e0cf7c08",
+      "core/acre/predicates.py": "846baa5b539b3d4da6906aaa18be5e58faf8b1b5610ce7612c9c596d700fd66a",
+      "core/acre/relation.py": "dba88f836d3bddc98681644ffb59291aa46abcc3e4551ca1b36de48cb722de4d",
+      "core/acre/router.py": "b3dee210f5b9bf39554e571b71b6a13540a1f47189920a8dc3d70c4c6f44daf1",
+      "core/cost.py": "dea630e1e5dbd73ad09ef71c0a613e7d5979c5865b1b5e3ff38e5349ed15b665",
+      "core/evolution.py": "20b04170940cae72917edd9b1824f2a8dfe3c755d52da6ff184355f16f9ed8d5",
+      "core/governance.py": "61c34ba8e944f356eab22e3d71564daf1d3a5777411d5cabe8078f9e54dca307",
+      "core/lifecycle.py": "2b45204d2f02ab2efe2f6289999596b9523897516712cefda91f65ee1a419571",
+      "core/models.py": "c592950f209999b58f92baa4a35785f214279072e0c9f54e5cec8f165fc9c6a3",
+      "core/mutation_journal.py": "daa3edf5d7b99beadd04d45922c79c4b689c6868ec5fe0578ce4159cb2f35691",
+      "core/predicates.py": "970d80d072149ddc1879b83404ba280676cf7786a905263f998804af81677bed",
+      "core/public_context.py": "5fdbc4bcb68ec4f661bd3bd7f1f4af36be35f45a1ee5c691d3b56e6bdf5ec9b1",
+      "core/retriever.py": "5566ae0aa3ea8b57b75c06f7c1276fca500739141af825d62b231e19ecf6eb0d",
+      "core/schema.py": "bee0a2c825dd67147a8e4826203845ce426804799962a1337b37f5ea894885a2",
+      "core/sequential_stats.py": "f28af44702c4da5362d24a8e3a5842d3b9d06f914e846bd16a819ec4e72463e1",
+      "core/state_store.py": "2e5a160e5bc610aa641883aebffee5e611889bf3a9fdbbb7eede340bbb5d8a14",
+      "core/utility.py": "31d7a726be379df33925a68842bf8b04e4eeb38649db7280c28aa577af911749",
+      "evolution/mutation_journal.jsonl": "b5d8366e0ff40ebda917f5577da4cbac196cce47e8e6aad9ec0fdf2ccfa1ade3",
+      "injection_policy.json": "c024330c8316e8abdd139020fd4fff15859a9b1b8217145df18f2e5b757c8f20",
+      "references/CODE_AND_RUNTIME_AUDIT.md": "f16f7cf83afd0bf206db3df4fb099b6117d8d672b4a70bf750d89d0b8187a804",
+      "references/CRYSTAL_GENERATION.md": "186b2504c96fd37b7c966eb6a280e1f960811aa0b2474e9d147377caf65d5857",
+      "references/DATA_AND_TRAINING_LIFECYCLE.md": "1c2a4ff2d9b6f1f6b6de272771e44d4a20237275cb963b463dfab9033dfb699e",
+      "references/EQUIVARIANT_OPERATOR_DESIGN.md": "a65122c13484cf58ae01c090296e25d7c77aa948cdf6afe4d962f305d75af176",
+      "references/EXPERIENCE_EVOLUTION.md": "392431c16c3f70a722f084a71b34117472d25e731704f30e42a394594662dfa6",
+      "references/EXPERIMENT_WORKFLOW.md": "a22c1afe87222a0725a3f0f1e046dc072077cf03b639bd25ec87a72c8e38adc6",
+      "references/GNN_PREDICTION_WORKLOADS.md": "ff3dbabc4e11e2175f7ad6ca916a8a6a6d851ba634106fc49d76e3692e308dd6",
+      "references/MEASUREMENT_CONTRACT.md": "e6768d77f0bef7e63cde94c3cf38638fa089ae31f0ff94e4fa800ba20d964e5d",
+      "references/MEMORY_COMPILER_DISTRIBUTED.md": "5d9593f248135e4a6db8a6cd0f1534da4782ccc6cde06a80a44f2aa8e4b35caf",
+      "references/PATCH_PATTERNS.md": "fd5d89b916dc44c9930c212190f1cb060397a281c4aa24d32b40d9facb5a9658",
+      "references/PERFORMANCE_PLAYBOOK.md": "375bcb8b9c0fc10c31ce5400e6b313d09347cfce3603bbd3313ba3463919b454",
+      "references/SOURCES.md": "f05ae95909473fdaf35ad7fab1817f05ae78654b1124f9745888f394fb61a9f7",
+      "references/STATISTICAL_PROTOCOL.md": "13e877fc89969b52a4adbdd5d4b41fc52ab6e66009221668d53445b0ce1113bb",
+      "references/TECHNOLOGY_MATRIX.md": "c63013b1ac621ca11b9502456f34e8ae3ba4beb46c71a2c884aebbe9c17bc3f9",
+      "references/archive/README.md": "748c122bf717082e9a88fc811b752c01b26ff11584315dc2d771fae03f1b2c62",
+      "references/archive/REPOSITORY_NOTES.md": "a749bca9d43f3f8f392c67baf481c62218d76a9b838734b1128e289a9b4890af",
+      "registry/rules.json": "d471b9086b53cb19c98d59284434a6477aec67b6a758db2237103a7fbac9c94f",
+      "rules/.gitkeep": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "rules/README.md": "381a49519f9cffefb19d4b18a2894a30e290076fdf1880fe730adcaec8633bb1",
+      "scripts/assess_rule_drift.py": "35a874198632e63e8718424bf5dd8f56711b93c327fd24e6543e7445ac95ac92",
+      "scripts/behavioral_contract_tests.py": "85d5da1abfa908dc8f543cc36f366729c49aa1736b77dc86e6cf35daf9a5c4d6",
+      "scripts/capture_experience.py": "263272cdfe7a1665358337b3594931f13a5392906e02480b25820b5f1fdb489c",
+      "scripts/capture_rule_usage.py": "34e0f83b280b6932bbf50f8d64e291de91134130ad40cdf4805d76ff5cb52c70",
+      "scripts/collect_env.py": "c9c131ebf404783a096c2e70102c6fbd805211f45290bb7a1c6a3d92cad92080",
+      "scripts/compare_benchmarks.py": "99bc34786640f68d20f52a52d0673644c5d1830abb675ab2b10719b045a37700",
+      "scripts/evolution_contract_tests.py": "0fde79167c0640c81839826a08b5b463c3490dce546c54b977fa3efaf9b67e87",
+      "scripts/evolution_statistics_tests.py": "55ddc886267c5f2a5247676f0e1891cabc66c0d7f330e705279f6a9d597daaf8",
+      "scripts/evolution_utility_tests.py": "eb677361c56199a355217e22d31786323ed34e2269609a026f15fa39a0961762",
+      "scripts/experience_contract_tests.py": "4d21785600cb8b04475a787f194c314d63286a3814367bda01c083838aa42c88",
+      "scripts/generate_rule_schemas.py": "7ab273ba97cfe8ddd3244a47ce6224ecdf031dd6d85ae955211630a5287751b6",
+      "scripts/governance_tests.py": "186fc8bff5e6ed2249bfc994d31b7d5890e783acc0e9ba7afadd51779c519c79",
+      "scripts/rule_engine_tests.py": "3d80f223b5dfe8516528077c7270f7725fc1e1472c0f6bc33a59d2bdfb9dba7d",
+      "scripts/run_rule_replay.py": "c2d9218ce78e76cbadfa3183eebe848b493253d4c6753bb8df634a3585452e4f",
+      "scripts/run_with_gpu_monitor.py": "6c732f6ed8ce17676dccd1d60577718dc323467d72c62f40a557108003df6a93",
+      "scripts/score_rule_library.py": "79dbef6fe3f0eed788c3920b7f5e5ef832f457bffc273e0de859a0a183eb237d",
+      "scripts/validate_benchmark.py": "593390c587dda510076915a5fcaed069e4736eee8f1c202eccd0c82b7915c048",
+      "scripts/validate_evolution.py": "2aa9abe8d4c4dc4bbcddfae456dc9f2ab712377db4eacfe9228ac82bf82d32ab",
+      "scripts/validate_experience.py": "b7913bc5c80a2985e049743fe0c1e23debf3c22da1d05d2aef8ae6905b7592c7",
+      "scripts/validate_rule_os.py": "b59e6fb8f63e740da479da3789f6b006ebf00295a2c8b57a010b5c9037c50b9b",
+      "scripts/validate_rule_usage.py": "7f5b4dd03f0c9265252f9b587016c18af1f8192a97cdcfdfba38b2bc78efbdcf",
+      "scripts/validate_skill.py": "edef7121c997cbcc56cca301da4d40c81cdba9f6e5535edb942fde3c1d0d3423",
+      "skill_view_manifest.json": "301d98bc8b7baee8cb6bc31ba2335930df8a76f822e1406ef55b6972825e6f12"
+    },
+    "manifest_digest": "d8aa1ea006531a99b188621146930cc58100fb0649799f755d3c8832e1d74a23"
+  }
+}
