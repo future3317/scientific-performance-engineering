@@ -45,6 +45,15 @@ The archive keeps the source bundle and provenance; it is not a second
 executable task source. The tasks remain calibration candidates and do not
 produce efficacy claims or sealed formal-50 content.
 
+Two of the new packages now have task-local calibration evidence. The CUDA
+counterexample `CORE-H2D-OVERFANOUT-23` executes correctly, but its same-host
+noise floor (9.55--32.42%) blocks eligibility; see
+[`calibration/h2d-overfanout-23-summary.json`](calibration/h2d-overfanout-23-summary.json).
+The evolution episode `EVOL-EQUIVARIANT-SPECIALIZE-30` completed the full C/D
+harness: C produced no canonical promotion, while D produced one validated
+promotion with replay and poison checks passing. These are execution and
+governance observations only, not efficacy or superiority claims.
+
 ## Family source of truth
 
 The workload source of truth is now the Family catalog. All eleven canonical
