@@ -24,6 +24,30 @@ from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.taskgen.validate_population import build_pilot_calibration, build_report
 
 
+def _patch_strip_level(patch_path: Path, solution_dir: Path) -> int:
+    """Return the strip level matching the copied workspace layout.
+
+    Authoring patches in the active population use three valid header forms:
+    ``solution.py``, ``a/solution.py`` and ``a/workspace/solution.py``.  The
+    calibration workspace always contains the entrypoint at its root, so the
+    strip level must be derived from the actual source path rather than fixed
+    globally.
+    """
+    for line in patch_path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("--- "):
+            continue
+        header = line[4:].split("\t", 1)[0].strip()
+        if header == "/dev/null":
+            continue
+        parts = Path(header).parts
+        for strip in range(len(parts)):
+            relative = Path(*parts[strip:])
+            if relative != Path(".") and (solution_dir / relative).is_file():
+                return strip
+        break
+    raise RuntimeError(f"reference patch source is not in copied workspace: {patch_path}")
+
+
 def _copy_oracle(task_dir: Path, solution_dir: Path) -> None:
     spec = miniyaml.load(str(task_dir / "task.yaml"))
     entrypoint = str(spec["workspace"]["entrypoint"])
@@ -36,8 +60,9 @@ def _copy_oracle(task_dir: Path, solution_dir: Path) -> None:
     if not patch_path.is_file():
         raise FileNotFoundError(f"oracle solution and reference patch missing for {task_dir}")
     shutil.copytree(task_dir / "workspace", solution_dir, dirs_exist_ok=True)
+    strip_level = _patch_strip_level(patch_path, solution_dir)
     completed = subprocess.run(
-        ["patch", "-p2", "-i", str(patch_path)],
+        ["patch", "--batch", "--forward", f"-p{strip_level}", "-i", str(patch_path)],
         cwd=solution_dir, text=True, capture_output=True, check=False,
     )
     if completed.returncode != 0:
