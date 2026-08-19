@@ -57,12 +57,14 @@ def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str
     }
     verified = first.get("verified_speedup", {}) if isinstance(first.get("verified_speedup"), dict) else {}
     anti = first.get("anticheat", {}) if isinstance(first.get("anticheat"), dict) else {}
+    calibration_status = "eligible" if all(item.get("calibration_status") == "eligible" for item in results) else "blocked"
     return {
         "task_id": task_id,
         "task_digest": digest,
         "revision": revision,
         "environment": first.get("fingerprint") or capture_fingerprint(),
         "outer_trials": results,
+        "calibration_status": calibration_status,
         "noise_control": {"artifacts": noises, "effective_noise_floor_percent": max((float(item.get("effective_noise_floor_percent", 0.0)) for item in noises), default=0.0)},
         "oracle_ci": verified,
         "oracle_ci_low_percent": _percent(verified.get("ci_low")),

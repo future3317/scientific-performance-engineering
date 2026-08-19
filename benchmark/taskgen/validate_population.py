@@ -40,7 +40,7 @@ EMPIRICAL_FLAGS = (
 )
 CALIBRATION_FIELDS = (
     "task_digest", "revision", "environment", "outer_trials", "noise_control",
-    "oracle_ci", "semantic_gates", "anti_cheat",
+    "oracle_ci", "semantic_gates", "anti_cheat", "calibration_status",
 )
 
 
@@ -237,6 +237,8 @@ def _empirical_flags(
                 flags["semantic_gate_too_weak"].append(task_id)
             if not isinstance(record.get("anti_cheat"), dict) or record.get("anti_cheat", {}).get("status") not in {"pass", "passed", "clean"}:
                 flags["agent_shortcut_detected"].append(task_id)
+            if record.get("calibration_status") != "eligible":
+                flags["noise_too_high"].append(task_id)
         if "_task_dir" in spec:
             task_dir = Path(spec.get("_task_dir", ""))
             if record.get("task_digest") != task_package_digest(task_dir):
