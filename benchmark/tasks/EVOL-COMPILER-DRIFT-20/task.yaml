@@ -35,11 +35,12 @@ diagnosis:
   choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_dynamic_shapes, memory_pressure]
 oracle:
   expected_score_range: [0.0, 1.0]
+  expected_delta_range: [0.1, 1.0]
 generator_family_id: GEN-EVOLUTION-DRIFT
 oracle_fix_pattern_id: FIX-EVOLUTION-DRIFT-REVALIDATE
 scientific_contract_id: CONTRACT-EVOLUTION-GOVERNANCE
 difficulty_tier: hard
-workspace_ast_skeleton_hash: dff70efa5641370e6d1f2f5653bae7706066b46c829afca737702ec1ad2689b2
+workspace_ast_skeleton_hash: 281ef6727c2315f3cbb0d2900df8175eda20af09a1c06a74b4e88c542e87d069
 family_id: episode
 anchor_instance_id: EVOL-COMPILER-DRIFT-20
 family_parameters:

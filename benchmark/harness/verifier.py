@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import copy
+import tempfile
 import time
 import traceback
 from pathlib import Path
@@ -175,6 +176,10 @@ def validate_task(task_dir: str | Path, check_fixtures: bool = True) -> list[str
         primary_metric = measurement.get("primary_metric")
         if spec.get("track") == "evolution" and primary_metric != "episode_score":
             errors.append("evolution tasks must use measurement.primary_metric=episode_score")
+        if spec.get("track") == "evolution":
+            effect_range = spec.get("oracle", {}).get("expected_delta_range") if isinstance(spec.get("oracle"), dict) else None
+            if not isinstance(effect_range, list) or len(effect_range) != 2 or float(effect_range[0]) >= float(effect_range[1]):
+                errors.append("evolution tasks must declare oracle.expected_delta_range")
         if spec.get("track") != "evolution" and primary_metric == "episode_score":
             errors.append("episode_score is reserved for evolution tasks")
 
@@ -360,6 +365,7 @@ def verify_task(
     noise_control_path: str | Path | None = None,
     noise_control_required: bool = False,
     noise_control_expected: Mapping[str, Any] | None = None,
+    outer_trial_id: str | None = None,
 ) -> dict[str, Any]:
     """Run the S0-S6 pipeline; return (and optionally write) the result dict."""
     started = time.perf_counter()
@@ -379,12 +385,15 @@ def verify_task(
     if spec["workspace"].get("api") == "episode_v1":
         return _verify_episode_task(
             task_dir, solution_dir, out_path=out_path, seed=seed,
-            condition=condition, context_mode=context_mode,
+            condition=condition, context_mode=context_mode, outer_trial_id=outer_trial_id,
         )
 
     result: dict[str, Any] = {
         "schema_version": 1,
         "task_id": spec["task_id"],
+        "outer_trial_id": outer_trial_id,
+        "seed": int(seed),
+        "measurement_class": "atomic_performance",
         "condition": condition,
         "context_mode": context_mode,
         "verdict": "error",
@@ -695,6 +704,7 @@ def _verify_episode_task(
     seed: int,
     condition: str,
     context_mode: str,
+    outer_trial_id: str | None,
 ) -> dict[str, Any]:
     """Verify one evolution episode with one paired C/D execution.
 
@@ -705,17 +715,21 @@ def _verify_episode_task(
     spec = load_task_yaml(task_dir)
     result: dict[str, Any] = {
         "schema_version": 1, "task_id": spec["task_id"], "metric_class": "evolution", "condition": condition,
+        "outer_trial_id": outer_trial_id, "seed": int(seed), "measurement_class": "episode_bounded_score",
         "context_mode": context_mode, "verdict": "error", "validity": "invalid",
         "execution_validity": "invalid", "protocol_failure": False,
         "correctness_pass": False, "scientific_gates": {},
         "task": {"track": spec["track"], "family": spec["family"], "kind": spec["kind"],
-                 "metric_class": "evolution", "expected_score_range": spec.get("oracle", {}).get("expected_score_range", [0.0, 1.0])},
+                 "metric_class": "evolution", "expected_score_range": spec.get("oracle", {}).get("expected_score_range", [0.0, 1.0]),
+                 "expected_delta_range": spec.get("oracle", {}).get("expected_delta_range")},
         "cost": {"wall_time_s": 0.0, "tokens": None, "tool_calls": None, "retries": 0},
         "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "canary_tripped": False},
         "fingerprint": capture_fingerprint(), "calibration_status": "not_evaluated",
-        "stage_times_s": {}, "errors": [],
+        "stage_times_s": {}, "harness_hash": {}, "errors": [],
     }
     try:
+        harness_hash_s0 = runner.hash_harness_files()
+        result["harness_hash"] = harness_hash_s0
         sandbox = runner.materialize_sandbox(task_dir)
         result["sandbox_dir"] = str(sandbox)
         oracle_dir = task_dir / "oracle"
@@ -741,30 +755,68 @@ def _verify_episode_task(
             else:
                 raise FileNotFoundError(f"candidate entrypoint {entrypoint} not found")
         fixtures = runner.call_benchmark_fn(module.make_fixtures, seed=seed, device=device)
-        baseline = runner.call_benchmark_fn(
+        baseline_probe = runner.call_benchmark_fn(
             module.run_performance,
             solution=runner.call_benchmark_fn(module.load_solution, path=str(baseline_path), device=device),
             fixtures=copy.deepcopy(fixtures), warmup=0, iterations=1, device=device,
         )
-        candidate = runner.call_benchmark_fn(
+        candidate_probe = runner.call_benchmark_fn(
             module.run_performance,
             solution=runner.call_benchmark_fn(module.load_solution, path=str(candidate_path), device=device),
             fixtures=copy.deepcopy(fixtures), warmup=0, iterations=1, device=device,
         )
-        base = runner.normalize_performance(baseline)
-        cand = runner.normalize_performance(candidate)
-        base_raw = base.get("raw", {}) if isinstance(base.get("raw"), dict) else {}
-        cand_raw = cand.get("raw", {}) if isinstance(cand.get("raw"), dict) else {}
-        base_score = base.get("value")
-        cand_score = cand.get("value")
+        def action_from_probe(probe: Any) -> dict[str, Any]:
+            if not isinstance(probe, dict) or not isinstance(probe.get("action"), dict):
+                raise ValueError("episode candidate must return a declarative action mapping")
+            action = dict(probe["action"])
+            if str(action.get("condition", "")).upper() not in {"C", "C_STRESS", "D"}:
+                raise ValueError("episode action condition must be C, C_STRESS, or D")
+            return action
+
+        def execute_action(probe: Any, label: str) -> dict[str, Any]:
+            action = action_from_probe(probe)
+            episode_path = next(task_dir.glob("episodes/*.yaml"), None)
+            if episode_path is None:
+                raise FileNotFoundError(f"episode manifest missing in {task_dir}")
+            with tempfile.TemporaryDirectory(prefix=f"acre-episode-{label}-") as temp:
+                out_dir = Path(temp)
+                snippet = (
+                    "import json; from benchmark.harness import evolution; "
+                    f"r=evolution.run_episode({str(episode_path)!r}, {str(action['condition']).upper()!r}, "
+                    f"{str(out_dir)!r}, core_repo={str(Path(__file__).resolve().parents[2])!r}, "
+                    f"snapshot_dir={str(Path(__file__).resolve().parents[2])!r}, context_mode={context_mode!r}, "
+                    f"seed={int(seed)!r}, max_wall_time_s=120.0); "
+                    f"open({str(out_dir / 'harness_episode.json')!r}, 'w', encoding='utf-8').write(json.dumps(r, default=str))"
+                )
+                completed = runner.run_python_subprocess(
+                    snippet=snippet, timeout=120.0, cwd=Path(__file__).resolve().parents[2]
+                )
+                if completed["timed_out"]:
+                    raise TimeoutError(f"episode arm {label} exceeded 120s")
+                if completed["exit_code"] != 0:
+                    raise RuntimeError(f"episode arm {label} failed: {completed['stderr'] or completed['stdout']}")
+                return json.loads((out_dir / "harness_episode.json").read_text(encoding="utf-8"))
+
+        base_raw = execute_action(baseline_probe, "baseline")
+        cand_raw = execute_action(candidate_probe, "candidate")
+        if time.perf_counter() - started > float(spec.get("time_budget_s", 600.0)):
+            result["verdict"] = "inconclusive"
+            result["validity"] = "valid"
+            result["execution_validity"] = "resource_blocked"
+            result["errors"].append("episode verifier exceeded the outer task budget")
+            return _finalize(result, started, out_path)
+        score_fn = getattr(module, "score_harness_episode", None)
+        gates_fn = getattr(module, "gates_harness_episode", None)
+        if not callable(score_fn) or not callable(gates_fn):
+            raise ValueError("episode benchmark must expose harness-owned score_harness_episode/gates_harness_episode")
+        base_score = score_fn(base_raw)
+        cand_score = score_fn(cand_raw)
+        base_gates = runner.normalize_gates(gates_fn(base_raw))
+        gates = runner.normalize_gates(gates_fn(cand_raw))
         if not isinstance(base_score, (int, float)) or not isinstance(cand_score, (int, float)):
-            raise ValueError("episode run_performance must return numeric episode_score")
-        base_gates = base_raw.get("episode_gates", {})
-        gates = cand_raw.get("episode_gates", {})
-        if not isinstance(base_gates, dict):
-            base_gates = {}
-        if not isinstance(gates, dict):
-            gates = {}
+            raise ValueError("harness episode scorer must return a numeric bounded score")
+        base_gates = {name: bool(value["passed"]) for name, value in base_gates.items()}
+        gates = {name: bool(value["passed"]) for name, value in gates.items()}
         result["correctness_pass"] = True
         result["scientific_gates"] = {str(k): bool(v) for k, v in gates.items()}
         result["baseline_scientific_gates"] = {str(k): bool(v) for k, v in base_gates.items()}
@@ -780,20 +832,35 @@ def _verify_episode_task(
                 "candidate_score": float(cand_score),
                 "delta": float(cand_score) - float(base_score),
             },
-            "baseline_wall_time_s": base.get("raw", {}).get("timing", {}).get("wall_time_s"),
-            "candidate_wall_time_s": cand.get("raw", {}).get("timing", {}).get("wall_time_s"),
-            "baseline_result": base_raw.get("episode_result"),
-            "candidate_result": cand_raw.get("episode_result"),
+            "baseline_wall_time_s": base_raw.get("wall_time_s"),
+            "candidate_wall_time_s": cand_raw.get("wall_time_s"),
+            "baseline_result": base_raw,
+            "candidate_result": cand_raw,
             "baseline_gates": result["baseline_scientific_gates"],
             "candidate_gates": result["scientific_gates"],
         }
-        result["task_score"] = float(cand_score)
         result["execution_validity"] = "valid"
         result["validity"] = "valid"
         result["efficacy_eligible"] = True
         gates_ok = all(result["scientific_gates"].values()) and all(result["baseline_scientific_gates"].values())
+        result["task_score"] = float(cand_score) if gates_ok else 0.0
         result["calibration_status"] = "eligible" if gates_ok else "blocked"
         result["verdict"] = "pass" if gates_ok else "fail"
+        expected_delta = spec.get("oracle", {}).get("expected_delta_range")
+        delta = float(cand_score) - float(base_score)
+        if gates_ok and isinstance(expected_delta, list) and len(expected_delta) == 2:
+            if not (float(expected_delta[0]) <= delta <= float(expected_delta[1])):
+                result["calibration_status"] = "blocked"
+                result["verdict"] = "fail"
+                result["efficacy_eligible"] = False
+                result["errors"].append("episode score delta is outside the preregistered effect range")
+        harness_hash_s6 = runner.hash_harness_files()
+        same, diffs = anticheat.manifests_equal(harness_hash_s0, harness_hash_s6)
+        if not same:
+            result["protocol_failure"] = True
+            result["validity"] = "invalid"
+            result["execution_validity"] = "invalid"
+            result["errors"].append(f"harness files mutated during episode evaluation: {diffs}")
     except Exception as exc:
         result["verdict"] = "error"
         result["validity"] = "invalid"

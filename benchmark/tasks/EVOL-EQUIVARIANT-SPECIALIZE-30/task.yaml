@@ -35,11 +35,12 @@ diagnosis:
   choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_dynamic_shapes, memory_pressure, autograd_overhead]
 oracle:
   expected_score_range: [0.0, 1.0]
+  expected_delta_range: [0.1, 1.0]
 generator_family_id: GEN-EPISODE
 oracle_fix_pattern_id: FIX-EVOLUTION-EQUIVARIANT-SPECIALIZE
 scientific_contract_id: CONTRACT-EVOLUTION-GOVERNANCE
 difficulty_tier: hard
-workspace_ast_skeleton_hash: "5d3a5f386e67201b46fc421737ce2d39204af01093bbf928e73fd74756191af5"
+workspace_ast_skeleton_hash: "cdaa51e7a14ab0d9908abeab6454fc01e1ddf8b76c7c1e787a114b75e96aeea3"
 family_id: episode
 anchor_instance_id: EVOL-EQUIVARIANT-SPECIALIZE-30
 family_parameters:

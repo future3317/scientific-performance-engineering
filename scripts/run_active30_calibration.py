@@ -21,7 +21,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal import attest
-from benchmark.harness import miniyaml, verifier
+from benchmark.harness import miniyaml, stats, verifier
 from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_compatible
 from benchmark.taskgen.validate_population import build_pilot_calibration, build_report
 
@@ -97,11 +97,27 @@ def _cell_envelope_compatible(path: Path, *, static: dict[str, Any], noise_path:
     try:
         envelope = json.loads(path.read_text(encoding="utf-8"))
         noise = json.loads(noise_path.read_text(encoding="utf-8"))
+        raw = json.loads(result_path.read_text(encoding="utf-8"))
+        for key in ("task_id", "outer_trial_id", "seed", "measurement_class"):
+            if raw.get(key) != static.get(key):
+                return False
+        if attest.validate_calibration_envelope(envelope, static):
+            return False
         if any(envelope.get(key) != value for key, value in static.items() if key != "fingerprint"):
             return False
         compatible, _ = fingerprints_compatible(envelope.get("fingerprint", {}), static.get("fingerprint", {}))
-        return compatible and envelope.get("noise_digest") == noise.get("artifact_digest") and envelope.get("raw_result_digest") == attest.file_digest(result_path)
-    except (OSError, json.JSONDecodeError):
+        if not compatible or envelope.get("noise_digest") != noise.get("artifact_digest"):
+            return False
+        if static.get("measurement_class") == "atomic_performance":
+            stats.read_noise_control(noise_path, {
+                "task_id": static.get("task_id"),
+                "outer_trial_id": static.get("outer_trial_id"),
+                "benchmark_revision": static.get("producer_revision"),
+                "task_package_digest": static.get("task_package_digest"),
+                "population_manifest_digest": static.get("population_manifest_digest"),
+            })
+        return envelope.get("raw_result_digest") == attest.file_digest(result_path)
+    except (OSError, json.JSONDecodeError, ValueError):
         return False
 
 
@@ -202,6 +218,8 @@ def run(args: argparse.Namespace) -> int:
             envelope_path.parent.mkdir(parents=True, exist_ok=True)
             static_envelope = {
                 "schema_version": 1, "producer_revision": revision,
+                "task_id": task_id, "outer_trial_id": outer_id, "seed": outer,
+                "measurement_class": "evolution" if spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
                 "task_package_digest": task_digest, "population_manifest_digest": population_digest,
                 "harness_digest": harness_digest, "calibration_runner_digest": runner_digest,
                 "fingerprint": fingerprint,
@@ -209,6 +227,8 @@ def run(args: argparse.Namespace) -> int:
             if _cell_envelope_compatible(envelope_path, static=static_envelope, noise_path=noise_path, result_path=result_path):
                 noise = json.loads(noise_path.read_text(encoding="utf-8"))
                 result = json.loads(result_path.read_text(encoding="utf-8"))
+                if result.get("protocol_failure") or (result.get("validity") == "invalid" and result.get("execution_validity") == "invalid"):
+                    raise RuntimeError(f"calibration cell {task_id}/{outer_id} has a protocol failure and is blocked_requires_revision")
                 task_envelopes.append(json.loads(envelope_path.read_text(encoding="utf-8")))
             else:
                 _quarantine_cell_files(out, task_id, outer_id, [noise_path, result_path, envelope_path])
@@ -237,6 +257,7 @@ def run(args: argparse.Namespace) -> int:
                 result = verifier.verify_task(
                     task_dir, solution_dir, out_path=result_path, seed=outer,
                     condition="standalone", context_mode="reset",
+                    outer_trial_id=outer_id,
                     noise_control_path=noise_path, noise_control_required=True,
                     noise_control_expected={
                         "task_id": task_id, "outer_trial_id": outer_id,
@@ -250,6 +271,8 @@ def run(args: argparse.Namespace) -> int:
                     population_manifest_digest=population_digest, harness_digest_value=harness_digest,
                     calibration_runner_digest=runner_digest, noise_digest=str(noise["artifact_digest"]),
                     raw_result_digest=attest.file_digest(result_path), fingerprint=fingerprint,
+                    task_id=task_id, outer_trial_id=outer_id, seed=outer,
+                    measurement_class="evolution" if spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
                 )
                 envelope_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 task_envelopes.append(envelope)

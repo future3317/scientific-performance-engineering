@@ -162,6 +162,10 @@
         "expected_score_range": {
           "type": "array", "minItems": 2, "maxItems": 2,
           "items": {"type": "number"}
+        },
+        "expected_delta_range": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "number"}
         }
       }
     },

@@ -17,6 +17,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal import attest
+from benchmark.harness import miniyaml, stats
 from benchmark.harness.fingerprint import fingerprints_compatible
 
 
@@ -36,6 +37,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
         task_id = str(task_id)
         task_dir = task_root / task_id
         task_digest = attest.task_package_digest(task_dir)
+        task_spec = miniyaml.load(str(task_dir / "task.yaml"))
         for outer in range(outer_trials):
             outer_id = f"outer-{outer:03d}"
             noise = out / "noise-control" / outer_id / f"{task_id}.json"
@@ -45,24 +47,40 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
             try:
                 payload = json.loads(envelope.read_text(encoding="utf-8"))
                 noise_payload = json.loads(noise.read_text(encoding="utf-8"))
+                raw_payload = json.loads(raw.read_text(encoding="utf-8"))
                 expected = {
                     "schema_version": 1, "producer_revision": revision,
+                    "task_id": task_id, "outer_trial_id": outer_id, "seed": outer,
+                    "measurement_class": "evolution" if task_spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
                     "task_package_digest": task_digest,
                     "population_manifest_digest": population_digest,
                     "harness_digest": static_harness,
                     "calibration_runner_digest": runner_digest,
                 }
-                if any(payload.get(key) != value for key, value in expected.items()):
+                if attest.validate_calibration_envelope(payload, expected):
                     reason = "provenance_mismatch"
+                elif any(raw_payload.get(key) != expected.get(key) for key in ("task_id", "outer_trial_id", "seed", "measurement_class")):
+                    reason = "raw_identity_mismatch"
                 else:
                     compatible, _ = fingerprints_compatible(payload.get("fingerprint", {}), fingerprint)
                     if not compatible:
                         reason = "fingerprint_mismatch"
                     elif payload.get("noise_digest") != noise_payload.get("artifact_digest"):
                         reason = "noise_digest_mismatch"
-                    elif payload.get("raw_result_digest") != attest.file_digest(raw):
+                    else:
+                        noise_expected = {
+                            "task_id": task_id, "outer_trial_id": outer_id,
+                            "benchmark_revision": revision, "task_package_digest": task_digest,
+                            "population_manifest_digest": population_digest,
+                        }
+                        if expected["measurement_class"] == "atomic_performance":
+                            try:
+                                stats.read_noise_control(noise, noise_expected)
+                            except ValueError:
+                                reason = "noise_artifact_invalid"
+                    if not reason and payload.get("raw_result_digest") != attest.file_digest(raw):
                         reason = "raw_result_digest_mismatch"
-                    elif noise_payload.get("task_package_digest") != task_digest or noise_payload.get("population_manifest_digest") != population_digest:
+                    elif not reason and (noise_payload.get("task_package_digest") != task_digest or noise_payload.get("population_manifest_digest") != population_digest):
                         reason = "noise_identity_mismatch"
             except (OSError, json.JSONDecodeError, KeyError):
                 reason = "legacy_or_incomplete_envelope"

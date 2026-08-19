@@ -374,12 +374,12 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
                             errors.append(f"{task_dir.name}: task polarity disagrees with FamilySpec applicability")
                 except KeyError:
                     errors.append(f"{task_dir.name}: unknown family_id {spec.get('family_id')}")
-            errors.extend(_artifact_findings(task_dir, spec))
-            actual_hash = ast_skeleton_hash(task_dir)
-            if spec.get("workspace_ast_skeleton_hash") != actual_hash:
-                errors.append(f"{task_dir.name}: workspace_ast_skeleton_hash is stale")
-            if int(spec.get("ast_skeleton_version", 0)) != 2:
-                errors.append(f"{task_dir.name}: ast_skeleton_version must be 2")
+        errors.extend(_artifact_findings(task_dir, spec))
+        actual_hash = ast_skeleton_hash(task_dir)
+        if spec.get("workspace_ast_skeleton_hash") != actual_hash:
+            errors.append(f"{task_dir.name}: workspace_ast_skeleton_hash is stale")
+        if int(spec.get("ast_skeleton_version", 0)) != 2:
+            errors.append(f"{task_dir.name}: ast_skeleton_version must be 2")
         errors.extend(f"{task_dir.name}: {item}" for item in _isolated_validate_task(task_dir))
 
     counts = Counter(str(spec.get("track")) for spec in specs)

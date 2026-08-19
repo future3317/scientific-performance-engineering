@@ -31,7 +31,7 @@ from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
 from benchmark.formal.approval import validate_calibration_approval
-from benchmark.formal.release_manifest import validate_materialized_manifest
+from benchmark.formal.release_manifest import validate_formal_release, validate_materialized_manifest
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from core.public_context import build_public_context
 from benchmark.harness.evolution import promote_via_replay
@@ -2138,7 +2138,21 @@ def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], 
         return False
     if not isinstance(pilot, dict) or pilot.get("calibration_gate") != "ready_for_review":
         return False
-    return not validate_calibration_approval(report, pilot, approval, repo_root=report_path.parents[1])
+    repo_root = report_path.parents[1]
+    if validate_calibration_approval(report, pilot, approval, repo_root=repo_root):
+        return False
+    release_path = repo_root / "benchmark" / "formal_release_manifest.json"
+    try:
+        release = json.loads(release_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return not validate_formal_release(
+        release, repo_root=repo_root,
+        population_manifest=repo_root / "benchmark" / "manifests" / "v1.0-50-slots.json",
+        approval_path=approval_path, claims_path=repo_root / "CLAIMS.yaml",
+        protocol_path=repo_root / "references" / "STATISTICAL_PROTOCOL.md",
+        campaign_config=repo_root / "benchmark" / "formal" / "campaign_config.yaml",
+    )
 
 
 def _resume_stream_prefix(
@@ -2237,7 +2251,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         _validate_campaign_config(
             Path(campaign_config_path), conditions=conditions_list, context_modes=context_modes,
             outer_trials=int(args.outer_trials), schedule_seed=int(getattr(args, "schedule_seed", 0)),
-            population_manifest=population_manifest,
+            population_manifest=population_manifest, repo_root=repo_root,
         )
     if getattr(args, "formal", False):
         plan = schedule.build_task_block_schedule(
@@ -3139,14 +3153,13 @@ def _validate_formal_entry(
         release = json.loads(release_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("formal release manifest is invalid") from exc
-    if release.get("status") != "frozen" or not release.get("release_digest"):
-        raise ValueError("formal release manifest is not frozen")
-    approval_body = {key: value for key, value in approval.items() if key != "approval_digest"}
-    expected_approval_digest = hashlib.sha256(
-        json.dumps(approval_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-    if approval.get("approval_digest") != expected_approval_digest:
-        raise ValueError("calibration approval digest mismatch")
+    release_errors = validate_formal_release(
+        release, repo_root=repo_root, population_manifest=population_manifest,
+        approval_path=approval_path, claims_path=claims_path,
+        protocol_path=analysis_plan_path, campaign_config=Path(campaign_config_path),
+    )
+    if release_errors:
+        raise ValueError("formal release validation failed: " + "; ".join(release_errors))
     try:
         clean = not subprocess.run(
             ["git", "status", "--porcelain"], cwd=repo_root, check=False,
@@ -3158,7 +3171,7 @@ def _validate_formal_entry(
         raise ValueError("formal entry requires a clean git tree")
 
 
-def _validate_campaign_config(config_path: Path, *, conditions: tuple[str, ...], context_modes: tuple[str, ...], outer_trials: int, schedule_seed: int, population_manifest: Path) -> dict[str, Any]:
+def _validate_campaign_config(config_path: Path, *, conditions: tuple[str, ...], context_modes: tuple[str, ...], outer_trials: int, schedule_seed: int, population_manifest: Path, repo_root: Path) -> dict[str, Any]:
     config = miniyaml.load(str(config_path))
     if str(config.get("mode")) != "formal":
         raise ValueError("campaign config mode must be formal")
@@ -3167,11 +3180,21 @@ def _validate_campaign_config(config_path: Path, *, conditions: tuple[str, ...],
         "context_mode": context_modes[0] if len(context_modes) == 1 else list(context_modes),
         "outer_trials": int(outer_trials),
         "schedule_seed": int(schedule_seed),
-        "population_manifest": str(population_manifest),
     }
     for key, value in expected.items():
         if key in config and config.get(key) != value:
             raise ValueError(f"formal CLI/config mismatch for {key}: {config.get(key)!r} != {value!r}")
+    configured_manifest = config.get("population_manifest")
+    if configured_manifest is None:
+        raise ValueError("formal campaign config must declare population_manifest")
+    try:
+        configured_path = Path(str(configured_manifest))
+        if not configured_path.is_absolute():
+            configured_path = (repo_root / configured_path).resolve()
+        if configured_path != population_manifest.resolve():
+            raise ValueError(f"formal CLI/config mismatch for population_manifest: {configured_manifest!r} != {population_manifest}")
+    except OSError as exc:
+        raise ValueError(f"invalid population_manifest path: {exc}") from exc
     return config
 
 

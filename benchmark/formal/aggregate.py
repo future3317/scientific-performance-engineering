@@ -337,7 +337,19 @@ def aggregate_confirmatory(
 
 def primary_db_estimator(records: list[dict[str, Any]], *, required_cells: list[tuple[str, str, str, str]] | None = None) -> dict[str, Any]:
     """Registered equal-task-then-equal-lineage D-B estimator."""
-    indexed: dict[tuple[str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
+    expected = {
+        (str(task), str(trial), str(mode), str(condition))
+        for task, trial, mode, condition in (required_cells or [])
+        if str(condition) in {"D", "B"}
+    }
+    observed = {
+        (str(record.get("task_id", "")), str(record.get("outer_trial_id", "")), str(record.get("context_mode", "reset")), str(record.get("condition", "")))
+        for record in records
+        if str(record.get("condition", "")) in {"D", "B"}
+    }
+    if required_cells is not None and (not expected or not expected.issubset(observed)):
+        return {"status": "withheld", "reason": "required D/B cells are incomplete", "required_cells": [list(item) for item in sorted(expected)]}
+    indexed: dict[tuple[str, str, str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
     for record in records:
         if "visibility" not in record or record.get("execution_validity") in {"invalid", "resource_blocked"}:
             continue
@@ -345,9 +357,9 @@ def primary_db_estimator(records: list[dict[str, Any]], *, required_cells: list[
             continue
         task = str(record.get("task_id", "")); trial = str(record.get("outer_trial_id", ""))
         if task and trial:
-            indexed[(task, str(record.get("lineage_id", task)))][str(record["condition"])] = record
+            indexed[(task, str(record.get("lineage_id", task)), trial, str(record.get("context_mode", "reset")))][str(record["condition"])] = record
     task_by_lineage: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
-    for (task, lineage), values in indexed.items():
+    for (task, lineage, _trial, _mode), values in indexed.items():
         if "D" in values and "B" in values:
             left, right = _task_score(values["D"]), _task_score(values["B"])
             if left is not None and right is not None:
@@ -358,7 +370,7 @@ def primary_db_estimator(records: list[dict[str, Any]], *, required_cells: list[
         if task_means:
             lineage_means[lineage] = sum(task_means) / len(task_means)
     values = list(lineage_means.values())
-    return {"estimand": "mean(D - B) over sealed task/lineage pairs", "weighting": "equal_task_then_equal_lineage", **_ci(values)}
+    return {"status": "available" if values else "withheld", "estimand": "mean(D - B) over sealed task/lineage pairs", "weighting": "equal_task_then_equal_lineage", **_ci(values)}
 
 
 def split_transfer_estimands(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,15 @@ def validate_calibration_approval(
         body = {key: value for key, value in approval.items() if key != "approval_digest"}
         if approval.get("approval_digest") != _digest(body):
             errors.append("calibration approval digest mismatch")
+    if repo_root is not None:
+        try:
+            current_revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root, text=True).strip()
+        except (OSError, subprocess.CalledProcessError):
+            current_revision = None
+        if not approval.get("benchmark_revision"):
+            errors.append("calibration approval missing benchmark_revision")
+        elif current_revision and approval.get("benchmark_revision") != current_revision:
+            errors.append("calibration approval benchmark_revision mismatch")
     if not isinstance(report, dict) or not isinstance(calibration, dict):
         errors.append("population report or pilot calibration is missing")
         return errors
