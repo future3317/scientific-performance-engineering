@@ -1,0 +1,31 @@
+{
+  "bundle": "spe-evobench-candidate-21-30.zip",
+  "source_bundle_sha256": "8d1594a3a5859c7cb33b6166654fd1b38676c15b3772c5223ad12c887f0b51d9",
+  "harness_ready_bundle_sha256": "2afee2828ce976a499fb75d2ee80c2b951801fc3abdb1e9f2e992f5145e419be",
+  "source_base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "repository_revision_checked": "04bb508f0151f0ff09a66cb48733ea546debe8ab",
+  "package_validator": {
+    "validated_tasks": 10,
+    "errors": []
+  },
+  "formal_harness_task_validation": {
+    "validated_tasks": 10,
+    "errors": []
+  },
+  "zip_integrity": {
+    "testzip": null,
+    "sha256_manifest_mismatches": 0
+  },
+  "canonical_family_consistency": {
+    "status": "not_admitted",
+    "reason": "candidate task IDs are not registered canonical FamilySpec anchors"
+  },
+  "population_effect": "none",
+  "formal_50_status": "not_generated",
+  "efficacy_claim": false,
+  "notes": [
+    "Task YAML was serialized into the repository miniyaml subset without changing task semantics.",
+    "CUDA task 23 and evolution task 30 still require target-runtime/full-repository calibration.",
+    "Admission requires independent noise/oracle calibration and a disjoint sealed lineage."
+  ]
+}

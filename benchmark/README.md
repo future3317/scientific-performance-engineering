@@ -37,6 +37,14 @@ anchor is eligible only because every oracle CI clears the corresponding
 observed floor. This does not complete population calibration, start an
 efficacy campaign, or generate formal-50.
 
+An additional ten-task authoring bundle (21–30) is retained under
+[`archive/candidate-bundles/`](archive/candidate-bundles/). It expands
+applicability boundaries, SciML positive/counterexample pairs, and evolution
+specialization without changing the canonical v1.0-20 population. The bundle
+is not admitted to `benchmark/tasks/`, the formal slot manifest, or any efficacy
+claim; calibrate it in an isolated worktree first and generate a disjoint sealed
+lineage before admission.
+
 ## Family source of truth
 
 The workload source of truth is now the Family catalog. All eleven canonical

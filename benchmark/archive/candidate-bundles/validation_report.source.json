@@ -1,0 +1,154 @@
+{
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "tasks": [
+    {
+      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25",
+      "kind": "counterexample",
+      "family_id": "autograd",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": false,
+      "oracle_is_source_identical": true
+    },
+    {
+      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+      "kind": "positive",
+      "family_id": "checkpoint",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": true,
+      "local_cpu_speedups": [
+        1.1223849810743918,
+        1.4072244877435598,
+        1.2423189560063466
+      ],
+      "local_cpu_median_speedup": 1.2423189560063466
+    },
+    {
+      "task_id": "CORE-H2D-OVERFANOUT-23",
+      "kind": "counterexample",
+      "family_id": "h2d_pipeline",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": false,
+      "oracle_is_source_identical": true
+    },
+    {
+      "task_id": "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
+      "kind": "counterexample",
+      "family_id": "repeated_compute",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": false,
+      "oracle_is_source_identical": true
+    },
+    {
+      "task_id": "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+      "kind": "counterexample",
+      "family_id": "scalar_sync",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": false,
+      "oracle_is_source_identical": true
+    },
+    {
+      "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+      "kind": "positive",
+      "family_id": "episode",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "execution": "requires_full_repo_evolution_harness",
+      "phase_count": 6,
+      "baseline_condition_C": true,
+      "oracle_condition_D": true,
+      "expected_action": "rule_update"
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
+      "kind": "counterexample",
+      "family_id": "crystal_generation",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": false,
+      "oracle_is_source_identical": true
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+      "kind": "positive",
+      "family_id": "crystal_sampling",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": true,
+      "local_cpu_speedups": [
+        11.650100518753506,
+        11.5516700125997,
+        10.04000049952198
+      ],
+      "local_cpu_median_speedup": 11.5516700125997
+    },
+    {
+      "task_id": "SCIML-EQUIV-LOWORDER-26",
+      "kind": "positive",
+      "family_id": "equivariant_head",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": true,
+      "local_cpu_speedups": [
+        1.7148372900566229,
+        1.6812527040274838,
+        1.6504600061930872
+      ],
+      "local_cpu_median_speedup": 1.6812527040274838
+    },
+    {
+      "task_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
+      "kind": "positive",
+      "family_id": "graph_cache",
+      "reference_patch_equivalent": true,
+      "public_test_pass": "validated_in_batch",
+      "baseline_correctness": true,
+      "oracle_correctness": true,
+      "baseline_science": true,
+      "oracle_science": true,
+      "oracle_activation_matches_action": true,
+      "local_cpu_speedups": [
+        1.7054174755456981,
+        1.6853638090899463,
+        1.6736856907318942
+      ],
+      "local_cpu_median_speedup": 1.6853638090899463
+    }
+  ]
+}
