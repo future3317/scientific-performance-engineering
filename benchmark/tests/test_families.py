@@ -43,7 +43,7 @@ def main() -> None:
     profile = performance_profile([{"track": "spe_core", "verified": True, "verified_speedup": {"median_speedup": 1.2}}])
     assert profile["spe_core"]["verified_optimization_rate"] == 1.0
     anchors = all_anchor_instances()
-    assert len(anchors) == 20 and all(item.anchor_task_id == item.instance_id for item in anchors)
+    assert len(anchors) == 30 and all(item.anchor_task_id == item.instance_id for item in anchors)
     assert validate_cross_view_consistency(surface_count=12)["ok"]
     print("test_families: OK")
 

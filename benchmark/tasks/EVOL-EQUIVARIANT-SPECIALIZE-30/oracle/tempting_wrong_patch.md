@@ -1,0 +1,1 @@
+Tempting wrong patch: use condition D but inject/accept an overbroad irrep-agnostic rule. Governance must instead keep or synthesize the irrep_order <= 1 applicability boundary.

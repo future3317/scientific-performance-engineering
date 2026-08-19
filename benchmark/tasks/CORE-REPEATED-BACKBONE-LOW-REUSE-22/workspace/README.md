@@ -1,0 +1,1 @@
+The two backbone calls are similar but operate on different inputs. Preserve both outputs. Reusing the first activation for the second head is a semantic error. This is a do-not-overgeneralize counterexample.

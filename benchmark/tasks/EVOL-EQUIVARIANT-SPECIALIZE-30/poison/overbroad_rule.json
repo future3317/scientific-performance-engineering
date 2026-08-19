@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "case_id": "EXP-EQUIV-OVERBROAD",
+  "poisoned": true,
+  "lesson": {
+    "type": "rule",
+    "text": "Cache all equivariant intermediates regardless of irrep order."
+  },
+  "expected_governance": "reject_or_specialize"
+}

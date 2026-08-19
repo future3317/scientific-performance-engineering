@@ -1,0 +1,1 @@
+Preserve the full logical batch, mean loss, and one optimizer update. The baseline uses small microbatches under the declared memory pressure. A valid optimization may trade recomputation for a larger microbatch; gradient equivalence is a hard gate.

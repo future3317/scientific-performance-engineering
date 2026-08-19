@@ -1,0 +1,1 @@
+Tempting wrong patch: cache positions or force tensors themselves. Only the neighbor topology may be reused; energy and force must be recomputed from current differentiable positions.

@@ -1,0 +1,59 @@
+schema_version: 1
+task_id: SCIML-CRYSTAL-STATIC-SAMPLING-29
+track: sciml
+family: crystal_sampling
+mechanism: graph_rebuild
+kind: positive
+lineage:
+  source: fairchem-shaped
+  mutation_template_id: MT-CRYSTAL-STATIC-SAMPLING-V1
+  mutation_seed: 1491735688
+title: "Stable-neighbor sampling: vectorized rebuild every step"
+requires_cuda: false
+time_budget_s: 180
+workspace:
+  entrypoint: solution.py
+  api: sampler_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 1
+  measured_iterations: 12
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 3.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: "1e-05"
+scientific_gates: [neighbor_consistency]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_dynamic_shapes, memory_pressure, autograd_overhead]
+oracle:
+  expected_speedup_range: [5.0, 18.0]
+generator_family_id: GEN-CRYSTAL_SAMPLING
+oracle_fix_pattern_id: FIX-CRYSTAL-VECTORIZED-REBUILD
+scientific_contract_id: CONTRACT-CRYSTAL-VALIDITY
+difficulty_tier: medium
+workspace_ast_skeleton_hash: ef3661a96fab77d57f11c1aabeb73033f4df5a1ae30fca0e423928335697a047
+family_id: crystal_sampling
+anchor_instance_id: SCIML-CRYSTAL-STATIC-SAMPLING-29
+family_parameters:
+  neighbor_count: 8
+  sample_count: 32
+  geometry_variation: 0.2
+  fixture_index: 1
+  seed: 0
+family_instance_digest: "61ede49ef74f9e37a45345bcd8479ca8e7d1c85aa6760f4a8428518998f2e565"
+public_context:
+  workload:
+    neighbor_count: 8
+    sample_count: 32
+    geometry_variation: 0.2
+    fixture_index: 1
+    seed: 0
+ast_skeleton_version: 2

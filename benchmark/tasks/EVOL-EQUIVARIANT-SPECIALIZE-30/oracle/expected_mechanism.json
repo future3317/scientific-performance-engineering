@@ -1,0 +1,6 @@
+{
+  "mechanisms": [
+    "repeated_compute",
+    "scientific_regime_drift"
+  ]
+}

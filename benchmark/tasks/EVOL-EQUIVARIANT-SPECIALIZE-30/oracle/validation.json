@@ -1,0 +1,20 @@
+{
+  "baseline_validation": "structural_only_requires_full_repo",
+  "oracle_validation": "structural_only_requires_full_repo",
+  "anti_cheat": "architecture/work-unit/source-contrast checks included; formal repo anti-cheat not run",
+  "deterministic_fixture": true,
+  "formal_population_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "local_validation": {
+    "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+    "kind": "positive",
+    "family_id": "episode",
+    "reference_patch_equivalent": true,
+    "public_test_pass": "validated_in_batch",
+    "execution": "requires_full_repo_evolution_harness",
+    "phase_count": 6,
+    "baseline_condition_C": true,
+    "oracle_condition_D": true,
+    "expected_action": "rule_update"
+  }
+}

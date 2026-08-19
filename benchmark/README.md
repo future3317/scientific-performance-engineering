@@ -21,12 +21,12 @@ optional integrations are summarized below.
 
 ## Status and calibration scope
 
-**Status:** the v1.0-20 population-validity pilot contains 18 atomic tasks plus
-2 evolution episodes. The formal-eval driver is available for a dry-run or an
+**Status:** the v1.0-30 population-validity pilot contains 27 atomic tasks plus
+3 evolution episodes. The formal-eval driver is available for a dry-run or an
 explicit agent command, but this repository claims no formal A/B/C/D results.
 The target remains frozen as SPE-EvoBench v1.0-50 (24 SPE-Core + 20 SciML + 6
-Evolution). The current pilot contains 11 Core, 7 SciML, and 2 Evolution
-tasks; 13 Core, 13 SciML, and 4 Evolution slots remain ungenerated and are
+Evolution). The current pilot contains 16 Core, 11 SciML, and 3 Evolution
+tasks; 8 Core, 9 SciML, and 3 Evolution slots remain ungenerated and are
 gated on pilot calibration.
 
 `CORE-COMPILE-DYNAMIC-11` is the first re-frozen empirical positive anchor:
@@ -37,13 +37,13 @@ anchor is eligible only because every oracle CI clears the corresponding
 observed floor. This does not complete population calibration, start an
 efficacy campaign, or generate formal-50.
 
-An additional ten-task authoring bundle (21–30) is retained under
+The ten-task authoring bundle (21–30) is retained under
 [`archive/candidate-bundles/`](archive/candidate-bundles/). It expands
 applicability boundaries, SciML positive/counterexample pairs, and evolution
-specialization without changing the canonical v1.0-20 population. The bundle
-is not admitted to `benchmark/tasks/`, the formal slot manifest, or any efficacy
-claim; calibrate it in an isolated worktree first and generate a disjoint sealed
-lineage before admission.
+specialization and is now materialized in the canonical v1.0-30 population.
+The archive keeps the source bundle and provenance; it is not a second
+executable task source. The tasks remain calibration candidates and do not
+produce efficacy claims or sealed formal-50 content.
 
 ## Family source of truth
 
@@ -55,7 +55,7 @@ BoundaryBench, InteractionBench, and evolution views refer back to the same
 family generator instead of maintaining separate synthetic workloads.
 
 Each `FamilySpec` owns the applicability predicate and scientific truth used by
-all views. The 20 materialized tasks are reconstructable anchor instances via
+all views. The 30 materialized tasks are reconstructable anchor instances via
 `reconstruct_anchor_instance`; their task metadata is only a projection. Run
 `python -m benchmark.families.consistency --surface-count 100` to check every
 family anchor,
@@ -133,7 +133,7 @@ The pilot modules are calibration diagnostics over the same family catalog:
   three-way residuals, alpha-spent contrast confidence sequences, and
   effect-strength × noise power curves are calibration evidence only.
 - **Real-artifact feasibility** (`benchmark/formal/real_artifacts/`) contains
-  two tiny offline packaging prototypes. They are not part of v1.0-20, do not
+  two tiny offline packaging prototypes. They are not part of v1.0-30, do not
   produce benchmark results, and require a network-disabled evaluator with the
   pinned upstream checkout supplied externally.
 
@@ -146,7 +146,7 @@ uses the versioned `bounded_log_speedup_v1` utility, and the harness owns the
 benchmark fingerprint and condition semantics. The remaining items are
 non-blocking: a convenience bridge from telemetry JSON into
 `benchmark_record.json`, and a single schema-version index if the core schemas
-change. Neither is required for the v1.0-20 population-validity pilot.
+change. Neither is required for the v1.0-30 population-validity pilot.
 
 The three compile anchors are intentionally non-interchangeable. `compile_graph_break`
 isolates a graph break on a fixed-shape schedule, `compile_dynamic_shapes` keeps a
@@ -212,7 +212,7 @@ benchmark/
   taskgen/                     # pilot generator and population validator
   families/                    # canonical family specs, instances, and transformations
   formal/                      # experiment manifest, schedule, driver, aggregation
-  population_report.json       # deterministic v1.0-20 population summary
+  population_report.json       # deterministic v1.0-30 population summary
     split.py                   # sequential split + leakage checker
     cli.py                     # the CLI below
   tasks/<task_id>/...          # task packages (§4)

@@ -1,0 +1,6 @@
+{
+  "mechanism": "sampling",
+  "injected_condition": "guidance_scale=4.0 outside applicability",
+  "preferred_action": "abstain",
+  "action_under_test": "sampling"
+}

@@ -1,0 +1,26 @@
+{
+  "baseline_validation": "passed_local_package_smoke",
+  "oracle_validation": "passed_local_package_smoke",
+  "anti_cheat": "architecture/work-unit/source-contrast checks included; formal repo anti-cheat not run",
+  "deterministic_fixture": true,
+  "formal_population_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "local_validation": {
+    "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+    "kind": "positive",
+    "family_id": "checkpoint",
+    "reference_patch_equivalent": true,
+    "public_test_pass": "validated_in_batch",
+    "baseline_correctness": true,
+    "oracle_correctness": true,
+    "baseline_science": true,
+    "oracle_science": true,
+    "oracle_activation_matches_action": true,
+    "local_cpu_speedups": [
+      1.073169270783925,
+      1.5078634503592525,
+      1.3708278029366103
+    ],
+    "local_cpu_median_speedup": 1.3708278029366103
+  }
+}

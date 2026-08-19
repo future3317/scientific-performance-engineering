@@ -2001,7 +2001,7 @@ def _experiment_manifest(
     lineage = task_spec.get("lineage", {}) if isinstance(task_spec, dict) else {}
     return {
         "schema_version": 1,
-        "experiment_id": f"SPE-EvoBench-v1.0-20-{item['stream_id']}-{item['task_id']}",
+        "experiment_id": f"SPE-EvoBench-v1.0-30-{item['stream_id']}-{item['task_id']}",
         "benchmark_revision": attest.benchmark_revision(repo_root),
         "skill_view_digest": skill_digest,
         "task_manifest_digest": task_digest,
@@ -2176,7 +2176,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     fingerprint = capture_fingerprint()
     campaign = {
         "schema_version": 1,
-        "population_id": "SPE-EvoBench-v1.0-20-pilot",
+        "population_id": "SPE-EvoBench-v1.0-30-pilot",
         "status": "planned" if not args.agent_command else "running",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "benchmark_revision": attest.benchmark_revision(repo_root),

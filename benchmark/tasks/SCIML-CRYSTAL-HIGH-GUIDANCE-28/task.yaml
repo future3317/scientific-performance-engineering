@@ -1,0 +1,59 @@
+schema_version: 1
+task_id: SCIML-CRYSTAL-HIGH-GUIDANCE-28
+track: sciml
+family: crystal_generation
+mechanism: launch_fragmentation
+kind: counterexample
+lineage:
+  source: cdvae-shaped
+  mutation_template_id: MT-CRYSTAL-HIGH-GUIDANCE-V1
+  mutation_seed: 1203654103
+title: "High-guidance sampler: step-skipping is scientifically unsafe"
+requires_cuda: false
+time_budget_s: 180
+workspace:
+  entrypoint: solution.py
+  api: sampler_v1
+measurement:
+  primary_metric: time_to_quality_s
+  higher_is_better: false
+  warmup_iterations: 0
+  measured_iterations: 1
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 3.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: "1e-05"
+scientific_gates: [structure_validity]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_dynamic_shapes, memory_pressure, autograd_overhead]
+oracle:
+  expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-CRYSTAL_GENERATION
+oracle_fix_pattern_id: FIX-CRYSTAL-HIGH-GUIDANCE-ABSTAIN
+scientific_contract_id: CONTRACT-CRYSTAL-VALIDITY
+difficulty_tier: hard
+workspace_ast_skeleton_hash: ef89a55fa199571123920a5a6a6288a16c04b6a4b05a629ea7086535388faf07
+family_id: crystal_generation
+anchor_instance_id: SCIML-CRYSTAL-HIGH-GUIDANCE-28
+family_parameters:
+  atom_count: 32
+  diffusion_steps: 100
+  guidance_scale: 4.0
+  fixture_index: 1
+  seed: 0
+family_instance_digest: "6125bc8621893fcf8f46493b3712572ebd8acb6b941c6b631102de0834899e0b"
+public_context:
+  workload:
+    atom_count: 32
+    diffusion_steps: 100
+    guidance_scale: 4.0
+    fixture_index: 1
+    seed: 0
+ast_skeleton_version: 2

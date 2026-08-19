@@ -1,0 +1,6 @@
+{
+  "mechanism": "scalar_sync",
+  "injected_condition": "four low-cost scalar metric reads",
+  "preferred_action": "abstain",
+  "action_under_test": "aggregate_scalars"
+}

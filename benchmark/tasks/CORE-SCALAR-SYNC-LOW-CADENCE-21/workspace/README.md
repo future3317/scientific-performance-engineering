@@ -1,0 +1,1 @@
+Optimize only if evidence supports it. This task is a counterexample: four CPU scalar metric reads are below the current scalar-sync applicability boundary. Preserve exact per-step metric values and training semantics. The correct action may be to abstain.

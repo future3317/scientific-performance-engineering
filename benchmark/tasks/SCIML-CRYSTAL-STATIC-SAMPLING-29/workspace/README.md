@@ -1,0 +1,1 @@
+Preserve the exact neighbor topology and deterministic sample trajectory. The baseline's Python pair scan is the hotspot. A valid optimization should make rebuilds cheaper without changing the neighbor contract.

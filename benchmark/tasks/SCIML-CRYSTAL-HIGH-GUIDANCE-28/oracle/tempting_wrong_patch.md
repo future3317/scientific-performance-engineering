@@ -1,0 +1,1 @@
+Tempting wrong patch: execute only every second diffusion step or return after 50 steps. It reduces wall time but fails the hidden RMS-to-target and minimum-distance validity gates at guidance_scale=4.

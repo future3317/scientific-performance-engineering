@@ -1,0 +1,6 @@
+{
+  "mechanisms": [
+    "scalar_sync",
+    "launch_fragmentation"
+  ]
+}

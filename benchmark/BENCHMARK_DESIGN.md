@@ -3,12 +3,12 @@
 A paper-grade benchmark for **S**cientific **P**erformance **E**ngineering agents and for the
 **evolution** of the `scientific-performance-engineering` skill itself.
 
-Status: **v1.0-20 population-validity and calibration pilot implemented** (18
-atomic tasks plus 2 evolution episodes). The formal-eval driver supports a
+Status: **v1.0-30 population-validity and calibration pilot implemented** (27
+atomic tasks plus 3 evolution episodes). The formal-eval driver supports a
 reproducible dry-run and explicit agent-command execution, but no formal A/B/C/D
 result or algorithmic-success claim is made by this repository. The formal target is frozen as SPE-EvoBench v1.0-50
-(24 SPE-Core + 20 SciML + 6 Evolution). The current pilot contains 11 Core,
-7 SciML, and 2 Evolution tasks; the remaining 13 Core, 13 SciML, and 4
+(24 SPE-Core + 20 SciML + 6 Evolution). The current pilot contains 16 Core,
+11 SciML, and 3 Evolution tasks; the remaining 8 Core, 9 SciML, and 3
 Evolution slots are gated on empirical calibration.
 
 ## Contents
@@ -521,7 +521,7 @@ benchmark/
     evolution.py       # episode runner + evolution metrics (§8.4)
     conditions.py      # A/B/C/D materialization + attestation
     split.py           # sequential split + leakage checker
-  taskgen/             # v1.0-20 generator and population validator
+  taskgen/             # v1.0-30 generator and population validator
   formal/              # dry-run/agent campaign driver and lineage-aware aggregation
   manifests/           # frozen v1.0-50 slot quotas (no sealed task contents)
   tasks/<task_id>/...
@@ -638,7 +638,7 @@ fixtures; CDVAE's hard validity gates and recall+precision pairing.
 
 ## 15. Limitations
 
-- Pilot scale (20 tasks) calibrates population validity, difficulty, and noise
+- Pilot scale (30 tasks) calibrates population validity, difficulty, and noise
   floors; it is not a formal v1.0-50 result.
 - DDP/contention mechanisms are represented by simulated single-process telemetry in
   the prototype; multi-process tasks arrive in the expansion matrix.

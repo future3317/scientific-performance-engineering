@@ -1,0 +1,36 @@
+{
+  "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+  "title": "Sequential evolution episode: specialize low-order reuse across property-head drift",
+  "track": "evolution",
+  "family": "episode",
+  "mechanism": [
+    "repeated_compute",
+    "scientific_regime_drift"
+  ],
+  "kind": "positive",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-EPISODE-EQUIVARIANT-SPECIALIZE-V1",
+    "mutation_seed": 2275524049
+  },
+  "split_group": {
+    "family": "episode",
+    "mechanism": [
+      "repeated_compute",
+      "scientific_regime_drift"
+    ],
+    "source": "synthetic",
+    "mutation_template_id": "MT-EPISODE-EQUIVARIANT-SPECIALIZE-V1"
+  },
+  "episode_phase": 0,
+  "hidden": false,
+  "difficulty": "hard",
+  "authoring_note": "Evolution candidate that learns a low-order equivariant reuse rule, encounters a rank-2 counterexample, receives scientific-regime drift evidence, and must specialize rather than globally reuse the rule.",
+  "author": "candidate authoring bundle",
+  "created_utc": "2026-08-19",
+  "family_id": "episode",
+  "anchor_instance_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+  "candidate_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "action_id": "rule_update"
+}

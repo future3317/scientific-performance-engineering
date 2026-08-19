@@ -1,0 +1,1 @@
+Run the provided sequential episode through the repository evolution runner. The baseline uses condition C raw experience; the reference uses condition D governed evolution. The episode is designed to require specialization of a rule learned on irrep_order=1 before a rank-2 counterexample.

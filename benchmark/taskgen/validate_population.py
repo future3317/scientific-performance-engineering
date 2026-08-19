@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and summarize the v1.0-20 population without running long campaigns."""
+"""Validate and summarize the v1.0-30 population without running long campaigns."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ ATOMIC_REQUIRED = (
     "generator_family_id", "oracle_fix_pattern_id", "scientific_contract_id",
     "workspace_ast_skeleton_hash", "difficulty_tier",
 )
-EXPECTED_COUNTS = {"spe_core": 11, "sciml": 7, "evolution": 2}
+EXPECTED_COUNTS = {"spe_core": 16, "sciml": 11, "evolution": 3}
 EMPIRICAL_FLAGS = (
     "oracle_effect_too_small",
     "noise_too_high",
@@ -314,8 +314,8 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         errors.extend(f"{task_dir.name}: {item}" for item in _isolated_validate_task(task_dir))
 
     counts = Counter(str(spec.get("track")) for spec in specs)
-    if len(specs) != 20:
-        errors.append(f"population must contain exactly 20 tasks, found {len(specs)}")
+    if len(specs) != 30:
+        errors.append(f"population must contain exactly 30 tasks, found {len(specs)}")
     for track, expected in EXPECTED_COUNTS.items():
         if counts[track] != expected:
             errors.append(f"{track} count must be {expected}, found {counts[track]}")
@@ -362,7 +362,7 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
 
     report = {
         "schema_version": 1,
-        "population_id": "SPE-EvoBench-v1.0-20-pilot",
+        "population_id": "SPE-EvoBench-v1.0-30-pilot",
         "num_tasks": len(specs),
         "track_counts": dict(counts),
         "mechanism_distribution": dict(Counter(str(spec.get("mechanism")) for spec in specs)),

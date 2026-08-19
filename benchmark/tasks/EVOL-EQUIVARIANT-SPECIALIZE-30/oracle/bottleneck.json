@@ -1,0 +1,9 @@
+{
+  "mechanism": [
+    "repeated_compute",
+    "scientific_regime_drift"
+  ],
+  "injected_condition": "low-order rule encounters rank-2 scientific regime",
+  "preferred_action": "rule_update",
+  "action_under_test": "rule_update"
+}

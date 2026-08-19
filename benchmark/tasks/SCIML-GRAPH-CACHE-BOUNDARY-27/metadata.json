@@ -1,0 +1,30 @@
+{
+  "task_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
+  "title": "Neighbor-cache boundary at displacement 0.05",
+  "track": "sciml",
+  "family": "graph_energy_force",
+  "mechanism": "static_graph_cache",
+  "kind": "positive",
+  "lineage": {
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-GRAPH-CACHE-BOUNDARY-V1",
+    "mutation_seed": 895042437
+  },
+  "split_group": {
+    "family": "graph_energy_force",
+    "mechanism": "static_graph_cache",
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-GRAPH-CACHE-BOUNDARY-V1"
+  },
+  "episode_phase": 0,
+  "hidden": false,
+  "difficulty": "hard",
+  "authoring_note": "Positive task exactly on the declared geometry_displacement<=0.05 boundary. Cached topology is valid by construction and force gradients must remain exact.",
+  "author": "candidate authoring bundle",
+  "created_utc": "2026-08-19",
+  "family_id": "graph_cache",
+  "anchor_instance_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
+  "candidate_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "action_id": "reuse_graph_cache"
+}

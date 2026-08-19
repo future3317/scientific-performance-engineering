@@ -1,0 +1,1 @@
+Applying aggregate_scalars is intentionally tempting but not justified at four cheap CPU-owned reads. If attempted, preserve exact metric cadence and demonstrate a CI-clearing gain; otherwise abstain.

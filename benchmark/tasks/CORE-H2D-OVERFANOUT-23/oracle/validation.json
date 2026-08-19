@@ -1,0 +1,25 @@
+{
+  "baseline_validation": "passed_local_package_smoke",
+  "oracle_validation": "passed_local_package_smoke",
+  "anti_cheat": "architecture/work-unit/source-contrast checks included; formal repo anti-cheat not run",
+  "deterministic_fixture": true,
+  "formal_population_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "local_validation": {
+    "task_id": "CORE-H2D-OVERFANOUT-23",
+    "kind": "counterexample",
+    "family_id": "h2d_pipeline",
+    "reference_patch_equivalent": true,
+    "public_test_pass": "validated_in_batch",
+    "baseline_correctness": true,
+    "oracle_correctness": true,
+    "baseline_science": true,
+    "oracle_science": true,
+    "oracle_activation_matches_action": false,
+    "oracle_is_source_identical": true
+  },
+  "counterexample_probe": {
+    "probe": "per-step pin_memory + non_blocking",
+    "status": "requires_cuda_server_calibration"
+  }
+}

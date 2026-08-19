@@ -1,0 +1,6 @@
+{
+  "mechanism": "repeated_compute",
+  "injected_condition": "repeat_count=2 with changing second input",
+  "preferred_action": "abstain",
+  "action_under_test": "reuse_backbone"
+}

@@ -1,0 +1,1 @@
+Tempting wrong patch: compute backbone(x1) once and feed that activation to both heads. This removes one backbone call but fails because x2 != x1.

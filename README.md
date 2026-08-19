@@ -38,7 +38,7 @@ routing path. Retrieval is not promotion, and a worker cannot author
 applicability, relation truth, or replay outcomes.
 
 The canonical registry is intentionally small (`registry/rules.json` is empty
-until reviewed replay evidence exists). The checked-in v1.0-20 population is a
+until reviewed replay evidence exists). The checked-in v1.0-30 population is a
 structural/calibration pilot, not a formal A/B/C/D efficacy result. Formal-50
 and efficacy claims remain fail-closed until a preregistered population,
 independent calibration approval, and a valid external-executor receipt exist.
@@ -98,7 +98,7 @@ static review, or GPU utilization trace as a campaign-level speedup claim.
 
 ## Benchmark status
 
-SPE-EvoBench v1.0-20 contains 18 atomic tasks and 2 evolution episodes. The
+SPE-EvoBench v1.0-30 contains 27 atomic tasks and 3 evolution episodes. The
 family catalog is the single source of truth for public parameters,
 applicability, actions, transformations, and scientific gates. BoundaryBench,
 InteractionBench, and evolution views reconstruct from that catalog; they do

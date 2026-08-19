@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract tests for the formal v1.0-20 driver and paired aggregation."""
+"""Contract tests for the formal v1.0-30 driver and paired aggregation."""
 
 from __future__ import annotations
 
@@ -20,15 +20,15 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     split_path = repo_root / "benchmark" / "split" / "sequential.yaml"
     ordered = schedule.task_order(split_path)
-    assert len(ordered) == 20, len(ordered)
+    assert len(ordered) == 30, len(ordered)
     plan = schedule.build_schedule(split_path, outer_trials=3)
-    assert len(plan) == 20 * 4 * 3
+    assert len(plan) == 30 * 4 * 3
     assert {item["condition"] for item in plan} == {"A", "B", "C", "D"}
     assert {item["context_mode"] for item in plan} == {"reset"}
     assert {item["outer_trial_id"] for item in plan} == {"outer-000", "outer-001", "outer-002"}
 
     carry_plan = schedule.build_schedule(split_path, conditions=("B", "D"), context_modes=("reset", "carry"), outer_trials=1)
-    assert len(carry_plan) == 20 * 2 * 2
+    assert len(carry_plan) == 30 * 2 * 2
     assert {item["context_mode"] for item in carry_plan} == {"reset", "carry"}
 
     manifest = {
@@ -120,7 +120,7 @@ def main() -> None:
         assert campaign["status"] == "planned"
         assert campaign["results_claimed"] is False
         saved = json.loads((out / "campaign.json").read_text(encoding="utf-8"))
-        assert saved["schedule_size"] == 240
+        assert saved["schedule_size"] == 30 * 4 * 3
         assert saved["results_claimed"] is False
         assert (out / "schedule.json").is_file()
 

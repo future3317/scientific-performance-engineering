@@ -1,0 +1,101 @@
+episode_id: EVOL-EQUIVARIANT-SPECIALIZE-30
+seed: 0
+phases:
+  - index: 1
+    name: acquisition
+    tasks: [SCIML-EQUIV-LOWORDER-26]
+    inject_experiences:
+      - id: equiv-loworder-reuse-rule
+        rule_id: equiv-loworder-reuse-rule
+        family_id: equivariant_head
+        mechanism: repeated_compute
+        schema_version: 1
+        status: candidate
+        severity: P2
+        domain: sciml
+        trigger:
+          all:
+            - compare:
+                workload.irrep_order:
+                  lte: 1
+            - compare:
+                workload.recompute_rate:
+                  gte: 0.5
+        rule:
+          text: Reuse only invariant scalar radial features in low-order equivariant vector heads.
+        intervention:
+          action: equivariant_recompute
+        expected_mechanism: repeated_compute
+        requires_evidence: [equivariance_replay]
+        scientific_invariants: [equivariance_preserved]
+        source_cases: [SCIML-EQUIV-LOWORDER-26]
+        admission_cases: [REG-EQUIV-LOWORDER-26]
+        regression_cases: [SCIML-EQUIV-RECOMPUTE-06]
+        collector_confidence: high
+        confidence: {method: beta-binomial-mixture-e-process, prior_alpha: 1, prior_beta: 1, successes: 0, failures: 0, p_min: 0.5, delta: 0.05, posterior_probability: 0.0, effective_samples: 0, promotion_probability_lower_bound: 0.0}
+        promotion: {replay_status: pending, human_review: false}
+        conflicts_with: []
+        supersedes: []
+        runtime_cost: {}
+        provenance_policy: {required: true}
+        p_min: 0.8
+        epsilon: 0.0
+        delta: 0.05
+    inject_poisons: []
+  - index: 2
+    name: same_family_transfer
+    tasks: [SCIML-EQUIV-RECOMPUTE-06]
+    inject_experiences: []
+    inject_poisons: []
+  - index: 3
+    name: cross_family_transfer
+    tasks: [SCIML-GNN-STATIC-GRAPH-CACHE-17]
+    inject_experiences: []
+    inject_poisons: []
+  - index: 4
+    name: drift
+    family_id: equivariant_head
+    transformation: scientific_regime
+    transformation_parameters: {from_property: vector_l1, to_property: rank2_tensor}
+    tasks: []
+    inject_experiences:
+      - schema_version: 1
+        case_id: EXP-EQUIV-SPECIALIZE-DRIFT
+        status: inbox
+        created_at: "2026-08-19T00:00:00Z"
+        capture_reasons: [scientific_regime_drift]
+        symptom: [low_order_reuse_not_valid_for_rank2]
+        workload: {framework: pytorch, domain: equivariant_sciml, mode: training}
+        observed_evidence: [{name: equivariance_error, value: rank2_regression, source: hidden_gate}]
+        attempts: [{action: specialize_equivariant_reuse_predicate, result: required}]
+        lesson: {type: specialization, text: Restrict invariant-radial reuse to irrep_order <= 1 unless rank-2 equivariance is separately validated.}
+        scope: {requires: [equivariance_preserved], excludes: [irrep_order_gte_2]}
+        collector_confidence: high
+        artifacts: {}
+    inject_poisons: []
+  - index: 5
+    name: misleading_experience
+    family_id: equivariant_head
+    poison_operator: overbroad_rule
+    tasks: []
+    inject_experiences: []
+    inject_poisons:
+      - schema_version: 1
+        case_id: EXP-EQUIV-OVERBROAD
+        status: inbox
+        created_at: "2026-08-19T00:00:00Z"
+        capture_reasons: [plausible_overgeneralization]
+        symptom: [reuse_all_equivariant_intermediates]
+        workload: {framework: pytorch, domain: equivariant_sciml, mode: training}
+        observed_evidence: [{name: step_ms, value: 1.0, source: profiler}]
+        attempts: [{action: reuse_orientation_dependent_features, result: equivariance_regression}]
+        lesson: {type: rule, text: Cache all equivariant intermediates regardless of irrep order.}
+        scope: {requires: [equivariant_head], excludes: []}
+        collector_confidence: high
+        artifacts: {}
+    poisoned: true
+  - index: 6
+    name: recovery
+    tasks: [SCIML-EQUIV-LOWORDER-26, SCIML-EQUIV-RECOMPUTE-06]
+    inject_experiences: []
+    inject_poisons: []

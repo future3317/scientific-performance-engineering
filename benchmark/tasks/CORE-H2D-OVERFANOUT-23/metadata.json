@@ -1,0 +1,30 @@
+{
+  "task_id": "CORE-H2D-OVERFANOUT-23",
+  "title": "Tiny H2D batches: per-step pinning/prefetch is an over-application",
+  "track": "spe_core",
+  "family": "data_pipeline",
+  "mechanism": "h2d_blocking",
+  "kind": "counterexample",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-H2D-OVERFANOUT-V1",
+    "mutation_seed": 2470506146
+  },
+  "split_group": {
+    "family": "data_pipeline",
+    "mechanism": "h2d_blocking",
+    "source": "synthetic",
+    "mutation_template_id": "MT-H2D-OVERFANOUT-V1"
+  },
+  "episode_phase": 0,
+  "hidden": false,
+  "difficulty": "medium",
+  "authoring_note": "CUDA-only counterexample beyond worker_count<=4 applicability. The baseline copies a tiny batch directly; pinning inside the hot loop is expected to be non-beneficial or harmful.",
+  "author": "candidate authoring bundle",
+  "created_utc": "2026-08-19",
+  "family_id": "h2d_pipeline",
+  "anchor_instance_id": "CORE-H2D-OVERFANOUT-23",
+  "candidate_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "action_id": "pin_memory_pipeline"
+}

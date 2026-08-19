@@ -1,0 +1,6 @@
+{
+  "mechanism": "batched_vjp",
+  "injected_condition": "output_count=2",
+  "preferred_action": "abstain",
+  "action_under_test": "batched_vjp"
+}

@@ -17,15 +17,15 @@
     "sha256_manifest_mismatches": 0
   },
   "canonical_family_consistency": {
-    "status": "not_admitted",
-    "reason": "candidate task IDs are not registered canonical FamilySpec anchors"
+    "status": "pass",
+    "reason": "all 30 canonical anchors reconstruct consistently"
   },
-  "population_effect": "none",
+  "population_effect": "included in SPE-EvoBench-v1.0-30-pilot",
   "formal_50_status": "not_generated",
   "efficacy_claim": false,
   "notes": [
     "Task YAML was serialized into the repository miniyaml subset without changing task semantics.",
     "CUDA task 23 and evolution task 30 still require target-runtime/full-repository calibration.",
-    "Admission requires independent noise/oracle calibration and a disjoint sealed lineage."
+    "Formal/sealed use requires independent noise/oracle calibration and a disjoint sealed lineage."
   ]
 }

@@ -10,6 +10,6 @@
   "slot_policy": {
     "freeze_family_mechanism_polarity_difficulty": true,
     "sealed_task_contents": "not_populated",
-    "generation_gate": "v1.0-20 empirical calibration must pass"
+    "generation_gate": "v1.0-30 empirical calibration must pass"
   }
 }

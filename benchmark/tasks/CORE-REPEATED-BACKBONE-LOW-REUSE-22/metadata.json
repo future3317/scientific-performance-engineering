@@ -1,0 +1,30 @@
+{
+  "task_id": "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
+  "title": "Two related but non-identical backbone inputs: unsafe reuse trap",
+  "track": "spe_core",
+  "family": "repeated_compute",
+  "mechanism": "repeated_compute",
+  "kind": "counterexample",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-REPEATED-BACKBONE-LOW-REUSE-V1",
+    "mutation_seed": 439876203
+  },
+  "split_group": {
+    "family": "repeated_compute",
+    "mechanism": "repeated_compute",
+    "source": "synthetic",
+    "mutation_template_id": "MT-REPEATED-BACKBONE-LOW-REUSE-V1"
+  },
+  "episode_phase": 0,
+  "hidden": false,
+  "difficulty": "medium",
+  "authoring_note": "Counterexample below repeat_count>=4. The two calls consume distinct inputs, so caching the first backbone output is scientifically wrong even though the code looks redundant.",
+  "author": "candidate authoring bundle",
+  "created_utc": "2026-08-19",
+  "family_id": "repeated_compute",
+  "anchor_instance_id": "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
+  "candidate_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "action_id": "reuse_backbone"
+}

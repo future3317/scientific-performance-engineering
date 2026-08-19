@@ -1,0 +1,30 @@
+{
+  "task_id": "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+  "title": "Low-cadence scalar metrics: aggregation should abstain",
+  "track": "spe_core",
+  "family": "training_loop_overhead",
+  "mechanism": "scalar_sync",
+  "kind": "counterexample",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-SCALAR-SYNC-LOW-CADENCE-V1",
+    "mutation_seed": 3872606080
+  },
+  "split_group": {
+    "family": "training_loop_overhead",
+    "mechanism": "scalar_sync",
+    "source": "synthetic",
+    "mutation_template_id": "MT-SCALAR-SYNC-LOW-CADENCE-V1"
+  },
+  "episode_phase": 0,
+  "hidden": false,
+  "difficulty": "medium",
+  "authoring_note": "Counterexample at the declared scalar-sync boundary. CPU-owned metrics make four scalar reads cheap; a forced aggregation path should not be assumed beneficial.",
+  "author": "candidate authoring bundle",
+  "created_utc": "2026-08-19",
+  "family_id": "scalar_sync",
+  "anchor_instance_id": "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+  "candidate_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "action_id": "aggregate_scalars"
+}

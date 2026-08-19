@@ -1,0 +1,59 @@
+schema_version: 1
+task_id: CORE-REPEATED-BACKBONE-LOW-REUSE-22
+track: spe_core
+family: repeated_compute
+mechanism: repeated_compute
+kind: counterexample
+lineage:
+  source: synthetic
+  mutation_template_id: MT-REPEATED-BACKBONE-LOW-REUSE-V1
+  mutation_seed: 439876203
+title: "Two related but non-identical backbone inputs: unsafe reuse trap"
+requires_cuda: false
+time_budget_s: 180
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 3
+  measured_iterations: 20
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: "1e-05"
+scientific_gates: [output_equivalence]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_dynamic_shapes, memory_pressure, autograd_overhead]
+oracle:
+  expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-REPEATED_COMPUTE
+oracle_fix_pattern_id: FIX-REPEATED-COMPUTE-ABSTAIN-CHANGING-INPUT
+scientific_contract_id: CONTRACT-REPEATED-COMPUTE
+difficulty_tier: medium
+workspace_ast_skeleton_hash: f286146c093179eb5f976f16e5053fc4127477125b5e18c13a0f6ca0b01427ac
+family_id: repeated_compute
+anchor_instance_id: CORE-REPEATED-BACKBONE-LOW-REUSE-22
+family_parameters:
+  repeat_count: 2
+  backbone_width: 128
+  batch_size: 16
+  fixture_index: 1
+  seed: 0
+family_instance_digest: dfd7556e200e161a6b805945de140eb43be0a639723e1492c52b4ea660eb3b00
+public_context:
+  workload:
+    repeat_count: 2
+    backbone_width: 128
+    batch_size: 16
+    fixture_index: 1
+    seed: 0
+ast_skeleton_version: 2

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the v1.0-20 pilot population and canonical lineage metadata."""
+"""Generate the v1.0-30 pilot population and canonical lineage metadata."""
 
 from __future__ import annotations
 

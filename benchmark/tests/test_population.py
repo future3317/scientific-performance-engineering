@@ -15,8 +15,8 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     report, errors = build_report(repo_root / "benchmark" / "tasks")
     assert errors == [], errors
-    assert report["num_tasks"] == 20
-    assert report["track_counts"] == {"spe_core": 11, "sciml": 7, "evolution": 2}
+    assert report["num_tasks"] == 30
+    assert report["track_counts"] == {"spe_core": 16, "sciml": 11, "evolution": 3}
     assert report["empirical_calibration"]["status"] == "pending"
     assert report["empirical_calibration"]["calibration_gate"] == "blocked"
     assert report["task_calibration"]["CORE-COMPILE-DYNAMIC-11"]["status"] == "eligible"

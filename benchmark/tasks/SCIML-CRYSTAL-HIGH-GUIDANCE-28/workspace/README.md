@@ -1,0 +1,1 @@
+High-guidance deterministic sampler. Preserve the full step schedule and structural validity. A fast step-skipping change can look attractive but is not a valid optimization if final structure quality degrades.

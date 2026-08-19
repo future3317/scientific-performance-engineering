@@ -1,0 +1,53 @@
+schema_version: 1
+task_id: CORE-SCALAR-SYNC-LOW-CADENCE-21
+track: spe_core
+family: training_loop_overhead
+mechanism: scalar_sync
+kind: counterexample
+lineage:
+  source: synthetic
+  mutation_template_id: MT-SCALAR-SYNC-LOW-CADENCE-V1
+  mutation_seed: 3872606080
+title: "Low-cadence scalar metrics: aggregation should abstain"
+requires_cuda: false
+time_budget_s: 180
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 5
+  measured_iterations: 30
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: "1e-05"
+scientific_gates: [metric_semantics_preserved]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_dynamic_shapes, memory_pressure, autograd_overhead]
+oracle:
+  expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-TRAINING_LOOP_OVERHEAD
+oracle_fix_pattern_id: FIX-SCALAR-SYNC-ABSTAIN-LOW-CADENCE
+scientific_contract_id: CONTRACT-TRAINING-LOOP
+difficulty_tier: medium
+workspace_ast_skeleton_hash: "955901c62efffce7c5cf3158adff33957b86fbe6f2367b91c63ff290614b16eb"
+family_id: scalar_sync
+anchor_instance_id: CORE-SCALAR-SYNC-LOW-CADENCE-21
+family_parameters:
+  scalar_syncs_per_step: 4
+  metric_cadence: 8
+family_instance_digest: e39e0aeea270c9b1b8f6e383ddfb1fbc12b1e7ff3564a7ead609831a263fd63b
+public_context:
+  workload:
+    scalar_syncs_per_step: 4
+    metric_cadence: 8
+ast_skeleton_version: 2
