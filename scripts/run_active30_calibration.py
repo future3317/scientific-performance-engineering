@@ -102,6 +102,7 @@ def run(args: argparse.Namespace) -> int:
         task_noises: list[dict[str, Any]] = []
         for outer in range(int(args.outer_trials)):
             outer_id = f"outer-{outer:03d}"
+            print(json.dumps({"event": "start_outer_trial", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
             solution_dir = out / "solutions" / task_id / outer_id
             _copy_oracle(task_dir, solution_dir)
             noise_path = noise_root / outer_id / f"{task_id}.json"
@@ -109,6 +110,7 @@ def run(args: argparse.Namespace) -> int:
             if noise_path.is_file():
                 noise = json.loads(noise_path.read_text(encoding="utf-8"))
             else:
+                print(json.dumps({"event": "start_noise_control", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
                 noise = verifier.calibrate_noise_control(
                     task_dir, solution_dir, noise_path,
                     task_id=task_id, outer_trial_id=outer_id,
@@ -122,6 +124,7 @@ def run(args: argparse.Namespace) -> int:
             if result_path.is_file():
                 result = json.loads(result_path.read_text(encoding="utf-8"))
             else:
+                print(json.dumps({"event": "start_verifier", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
                 result = verifier.verify_task(
                     task_dir, solution_dir, out_path=result_path, seed=outer,
                     condition="standalone", context_mode="reset",
