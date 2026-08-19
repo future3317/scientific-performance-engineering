@@ -133,6 +133,22 @@ def make_fixtures(seed: int, device: str = "cpu") -> dict[str, Any]:
     }
 
 
+def clone_fixtures(fixtures: dict[str, Any]) -> dict[str, Any]:
+    """Clone mutable tensors for paired H2D arms without changing metadata."""
+    def clone(value: Any) -> Any:
+        if torch.is_tensor(value):
+            return value.clone()
+        if isinstance(value, dict):
+            return {key: clone(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [clone(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(clone(item) for item in value)
+        return value
+
+    return clone(fixtures)
+
+
 def run_correctness(solution: Any, fixtures: dict[str, Any]) -> dict[str, Any]:
     """S2 correctness gate: candidate vs fp64 live-recomputed reference."""
     return check_training_correctness(
