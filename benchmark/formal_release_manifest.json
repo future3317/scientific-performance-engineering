@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "status": "withheld",
+  "reason": "active-30 calibration and independent approval are not complete",
+  "git_commit": null,
+  "population_manifest_digest": null,
+  "approval_digest": null,
+  "contamination_report_digest": null,
+  "claims_digest": null,
+  "statistical_protocol_digest": null,
+  "campaign_config_digest": null,
+  "executor_image": null,
+  "release_digest": null
+}

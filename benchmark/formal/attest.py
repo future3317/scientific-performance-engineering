@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import re
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,28 @@ def skill_view_digest(bundle: str | Path) -> str:
     return digest_mapping(files)
 
 
+PACKAGE_DIRS = ("workspace", "public_tests", "hidden_verifier", "oracle")
+PACKAGE_FILES = ("task.yaml", "metadata.json", "benchmark.py", "scientific_contract.py")
+
+
+def task_package_digest(task_dir: str | Path) -> str:
+    """Digest the executable task package, not just its declarative manifest."""
+    root = Path(task_dir)
+    if not root.is_dir():
+        raise FileNotFoundError(f"task package not found: {root}")
+    files: dict[str, str] = {}
+    paths = [root / name for name in PACKAGE_FILES]
+    for directory in PACKAGE_DIRS:
+        base = root / directory
+        if base.is_dir():
+            paths.extend(path for path in base.rglob("*") if path.is_file() and "__pycache__" not in path.parts and not path.name.endswith(".pyc"))
+    for path in sorted(paths):
+        if not path.is_file():
+            raise FileNotFoundError(f"task package member missing: {path}")
+        files[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return digest_mapping(files)
+
+
 def task_manifest_digest(tasks_root: str | Path, task_ids: list[str]) -> str:
     root = Path(tasks_root)
     payload: dict[str, Any] = {}
@@ -38,7 +61,10 @@ def task_manifest_digest(tasks_root: str | Path, task_ids: list[str]) -> str:
         task_path = task_dir / "task.yaml"
         if not task_path.is_file():
             raise FileNotFoundError(f"task manifest not found: {task_path}")
-        payload[task_id] = miniyaml.load(str(task_path))
+        payload[task_id] = {
+            "package_digest": task_package_digest(task_dir),
+            "task_id": task_id,
+        }
     return digest_mapping(payload)
 
 
@@ -68,6 +94,10 @@ def validate_experiment(manifest: dict[str, Any]) -> list[str]:
     if not isinstance(manifest.get("task_order"), list) or not manifest.get("task_order"):
         errors.append("task_order must be a non-empty list")
     if manifest.get("population_id") == "SPE-EvoBench-v1.0-50":
+        if not manifest.get("slot_id"):
+            errors.append("formal manifest requires slot_id")
+        if manifest.get("visibility") not in {"sealed", "public_dev"}:
+            errors.append("formal manifest requires explicit visibility")
         config = manifest.get("agent_config")
         required_config = (
             "provider", "model_snapshot", "temperature", "top_p", "max_output_tokens",
@@ -79,13 +109,18 @@ def validate_experiment(manifest: dict[str, Any]) -> list[str]:
         else:
             errors.extend(f"formal agent_config missing {key}" for key in required_config if key not in config)
             for key in ("provider", "model_snapshot", "system_prompt_digest", "agent_code_commit", "container_digest", "pricing_revision"):
-                if key in config and not isinstance(config[key], str):
-                    errors.append(f"formal agent_config {key} must be a string")
+                if key in config and (not isinstance(config[key], str) or not config[key].strip() or config[key] in {"unknown", "unidentified-agent", "pending"}):
+                    errors.append(f"formal agent_config {key} must be a non-placeholder string")
+            for key in ("system_prompt_digest", "container_digest"):
+                if key in config and isinstance(config[key], str) and not re.fullmatch(r"[a-f0-9]{64}", config[key]):
+                    errors.append(f"formal agent_config {key} must be a 64-hex digest")
+            if "agent_code_commit" in config and isinstance(config["agent_code_commit"], str) and not re.fullmatch(r"[0-9a-f]{7,64}", config["agent_code_commit"]):
+                errors.append("formal agent_config agent_code_commit must be a commit digest")
             for key in ("tool_versions", "retry_policy"):
                 if key in config and not isinstance(config[key], dict):
                     errors.append(f"formal agent_config {key} must be an object")
-            if "tool_allowlist" in config and not isinstance(config["tool_allowlist"], list):
-                errors.append("formal agent_config tool_allowlist must be an array")
+            if "tool_allowlist" in config and (not isinstance(config["tool_allowlist"], list) or not config["tool_allowlist"]):
+                errors.append("formal agent_config tool_allowlist must be a non-empty array")
     isolation = manifest.get("worker_isolation")
     if not isinstance(isolation, dict):
         errors.append("worker_isolation must be an object")

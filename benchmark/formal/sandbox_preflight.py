@@ -8,6 +8,18 @@ from pathlib import Path
 from typing import Any
 
 
+REQUIRED_NAMESPACE_CHECKS = (
+    "python_started", "network_blocked", "readonly_enforced", "host_path_hidden",
+    "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs", "oracle_hidden",
+    "hidden_verifier_hidden", "future_schedule_hidden", "git_hidden",
+)
+
+
+def validate_namespace_checks(payload: dict[str, Any]) -> dict[str, bool]:
+    """Validate observations collected by the worker inside its namespace."""
+    return {key: payload.get(key) is True for key in REQUIRED_NAMESPACE_CHECKS}
+
+
 def run_preflight(worker_root: str | Path, *, forbidden: list[str] | None = None) -> dict[str, Any]:
     root = Path(worker_root).resolve()
     forbidden = [str(item) for item in (forbidden or [])]

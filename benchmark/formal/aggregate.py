@@ -315,7 +315,9 @@ def aggregate_confirmatory(
     primary = claims.get("primary") if isinstance(claims, dict) else None
     if not isinstance(primary, dict) or str(primary.get("id")) != "D-B":
         return {"status": "withheld", "reason": "CLAIMS.yaml does not register D-B primary"}
-    sealed = [record for record in records if str(record.get("visibility", "sealed")) == "sealed"]
+    if any("visibility" not in record for record in records):
+        return {"status": "withheld", "reason": "formal record missing explicit visibility"}
+    sealed = [record for record in records if str(record.get("visibility")) == "sealed"]
     expected = set(required_cells)
     observed = {
         (str(item.get("task_id", "")), str(item.get("outer_trial_id", "")), str(item.get("context_mode", "reset")), str(item.get("condition", "")))
@@ -324,12 +326,39 @@ def aggregate_confirmatory(
     if observed != expected or any(not bool(item.get("efficacy_eligible", False)) for item in sealed):
         return {"status": "withheld", "reason": "sealed matrix incomplete or contains ineligible cells", "expected_cells": len(expected), "observed_cells": len(observed)}
     result = aggregate_trials(sealed, required_cells=required_cells)
+    result["primary_db_estimator"] = primary_db_estimator(sealed, required_cells=required_cells)
     result["status"] = "available"
     result["claim_id"] = "D-B"
     result["visibility"] = "sealed"
     result["estimand"] = primary.get("estimand")
     result["weighting"] = primary.get("weighting")
     return result
+
+
+def primary_db_estimator(records: list[dict[str, Any]], *, required_cells: list[tuple[str, str, str, str]] | None = None) -> dict[str, Any]:
+    """Registered equal-task-then-equal-lineage D-B estimator."""
+    indexed: dict[tuple[str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
+    for record in records:
+        if "visibility" not in record or record.get("execution_validity") in {"invalid", "resource_blocked"}:
+            continue
+        if str(record.get("condition")) not in {"D", "B"}:
+            continue
+        task = str(record.get("task_id", "")); trial = str(record.get("outer_trial_id", ""))
+        if task and trial:
+            indexed[(task, str(record.get("lineage_id", task)))][str(record["condition"])] = record
+    task_by_lineage: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for (task, lineage), values in indexed.items():
+        if "D" in values and "B" in values:
+            left, right = _task_score(values["D"]), _task_score(values["B"])
+            if left is not None and right is not None:
+                task_by_lineage[lineage][task].append(left - right)
+    lineage_means: dict[str, float] = {}
+    for lineage, tasks in task_by_lineage.items():
+        task_means = [sum(v) / len(v) for v in tasks.values() if v]
+        if task_means:
+            lineage_means[lineage] = sum(task_means) / len(task_means)
+    values = list(lineage_means.values())
+    return {"estimand": "mean(D - B) over sealed task/lineage pairs", "weighting": "equal_task_then_equal_lineage", **_ci(values)}
 
 
 def split_transfer_estimands(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

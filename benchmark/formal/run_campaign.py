@@ -30,6 +30,8 @@ from benchmark.harness import conditions, miniyaml, scoring, stats, verifier
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
+from benchmark.formal.approval import validate_calibration_approval
+from benchmark.formal.release_manifest import validate_materialized_manifest
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from core.public_context import build_public_context
 from benchmark.harness.evolution import promote_via_replay
@@ -105,6 +107,8 @@ def _trial_failure_record(manifest: dict[str, Any], task_spec: Mapping[str, Any]
     return {
         "experiment": manifest,
         "task_id": str(item["task_id"]),
+        "slot_id": item.get("slot_id", item["task_id"]),
+        "visibility": item.get("visibility"),
         "family": task_spec.get("family"),
         "family_id": task_spec.get("family_id", task_spec.get("family")),
         "condition": item["condition"],
@@ -1301,6 +1305,8 @@ def post_task_update(
     practical_epsilon: float = 0.0,
     seed: int = 0,
     execution_validity: str = "valid",
+    slot_id: str | None = None,
+    visibility: str | None = None,
 ) -> dict[str, Any]:
     """Run the explicit execute -> evidence -> maintenance -> attest transition."""
     condition = condition.upper()
@@ -1351,6 +1357,8 @@ def post_task_update(
             "id": experience_id,
             "experience_id": experience_id,
             "task_id": task_id,
+            "slot_id": slot_id or task_id,
+            "visibility": visibility,
             "condition": condition,
             "context_mode": context_mode,
             "public_context": build_public_context(public_context),
@@ -2123,19 +2131,6 @@ def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], 
         approval = json.loads(approval_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    if not isinstance(approval, dict) or approval.get("schema_version") != 1 or approval.get("approved") is not True:
-        return False
-    body = {key: value for key, value in approval.items() if key != "approval_digest"}
-    expected = hashlib.sha256(
-        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-    if approval.get("approval_digest") != expected:
-        return False
-    report_digest = hashlib.sha256(
-        json.dumps(report, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-    if approval.get("population_report_digest") != report_digest:
-        return False
     pilot_path = report_path.parent / "calibration" / "pilot_calibration.json"
     try:
         pilot = json.loads(pilot_path.read_text(encoding="utf-8"))
@@ -2143,10 +2138,7 @@ def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], 
         return False
     if not isinstance(pilot, dict) or pilot.get("calibration_gate") != "ready_for_review":
         return False
-    return (
-        approval.get("pilot_calibration_digest") == pilot.get("artifact_digest")
-        and pilot.get("population_report_digest") == report_digest
-    )
+    return not validate_calibration_approval(report, pilot, approval, repo_root=report_path.parents[1])
 
 
 def _resume_stream_prefix(
@@ -2200,7 +2192,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     claims_path = Path(getattr(args, "claims", None) or (repo_root / "CLAIMS.yaml")).resolve()
     analysis_plan_path = Path(getattr(args, "analysis_plan", None) or (repo_root / "references" / "STATISTICAL_PROTOCOL.md")).resolve()
     if getattr(args, "formal", False):
-        _validate_formal_entry(repo_root, population_manifest, campaign_config_path, claims_path, analysis_plan_path)
+        _validate_formal_entry(repo_root, population_manifest, campaign_config_path, claims_path, analysis_plan_path, getattr(args, "sealed_tasks_root", None))
+        sealed_root = getattr(args, "sealed_tasks_root", None) or json.loads(population_manifest.read_text(encoding="utf-8")).get("sealed_root")
+        if not sealed_root:
+            raise ValueError("formal mode requires --sealed-tasks-root or manifest sealed_root")
+        tasks_root = Path(sealed_root).resolve()
     population_id = "SPE-EvoBench-v1.0-50" if getattr(args, "formal", False) else "SPE-EvoBench-v1.0-30-pilot"
     resume = bool(getattr(args, "resume", False))
     existing_campaign: dict[str, Any] | None = None
@@ -2217,7 +2213,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if loaded_campaign.get("status") == "complete":
             return loaded_campaign
         existing_campaign = loaded_campaign
-    task_items = schedule.task_order(split_path)
+    if getattr(args, "formal", False):
+        formal_manifest = json.loads(population_manifest.read_text(encoding="utf-8"))
+        task_items = schedule.task_order_from_materialized(formal_manifest)
+    else:
+        task_items = schedule.task_order(split_path)
     task_ids = [task_id for _, task_id in task_items]
     if args.skill_view:
         skill_view = Path(args.skill_view).resolve()
@@ -2233,13 +2233,23 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     task_digest = attest.task_manifest_digest(tasks_root, task_ids)
     conditions_list = tuple(item.strip().upper() for item in args.conditions.split(",") if item.strip())
     context_modes = tuple(item.strip() for item in args.context_modes.split(",") if item.strip())
-    plan = schedule.build_schedule(
-        split_path,
-        conditions=conditions_list,
-        context_modes=context_modes,
-        outer_trials=args.outer_trials,
-        schedule_seed=int(getattr(args, "schedule_seed", 0)),
-    )
+    if getattr(args, "formal", False):
+        _validate_campaign_config(
+            Path(campaign_config_path), conditions=conditions_list, context_modes=context_modes,
+            outer_trials=int(args.outer_trials), schedule_seed=int(getattr(args, "schedule_seed", 0)),
+            population_manifest=population_manifest,
+        )
+    if getattr(args, "formal", False):
+        plan = schedule.build_task_block_schedule(
+            task_items, conditions=conditions_list, context_modes=context_modes,
+            outer_trials=args.outer_trials, schedule_seed=int(getattr(args, "schedule_seed", 0)),
+            task_visibility={str(slot["task_id"]): str(slot["visibility"]) for slot in formal_manifest.get("slots", [])},
+        )
+    else:
+        plan = schedule.build_schedule(
+            split_path, conditions=conditions_list, context_modes=context_modes,
+            outer_trials=args.outer_trials, schedule_seed=int(getattr(args, "schedule_seed", 0)),
+        )
     budgets = budget.parse_budget(json.loads(args.budgets) if args.budgets else None)
     statistical_budget = StatisticalBudget()
     experiment_executor = _build_required_experiment_executor(
@@ -2342,6 +2352,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     (out_dir / "campaign.json").write_text(json.dumps(campaign, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     records: list[dict[str, Any]] = []
+    existing_budget = (existing_campaign or {}).get("evolution_compute_budget", {}) if isinstance(existing_campaign, dict) else {}
+    evolution_budget = budget.EvolutionComputeBudget(**{key: existing_budget.get(key, 0) for key in budget.EvolutionComputeBudget.__dataclass_fields__})
     stores: dict[str, Path] = {}
     context_paths: dict[str, Path] = {}
     ledgers: dict[str, EvolutionDecisionLedger] = {}
@@ -2471,15 +2483,20 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 records.append(record)
                 continue
+        elif item["condition"] == "A_CTX":
+            retrieved_context = {
+                "schema_version": 1,
+                "context": {"placebo": True, "context_mode": str(item["context_mode"]), "token_budget": budgets.context_tokens},
+                "proposed_interventions": [],
+            }
         else:
             retrieved_context = {
                 "schema_version": 1,
-                "condition": str(item["condition"]),
-                "context": {"task_id": task_id, "context_mode": str(item["context_mode"])},
+                "context": {"context_mode": str(item["context_mode"])},
                 "proposed_interventions": [],
             }
         retrieved_context_path.write_text(json.dumps(retrieved_context, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        worker_root = _prepare_worker_root(trial_dir, agent_task_dir, solution_dir, None if item["condition"] == "A" else skill_view)
+        worker_root = _prepare_worker_root(trial_dir, agent_task_dir, solution_dir, skill_view if item["condition"] in {"B", "C", "D", "C_STRESS"} else None)
         worker_context_state = worker_root / "context_state" / "context_state.json"
         if item["context_mode"] == "carry" and state_path.is_file():
             shutil.copy2(state_path, worker_context_state)
@@ -2498,13 +2515,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "SPE_TASK_ID": task_id,
             "SPE_TASK_DIR": "/worker/task",
             "SPE_SOLUTION_DIR": "/worker/solution",
-            "SPE_CONDITION": str(item["condition"]),
             "SPE_CONTEXT_MODE": str(item["context_mode"]),
             "SPE_RETRIEVED_CONTEXT": "/worker/retrieved_context/retrieved_context.json",
             "SPE_RESULT_PATH": "/worker/result/worker_result.json",
             "SPE_AGENT_USAGE_PATH": "/worker/result/agent_usage.json",
             "SPE_EXECUTOR_RECEIPT_PATH": str(receipt_path),
-            "SPE_SKILL_VIEW_DIR": "/worker/skill_view" if item["condition"] != "A" else "",
+            "SPE_SKILL_VIEW_DIR": "/worker/skill_view" if item["condition"] in {"B", "C", "D", "C_STRESS"} else "",
             "SPE_BUDGET_JSON": json.dumps(budgets.as_dict(), sort_keys=True),
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
             "SPE_CONTEXT_STATE_PATH": "/worker/context_state/context_state.json",
@@ -2527,8 +2543,14 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         usage = receipt.get("usage", {})
         if not isinstance(usage, dict):
             usage = {}
-        budget_errors = budgets.validate_usage(usage)
-        budget_errors.extend(receipt_errors)
+        usage_errors = budgets.validate_usage(usage)
+        budget_errors = list(usage_errors) + list(receipt_errors)
+        failure_policy = budget.classify_failure(
+            failure_stage="executor" if receipt_errors else ("agent" if usage_errors else None),
+            protocol_failure=bool(receipt_errors),
+            budget_exhausted=bool(usage_errors),
+        )
+        execution_valid = bool(failure_policy["efficacy_eligible"])
         manifest["worker_isolation"]["executor_receipt"] = {
             key: receipt.get(key)
             for key in (
@@ -2575,7 +2597,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 f"agent command failed with return code {agent['returncode']}",
                 source="worker",
             )
-            worker_valid = not worker_budget_errors
+            # Agent timeout/crash/budget exhaustion is a protocol-valid
+            # outcome failure: retain the cell with score zero.  Only receipt
+            # or verifier infrastructure failures are execution-invalid.
+            worker_valid = True
             failure.update({
                 "agent": agent,
                 "receipt_valid": True,
@@ -2926,7 +2951,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 stream_id,
                 EvolutionDecisionLedger(store / "evolution" / "decisions.jsonl"),
             ),
-            allow_maintenance=not budget_errors,
+            allow_maintenance=not budget_errors and not (int(item.get("phase", 0)) >= 3 and str(item["condition"]) in {"C", "D"}),
             control_result=control_result,
             control_scored=control_scored,
             public_context=public_routing,
@@ -2938,10 +2963,36 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 float((task_spec.get("measurement") or {}).get("min_improvement_percent", 0.0))
             ),
             seed=int(item["outer_trial_index"]),
-            execution_validity="invalid" if budget_errors else "valid",
+            execution_validity="valid" if execution_valid else "resource_blocked",
+            slot_id=str(item.get("slot_id", task_id)),
+            visibility=str(item.get("visibility")) if item.get("visibility") is not None else None,
         )
         if transition.get("status") == "state_mutation_error":
             blocked_streams.add(stream_id)
+        frozen_snapshot = None
+        if int(item.get("phase", 0)) >= 3 and str(item.get("condition")) in {"C", "D"}:
+            # Transfer probes use the pre-task canonical state and never feed
+            # maintenance back into the snapshot.
+            frozen_snapshot = {
+                "store_digest": transition.get("pre_store_digest"),
+                "condition": str(item["condition"]),
+                "outer_trial_id": str(item["outer_trial_id"]),
+                "maintenance_frozen": True,
+            }
+        if str(item["condition"]) == "D":
+            evolution_budget = evolution_budget.add(
+                replay_executions=len(transition.get("added_replay_case_ids", [])),
+                wall_time_s=float(usage.get("wall_time_s", 0.0) or 0.0),
+                tokens=int(usage.get("input_tokens", 0) or 0) + int(usage.get("output_tokens", 0) or 0),
+            )
+            campaign["evolution_compute_budget"] = evolution_budget.as_dict()
+            exceeded = evolution_budget.exceeds_limits()
+            if exceeded:
+                blocked_streams.add(stream_id)
+                budget_errors.extend(f"evolution compute budget exceeded: {key}" for key in exceeded)
+                transition["evolution_compute_budget"] = {"status": "blocked", "exceeded": exceeded, "state": evolution_budget.as_dict()}
+            else:
+                transition["evolution_compute_budget"] = {"status": "within_limits", "state": evolution_budget.as_dict()}
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:
             budget_errors.extend(f"condition attestation failed: {error}" for error in attestation_errors)
@@ -2954,6 +3005,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         record = {
             "experiment": manifest,
             "task_id": task_id,
+            "slot_id": item.get("slot_id", task_id),
+            "visibility": item.get("visibility"),
             "family": task_spec.get("family"),
             "family_id": task_spec.get("family_id", task_spec.get("family")),
             "anchor_instance_id": task_spec.get("anchor_instance_id", task_id),
@@ -2968,16 +3021,16 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "agent_usage": usage,
             "budget_errors": budget_errors,
             "attestation_ok": attestation_ok,
-            "execution_validity": "invalid" if budget_errors else "valid",
+            "execution_validity": "valid" if execution_valid else "resource_blocked",
             "task_outcome": str(scored.get("verdict", result.get("verdict", "error"))),
             "calibration_status": result.get("calibration_status", "not_evaluated"),
-            "transfer_estimand": "online_stream",
-            "frozen_transfer_snapshot": None,
+            "transfer_estimand": "frozen_transfer_probe" if frozen_snapshot else "online_stream",
+            "frozen_transfer_snapshot": frozen_snapshot,
             # A protocol-valid candidate failure is still an observed,
             # score-zero efficacy cell.  Only infrastructure/protocol errors
             # are excluded from the efficacy matrix.
-            "efficacy_eligible": bool(not budget_errors and attestation_ok),
-            "validity": "invalid" if budget_errors else "valid",
+            "efficacy_eligible": bool(execution_valid and attestation_ok),
+            "validity": "valid" if execution_valid and attestation_ok else "invalid",
             "transition": transition,
             "score": scored,
         }
@@ -2997,7 +3050,20 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         )
         for item in plan
     ]
-    campaign["aggregate"] = aggregate.aggregate_trials(records, required_cells=required_cells)
+    required_sealed_cells = [
+        (str(item["task_id"]), str(item["outer_trial_id"]), str(item["context_mode"]), str(item["condition"]))
+        for item in plan if str(item.get("visibility")) == "sealed"
+    ]
+    if getattr(args, "formal", False):
+        try:
+            claims_value_for_aggregate = miniyaml.load(str(claims_path)) if claims_path.suffix in {".yaml", ".yml"} else json.loads(claims_path.read_text(encoding="utf-8"))
+        except Exception:
+            claims_value_for_aggregate = {}
+        campaign["aggregate"] = aggregate.aggregate_confirmatory(
+            records, required_cells=required_sealed_cells, claims=claims_value_for_aggregate,
+        )
+    else:
+        campaign["aggregate"] = aggregate.aggregate_trials(records, required_cells=required_cells)
     try:
         claims_value = miniyaml.load(str(claims_path)) if claims_path.suffix in {".yaml", ".yml"} else json.loads(claims_path.read_text(encoding="utf-8"))
     except Exception:
@@ -3022,21 +3088,26 @@ def _validate_formal_entry(
     campaign_config: Path | None,
     claims_path: Path,
     analysis_plan_path: Path,
+    sealed_tasks_root: Path | None = None,
 ) -> None:
     """Validate immutable formal inputs before scheduling any sealed cell."""
     missing = [str(path) for path in (population_manifest, claims_path, analysis_plan_path) if not path.is_file()]
     if missing:
         raise ValueError("formal entry artifacts missing: " + ", ".join(missing))
-    if campaign_config is not None and not Path(campaign_config).is_file():
-        raise ValueError(f"formal campaign config missing: {campaign_config}")
+    if campaign_config is None or not Path(campaign_config).is_file():
+        raise ValueError("formal campaign config is required")
     try:
         manifest = json.loads(population_manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid population manifest: {exc}") from exc
     if manifest.get("sealed_total") != 35 or manifest.get("primary_population") != "sealed-35":
         raise ValueError("formal population must preregister sealed-35 as the primary population")
-    if manifest.get("status") != "preregistered_content_withheld":
-        raise ValueError("formal population contents are not in frozen preregistration state")
+    if manifest.get("status") != "materialized_frozen":
+        raise ValueError("formal population contents are not materialized_frozen")
+    sealed_root = sealed_tasks_root or Path(str(manifest.get("sealed_root", "")))
+    errors = validate_materialized_manifest(manifest, sealed_root)
+    if errors:
+        raise ValueError("invalid materialized formal population: " + "; ".join(errors))
     approval_path = repo_root / "benchmark" / "calibration" / "calibration_approval.json"
     try:
         approval = json.loads(approval_path.read_text(encoding="utf-8"))
@@ -3053,6 +3124,23 @@ def _validate_formal_entry(
         raise ValueError("pilot calibration artifact is invalid") from exc
     if pilot.get("artifact_digest") != approval.get("pilot_calibration_digest"):
         raise ValueError("calibration approval pilot digest mismatch")
+    approval_errors = validate_calibration_approval(
+        json.loads((repo_root / "benchmark" / "population_report.json").read_text(encoding="utf-8")),
+        pilot,
+        approval,
+        repo_root=repo_root,
+    )
+    if approval_errors:
+        raise ValueError("calibration approval validation failed: " + "; ".join(approval_errors))
+    release_path = repo_root / "benchmark" / "formal_release_manifest.json"
+    if not release_path.is_file():
+        raise ValueError("formal_release_manifest.json is required")
+    try:
+        release = json.loads(release_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("formal release manifest is invalid") from exc
+    if release.get("status") != "frozen" or not release.get("release_digest"):
+        raise ValueError("formal release manifest is not frozen")
     approval_body = {key: value for key, value in approval.items() if key != "approval_digest"}
     expected_approval_digest = hashlib.sha256(
         json.dumps(approval_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -3070,11 +3158,29 @@ def _validate_formal_entry(
         raise ValueError("formal entry requires a clean git tree")
 
 
+def _validate_campaign_config(config_path: Path, *, conditions: tuple[str, ...], context_modes: tuple[str, ...], outer_trials: int, schedule_seed: int, population_manifest: Path) -> dict[str, Any]:
+    config = miniyaml.load(str(config_path))
+    if str(config.get("mode")) != "formal":
+        raise ValueError("campaign config mode must be formal")
+    expected = {
+        "conditions": list(conditions),
+        "context_mode": context_modes[0] if len(context_modes) == 1 else list(context_modes),
+        "outer_trials": int(outer_trials),
+        "schedule_seed": int(schedule_seed),
+        "population_manifest": str(population_manifest),
+    }
+    for key, value in expected.items():
+        if key in config and config.get(key) != value:
+            raise ValueError(f"formal CLI/config mismatch for {key}: {config.get(key)!r} != {value!r}")
+    return config
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     root = Path(__file__).resolve().parents[2]
     parser.add_argument("--repo-root", type=Path, default=root)
     parser.add_argument("--tasks-root", type=Path, default=root / "benchmark" / "tasks")
+    parser.add_argument("--sealed-tasks-root", type=Path, default=None)
     parser.add_argument("--split", type=Path, default=root / "benchmark" / "split" / "sequential.yaml")
     parser.add_argument("--skill-source", type=Path, default=root)
     parser.add_argument("--skill-view", type=Path, default=None)

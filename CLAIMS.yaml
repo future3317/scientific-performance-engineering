@@ -5,7 +5,7 @@ primary:
   id: D-B
   conditions: [D, B]
   visibility: sealed
-  tracks: [spe_core, sciml, evolution]
+  tracks: [spe_core, sciml]
   unit: task_lineage
   metric: task_score
   estimand: mean(D - B) over sealed task/lineage pairs
@@ -16,7 +16,7 @@ primary:
   direction: higher_is_better
 secondary:
   - id: D-C
-    status: confirmatory-secondary
+    status: exploratory
     metric: task_score
     unit: task_lineage
   - id: B-A
@@ -31,9 +31,15 @@ secondary:
     status: exploratory
   - id: frozen_transfer
     status: exploratory
+  - id: evolution_longitudinal
+    status: confirmatory-secondary
+    tracks: [evolution]
+    metric: evolution_regret
+    unit: episode
+    estimand: longitudinal_regret_and_recovery_over_sealed_evolution_episodes
 public_dev_policy: debugging_calibration_secondary_only
 formal_efficacy_headline: sealed_35_only
 headline_scope: governed_self_evolving_skill_memory_for_scientific_performance_engineering
-headline_comparison: governed_abstraction_vs_frozen_skill_and_raw_experience
+headline_comparison: governed_abstraction_vs_frozen_skill
 headline_guardrails: [transfer_gain, negative_transfer, regression, total_evolution_cost]
 unblinding: aggregate only after all expected cells and raw-result digest are frozen

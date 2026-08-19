@@ -1,0 +1,31 @@
+{
+  "baseline_validation": "passed_local_package_smoke_and_cuda_execution",
+  "oracle_validation": "passed_local_package_smoke_and_cuda_execution",
+  "anti_cheat": "architecture/work-unit/source-contrast checks included; formal repo anti-cheat not run",
+  "deterministic_fixture": true,
+  "formal_population_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "local_validation": {
+    "task_id": "CORE-H2D-OVERFANOUT-23R2",
+    "kind": "counterexample",
+    "family_id": "h2d_pipeline",
+    "reference_patch_equivalent": true,
+    "public_test_pass": "validated_in_batch",
+    "baseline_correctness": true,
+    "oracle_correctness": true,
+    "baseline_science": true,
+    "oracle_science": true,
+    "oracle_activation_matches_action": false,
+    "oracle_is_source_identical": true,
+    "cuda_execution": true,
+    "cuda_device": "NVIDIA GeForce RTX 4060 Ti",
+    "torch_version": "2.12.1+cu126"
+  },
+  "counterexample_probe": {
+    "probe": "per-step pin_memory + non_blocking",
+    "status": "pending_target_runtime_calibration",
+    "oracle_verdict": "not_evaluated",
+    "declared_noise_floor_percent": 3.0,
+    "reason": "independent replacement lineage; no inherited calibration evidence"
+  }
+}
