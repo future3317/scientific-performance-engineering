@@ -29,9 +29,19 @@ def _copy_oracle(task_dir: Path, solution_dir: Path) -> None:
     entrypoint = str(spec["workspace"]["entrypoint"])
     solution_dir.mkdir(parents=True, exist_ok=True)
     oracle = task_dir / "oracle" / "solution_oracle.py"
-    if not oracle.is_file():
-        raise FileNotFoundError(f"oracle solution missing: {oracle}")
-    shutil.copy2(oracle, solution_dir / entrypoint)
+    if oracle.is_file():
+        shutil.copy2(oracle, solution_dir / entrypoint)
+        return
+    patch_path = task_dir / "oracle" / "reference_patch.diff"
+    if not patch_path.is_file():
+        raise FileNotFoundError(f"oracle solution and reference patch missing for {task_dir}")
+    shutil.copytree(task_dir / "workspace", solution_dir, dirs_exist_ok=True)
+    completed = subprocess.run(
+        ["patch", "-p2", "-i", str(patch_path)],
+        cwd=solution_dir, text=True, capture_output=True, check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"reference patch failed for {task_dir.name}: {completed.stderr or completed.stdout}")
 
 
 def _percent(value: Any) -> float | None:
