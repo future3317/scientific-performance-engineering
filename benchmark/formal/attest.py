@@ -35,6 +35,55 @@ PACKAGE_DIRS = ("workspace", "public_tests", "hidden_verifier", "oracle")
 PACKAGE_FILES = ("task.yaml", "metadata.json", "benchmark.py", "scientific_contract.py")
 
 
+def file_digest(path: str | Path) -> str:
+    """Digest one persisted calibration artifact by its exact bytes."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def harness_digest(repo_root: str | Path) -> str:
+    """Digest the executable calibration/verifier surface."""
+    root = Path(repo_root)
+    files: dict[str, str] = {}
+    roots = [root / "benchmark" / "harness", root / "benchmark" / "formal"]
+    paths = [
+        root / "scripts" / "run_active30_calibration.py",
+        root / "benchmark" / "schema" / "task.schema.json",
+        root / "benchmark" / "schema" / "result.schema.json",
+    ]
+    for base in roots:
+        if base.is_dir():
+            paths.extend(path for path in base.rglob("*.py") if "__pycache__" not in path.parts)
+    for path in sorted(set(paths)):
+        if path.is_file():
+            files[path.relative_to(root).as_posix()] = file_digest(path)
+    return digest_mapping(files)
+
+
+def calibration_envelope(
+    *,
+    producer_revision: str,
+    task_package_digest: str,
+    population_manifest_digest: str,
+    harness_digest_value: str,
+    calibration_runner_digest: str,
+    noise_digest: str,
+    raw_result_digest: str,
+    fingerprint: dict[str, Any],
+) -> dict[str, Any]:
+    """Return the immutable identity envelope for one calibration cell."""
+    return {
+        "schema_version": 1,
+        "producer_revision": str(producer_revision),
+        "task_package_digest": str(task_package_digest),
+        "population_manifest_digest": str(population_manifest_digest),
+        "harness_digest": str(harness_digest_value),
+        "calibration_runner_digest": str(calibration_runner_digest),
+        "noise_digest": str(noise_digest),
+        "raw_result_digest": str(raw_result_digest),
+        "fingerprint": dict(fingerprint),
+    }
+
+
 def task_package_digest(task_dir: str | Path) -> str:
     """Digest the executable task package, not just its declarative manifest."""
     root = Path(task_dir)

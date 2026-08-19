@@ -40,6 +40,21 @@ def score_task(result: dict[str, Any]) -> dict[str, Any]:
     agent-driver flag for counterexample/do-not-apply tasks.
     """
     task_info = result.get("task", {})
+    if task_info.get("metric_class") == "evolution" or isinstance(result.get("episode_measurement"), dict):
+        measurement = result.get("episode_measurement", {})
+        protocol_valid = result.get("execution_validity") == "valid" and result.get("validity") != "invalid"
+        gates_ok = protocol_valid and bool(result.get("correctness_pass")) and all(result.get("scientific_gates", {}).values())
+        score = float(result.get("task_score", measurement.get("candidate_score", 0.0))) if protocol_valid else 0.0
+        delta = measurement.get("absolute_score_delta")
+        return {
+            "task_id": result.get("task_id"), "verdict": result.get("verdict"),
+            "kind": task_info.get("kind", "positive"), "metric_class": "evolution",
+            "gates_passed": gates_ok, "inconclusive": not protocol_valid,
+            "tripwired": False, "perf_term": score, "perf_note": "bounded episode score",
+            "diagnosis_correct": None, "task_score": round(score, 6),
+            "absolute_score_delta": float(delta) if isinstance(delta, (int, float)) else None,
+            "cost": result.get("cost", {}),
+        }
     verified = result.get("verified_speedup", {}) if isinstance(result.get("verified_speedup"), dict) else {}
     numeric_values = [verified.get("median_speedup"), result.get("cost", {}).get("wall_time_s") if isinstance(result.get("cost"), dict) else None]
     if any(isinstance(value, float) and not math.isfinite(value) for value in numeric_values):
@@ -198,6 +213,21 @@ def aggregate_track(task_scores: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def aggregate_evolution_track(task_scores: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate bounded episode scores without inventing a speedup."""
+    if not task_scores:
+        return {"num_tasks": 0, "mean_score": None, "mean_absolute_score_delta": None, "pass_rate": 0.0}
+    scores = [float(item["task_score"]) for item in task_scores]
+    deltas = [float(item["absolute_score_delta"]) for item in task_scores if isinstance(item.get("absolute_score_delta"), (int, float))]
+    return {
+        "num_tasks": len(task_scores),
+        "mean_score": sum(scores) / len(scores),
+        "mean_absolute_score_delta": sum(deltas) / len(deltas) if deltas else None,
+        "pass_rate": sum(bool(item.get("gates_passed")) for item in task_scores) / len(task_scores),
+        "metric_class": "evolution",
+    }
+
+
 def score_run(run_dir: str | Path) -> dict[str, Any]:
     """Read every result*.json under *run_dir* and produce task + track scores."""
     run_dir = Path(run_dir)
@@ -209,7 +239,7 @@ def score_run(run_dir: str | Path) -> dict[str, Any]:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if isinstance(payload, dict) and "verified_speedup" in payload and "task_id" in payload:
+        if isinstance(payload, dict) and "task_id" in payload and ("verified_speedup" in payload or "episode_measurement" in payload):
             payload["_path"] = str(path)
             results.append(payload)
     task_scores = [score_task(result) for result in results]
@@ -220,6 +250,6 @@ def score_run(run_dir: str | Path) -> dict[str, Any]:
     return {
         "run_dir": str(run_dir),
         "tasks": task_scores,
-        "tracks": {track: aggregate_track(scores) for track, scores in by_track.items()},
+        "tracks": {track: aggregate_evolution_track(scores) if track == "evolution" else aggregate_track(scores) for track, scores in by_track.items()},
         "overall": aggregate_track(task_scores),
     }

@@ -38,7 +38,11 @@ def run_episode_task(task_workspace: str, skill_view: dict[str, Any], budget: di
 
     episode_yaml = Path(task_workspace).parents[0] / "episodes" / "poison_episode.yaml"
     out_dir = Path(tempfile.mkdtemp(prefix="spe_evo_episode_"))
-    result = evolution.run_episode(str(episode_yaml), condition, out_dir)
+    result = evolution.run_episode(
+        str(episode_yaml), condition, out_dir,
+        seed=int(budget.get("seed", 0)),
+        max_wall_time_s=float(budget.get("max_wall_time_s", 120)),
+    )
     metrics = result.get("metrics", {})
     survival = metrics.get("poisoning_survival_rate")
     score = float(survival) if survival is not None else 0.0

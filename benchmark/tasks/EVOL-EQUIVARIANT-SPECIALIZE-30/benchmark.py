@@ -40,7 +40,7 @@ def _sync(device: str) -> None:
 REQUIRED_API=('run_episode_task',)
 def make_fixtures(seed:int,device:str='cpu'): return {'device':device,'condition':'C','budget':{'max_wall_time_s':120},'seed':seed}
 def _run(solution,fixtures):
-    skill_view={'condition':fixtures['condition']}; return solution.run_episode_task(str(_TASK_DIR/'workspace'),skill_view,fixtures['budget'])
+    skill_view={'condition':fixtures['condition']}; budget={**fixtures['budget'],'seed':int(fixtures.get('seed',0))}; return solution.run_episode_task(str(_TASK_DIR/'workspace'),skill_view,budget)
 def run_correctness(solution,fixtures):
     try: r=_run(solution,fixtures); return {'passed':isinstance(r.get('episode_score'),(int,float)),'details':{'keys':sorted(r)}}
     except Exception as exc: return {'passed':False,'details':{'error':repr(exc)}}
@@ -49,4 +49,4 @@ def run_scientific_gates(solution,fixtures):
 def run_activation_evidence(solution,baseline_solution,fixtures):
     c=_run(solution,fixtures); b=_run(baseline_solution,fixtures); return {'candidate_metrics':{'transition_applied':c.get('condition_used')=='D'},'baseline_metrics':{'transition_applied':b.get('condition_used')=='D'}}
 def run_performance(solution,fixtures,warmup=0,iterations=1,device='cpu'):
-    st=time.perf_counter(); r=_run(solution,fixtures); wall=time.perf_counter()-st; return {'value':float(r.get('episode_score',0.0)),'work_units':{'episode_runs':1},'output_checksums':{'result':json.dumps(r,sort_keys=True,default=str) if False else str(sorted(r))},'timing':{'wall_time_s':wall}}
+    st=time.perf_counter(); r=_run(solution,fixtures); wall=time.perf_counter()-st; gates={'state_transition_valid':_SCIENCE.state_transition_valid(r),'specialization_applied':_SCIENCE.specialization_applied(r.get('episode_metrics',{}))}; return {'value':float(r.get('episode_score',0.0)),'work_units':{'episode_runs':1},'output_checksums':{'result':str(sorted(r))},'timing':{'wall_time_s':wall},'episode_result':r,'episode_gates':gates,'episode_gate_details':{}}

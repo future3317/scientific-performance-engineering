@@ -158,6 +158,11 @@ def _noise_control_digest(payload: dict[str, Any]) -> str:
 def write_noise_control(path: str | Path, artifact: dict[str, Any]) -> dict[str, Any]:
     """Write one immutable task×outer-trial same-host control artifact."""
     payload = dict(artifact)
+    # Older unit fixtures used one manifest digest for both identities.  Keep
+    # their serialization readable while calibration production callers pass
+    # the two explicit digests below; resume validation requires both fields.
+    payload.setdefault("task_package_digest", payload.get("task_manifest_digest"))
+    payload.setdefault("population_manifest_digest", payload.get("task_manifest_digest"))
     payload["schema_version"] = NOISE_CONTROL_SCHEMA_VERSION
     payload["effective_noise_floor_percent"] = effective_noise_floor(
         float(payload["declared_noise_floor_percent"]),
@@ -185,6 +190,7 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         raise ValueError("noise control artifact digest mismatch")
     required = {
         "task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest",
+        "task_package_digest", "population_manifest_digest",
         "hardware_fingerprint", "software_fingerprint", "compile_threads",
         "compiler_cache_policy", "control_a_runs", "control_b_runs",
         "observed_noise_floor_percent", "declared_noise_floor_percent",
@@ -201,7 +207,7 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in payload[key]):
             raise ValueError(f"noise control {key} must contain positive finite measurements")
     expected = expected or {}
-    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better", "expected_speedup_range"):
+    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "task_package_digest", "population_manifest_digest", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better", "expected_speedup_range"):
         if key in expected and payload.get(key) != expected[key]:
             raise ValueError(f"noise control {key} mismatch")
     for key in ("hardware_fingerprint", "software_fingerprint"):

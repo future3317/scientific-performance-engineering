@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Classify active calibration cells before a resume.
+
+An artifact is reusable only when its cell envelope binds the current task
+package, population manifest, executable harness, runner, noise artifact and
+raw result.  Legacy cells are reported as rerun_required; this command never
+rewrites their provenance.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from benchmark.formal import attest
+from benchmark.harness.fingerprint import fingerprints_compatible
+
+
+def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object]:
+    active_path = repo_root / "benchmark" / "pilot_population.json"
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+    task_root = repo_root / "benchmark" / "tasks"
+    revision = attest.benchmark_revision(repo_root)
+    population_digest = attest.file_digest(active_path)
+    static_harness = attest.harness_digest(repo_root)
+    runner_digest = attest.file_digest(repo_root / "scripts" / "run_active30_calibration.py")
+    from benchmark.harness.fingerprint import capture_fingerprint
+    fingerprint = capture_fingerprint()
+    reusable: list[dict[str, str]] = []
+    rerun: list[dict[str, str]] = []
+    for task_id in active["task_ids"]:
+        task_id = str(task_id)
+        task_dir = task_root / task_id
+        task_digest = attest.task_package_digest(task_dir)
+        for outer in range(outer_trials):
+            outer_id = f"outer-{outer:03d}"
+            noise = out / "noise-control" / outer_id / f"{task_id}.json"
+            raw = out / "raw" / outer_id / f"{task_id}.json"
+            envelope = out / "envelopes" / outer_id / f"{task_id}.json"
+            reason = ""
+            try:
+                payload = json.loads(envelope.read_text(encoding="utf-8"))
+                noise_payload = json.loads(noise.read_text(encoding="utf-8"))
+                expected = {
+                    "schema_version": 1, "producer_revision": revision,
+                    "task_package_digest": task_digest,
+                    "population_manifest_digest": population_digest,
+                    "harness_digest": static_harness,
+                    "calibration_runner_digest": runner_digest,
+                }
+                if any(payload.get(key) != value for key, value in expected.items()):
+                    reason = "provenance_mismatch"
+                else:
+                    compatible, _ = fingerprints_compatible(payload.get("fingerprint", {}), fingerprint)
+                    if not compatible:
+                        reason = "fingerprint_mismatch"
+                    elif payload.get("noise_digest") != noise_payload.get("artifact_digest"):
+                        reason = "noise_digest_mismatch"
+                    elif payload.get("raw_result_digest") != attest.file_digest(raw):
+                        reason = "raw_result_digest_mismatch"
+                    elif noise_payload.get("task_package_digest") != task_digest or noise_payload.get("population_manifest_digest") != population_digest:
+                        reason = "noise_identity_mismatch"
+            except (OSError, json.JSONDecodeError, KeyError):
+                reason = "legacy_or_incomplete_envelope"
+            cell = {"task_id": task_id, "outer_trial_id": outer_id}
+            if reason:
+                cell["reason"] = reason
+                rerun.append(cell)
+            else:
+                reusable.append(cell)
+    report = {
+        "schema_version": 1, "producer_revision": revision,
+        "reusable": reusable, "rerun_required": rerun,
+        "counts": {"reusable": len(reusable), "rerun_required": len(rerun)},
+    }
+    destination = out / "calibration_resume_audit.json"
+    destination.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--outer-trials", type=int, default=3)
+    args = parser.parse_args()
+    report = audit(args.repo_root.resolve(), args.out.resolve(), args.outer_trials)
+    print(json.dumps(report["counts"], sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

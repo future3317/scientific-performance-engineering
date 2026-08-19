@@ -220,6 +220,7 @@ def _empirical_flags(
         seen.add(task_id)
         records_by_task[task_id] = dict(record)
         spec = specs_by_id[task_id]
+        evolution_record = str(record.get("metric_class", "")) == "evolution" or spec.get("track") == "evolution"
         if "_task_dir" in spec:
             missing_fields = [key for key in CALIBRATION_FIELDS if key not in record]
             if missing_fields:
@@ -229,10 +230,12 @@ def _empirical_flags(
                 flags["semantic_gate_too_weak"].append(task_id)
             if not isinstance(record.get("outer_trials"), list) or not record.get("outer_trials"):
                 flags["semantic_gate_too_weak"].append(task_id)
-            if not isinstance(record.get("noise_control"), dict) or not record.get("noise_control"):
+            if not evolution_record and (not isinstance(record.get("noise_control"), dict) or not record.get("noise_control")):
                 flags["noise_too_high"].append(task_id)
-            if not isinstance(record.get("oracle_ci"), dict) or not record.get("oracle_ci"):
+            if not evolution_record and (not isinstance(record.get("oracle_ci"), dict) or not record.get("oracle_ci")):
                 flags["oracle_effect_unstable"].append(task_id)
+            if evolution_record and (not isinstance(record.get("episode_effect"), dict) or not isinstance(record.get("episode_effect", {}).get("outer_trial_deltas"), list) or len(record.get("episode_effect", {}).get("outer_trial_deltas", [])) != int(spec.get("measurement", {}).get("repetitions", 3))):
+                flags["semantic_gate_too_weak"].append(task_id)
             if not isinstance(record.get("semantic_gates"), dict) or not record.get("semantic_gates"):
                 flags["semantic_gate_too_weak"].append(task_id)
             if not isinstance(record.get("anti_cheat"), dict) or record.get("anti_cheat", {}).get("status") not in {"pass", "passed", "clean"}:
@@ -262,7 +265,7 @@ def _empirical_flags(
         # Counterexamples are deliberately eligible when the measured oracle
         # is null or regressive; treating a correctly rejected intervention as
         # a weak positive would make the polarity itself a calibration failure.
-        if kind == "positive":
+        if kind == "positive" and not evolution_record:
             if isinstance(high, (int, float)) and float(high) < empirical_floor:
                 flags["oracle_effect_too_small"].append(task_id)
             elif isinstance(low, (int, float)) and float(low) <= empirical_floor:
@@ -272,7 +275,7 @@ def _empirical_flags(
             isinstance(value, (int, float)) and float(value) <= 1.0 + empirical_floor / 100.0 for value in baseline
         ):
             flags["baseline_already_optimal"].append(task_id)
-        if kind == "positive" and observed_noise and isinstance(low, (int, float)) and max(observed_noise) >= float(low):
+        if kind == "positive" and not evolution_record and observed_noise and isinstance(low, (int, float)) and max(observed_noise) >= float(low):
             flags["noise_too_high"].append(task_id)
         gate_rate = record.get("semantic_gate_pass_rate")
         if isinstance(gate_rate, (int, float)) and float(gate_rate) < 1.0:
@@ -452,7 +455,12 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         "polarity_distribution": dict(Counter(str(spec.get("kind")) for spec in specs)),
         "difficulty_distribution": dict(Counter(str(spec.get("difficulty_tier")) for spec in specs)),
         "duplicate_near_duplicate_findings": duplicate_findings,
-        "oracle_effect_distribution": [spec.get("oracle", {}).get("expected_speedup_range") for spec in specs],
+        "oracle_effect_distribution": [
+            spec.get("oracle", {}).get("expected_score_range")
+            if spec.get("track") == "evolution"
+            else spec.get("oracle", {}).get("expected_speedup_range")
+            for spec in specs
+        ],
         "baseline_noise_distribution_percent": [spec.get("measurement", {}).get("noise_floor_percent") for spec in specs],
         "runtime_cost_distribution": [
             {"task_id": spec.get("task_id"), "time_budget_s": spec.get("time_budget_s"), "measured_iterations": spec.get("measurement", {}).get("measured_iterations"), "repetitions": spec.get("measurement", {}).get("repetitions")}

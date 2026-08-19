@@ -12,17 +12,14 @@
     "verdict",
     "correctness_pass",
     "scientific_gates",
-    "verified_speedup",
-    "diagnosis",
     "cost",
     "anticheat",
-    "fingerprint",
-    "measurement",
-    "harness_hash"
+    "fingerprint"
   ],
   "properties": {
     "schema_version": {"type": "integer", "const": 1},
     "task_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
+    "metric_class": {"type": "string", "enum": ["atomic_performance", "evolution"]},
     "condition": {"type": "string", "enum": ["A", "B", "C", "C_STRESS", "D", "standalone"]},
     "context_mode": {"type": "string", "enum": ["reset", "carry"]},
     "calibration_status": {"type": "string", "enum": ["not_evaluated", "eligible", "blocked"]},
@@ -41,6 +38,12 @@
       "additionalProperties": {"type": "boolean"},
       "description": "Gate name -> pass boolean (section 8.1)."
     },
+    "baseline_scientific_gates": {"type": "object", "additionalProperties": {"type": "boolean"}},
+    "execution_validity": {"type": "string"},
+    "validity": {"type": "string"},
+    "protocol_failure": {"type": "boolean"},
+    "efficacy_eligible": {"type": "boolean"},
+    "task_score": {"type": "number"},
     "scientific_gate_details": {
       "type": "object",
       "description": "Gate name -> details dict returned by the gate."
@@ -129,6 +132,19 @@
         "fixture_hashes": {"type": "object"}
       }
     },
+    "episode_measurement": {
+      "type": "object",
+      "required": ["metric_class", "seed", "baseline_score", "candidate_score", "absolute_score_delta", "paired_seed_effect"],
+      "properties": {
+        "metric_class": {"const": "evolution"},
+        "seed": {"type": "integer"},
+        "required_outer_trials": {"type": "integer", "minimum": 1},
+        "baseline_score": {"type": "number"},
+        "candidate_score": {"type": "number"},
+        "absolute_score_delta": {"type": "number"},
+        "paired_seed_effect": {"type": "object"}
+      }
+    },
     "harness_hash": {
       "type": "object",
       "description": "SHA-256 manifest of harness files captured at S0 and re-checked at verdict."
@@ -138,5 +154,17 @@
       "items": {"type": "string"},
       "description": "Non-fatal pipeline errors (e.g. optional stage failures)."
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"metric_class": {"const": "evolution"}}},
+      "then": {
+        "required": ["metric_class", "episode_measurement", "task_score"],
+        "properties": {"verified_speedup": {"not": {}}, "measurement": {"not": {}}, "diagnosis": {"not": {}}, "harness_hash": {"not": {}}}
+      },
+      "else": {
+        "required": ["verified_speedup", "diagnosis", "measurement", "harness_hash"]
+      }
+    }
+  ]
 }
