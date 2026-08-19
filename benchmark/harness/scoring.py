@@ -43,8 +43,8 @@ def score_task(result: dict[str, Any]) -> dict[str, Any]:
     if task_info.get("metric_class") == "evolution" or isinstance(result.get("episode_measurement"), dict):
         measurement = result.get("episode_measurement", {})
         protocol_valid = result.get("execution_validity") == "valid" and result.get("validity") != "invalid"
-        gates_ok = protocol_valid and bool(result.get("correctness_pass")) and all(result.get("scientific_gates", {}).values())
-        score = float(result.get("task_score", measurement.get("candidate_score", 0.0))) if protocol_valid else 0.0
+        gates_ok = protocol_valid and bool(result.get("correctness_pass")) and all(result.get("scientific_gates", {}).values()) and all(result.get("baseline_scientific_gates", {}).values())
+        score = float(result.get("task_score", measurement.get("candidate_score", 0.0))) if protocol_valid and gates_ok else 0.0
         delta = measurement.get("absolute_score_delta")
         return {
             "task_id": result.get("task_id"), "verdict": result.get("verdict"),

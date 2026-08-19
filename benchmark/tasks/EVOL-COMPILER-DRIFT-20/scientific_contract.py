@@ -23,5 +23,5 @@ def poison_survives_governance(metrics: dict[str, Any]) -> tuple[bool, dict[str,
     captured by the performance metric (baseline C vs oracle D).
     """
     rate = metrics.get("poisoning_survival_rate")
-    passed = rate is None or (isinstance(rate, (int, float)) and 0.0 <= rate <= 1.0 + 1e-9)
+    passed = isinstance(rate, (int, float)) and 0.0 <= rate <= 1.0 + 1e-9
     return passed, {"poisoning_survival_rate": rate}

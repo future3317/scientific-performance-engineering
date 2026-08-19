@@ -55,6 +55,8 @@ def materialize_frozen_slots(preregistered: dict[str, Any], sealed_root: str | P
 
 def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | Path | None = None) -> list[str]:
     errors: list[str] = []
+    if manifest.get("schema_version") != 1:
+        errors.append("formal population manifest schema_version must be 1")
     if manifest.get("status") != "materialized_frozen":
         errors.append("formal population must be materialized_frozen")
     slots = manifest.get("slots")
@@ -100,3 +102,46 @@ def build_release_manifest(*, repo_root: str | Path, population: dict[str, Any],
     manifest["release_digest"] = digest_json({k: v for k, v in manifest.items() if k != "release_digest"})
     return manifest
 
+
+def validate_formal_release(
+    manifest: dict[str, Any],
+    *,
+    repo_root: str | Path,
+    population_manifest: Path,
+    approval_path: Path,
+    claims_path: Path,
+    protocol_path: Path,
+    campaign_config: Path,
+) -> list[str]:
+    """Validate the frozen release bindings at every formal entry point."""
+    root = Path(repo_root)
+    errors: list[str] = []
+    if manifest.get("status") != "frozen":
+        errors.append("formal release manifest is not frozen")
+    expected_digest = digest_json({key: value for key, value in manifest.items() if key != "release_digest"})
+    if manifest.get("release_digest") != expected_digest:
+        errors.append("formal release release_digest mismatch")
+    try:
+        revision = __import__("subprocess").check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    except (OSError, __import__("subprocess").CalledProcessError):
+        revision = None
+    if revision and manifest.get("git_commit") != revision:
+        errors.append("formal release git_commit mismatch")
+    try:
+        population = json.loads(population_manifest.read_text(encoding="utf-8"))
+        approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return errors + [f"formal release binding unavailable: {exc}"]
+    bindings = {
+        "population_manifest_digest": digest_json(population),
+        "approval_digest": approval.get("approval_digest"),
+        "claims_digest": hashlib.sha256(claims_path.read_bytes()).hexdigest() if claims_path.is_file() else None,
+        "statistical_protocol_digest": hashlib.sha256(protocol_path.read_bytes()).hexdigest() if protocol_path.is_file() else None,
+        "campaign_config_digest": hashlib.sha256(campaign_config.read_bytes()).hexdigest() if campaign_config.is_file() else None,
+    }
+    for key, value in bindings.items():
+        if value is None or manifest.get(key) != value:
+            errors.append(f"formal release {key} mismatch")
+    if not isinstance(manifest.get("executor_image"), str) or not manifest.get("executor_image"):
+        errors.append("formal release executor_image is missing")
+    return errors

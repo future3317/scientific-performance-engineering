@@ -12,13 +12,11 @@ from __future__ import annotations
 
 TASK_VARIANT = "EVOL-COMPILER-DRIFT-20"
 
-import tempfile
-from pathlib import Path
 from typing import Any
 
 
 def run_episode_task(task_workspace: str, skill_view: dict[str, Any], budget: dict[str, Any]) -> dict[str, Any]:
-    """Run the prototype episode and return a score for the verifier.
+    """Declare the episode policy; the harness executes and scores it.
 
     Args:
         task_workspace: path to the task's workspace/ directory.
@@ -26,31 +24,10 @@ def run_episode_task(task_workspace: str, skill_view: dict[str, Any], budget: di
         budget: execution budget dict.
 
     Returns:
-        dict with at least ``episode_score`` (float, 0..1) and
-        ``episode_metrics``.
+        A declarative action mapping. Scores and metrics are harness-owned.
     """
     # Baseline: always run under condition C (append-only). The oracle patch
     # changes this to use condition D (governed/replay-grounded).
     condition = "C"
 
-    # Import the harness episode runner. The repo root is on sys.path when the
-    # harness evaluates this module, so the top-level benchmark package is
-    # importable.
-    from benchmark.harness import evolution
-
-    episode_yaml = Path(task_workspace).parents[0] / "episodes" / "compiler_drift_episode.yaml"
-    out_dir = Path(tempfile.mkdtemp(prefix="spe_evo_episode_"))
-    result = evolution.run_episode(
-        str(episode_yaml), condition, out_dir,
-        seed=int(budget.get("seed", 0)),
-        max_wall_time_s=float(budget.get("max_wall_time_s", 120)),
-    )
-    metrics = result.get("metrics", {})
-    survival = metrics.get("poisoning_survival_rate")
-    score = float(survival) if survival is not None else 0.0
-    return {
-        "episode_score": score,
-        "episode_metrics": metrics,
-        "condition_used": condition,
-        "out_dir": str(out_dir),
-    }
+    return {"action": {"condition": condition}}

@@ -1,9 +1,6 @@
 from __future__ import annotations
 import hashlib
 import importlib.util
-import statistics
-import json
-import time
 from pathlib import Path
 from typing import Any
 import torch
@@ -42,11 +39,24 @@ def make_fixtures(seed:int,device:str='cpu'): return {'device':device,'condition
 def _run(solution,fixtures):
     skill_view={'condition':fixtures['condition']}; budget={**fixtures['budget'],'seed':int(fixtures.get('seed',0))}; return solution.run_episode_task(str(_TASK_DIR/'workspace'),skill_view,budget)
 def run_correctness(solution,fixtures):
-    try: r=_run(solution,fixtures); return {'passed':isinstance(r.get('episode_score'),(int,float)),'details':{'keys':sorted(r)}}
+    try: r=_run(solution,fixtures); return {'passed':isinstance(r.get('action'),dict),'details':{'keys':sorted(r)}}
     except Exception as exc: return {'passed':False,'details':{'error':repr(exc)}}
 def run_scientific_gates(solution,fixtures):
-    r=_run(solution,fixtures); return {'state_transition_valid':_SCIENCE.state_transition_valid(r),'specialization_applied':_SCIENCE.specialization_applied(r.get('episode_metrics',{}))}
+    r=_run(solution,fixtures); return {'declarative_action_valid': isinstance(r.get('action'),dict)}
 def run_activation_evidence(solution,baseline_solution,fixtures):
-    c=_run(solution,fixtures); b=_run(baseline_solution,fixtures); return {'candidate_metrics':{'transition_applied':c.get('condition_used')=='D'},'baseline_metrics':{'transition_applied':b.get('condition_used')=='D'}}
+    c=_run(solution,fixtures); b=_run(baseline_solution,fixtures); return {'candidate_action':c.get('action',{}),'baseline_action':b.get('action',{})}
 def run_performance(solution,fixtures,warmup=0,iterations=1,device='cpu'):
-    st=time.perf_counter(); r=_run(solution,fixtures); wall=time.perf_counter()-st; gates={'state_transition_valid':_SCIENCE.state_transition_valid(r),'specialization_applied':_SCIENCE.specialization_applied(r.get('episode_metrics',{}))}; return {'value':float(r.get('episode_score',0.0)),'work_units':{'episode_runs':1},'output_checksums':{'result':str(sorted(r))},'timing':{'wall_time_s':wall},'episode_result':r,'episode_gates':gates,'episode_gate_details':{}}
+    r=_run(solution,fixtures)
+    if not isinstance(r.get('action'),dict):
+        raise TypeError('episode solution must return an action mapping')
+    return {'value':0.0,'action':dict(r['action'])}
+
+def score_harness_episode(result):
+    metrics=result.get('metrics',{})
+    precision=metrics.get('rule_precision')
+    negative=metrics.get('negative_transfer_rate')
+    return (float(precision) if isinstance(precision,(int,float)) else 0.0) * (1.0-(float(negative) if isinstance(negative,(int,float)) else 0.0))
+
+def gates_harness_episode(result):
+    scored={'episode_score':score_harness_episode(result),'episode_metrics':result.get('metrics',{}),'condition_used':result.get('condition')}
+    return {'state_transition_valid':_SCIENCE.state_transition_valid(scored),'specialization_applied':_SCIENCE.specialization_applied(scored.get('episode_metrics',{}))}

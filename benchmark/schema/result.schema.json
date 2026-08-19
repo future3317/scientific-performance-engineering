@@ -7,6 +7,9 @@
   "required": [
     "schema_version",
     "task_id",
+    "outer_trial_id",
+    "seed",
+    "measurement_class",
     "condition",
     "context_mode",
     "verdict",
@@ -19,6 +22,9 @@
   "properties": {
     "schema_version": {"type": "integer", "const": 1},
     "task_id": {"type": "string", "pattern": "^[A-Z0-9-]+$"},
+    "outer_trial_id": {"type": ["string", "null"]},
+    "seed": {"type": "integer"},
+    "measurement_class": {"type": "string", "enum": ["atomic_performance", "episode_bounded_score"]},
     "metric_class": {"type": "string", "enum": ["atomic_performance", "evolution"]},
     "condition": {"type": "string", "enum": ["A", "B", "C", "C_STRESS", "D", "standalone"]},
     "context_mode": {"type": "string", "enum": ["reset", "carry"]},
@@ -160,7 +166,7 @@
       "if": {"properties": {"metric_class": {"const": "evolution"}}},
       "then": {
         "required": ["metric_class", "episode_measurement", "task_score"],
-        "properties": {"verified_speedup": {"not": {}}, "measurement": {"not": {}}, "diagnosis": {"not": {}}, "harness_hash": {"not": {}}}
+        "properties": {"verified_speedup": {"not": {}}, "measurement": {"not": {}}, "diagnosis": {"not": {}}}
       },
       "else": {
         "required": ["verified_speedup", "diagnosis", "measurement", "harness_hash"]

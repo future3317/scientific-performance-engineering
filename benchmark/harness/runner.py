@@ -33,6 +33,7 @@ import inspect
 import json
 import os
 import random
+import signal
 import shutil
 import subprocess
 import sys
@@ -193,21 +194,43 @@ def run_python_subprocess(
         env.update(extra_env)
     start = time.perf_counter()
     timed_out = False
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        start_new_session=os.name != "nt",
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+    )
     try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(cwd) if cwd else None,
-            env=env,
-        )
-        exit_code, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
+        stdout, stderr = process.communicate(timeout=timeout)
+        exit_code = process.returncode
     except subprocess.TimeoutExpired as exc:
         timed_out = True
-        exit_code = -1
         stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
         stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                stdout_tail, stderr_tail = process.communicate(timeout=2.0)
+                stdout += stdout_tail or ""
+                stderr += stderr_tail or ""
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout_tail, stderr_tail = process.communicate()
+                stdout += stdout_tail or ""
+                stderr += stderr_tail or ""
+        exit_code = process.returncode if process.returncode is not None else -1
         stderr += f"\n[harness] subprocess timed out after {timeout}s"
     return {
         "exit_code": exit_code,

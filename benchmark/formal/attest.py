@@ -69,10 +69,18 @@ def calibration_envelope(
     noise_digest: str,
     raw_result_digest: str,
     fingerprint: dict[str, Any],
+    task_id: str,
+    outer_trial_id: str,
+    seed: int,
+    measurement_class: str,
 ) -> dict[str, Any]:
     """Return the immutable identity envelope for one calibration cell."""
-    return {
+    envelope = {
         "schema_version": 1,
+        "task_id": str(task_id),
+        "outer_trial_id": str(outer_trial_id),
+        "seed": int(seed),
+        "measurement_class": str(measurement_class),
         "producer_revision": str(producer_revision),
         "task_package_digest": str(task_package_digest),
         "population_manifest_digest": str(population_manifest_digest),
@@ -82,6 +90,30 @@ def calibration_envelope(
         "raw_result_digest": str(raw_result_digest),
         "fingerprint": dict(fingerprint),
     }
+    envelope["envelope_digest"] = digest_mapping(envelope)
+    return envelope
+
+
+def validate_calibration_envelope(payload: dict[str, Any], expected: dict[str, Any] | None = None) -> list[str]:
+    """Validate the cell identity and self-digest before reuse."""
+    errors: list[str] = []
+    required = {
+        "schema_version", "task_id", "outer_trial_id", "seed", "measurement_class",
+        "producer_revision", "task_package_digest", "population_manifest_digest",
+        "harness_digest", "calibration_runner_digest", "noise_digest", "raw_result_digest",
+        "fingerprint", "envelope_digest",
+    }
+    errors.extend(f"missing {key}" for key in sorted(required - set(payload)))
+    if payload.get("schema_version") != 1:
+        errors.append("schema_version mismatch")
+    if payload.get("envelope_digest") != digest_mapping({key: value for key, value in payload.items() if key != "envelope_digest"}):
+        errors.append("envelope_digest mismatch")
+    for key, value in (expected or {}).items():
+        if key in {"fingerprint"}:
+            continue
+        if key in payload and payload.get(key) != value:
+            errors.append(f"{key} mismatch")
+    return errors
 
 
 def task_package_digest(task_dir: str | Path) -> str:

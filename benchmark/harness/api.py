@@ -57,9 +57,9 @@ API_REGISTRY: dict[str, dict[str, Any]] = {
     "episode_v1": {
         "entrypoint": "solution.py",
         "required_callables": {
-            "run_episode_task": "run_episode_task(task_workspace, skill_view, budget) -> result dict",
+            "run_episode_task": "run_episode_task(task_workspace, skill_view, budget) -> {'action': declarative policy}",
         },
-        "notes": "Evolution-track episode steps. The harness injects the condition's skill view; the agent must not reach outside the provided view.",
+        "notes": "Evolution-track episode steps. The candidate returns only a declarative action; the harness executes, scores, and gates the episode.",
     },
 }
 
