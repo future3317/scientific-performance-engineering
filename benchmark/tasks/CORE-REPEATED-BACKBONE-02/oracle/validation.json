@@ -5,7 +5,7 @@
   },
   "oracle_validation": {
     "artifact": "oracle/reference_patch.diff",
-    "scientific_gates": []
+    "scientific_gates": ["changing_regime_prediction_close", "fixed_regime_prediction_close"]
   },
   "anti_cheat": "harness S1 canary/static scan",
   "deterministic_fixture": "benchmark.py::make_fixtures(seed=0)"

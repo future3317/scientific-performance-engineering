@@ -103,8 +103,8 @@ def test_relation_promotion_round_trips_as_spec_state_and_record(tmp_path: Path)
         } for endpoint in ("X", "Y")],
     }), encoding="utf-8")
     validation = {
-        "synthesis_case_ids": ["CASE-REL"],
-        "promotion_case_ids": ["CASE-REL"],
+            "synthesis_case_ids": ["CASE-REL-SYN"],
+            "promotion_case_ids": ["CASE-REL"],
         "heldout_regression_cases": [{"case_id": "HELDOUT-REL", "executed": True, "execution_source": "verifier", "scientific_ok": True, "effect_lcb": 0.1}],
         "poison_probe_cases": [{"case_id": "POISON-REL", "executed": True, "execution_source": "environment", "accepted": False}],
     }
@@ -370,8 +370,8 @@ def test_formal_promotion_round_trip_routes_and_abstains_by_cegis_boundary(tmp_p
     candidate = _rule("RULE-CEGIS")
     candidate = candidate.__class__(**{**candidate.__dict__, "applicability": predicate}).to_dict()
     validation = {
-        "synthesis_case_ids": ["CASE-CEGIS-1", "CASE-CEGIS-2"],
-        "promotion_case_ids": ["CASE-CEGIS-1", "CASE-CEGIS-2"],
+            "synthesis_case_ids": ["CASE-CEGIS-SYN"],
+            "promotion_case_ids": ["CASE-CEGIS-1", "CASE-CEGIS-2"],
         "heldout_regression_cases": [{"case_id": "HELDOUT-CEGIS", "executed": True, "execution_source": "verifier", "scientific_ok": True, "effect_lcb": 0.1}],
         "poison_probe_cases": [{"case_id": "POISON-CEGIS", "executed": True, "execution_source": "environment", "accepted": False}],
     }

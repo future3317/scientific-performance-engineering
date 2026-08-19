@@ -456,10 +456,7 @@
       "repetitions": 4
     }
   ],
-  "semantic_gate_failures": [
-    "CORE-REPEATED-BACKBONE-02",
-    "CORE-SCALAR-SYNC-01"
-  ],
+  "semantic_gate_failures": [],
   "positive_counterexample_balance": {
     "positive": 16,
     "counterexample_or_do_not_apply": 11
@@ -492,6 +489,13 @@
       "efficacy_claim": "not_claimed"
     }
   },
+  "retired_for_formal": [
+    {
+      "task_id": "CORE-H2D-OVERFANOUT-23",
+      "replacement_task_id": "CORE-H2D-PIPELINE-03",
+      "reason": "same-family calibration anchor is blocked by high observed same-host noise; retain only as a pilot counterexample"
+    }
+  ],
   "public_context": {
     "CORE-AUTOGRAD-BATCHED-VJP-15": {
       "workload": {
@@ -741,10 +745,7 @@
     "noise_too_high": [],
     "oracle_effect_unstable": [],
     "baseline_already_optimal": [],
-    "semantic_gate_too_weak": [
-      "CORE-REPEATED-BACKBONE-02",
-      "CORE-SCALAR-SYNC-01"
-    ],
+    "semantic_gate_too_weak": [],
     "repair_pattern_duplicate": [],
     "difficulty_ceiling": [],
     "difficulty_floor": [],

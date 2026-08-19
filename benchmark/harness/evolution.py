@@ -345,11 +345,40 @@ def promote_via_replay(
                 EpisodeEnvironmentState(active_poison=("validation_probe",)),
             )
             baseline_outcome = family.evaluate(first_context, (), EpisodeEnvironmentState(active_poison=("validation_probe",)))
+            promotion_ids = [str(case.get("case_id")) for case in cases]
+            declared_synthesis_ids = candidate.get("synthesis_case_ids")
+            if not isinstance(declared_synthesis_ids, list):
+                declared_synthesis_ids = [
+                    str(case.get("case_id")) for case in candidate.get("cases", [])
+                    if isinstance(case, dict) and str(case.get("case_id")) not in set(promotion_ids)
+                ]
+            synthesis_ids = sorted({
+                str(item) for item in declared_synthesis_ids
+                if str(item) not in set(promotion_ids)
+            })
+            # A calibration episode cannot promote from a fabricated marker;
+            # it needs a real synthesis pool disjoint from promotion cases.
+            if not synthesis_ids:
+                continue
+            synthesis_groups = sorted({
+                str(case.get("independence_group") or case.get("source_id") or case.get("case_id"))
+                for case in candidate.get("cases", [])
+                if isinstance(case, dict) and str(case.get("case_id")) in set(synthesis_ids)
+            })
+            promotion_groups = sorted({
+                str(case.get("independence_group") or case.get("source_id") or case.get("case_id"))
+                for case in cases
+            })
+            if set(synthesis_groups) & set(promotion_groups):
+                continue
             validation = {
                 "schema_version": 1,
                 "scope": "calibration",
-                "synthesis_case_ids": [str(case.get("case_id")) for case in cases],
-                "promotion_case_ids": [str(case.get("case_id")) for case in cases],
+                # Acquisition observations identify applicability; promotion
+                # uses a fresh representative replay pool.  Keep memberships
+                # disjoint even in calibration episodes.
+                "synthesis_case_ids": synthesis_ids,
+                "promotion_case_ids": promotion_ids,
                 "heldout_regression_cases": [{
                     "case_id": f"HELDOUT-{candidate.get('rule_id')}",
                     "executed": True,
@@ -368,7 +397,9 @@ def promote_via_replay(
                     "utility": poison_outcome.utility,
                     "baseline_utility": baseline_outcome.utility,
                 }],
-                "independence_groups": sorted({str(case.get("independence_group") or case.get("case_id")) for case in cases}),
+                "independence_groups": sorted(set(synthesis_groups + promotion_groups)),
+                "synthesis_independence_groups": synthesis_groups,
+                "promotion_independence_groups": promotion_groups,
             }
             validation_digest = hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
             validation_path = store / "evolution" / "validation" / f"{validation_digest}.json"

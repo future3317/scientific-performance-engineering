@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "experiment_id", "benchmark_revision", "skill_view_digest",
+    "schema_version", "experiment_id", "population_id", "benchmark_revision", "skill_view_digest",
     "task_manifest_digest", "agent_model_id", "agent_config", "condition",
     "context_mode", "worker_isolation", "task_order", "outer_trial_id", "budgets",
     "hardware_fingerprint", "software_fingerprint", "torch_version", "cuda_version"
@@ -13,12 +13,13 @@
   "properties": {
     "schema_version": {"type": "integer", "const": 1},
     "experiment_id": {"type": "string", "minLength": 1},
+    "population_id": {"type": "string", "minLength": 1},
     "benchmark_revision": {"type": "string", "minLength": 7},
     "skill_view_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "task_manifest_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "agent_model_id": {"type": "string", "minLength": 1},
     "agent_config": {"type": "object"},
-    "condition": {"enum": ["A", "B", "C", "C_STRESS", "D"]},
+    "condition": {"enum": ["A", "A_CTX", "B", "C", "C_STRESS", "D"]},
     "context_mode": {"enum": ["reset", "carry"]},
     "worker_isolation": {
       "type": "object",
@@ -38,6 +39,9 @@
     "software_fingerprint": {"type": "object"},
     "torch_version": {"type": ["string", "null"]},
     "cuda_version": {"type": ["string", "null"]}
+    ,"schedule_digest": {"type": ["string", "null"]}
+    ,"analysis_plan_digest": {"type": ["string", "null"]}
+    ,"population_manifest_digest": {"type": ["string", "null"]}
     ,"family_id": {"type": "string", "minLength": 1}
     ,"anchor_instance_id": {"type": "string", "minLength": 1}
     ,"family_instance_digest": {"type": ["string", "null"]}

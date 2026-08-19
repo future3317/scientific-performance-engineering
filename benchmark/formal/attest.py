@@ -61,12 +61,31 @@ def validate_experiment(manifest: dict[str, Any]) -> list[str]:
     errors = [f"missing {key}" for key in REQUIRED_FIELDS if key not in manifest]
     if manifest.get("schema_version") != 1:
         errors.append("schema_version must be 1")
-    if manifest.get("condition") not in {"A", "B", "C", "C_STRESS", "D"}:
-        errors.append("condition must be A, B, C, C_STRESS, or D")
+    if manifest.get("condition") not in {"A", "A_CTX", "B", "C", "C_STRESS", "D"}:
+        errors.append("condition must be A, A_CTX, B, C, C_STRESS, or D")
     if manifest.get("context_mode") not in {"reset", "carry"}:
         errors.append("context_mode must be reset or carry")
     if not isinstance(manifest.get("task_order"), list) or not manifest.get("task_order"):
         errors.append("task_order must be a non-empty list")
+    if manifest.get("population_id") == "SPE-EvoBench-v1.0-50":
+        config = manifest.get("agent_config")
+        required_config = (
+            "provider", "model_snapshot", "temperature", "top_p", "max_output_tokens",
+            "system_prompt_digest", "agent_code_commit", "tool_versions", "tool_allowlist",
+            "retry_policy", "timeout_s", "container_digest", "pricing_revision",
+        )
+        if not isinstance(config, dict):
+            errors.append("formal agent_config must be an object")
+        else:
+            errors.extend(f"formal agent_config missing {key}" for key in required_config if key not in config)
+            for key in ("provider", "model_snapshot", "system_prompt_digest", "agent_code_commit", "container_digest", "pricing_revision"):
+                if key in config and not isinstance(config[key], str):
+                    errors.append(f"formal agent_config {key} must be a string")
+            for key in ("tool_versions", "retry_policy"):
+                if key in config and not isinstance(config[key], dict):
+                    errors.append(f"formal agent_config {key} must be an object")
+            if "tool_allowlist" in config and not isinstance(config["tool_allowlist"], list):
+                errors.append("formal agent_config tool_allowlist must be an array")
     isolation = manifest.get("worker_isolation")
     if not isinstance(isolation, dict):
         errors.append("worker_isolation must be an object")

@@ -1,5 +1,8 @@
 # Experience-driven Skill evolution
 
+> Statistical authority: `references/STATISTICAL_PROTOCOL.md`. This document
+> describes lifecycle and provenance, not a competing confidence definition.
+
 This repository treats self-evolution as a governed maintenance workflow, not runtime self-editing.
 
 ## Contents
@@ -58,7 +61,9 @@ The audit does not promote, retire, merge, or rewrite anything. Those are explic
 ## Three measurable extensions
 
 1. **Counterfactual Rule Utility (CRU):** `run_rule_replay.py` compares paired `do(rule=on)` and `do(rule=off)` outcomes on the same held-out contexts, reports the paired effect and lower confidence bound, and refuses admission when quality/scientific gates fail. This is causal attribution, not usage correlation.
-2. **Bayesian admission:** the same replay counts successes/failures under a Beta prior and records `P(p > p_min)`. `collector_confidence` remains an observation label; canonical confidence is computed from replay evidence.
+2. **Mixture diagnostic:** replay records the implemented inverted
+   Beta--Binomial mixture e-process as a promotion-probability diagnostic; it is
+   not a Bayesian posterior or a routing utility bound.
 3. **Evidence rate-distortion maintenance:** `score_rule_library.py` scores active-rule description length, measured utility distortion, and conflict cost. It emits merge/retire/specialize recommendations but never mutates the library; a maintainer reviews the resulting Git diff.
 
 Usage telemetry is a separate record (`retrieved_rule_ids`, `triggered_rule_ids`, `followed_rule_ids`, `overridden_rule_ids`, and outcome). It closes the retrieval/use/utility loop without treating retrieval frequency as evidence of benefit.

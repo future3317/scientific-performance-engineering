@@ -1,0 +1,5 @@
+schema_version: 1
+status: planned
+primary_backbone: exact_model_snapshot_required
+secondary_backbone: representative_sealed_subset
+claim_policy: if_secondary_backbone_absent_limit_claim_to_primary_model

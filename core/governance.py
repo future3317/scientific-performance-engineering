@@ -130,10 +130,37 @@ def validate_validation_artifact(value: dict[str, Any], promotion_case_ids: set[
     if declared != {str(item) for item in promotion_case_ids}:
         errors.append("validation artifact promotion case membership mismatch")
     synthesis = {str(item) for item in value.get("synthesis_case_ids", []) if isinstance(item, str)}
+    if synthesis & set(promotion_case_ids):
+        errors.append("synthesis and promotion evidence must be disjoint")
+    synthesis_declared_groups = {str(item) for item in value.get("synthesis_independence_groups", []) if isinstance(item, str)}
+    promotion_declared_groups = {str(item) for item in value.get("promotion_independence_groups", []) if isinstance(item, str)}
+    if len(synthesis_declared_groups) != len(value.get("synthesis_independence_groups", [])):
+        errors.append("synthesis independence groups must be unique")
+    if len(promotion_declared_groups) != len(value.get("promotion_independence_groups", [])):
+        errors.append("promotion independence groups must be unique")
+    if synthesis_declared_groups & promotion_declared_groups:
+        errors.append("synthesis and promotion independence groups must be disjoint")
+    synthesis_groups: set[str] = set()
+    promotion_groups: set[str] = set()
+    for entry in value.get("promotion_cases", []) if isinstance(value.get("promotion_cases"), list) else []:
+        if isinstance(entry, dict) and entry.get("independence_group") is not None:
+            group = str(entry["independence_group"])
+            if group in promotion_groups:
+                errors.append(f"promotion independence_group reused: {group}")
+            promotion_groups.add(group)
+    for entry in value.get("synthesis_cases", []) if isinstance(value.get("synthesis_cases"), list) else []:
+        if isinstance(entry, dict) and entry.get("independence_group") is not None:
+            group = str(entry["independence_group"])
+            if group in synthesis_groups:
+                errors.append(f"synthesis independence_group reused: {group}")
+            synthesis_groups.add(group)
+    if synthesis_groups & promotion_groups:
+        errors.append("synthesis and promotion independence groups must be disjoint")
     if not synthesis:
         errors.append("validation artifact synthesis case membership is required")
-    if not declared.issubset(synthesis):
-        errors.append("promotion cases must be drawn from synthesis cases")
+    # Promotion must use a fresh representative pool after CEGIS synthesis;
+    # reusing synthesis cases would make the boundary decision and effect
+    # estimate statistically dependent.
     heldout = value.get("heldout_regression_cases")
     poison = value.get("poison_probe_cases")
     try:

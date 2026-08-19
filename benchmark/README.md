@@ -9,6 +9,15 @@ conditions A–D §9, sequential split §10, harness architecture §11). The for
 integration-requirements note is archived; its resolved boundaries and remaining
 optional integrations are summarized below.
 
+Formal readiness is fail-closed: the checked-in 30-task population remains a
+pilot until `population_report.json`, `calibration/pilot_calibration.json`, and
+`calibration/calibration_approval.json` are reviewed and
+`validate_population --strict-formal` passes. The v1.0-50 file is a content-free
+50-slot preregistration; confirmatory headline D−B uses sealed-35 only. Public
+dev slots are calibration/debugging and secondary reporting. Claims and
+statistics are frozen in the repository-root `CLAIMS.yaml` and
+`references/STATISTICAL_PROTOCOL.md`.
+
 ## Contents
 
 - [Status and calibration scope](#status-and-calibration-scope)
@@ -217,7 +226,7 @@ benchmark/
     scoring.py                 # per-task + track aggregates (§8.2–8.3)
     evolution.py               # episode runner + evolution metrics (§8.4)
     evolution_ledger.py        # monotonic replay/promotion decision ledger
-    conditions.py              # A/B/C/C_STRESS/D materialization + attestation
+    conditions.py              # A/A_CTX/B/C/C_STRESS/D materialization + attestation
   taskgen/                     # pilot generator and population validator
   families/                    # canonical family specs, instances, and transformations
   formal/                      # experiment manifest, schedule, driver, aggregation
@@ -245,7 +254,7 @@ python -m benchmark.harness.cli validate-task benchmark/tasks/<task_id>
 python -m benchmark.harness.cli run-task benchmark/tasks/<task_id> --solution DIR --out result.json \
     [--predict-mechanism scalar_sync,h2d_blocking] [--seed 0]
 python scripts/render_skill_view.py SKILL_ROOT SKILL_VIEW_DIR
-python -m benchmark.harness.cli materialize-condition {A,B,C,C_STRESS,D} --snapshot SKILL_VIEW_DIR --out DIR --context-mode reset
+python -m benchmark.harness.cli materialize-condition {A,A_CTX,B,C,C_STRESS,D} --snapshot SKILL_VIEW_DIR --out DIR --context-mode reset
 python -m benchmark.harness.cli run-episode benchmark/tasks/EVOL-EPISODE-POISON-10/episodes/<id>.yaml --condition {C,C_STRESS,D} --out DIR --context-mode reset
 python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml [--tasks-root DIR]
 python -m benchmark.harness.cli score-run RUN_DIR --out scores.json

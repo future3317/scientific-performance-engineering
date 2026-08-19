@@ -29,7 +29,7 @@ correctness:
   tolerance:
     rtol: 0.01
     atol: 0.001
-scientific_gates: []
+scientific_gates: [changing_regime_prediction_close, fixed_regime_prediction_close]
 diagnosis:
   enabled: true
   choices: [repeated_compute, scalar_sync, h2d_blocking, compile_recompile]

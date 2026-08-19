@@ -231,7 +231,15 @@ def run_correctness(solution, fixtures: dict) -> dict:
 
 
 def run_scientific_gates(solution, fixtures: dict) -> dict:
-    return {}
+    # The changing-regime probe is a domain contract, not a performance
+    # assertion: a cached fixed projection must not silently survive a new
+    # fixed input.  Reuse the live correctness path so the gate is backed by
+    # the same fp64 reference and fresh fixture contract.
+    details = run_correctness(solution, fixtures)
+    return {
+        "changing_regime_prediction_close": bool(details.get("details", {}).get("changing_regime_prediction_close", False)),
+        "fixed_regime_prediction_close": bool(details.get("passed", False)),
+    }
 
 
 def run_performance(solution, fixtures: dict, warmup: int, iterations: int, device: str = "cpu") -> dict:

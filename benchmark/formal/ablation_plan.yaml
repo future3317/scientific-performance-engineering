@@ -1,0 +1,14 @@
+schema_version: 1
+status: preregistered
+ablations:
+  - id: D-naive-promotion
+    change: remove statistical governance while retaining candidate generation
+    primary_question: does governance control false promotion and negative transfer?
+  - id: D-no-applicability
+    change: disable CEGIS boundary specialization
+    primary_question: does context specialization improve transfer and abstention?
+  - id: D-no-replay
+    change: omit paired causal replay
+    primary_question: does causal replay prevent non-causal promotion?
+population: sealed_subset_only
+status_policy: exploratory_until_claims_registered

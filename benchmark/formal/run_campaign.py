@@ -576,8 +576,29 @@ def rewrite_validation_membership(
         raise ValueError("candidate validation artifact is invalid") from exc
     if not isinstance(value, dict):
         raise ValueError("candidate validation artifact must be an object")
-    value["synthesis_case_ids"] = sorted(set(str(item) for item in synthesis_case_ids))
-    value["promotion_case_ids"] = sorted(set(str(item) for item in promotion_case_ids))
+    promotion_ids = sorted(set(str(item) for item in promotion_case_ids))
+    # A candidate projection may retain the full CEGIS evidence set while
+    # promotion uses only certified representative cases.  Materialize the
+    # validation artifact with disjoint memberships instead of relying on a
+    # later audit to discover the overlap.
+    promotion_set = set(promotion_ids)
+    synthesis_ids = sorted({str(item) for item in synthesis_case_ids if str(item) not in promotion_set})
+    value["synthesis_case_ids"] = synthesis_ids
+    value["promotion_case_ids"] = promotion_ids
+    case_dir = store / "experience" / "cases"
+    def groups(ids: list[str]) -> list[str]:
+        found: set[str] = set()
+        for case_id in ids:
+            path = case_dir / f"{identifier_digest(str(case_id))}.json"
+            try:
+                item = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(item, dict) and item.get("independence_group") is not None:
+                found.add(str(item["independence_group"]))
+        return sorted(found)
+    value["synthesis_independence_groups"] = groups(synthesis_ids)
+    value["promotion_independence_groups"] = groups(promotion_ids)
     digest = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
     target = store / "evolution" / "validation" / f"{digest}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -589,6 +610,20 @@ def rewrite_validation_membership(
         "heldout_count": len(value.get("heldout_regression_cases", [])),
         "poison_probe_count": len(value.get("poison_probe_cases", [])),
     }
+
+
+def _case_independence_groups(store: Path, case_ids: list[str]) -> list[str]:
+    """Read verifier-owned group labels for a validation membership list."""
+    case_dir = store / "experience" / "cases"
+    groups: set[str] = set()
+    for case_id in case_ids:
+        try:
+            value = json.loads((case_dir / f"{identifier_digest(str(case_id))}.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(value, dict) and value.get("independence_group") is not None:
+            groups.add(str(value["independence_group"]))
+    return sorted(groups)
 
 
 def hydrate_candidate_cases(
@@ -1404,6 +1439,8 @@ def post_task_update(
                 "heldout_regression_cases": list(validation_evidence.get("heldout_regression_cases", [])),
                 "poison_probe_cases": list(validation_evidence.get("poison_probe_cases", [])),
                 "independence_groups": [case["independence_group"]],
+                "promotion_independence_groups": [],
+                "synthesis_independence_groups": [case["independence_group"]],
             }
             validation_digest = hashlib.sha256(json.dumps(validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
             validation_path = validation_dir / f"{validation_digest}.json"
@@ -1696,17 +1733,27 @@ def post_task_update(
                             if isinstance(entry, dict) and isinstance(entry.get("case_id"), str):
                                 target.setdefault(entry["case_id"], entry)
                 merged_validation = dict(validation_sources[-1])
-                merged_validation["synthesis_case_ids"] = sorted({str(item) for item in candidate["cases"]})
-                # Boundary counterexamples are CEGIS evidence, not promotion
-                # trials.  Keep the two memberships disjoint and let the
-                # synthesis certificate be the source of positive anchors.
                 promotion_ids = candidate.get("promotion_case_ids")
                 if not isinstance(promotion_ids, list):
                     promotion_ids = merged_validation.get("promotion_case_ids", [])
-                merged_validation["promotion_case_ids"] = sorted({str(item) for item in promotion_ids if isinstance(item, str)})
+                promotion_ids = sorted({str(item) for item in promotion_ids if isinstance(item, str)})
+                promotion_set = set(promotion_ids)
+                # Boundary counterexamples remain synthesis evidence; only
+                # cases outside the certified representative promotion set
+                # may be listed as synthesis cases.
+                merged_validation["synthesis_case_ids"] = sorted({
+                    str(item) for item in candidate["cases"] if str(item) not in promotion_set
+                })
+                merged_validation["promotion_case_ids"] = promotion_ids
                 merged_validation["heldout_regression_cases"] = list(heldout_cases.values())
                 merged_validation["poison_probe_cases"] = list(poison_cases.values())
                 merged_validation["independence_groups"] = sorted(independence_groups)
+                merged_validation["synthesis_independence_groups"] = _case_independence_groups(
+                    store, merged_validation["synthesis_case_ids"]
+                )
+                merged_validation["promotion_independence_groups"] = _case_independence_groups(
+                    store, merged_validation["promotion_case_ids"]
+                )
                 validation_digest = hashlib.sha256(json.dumps(
                     merged_validation, sort_keys=True, separators=(",", ":"), ensure_ascii=False
                 ).encode("utf-8")).hexdigest()
@@ -1996,17 +2043,34 @@ def _experiment_manifest(
     budgets: budget.Budget,
     fingerprint: dict[str, Any],
     trial_dir: Path,
+    population_id: str = "SPE-EvoBench-v1.0-30-pilot",
 ) -> dict[str, Any]:
     task_spec = miniyaml.load(str(tasks_root / item["task_id"] / "task.yaml"))
     lineage = task_spec.get("lineage", {}) if isinstance(task_spec, dict) else {}
     return {
         "schema_version": 1,
-        "experiment_id": f"SPE-EvoBench-v1.0-30-{item['stream_id']}-{item['task_id']}",
+        "experiment_id": f"{population_id}-{item['stream_id']}-{item['task_id']}",
+        "population_id": population_id,
         "benchmark_revision": attest.benchmark_revision(repo_root),
         "skill_view_digest": skill_digest,
         "task_manifest_digest": task_digest,
         "agent_model_id": model_id,
-        "agent_config": agent_config,
+        "agent_config": {
+            **agent_config,
+            "provider": agent_config.get("provider", "unknown"),
+            "model_snapshot": agent_config.get("model_snapshot", model_id),
+            "temperature": agent_config.get("temperature"),
+            "top_p": agent_config.get("top_p"),
+            "max_output_tokens": agent_config.get("max_output_tokens"),
+            "system_prompt_digest": agent_config.get("system_prompt_digest"),
+            "agent_code_commit": agent_config.get("agent_code_commit", attest.benchmark_revision(repo_root)),
+            "tool_versions": agent_config.get("tool_versions", {}),
+            "tool_allowlist": agent_config.get("tool_allowlist", []),
+            "retry_policy": agent_config.get("retry_policy", {}),
+            "timeout_s": agent_config.get("timeout_s", budgets.wall_time_s),
+            "container_digest": agent_config.get("container_digest"),
+            "pricing_revision": agent_config.get("pricing_revision"),
+        },
         "condition": item["condition"],
         "context_mode": item["context_mode"],
         "worker_isolation": {
@@ -2052,9 +2116,9 @@ def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], 
     except (OSError, json.JSONDecodeError):
         return False
     calibration = report.get("empirical_calibration", {})
-    if calibration.get("calibration_gate") != "passed":
+    if calibration.get("calibration_gate") != "ready_for_review":
         return False
-    approval_path = report_path.with_name("calibration_approval.json")
+    approval_path = report_path.parent / "calibration" / "calibration_approval.json"
     try:
         approval = json.loads(approval_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -2072,17 +2136,17 @@ def _formal_claim_gate(campaign: dict[str, Any], records: list[dict[str, Any]], 
     ).hexdigest()
     if approval.get("population_report_digest") != report_digest:
         return False
-    source = calibration.get("source")
-    if not source:
-        return False
+    pilot_path = report_path.parent / "calibration" / "pilot_calibration.json"
     try:
-        empirical = json.loads(Path(source).read_text(encoding="utf-8"))
+        pilot = json.loads(pilot_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    empirical_digest = hashlib.sha256(
-        json.dumps(empirical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-    return approval.get("empirical_report_digest") == empirical_digest
+    if not isinstance(pilot, dict) or pilot.get("calibration_gate") != "ready_for_review":
+        return False
+    return (
+        approval.get("pilot_calibration_digest") == pilot.get("artifact_digest")
+        and pilot.get("population_report_digest") == report_digest
+    )
 
 
 def _resume_stream_prefix(
@@ -2131,6 +2195,13 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     split_path = Path(args.split).resolve()
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    population_manifest = Path(getattr(args, "population_manifest", None) or (repo_root / "benchmark" / "manifests" / "v1.0-50-slots.json")).resolve()
+    campaign_config_path = getattr(args, "campaign_config", None)
+    claims_path = Path(getattr(args, "claims", None) or (repo_root / "CLAIMS.yaml")).resolve()
+    analysis_plan_path = Path(getattr(args, "analysis_plan", None) or (repo_root / "references" / "STATISTICAL_PROTOCOL.md")).resolve()
+    if getattr(args, "formal", False):
+        _validate_formal_entry(repo_root, population_manifest, campaign_config_path, claims_path, analysis_plan_path)
+    population_id = "SPE-EvoBench-v1.0-50" if getattr(args, "formal", False) else "SPE-EvoBench-v1.0-30-pilot"
     resume = bool(getattr(args, "resume", False))
     existing_campaign: dict[str, Any] | None = None
     if resume:
@@ -2167,6 +2238,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         conditions=conditions_list,
         context_modes=context_modes,
         outer_trials=args.outer_trials,
+        schedule_seed=int(getattr(args, "schedule_seed", 0)),
     )
     budgets = budget.parse_budget(json.loads(args.budgets) if args.budgets else None)
     statistical_budget = StatisticalBudget()
@@ -2176,7 +2248,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     fingerprint = capture_fingerprint()
     campaign = {
         "schema_version": 1,
-        "population_id": "SPE-EvoBench-v1.0-30-pilot",
+        "population_id": population_id,
         "status": "planned" if not args.agent_command else "running",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "benchmark_revision": attest.benchmark_revision(repo_root),
@@ -2192,6 +2264,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         "executor_digest": getattr(args, "executor_digest", None),
         "schedule_size": len(plan),
         "results_claimed": False,
+        "population_manifest": str(population_manifest),
+        "claims_path": str(claims_path),
+        "analysis_plan_path": str(analysis_plan_path),
+        "evolution_compute_budget": budget.EvolutionComputeBudget().as_dict(),
     }
     if existing_campaign is not None:
         immutable_keys = (
@@ -2318,7 +2394,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             budgets=budgets,
             fingerprint=fingerprint,
             trial_dir=trial_dir,
+            population_id=population_id,
         )
+        manifest["schedule_digest"] = hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        manifest["analysis_plan_digest"] = hashlib.sha256(analysis_plan_path.read_bytes()).hexdigest() if analysis_plan_path.is_file() else None
+        manifest["population_manifest_digest"] = hashlib.sha256(population_manifest.read_bytes()).hexdigest() if population_manifest.is_file() else None
         attest.write_experiment(trial_dir / "experiment.json", manifest)
         if stream_id in blocked_streams:
             record = {
@@ -2891,6 +2971,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "execution_validity": "invalid" if budget_errors else "valid",
             "task_outcome": str(scored.get("verdict", result.get("verdict", "error"))),
             "calibration_status": result.get("calibration_status", "not_evaluated"),
+            "transfer_estimand": "online_stream",
+            "frozen_transfer_snapshot": None,
             # A protocol-valid candidate failure is still an observed,
             # score-zero efficacy cell.  Only infrastructure/protocol errors
             # are excluded from the efficacy matrix.
@@ -2916,8 +2998,76 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         for item in plan
     ]
     campaign["aggregate"] = aggregate.aggregate_trials(records, required_cells=required_cells)
+    try:
+        claims_value = miniyaml.load(str(claims_path)) if claims_path.suffix in {".yaml", ".yml"} else json.loads(claims_path.read_text(encoding="utf-8"))
+    except Exception:
+        claims_value = {}
+    population_digest = hashlib.sha256(population_manifest.read_bytes()).hexdigest() if population_manifest.is_file() else "unknown"
+    receipt = aggregate.unblinding_receipt(
+        population_digest=population_digest,
+        schedule=plan,
+        claims=claims_value,
+        records=records,
+        claim_gate="pass" if campaign.get("results_claimed") else "withheld",
+    )
+    (out_dir / "unblinding_receipt.json").write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    campaign["unblinding_receipt"] = str(out_dir / "unblinding_receipt.json")
     (out_dir / "campaign.json").write_text(json.dumps(campaign, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
     return campaign
+
+
+def _validate_formal_entry(
+    repo_root: Path,
+    population_manifest: Path,
+    campaign_config: Path | None,
+    claims_path: Path,
+    analysis_plan_path: Path,
+) -> None:
+    """Validate immutable formal inputs before scheduling any sealed cell."""
+    missing = [str(path) for path in (population_manifest, claims_path, analysis_plan_path) if not path.is_file()]
+    if missing:
+        raise ValueError("formal entry artifacts missing: " + ", ".join(missing))
+    if campaign_config is not None and not Path(campaign_config).is_file():
+        raise ValueError(f"formal campaign config missing: {campaign_config}")
+    try:
+        manifest = json.loads(population_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid population manifest: {exc}") from exc
+    if manifest.get("sealed_total") != 35 or manifest.get("primary_population") != "sealed-35":
+        raise ValueError("formal population must preregister sealed-35 as the primary population")
+    if manifest.get("status") != "preregistered_content_withheld":
+        raise ValueError("formal population contents are not in frozen preregistration state")
+    approval_path = repo_root / "benchmark" / "calibration" / "calibration_approval.json"
+    try:
+        approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("calibration approval is missing or invalid") from exc
+    if approval.get("approved") is not True:
+        raise ValueError("calibration approval is not PASS")
+    pilot_path = repo_root / "benchmark" / "calibration" / "pilot_calibration.json"
+    if not pilot_path.is_file() or approval.get("pilot_calibration_digest") in {None, "pending-review"}:
+        raise ValueError("calibration approval is not bound to pilot_calibration.json")
+    try:
+        pilot = json.loads(pilot_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("pilot calibration artifact is invalid") from exc
+    if pilot.get("artifact_digest") != approval.get("pilot_calibration_digest"):
+        raise ValueError("calibration approval pilot digest mismatch")
+    approval_body = {key: value for key, value in approval.items() if key != "approval_digest"}
+    expected_approval_digest = hashlib.sha256(
+        json.dumps(approval_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    if approval.get("approval_digest") != expected_approval_digest:
+        raise ValueError("calibration approval digest mismatch")
+    try:
+        clean = not subprocess.run(
+            ["git", "status", "--porcelain"], cwd=repo_root, check=False,
+            capture_output=True, text=True,
+        ).stdout.strip()
+    except OSError:
+        clean = False
+    if not clean:
+        raise ValueError("formal entry requires a clean git tree")
 
 
 def main() -> int:
@@ -2929,6 +3079,12 @@ def main() -> int:
     parser.add_argument("--skill-source", type=Path, default=root)
     parser.add_argument("--skill-view", type=Path, default=None)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--population-manifest", type=Path, default=None)
+    parser.add_argument("--campaign-config", type=Path, default=None)
+    parser.add_argument("--claims", type=Path, default=None)
+    parser.add_argument("--analysis-plan", type=Path, default=None)
+    parser.add_argument("--formal", action="store_true", help="enter sealed formal mode; enforce approval and frozen inputs")
+    parser.add_argument("--schedule-seed", type=int, default=0)
     parser.add_argument("--conditions", default="A,B,C,D")
     parser.add_argument("--context-modes", default="reset")
     parser.add_argument("--outer-trials", type=int, default=3)

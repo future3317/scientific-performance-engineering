@@ -25,6 +25,9 @@
   "family_id": "h2d_pipeline",
   "anchor_instance_id": "CORE-H2D-OVERFANOUT-23",
   "candidate_status": "canonical_pilot_calibration_pending",
+  "retired_for_formal": true,
+  "replacement_task_id": "CORE-H2D-PIPELINE-03",
+  "retirement_reason": "same-family calibration anchor is blocked by high observed same-host noise; retain only as a pilot counterexample",
   "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
   "action_id": "pin_memory_pipeline"
 }

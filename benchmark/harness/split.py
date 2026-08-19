@@ -95,6 +95,7 @@ def check_leakage(split_manifest: str | Path | dict[str, Any], tasks_root: str |
             return [str(exc)]
     manifest = split_manifest
     tasks_root = Path(tasks_root)
+    public_root = tasks_root.parent
 
     phases = manifest["phases"]
     seen_indices: set[int] = set()
@@ -134,6 +135,57 @@ def check_leakage(split_manifest: str | Path | dict[str, Any], tasks_root: str |
                 errors.append(f"phase {index}: task {task_id} task.yaml invalid: {exc}")
                 continue
             keys.update(split_key(spec))
+            metadata_path = task_dir / "metadata.json"
+            metadata: dict[str, Any] = {}
+            if metadata_path.is_file():
+                try:
+                    metadata = __import__("json").loads(metadata_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    metadata = {}
+            visibility = str(metadata.get("visibility", "public_dev" if not metadata.get("hidden", False) else "sealed"))
+            if visibility == "sealed":
+                # Sealed identities may be present in the private task root,
+                # but never in worker-visible/public indexes or snapshots.
+                public_candidates = (
+                    public_root / "public_index.json",
+                    public_root / "task_listing.json",
+                    public_root / "tasks" / "index.json",
+                    public_root / "skill_view" / "skill_view_manifest.json",
+                )
+                for candidate in public_candidates:
+                    if not candidate.is_file():
+                        continue
+                    try:
+                        text = candidate.read_text(encoding="utf-8")
+                    except OSError:
+                        continue
+                    if str(task_id) in text:
+                        errors.append(f"sealed task {task_id} appears in public listing {candidate}")
+                # Repository-level stores and registries are also public to
+                # any process that can enumerate the checkout.  A sealed
+                # identity must not be copied into them before unblinding.
+                for root in (public_root.parent / "registry", public_root.parent / "rules", public_root.parent / "experience"):
+                    if not root.is_dir():
+                        continue
+                    for candidate in root.rglob("*"):
+                        if not candidate.is_file():
+                            continue
+                        try:
+                            text = candidate.read_text(encoding="utf-8", errors="ignore")
+                        except OSError:
+                            continue
+                        if str(task_id) in text:
+                            errors.append(f"sealed task {task_id} appears in public store artifact {candidate}")
+                # `benchmark/calibration/` is a harness-private evidence area;
+                # only explicit public indexes/snapshots above are worker
+                # visible.  Generator debug files are checked separately.
+                for debug_dir in (public_root / "taskgen",):
+                    if debug_dir.is_dir():
+                        for candidate in debug_dir.rglob("*"):
+                            if (candidate.is_file() and "__pycache__" not in candidate.parts
+                                    and candidate.name not in {"generate.py", "validate_population.py"}
+                                    and str(task_id) in candidate.read_text(encoding="utf-8", errors="ignore")):
+                                errors.append(f"sealed task {task_id} appears in generator/debug artifact {candidate}")
         phase_keys[index] = keys
 
     missing = [i for i in range(1, len(PHASE_NAMES) + 1) if i not in seen_indices]

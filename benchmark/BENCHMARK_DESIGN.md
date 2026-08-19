@@ -11,6 +11,11 @@ result or algorithmic-success claim is made by this repository. The formal targe
 11 SciML, and 3 Evolution tasks; the remaining 8 Core, 9 SciML, and 3
 Evolution slots are gated on empirical calibration.
 
+The current statistical authority is `references/STATISTICAL_PROTOCOL.md`.
+This design document specifies the harness and task contract but does not
+override that file's independence-group, missingness, transfer, or
+confirmatory-aggregation definitions.
+
 ## Contents
 
 - [1. Purpose and scope](#1-purpose-and-scope)
@@ -89,7 +94,7 @@ P10. **Raw dimensions preserved.** Composite scores are reported *alongside* eve
 `FamilySpec` defines parameter axes, legal interventions, and family
 transformations; `FamilyInstance` is a deterministic point in that space. The
 spec also owns the applicability predicate and scientific-truth projection used
-by every view. `reconstruct_anchor_instance` rebuilds each of the 20 anchors
+by every view. `reconstruct_anchor_instance` rebuilds each of the 30 pilot anchors
 from its declared family rather than copying a second workload definition. A
 cross-view validator checks the anchor, boundary, interaction, and evolution
 lineage before pilot experiments are run.
@@ -445,10 +450,14 @@ margin.
 
 ## 9. Experimental conditions A–D
 
-Four paired conditions over the *same* model, agent framework, tool budget, task
-order, seeds, and hardware; only the skill/evolution condition changes:
+Four primary paired conditions over the *same* model, agent framework, tool
+budget, task order, seeds, and hardware; only the skill/evolution condition
+changes. `A_CTX` is an auxiliary length-matched placebo control, not a fifth
+evolution treatment:
 
 - **A. no-skill**: agent runs without the skill.
+- **A_CTX. placebo context**: no skill and no task/family/mechanism information;
+  a fixed-length placeholder controls context length when comparing against A.
 - **B. frozen-skill**: the initial skill snapshot, mounted read-only; experience and
   evolution machinery disabled.
 - **C. raw-experience retrieval**: skill + raw `experience/inbox/` capture and
@@ -469,9 +478,10 @@ run can prove which skill bits were visible.
 
 Equal-budget controls: identical max tool calls/tokens/wall time per task; C and D get
 identical retrieval/token budgets for evolution activities; skill-text context length
-is matched between B/C/D via a filler arm when comparing against A. The primary
-benchmark uses `context_mode=reset`; `carry` is an explicit sequential adaptation
-control, never silently mixed into reset results.
+is matched between B/C/D via `A_CTX`, a fixed-length placebo context with no task,
+family, mechanism, or condition information. A remains the true no-skill arm.
+The primary benchmark uses `context_mode=reset`; `carry` is an explicit sequential
+adaptation control, never silently mixed into reset results.
 
 ## 10. Sequential split and leakage control
 
@@ -529,7 +539,7 @@ benchmark/
 ```
 
 The formal outer driver lives in `benchmark/formal/`. Its default plan is
-`A/B/C/D × reset × 3` independent outer trials over all 20 pilot tasks. A
+`A/B/C/D × reset × 3` independent outer trials over all 30 pilot tasks. A
 dry-run writes only `campaign.json` and `schedule.json` with
 `results_claimed=false`; an agent command is required before trial result
 files are produced. Each trial manifest records the benchmark revision,
@@ -565,7 +575,7 @@ the supported subset, enforced by `validate-task`.
 
 ## 12. Pilot task set
 
-The pilot contains 20 packages (18 atomic tasks plus 2 evolution episodes),
+The pilot contains 30 packages (27 atomic tasks plus 3 evolution episodes),
 runnable with zero external downloads; CPU-capable unless noted:
 
 | # | task_id | track | family | mechanism | kind |

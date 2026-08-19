@@ -489,12 +489,13 @@ def build_schedule(
     conditions: tuple[str, ...] = ("A", "B", "C", "D"),
     context_modes: tuple[str, ...] = ("reset",),
     outer_trials: int = 3,
+    schedule_seed: int = 0,
 ) -> list[dict[str, Any]]:
     if outer_trials < 1:
         raise ValueError("outer_trials must be positive")
     if not conditions:
         raise ValueError("at least one condition is required")
-    if any(condition not in {"A", "B", "C", "C_STRESS", "D"} for condition in conditions):
+    if any(condition not in {"A", "A_CTX", "B", "C", "C_STRESS", "D"} for condition in conditions):
         raise ValueError("unknown formal condition")
     if any(mode not in {"reset", "carry"} for mode in context_modes):
         raise ValueError("unknown context mode")
@@ -509,7 +510,7 @@ def build_schedule(
         # seeded shuffle; it is intentionally not called a Latin square.
         rotation = outer_trial % len(conditions)
         rotated = conditions[rotation:] + conditions[:rotation]
-        rng = random.Random(outer_trial)
+        rng = random.Random(int(schedule_seed) + outer_trial)
         order = list(rotated)
         rng.shuffle(order)
         ordered_conditions = tuple(order)
@@ -525,7 +526,7 @@ def build_schedule(
                             "outer_trial_index": outer_trial,
                             "condition": condition,
                             "condition_block_order": list(ordered_conditions),
-                            "randomization_seed": outer_trial,
+                            "randomization_seed": int(schedule_seed) + outer_trial,
                             "context_mode": context_mode,
                             "phase": phase,
                             "task_id": task_id,

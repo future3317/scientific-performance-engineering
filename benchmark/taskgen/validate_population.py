@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import subprocess
@@ -36,6 +37,10 @@ EMPIRICAL_FLAGS = (
     "platform_direction_flip",
     "agent_shortcut_detected",
 )
+
+
+def _json_digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def _artifact_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
@@ -350,6 +355,7 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         specs, Path(empirical_path) if empirical_path is not None else None, duplicate_findings
     )
     task_calibration: dict[str, Any] = {}
+    retired_tasks: list[dict[str, str]] = []
     for spec in specs:
         metadata_path = Path(spec["_task_dir"]) / "metadata.json"
         try:
@@ -359,6 +365,12 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         calibration = metadata.get("calibration")
         if isinstance(calibration, dict):
             task_calibration[str(spec.get("task_id"))] = calibration
+        if metadata.get("retired_for_formal"):
+            retired_tasks.append({
+                "task_id": str(spec.get("task_id")),
+                "replacement_task_id": str(metadata.get("replacement_task_id", "")),
+                "reason": str(metadata.get("retirement_reason", "")),
+            })
 
     report = {
         "schema_version": 1,
@@ -391,6 +403,7 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         "lineage_leakage_checked": True,
         "empirical_calibration": empirical_calibration,
         "task_calibration": task_calibration,
+        "retired_for_formal": sorted(retired_tasks, key=lambda item: item["task_id"]),
         "public_context": {
             str(spec.get("task_id")): spec.get("public_context")
             for spec in specs
@@ -401,12 +414,102 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
     return report, errors
 
 
+def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> dict[str, Any]:
+    """Materialize one auditable calibration view for every pilot task.
+
+    This is deliberately a projection of task-local evidence; it never turns
+    pending or blocked measurements into eligibility.  The artifact is the
+    single input to human approval before any sealed population is generated.
+    """
+    root = Path(tasks_root)
+    tasks: list[dict[str, Any]] = []
+    task_ids = sorted(
+        path.name for path in root.iterdir()
+        if path.is_dir() and (path / "task.yaml").is_file()
+    )
+    for task_id in task_ids:
+        task_dir = root / task_id
+        task_path = task_dir / "task.yaml"
+        try:
+            spec = miniyaml.load(str(task_path))
+        except Exception:
+            spec = {}
+        metadata: dict[str, Any] = {}
+        try:
+            metadata = json.loads((task_dir / "metadata.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        local = report.get("task_calibration", {}).get(task_id, {})
+        status = str(local.get("status", "pending")) if isinstance(local, dict) else "pending"
+        if metadata.get("retired_for_formal"):
+            status = "blocked"
+        if task_id in set(report.get("empirical_calibration", {}).get("missing_task_ids", [])):
+            status = "pending"
+        flags = sorted({flag for flag, ids in report.get("empirical_rejection_flags", {}).items() if task_id in ids})
+        if metadata.get("retired_for_formal"):
+            flags.append("retired_for_formal")
+        if flags or task_id in set(report.get("semantic_gate_failures", [])):
+            status = "blocked"
+        tasks.append({
+            "task_id": task_id,
+            "task_digest": hashlib.sha256(task_path.read_bytes()).hexdigest() if task_path.is_file() else None,
+            "revision": metadata.get("benchmark_revision", "unknown"),
+            "environment": local.get("environment", {}) if isinstance(local, dict) else {},
+            "outer_trials": local.get("outer_trials", []) if isinstance(local, dict) else [],
+            "noise_control": local.get("noise_control", {}) if isinstance(local, dict) else {},
+            "oracle_ci": local.get("oracle_ci", {}) if isinstance(local, dict) else {},
+            "semantic_gates": {"declared": list(spec.get("scientific_gates", [])), "failures": [task_id] if task_id in set(report.get("semantic_gate_failures", [])) else []},
+            "anti_cheat": local.get("anti_cheat", {}) if isinstance(local, dict) else {},
+            "eligibility": status == "eligible",
+            "status": status,
+            "block_reason": flags or ([] if status == "eligible" else ["calibration_pending"]),
+        })
+    artifact = {
+        "schema_version": 1,
+        "population_id": report.get("population_id"),
+        "population_report_digest": _json_digest(report),
+        "calibration_gate": report.get("empirical_calibration", {}).get("calibration_gate", "blocked"),
+        "tasks": tasks,
+        "formal_50_generation": "withheld",
+    }
+    artifact["artifact_digest"] = _json_digest(artifact)
+    return artifact
+
+
+def validate_formal_readiness(report: dict[str, Any], calibration: dict[str, Any] | None, approval: dict[str, Any] | None) -> list[str]:
+    """Fail closed for formal generation/campaign entry points."""
+    errors: list[str] = []
+    if report.get("empirical_calibration", {}).get("calibration_gate") != "ready_for_review":
+        errors.append("empirical calibration gate is not ready_for_review")
+    if report.get("semantic_gate_failures"):
+        errors.append("semantic_gate_failures are present")
+    if any(report.get("empirical_rejection_flags", {}).values()):
+        errors.append("empirical hard flags are present")
+    if calibration is None or calibration.get("calibration_gate") != "ready_for_review":
+        errors.append("pilot_calibration artifact is missing or blocked")
+    if approval is None or approval.get("approved") is not True:
+        errors.append("calibration_approval is not approved")
+    if approval is not None and approval.get("approved") is True:
+        if approval.get("population_report_digest") != _json_digest(report):
+            errors.append("calibration approval population digest mismatch")
+        if calibration is not None and approval.get("pilot_calibration_digest") != calibration.get("artifact_digest"):
+            errors.append("calibration approval pilot digest mismatch")
+    if any(item.get("status") == "blocked" for item in (calibration or {}).get("tasks", [])):
+        errors.append("blocked pilot tasks remain")
+    if report.get("retired_for_formal"):
+        errors.append("retired pilot tasks require replacement before formal generation")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tasks-root", type=Path, default=Path(__file__).resolve().parents[1] / "tasks")
     parser.add_argument("--split", type=Path, default=Path(__file__).resolve().parents[1] / "split" / "sequential.yaml")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--empirical", type=Path, default=None, help="measured pilot JSON; omitted means calibration pending")
+    parser.add_argument("--strict-formal", action="store_true", help="fail closed unless pilot calibration and approval are ready")
+    parser.add_argument("--pilot-calibration", type=Path, default=None, help="write unified pilot_calibration.json")
+    parser.add_argument("--approval", type=Path, default=None, help="calibration_approval.json to validate in --strict-formal mode")
     args = parser.parse_args()
     report, errors = build_report(args.tasks_root, args.empirical)
     split_errors = check_leakage(args.split, args.tasks_root)
@@ -414,6 +517,20 @@ def main() -> int:
     report["split_leakage_findings"] = split_errors
     if args.out:
         args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    calibration_path = args.pilot_calibration
+    if calibration_path is None and args.out:
+        calibration_path = args.out.with_name("pilot_calibration.json")
+    calibration = build_pilot_calibration(report, args.tasks_root)
+    if calibration_path:
+        calibration_path.parent.mkdir(parents=True, exist_ok=True)
+        calibration_path.write_text(json.dumps(calibration, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if args.strict_formal:
+        approval_path = args.approval or ((args.out or args.tasks_root.parent / "population_report.json").with_name("calibration_approval.json"))
+        try:
+            approval = json.loads(approval_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            approval = None
+        errors.extend(validate_formal_readiness(report, calibration, approval))
     print(json.dumps({"population": report["population_id"], "num_tasks": report["num_tasks"], "errors": errors}, ensure_ascii=False))
     return 1 if errors else 0
 

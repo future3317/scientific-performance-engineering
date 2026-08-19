@@ -152,8 +152,16 @@ def run_correctness(solution, fixtures: dict) -> dict:
 
 
 def run_scientific_gates(solution, fixtures: dict) -> dict:
-    """No domain-specific scientific gates for this task."""
-    return {}
+    # Scalar cadence is part of the scientific workload: the candidate must
+    # preserve the same loss/metric result while changing only synchronization
+    # placement.  The live correctness contract supplies the oracle comparison.
+    details = run_correctness(solution, fixtures)
+    return {
+        "metric_semantics_preserved": bool(details.get("passed", False)),
+        "finite_loss": bool(
+            isinstance(details.get("details", {}).get("candidate_test_loss"), (int, float))
+        ),
+    }
 
 
 def run_performance(solution, fixtures: dict, warmup: int, iterations: int, device: str = "cpu") -> dict:

@@ -135,6 +135,7 @@
     },
     "scientific_gates": {
       "type": "array",
+      "minItems": 1,
       "items": {"type": "string", "minLength": 1},
       "description": "Gate names implemented in the task's scientific_contract.py."
     },

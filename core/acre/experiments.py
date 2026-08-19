@@ -138,10 +138,14 @@ def execute_paired_plan(
         raise ValueError("only paired experiment plans are supported")
     cases: list[Mapping[str, Any]] = []
     evidence_events: list[EvidenceEvent] = []
+    seen_groups: set[str] = set()
     for context in plan.contexts[: plan.max_groups]:
         on = dict(executor.execute(context, arm="on"))
         off = dict(executor.execute(context, arm="off"))
         group_id = str(context.get("independence_group", context.get("context_id", len(cases))))
+        if group_id in seen_groups:
+            raise ValueError(f"independence_group reused within experiment plan: {group_id}")
+        seen_groups.add(group_id)
         case = {
             "case_id": f"{plan.subject_id}:{group_id}",
             "context_id": str(context.get("context_id", group_id)),

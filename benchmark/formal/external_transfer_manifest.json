@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "status": "planned",
+  "source": "external_workloads_not_used_in_family_design",
+  "calibration_participation": false,
+  "headline": false,
+  "required_fields": ["provenance", "split", "lineage", "executor_receipt", "oracle_contract"]
+}

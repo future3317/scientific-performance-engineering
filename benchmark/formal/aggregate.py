@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import math
 import random
+import hashlib
+import json
 from dataclasses import dataclass
 from collections import defaultdict
 from typing import Any
@@ -296,6 +298,67 @@ def aggregate_trials(
             record for record in records
             if record.get("kind") in {"counterexample", "do_not_apply"}
         ],
+    }
+
+
+def aggregate_confirmatory(
+    records: list[dict[str, Any]],
+    *,
+    required_cells: list[tuple[str, str, str, str]],
+    claims: dict[str, Any],
+) -> dict[str, Any]:
+    """Aggregate only a registered sealed primary claim.
+
+    Public/dev rows and incomplete or infrastructure-invalid matrices are
+    retained for diagnostics but cannot produce a confirmatory effect.
+    """
+    primary = claims.get("primary") if isinstance(claims, dict) else None
+    if not isinstance(primary, dict) or str(primary.get("id")) != "D-B":
+        return {"status": "withheld", "reason": "CLAIMS.yaml does not register D-B primary"}
+    sealed = [record for record in records if str(record.get("visibility", "sealed")) == "sealed"]
+    expected = set(required_cells)
+    observed = {
+        (str(item.get("task_id", "")), str(item.get("outer_trial_id", "")), str(item.get("context_mode", "reset")), str(item.get("condition", "")))
+        for item in sealed
+    }
+    if observed != expected or any(not bool(item.get("efficacy_eligible", False)) for item in sealed):
+        return {"status": "withheld", "reason": "sealed matrix incomplete or contains ineligible cells", "expected_cells": len(expected), "observed_cells": len(observed)}
+    result = aggregate_trials(sealed, required_cells=required_cells)
+    result["status"] = "available"
+    result["claim_id"] = "D-B"
+    result["visibility"] = "sealed"
+    result["estimand"] = primary.get("estimand")
+    result["weighting"] = primary.get("weighting")
+    return result
+
+
+def split_transfer_estimands(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Keep online adaptation and frozen-snapshot transfer as distinct views."""
+    online: list[dict[str, Any]] = []
+    frozen: list[dict[str, Any]] = []
+    for record in records:
+        mode = str(record.get("transfer_estimand", record.get("evaluation_mode", "online_stream")))
+        if mode == "frozen_transfer_probe":
+            frozen.append(record)
+        else:
+            online.append(record)
+    return {"online_stream": online, "frozen_transfer_probe": frozen}
+
+
+def unblinding_receipt(*, population_digest: str, schedule: list[dict[str, Any]], claims: dict[str, Any], records: list[dict[str, Any]], claim_gate: str) -> dict[str, Any]:
+    """Create the single post-completion receipt; no condition summary is used."""
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    schedule_digest = hashlib.sha256(canonical(schedule)).hexdigest()
+    analysis_digest = hashlib.sha256(canonical(claims)).hexdigest()
+    raw_results_digest = hashlib.sha256(canonical(records)).hexdigest()
+    return {
+        "population_digest": population_digest,
+        "schedule_digest": schedule_digest,
+        "analysis_digest": analysis_digest,
+        "raw_results_digest": raw_results_digest,
+        "expected_cells": len(schedule),
+        "claim_gate": claim_gate if claim_gate in {"pass", "withheld"} else "withheld",
+        "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
     }
 
 

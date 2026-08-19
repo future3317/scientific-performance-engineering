@@ -1,0 +1,9 @@
+schema_version: 1
+mode: formal
+population_manifest: benchmark/manifests/v1.0-50-slots.json
+conditions: [A, B, C, D]
+context_mode: reset
+outer_trials: 3
+schedule_seed: 0
+primary_population: sealed-35
+formal_50: withheld_until_calibration_approval

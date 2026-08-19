@@ -1,0 +1,39 @@
+schema_version: 1
+status: preregistered
+population: SPE-EvoBench-v1.0-50
+primary:
+  id: D-B
+  conditions: [D, B]
+  visibility: sealed
+  tracks: [spe_core, sciml, evolution]
+  unit: task_lineage
+  metric: task_score
+  estimand: mean(D - B) over sealed task/lineage pairs
+  weighting: equal_task_then_equal_lineage
+  confidence_interval: lineage_task_hierarchical_bootstrap
+  alpha: 0.05
+  missing_policy: infrastructure_invalid_rerun_only; protocol_valid_failure_score_zero
+  direction: higher_is_better
+secondary:
+  - id: D-C
+    status: confirmatory-secondary
+    metric: task_score
+    unit: task_lineage
+  - id: B-A
+    status: confirmatory-secondary
+    metric: task_score
+    unit: task_lineage
+  - id: negative_transfer
+    status: exploratory
+  - id: regression
+    status: exploratory
+  - id: total_cost
+    status: exploratory
+  - id: frozen_transfer
+    status: exploratory
+public_dev_policy: debugging_calibration_secondary_only
+formal_efficacy_headline: sealed_35_only
+headline_scope: governed_self_evolving_skill_memory_for_scientific_performance_engineering
+headline_comparison: governed_abstraction_vs_frozen_skill_and_raw_experience
+headline_guardrails: [transfer_gain, negative_transfer, regression, total_evolution_cost]
+unblinding: aggregate only after all expected cells and raw-result digest are frozen

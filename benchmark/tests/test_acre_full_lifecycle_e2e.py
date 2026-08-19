@@ -27,7 +27,7 @@ def _validation(store: Path, prefix: str) -> tuple[str, str]:
     value = {
         "scope": "calibration",
         "promotion_case_ids": [f"{prefix}-promotion"],
-        "synthesis_case_ids": [f"{prefix}-promotion"],
+        "synthesis_case_ids": [f"{prefix}-synthesis"],
         "heldout_regression_cases": [{
             "case_id": f"{prefix}-heldout", "executed": True,
             "execution_source": "verifier", "scientific_ok": True,
@@ -176,7 +176,7 @@ def test_external_node_router_to_restart_lifecycle(tmp_path: Path):
     poison_accepted = float(poison_on["measurements"][0]) > float(poison_off["measurements"][0])
     validation = {
         "scope": "calibration", "promotion_case_ids": [case["case_id"] for case in cases],
-        "synthesis_case_ids": [case["case_id"] for case in cases],
+        "synthesis_case_ids": ["RULE-E2E-synthesis"],
         "heldout_regression_cases": [{"case_id": "RULE-E2E-heldout", "executed": True, "execution_source": "external_executor",
                                        "scientific_ok": bool(heldout_on["scientific_ok"] and heldout_off["scientific_ok"]),
                                        "effect_lcb": heldout_effect, "effect_ucb": heldout_effect}],

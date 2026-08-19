@@ -45,8 +45,8 @@ remain public anchors; they are not duplicated into a second workload source.
 
 | # | Task ID | Track | Family | Mechanism(s) | Kind | Source | Verified oracle speedup | Status |
 |---|---------|-------|--------|--------------|------|--------|------------------------|--------|
-| 1 | CORE-SCALAR-SYNC-01 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **1.51×** | ✅ |
-| 2 | CORE-REPEATED-BACKBONE-02 | spe_core | repeated_compute | repeated_compute | positive | synthetic | **2.38×** | ✅ |
+| 1 | CORE-SCALAR-SYNC-01 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **1.51×** | pilot (scientific gates added; calibration pending) |
+| 2 | CORE-REPEATED-BACKBONE-02 | spe_core | repeated_compute | repeated_compute | positive | synthetic | **2.38×** | pilot (scientific gates added; calibration pending) |
 | 3 | CORE-H2D-PIPELINE-03 | spe_core | data_pipeline | h2d_blocking | positive | synthetic | **4.77×** (CUDA) | ✅ |
 | 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | counterexample | synthetic | no positive CI through 1024 steps | pilot |
 | 5 | SCIML-GNN-RAGGED-05 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive | fairchem-shaped | **6.23×** | ✅ |
@@ -72,7 +72,7 @@ measured speedup, and counterexample/do_not_apply tempting patches are rejected.
 | 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_dynamic_shapes + runtime_drift | positive | synthetic | population-validity pending | pilot |
 | 21 | CORE-SCALAR-SYNC-LOW-CADENCE-21 | spe_core | training_loop_overhead | scalar_sync | counterexample | synthetic | calibration pending; low-cadence boundary | pilot |
 | 22 | CORE-REPEATED-BACKBONE-LOW-REUSE-22 | spe_core | repeated_compute | repeated_compute | counterexample | synthetic | calibration pending; correctness boundary | pilot |
-| 23 | CORE-H2D-OVERFANOUT-23 | spe_core | data_pipeline | h2d_blocking | counterexample | synthetic | CUDA execution completed; calibration blocked by 9.55--32.42% observed noise | pilot (blocked) |
+| 23 | CORE-H2D-OVERFANOUT-23 | spe_core | data_pipeline | h2d_blocking | counterexample | synthetic | CUDA execution completed; calibration blocked by 9.55--32.42% observed noise | retired for formal; replacement CORE-H2D-PIPELINE-03 |
 | 24 | CORE-CHECKPOINT-HIGH-PRESSURE-24 | spe_core | memory | activation_memory | positive | synthetic | authoring CPU smoke only; calibration pending | pilot |
 | 25 | CORE-AUTOGRAD-VJP-SMALL-25 | spe_core | autograd | batched_vjp | counterexample | synthetic | calibration pending; small-VJP boundary | pilot |
 | 26 | SCIML-EQUIV-LOWORDER-26 | sciml | equivariant_head | repeated_compute | positive | fairchem-shaped | authoring CPU smoke only; calibration pending | pilot |
@@ -107,10 +107,9 @@ appears in both phase 1 and any later phase. `check-leakage` enforces this.
 | **Total** | **50** | **30** | **20** |
 
 The remaining **8 Core, 9 SciML, and 3 Evolution** slots are intentionally
-not generated in this pilot. They may be generated only after the population
-validator is green and the 30-task difficulty/noise calibration gate is
-reviewed. The slot quotas and public/sealed allocation are frozen separately
-in `manifests/v1.0-50-slots.json`; that file contains no sealed task content.
+not generated in this pilot. The slot quotas, 15 public-dev/35 sealed split,
+and per-slot preregistration are frozen separately in
+`manifests/v1.0-50-slots.json`; that file contains no sealed task content.
 
 The formal pilot defaults to `context_mode=reset` and compares A/B/C/D with
 three independent outer trials. `C` is raw-experience retrieval with the same

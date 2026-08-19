@@ -7,6 +7,7 @@ appropriate read-only/writable bits and an injection policy, then hash-attests
 the result so a run can prove which skill bits were visible:
 
 - A (no-skill):        empty directory.
+- A_CTX:               fixed-length placebo context, still no skill.
 - B (frozen-skill):    read-only copy; experience/evolution machinery disabled.
 - C (raw retrieval):   copy with ``experience/inbox/`` writable; raw records
                        are retrieved under a matched token budget, without
@@ -32,7 +33,7 @@ from typing import Any
 
 from . import anticheat
 
-CONDITIONS = ("A", "B", "C", "C_STRESS", "D")
+CONDITIONS = ("A", "A_CTX", "B", "C", "C_STRESS", "D")
 _RAW_EXPERIENCE_FORBIDDEN_KEYS = {
     "rulespec", "rule_spec", "promotion", "replay_manifest", "specialization", "retirement"
 }
@@ -56,6 +57,7 @@ PIPELINE_DIRS = (
 
 INJECTION_POLICIES = {
     "A": {"mode": "none", "description": "no skill visible"},
+    "A_CTX": {"mode": "placebo_context", "context_tokens": 4096, "description": "length-matched placebo context with no task information"},
     "B": {"mode": "frozen", "description": "initial snapshot only; no experience or rules injected"},
     "C": {"mode": "raw_experience_retrieval", "retrieval_budget_tokens": 4096, "description": "raw records retrieved under a matched token budget; no rule abstraction"},
     "C_STRESS": {"mode": "inbox_any", "retrieval_budget_tokens": 4096, "description": "append-only stress ablation; any inbox record is eligible"},
@@ -159,6 +161,13 @@ def materialize_condition(
 
     policy = dict(INJECTION_POLICIES[condition])
     if condition == "A":
+        return _attest(out_dir, condition, policy, None, context_mode)
+
+    if condition == "A_CTX":
+        # A_CTX intentionally has no skill.  The harness may mount this
+        # fixed-size placebo file to control prompt length without exposing
+        # task, family, mechanism, or condition information.
+        (out_dir / "placebo_context.txt").write_text("[PLACEBO_CONTEXT]\n" + ("x" * 4096) + "\n", encoding="utf-8")
         return _attest(out_dir, condition, policy, None, context_mode)
 
     if snapshot_dir is None:

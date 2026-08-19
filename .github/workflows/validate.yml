@@ -10,6 +10,11 @@ on:
         required: false
         default: false
         type: boolean
+      formal_readiness:
+        description: "Run the fail-closed formal calibration gate"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   contract:
@@ -97,6 +102,24 @@ jobs:
           name: executor-contract
           path: artifacts/executor-contract
           if-no-files-found: error
+
+  formal-readiness:
+    name: formal-readiness
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.formal_readiness == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run strict calibration/formal gate
+        run: |
+          python -m benchmark.taskgen.validate_population \
+            --tasks-root benchmark/tasks \
+            --out benchmark/population_report.json \
+            --pilot-calibration benchmark/calibration/pilot_calibration.json \
+            --approval benchmark/calibration/calibration_approval.json \
+            --strict-formal
 
   gpu-contract:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.gpu_validation == true }}

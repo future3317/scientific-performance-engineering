@@ -58,6 +58,37 @@ class Budget:
         return errors
 
 
+@dataclass(frozen=True)
+class EvolutionComputeBudget:
+    """Separate accounting envelope for D-side replay/maintenance compute."""
+
+    replay_executions: int = 0
+    cpu_seconds: float = 0.0
+    gpu_seconds: float = 0.0
+    tokens: int = 0
+    wall_time_s: float = 0.0
+    usd: float = 0.0
+
+    def add(self, **delta: float | int) -> "EvolutionComputeBudget":
+        values = asdict(self)
+        for key, value in delta.items():
+            if key in values:
+                values[key] += value
+        return EvolutionComputeBudget(**values)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def classify_failure(*, failure_stage: str | None, protocol_failure: bool = False, agent_crashed: bool = False, budget_exhausted: bool = False) -> dict[str, Any]:
+    """Canonical missingness policy used by formal scheduling and reruns."""
+    if protocol_failure or failure_stage in {"executor", "hardware", "protocol"}:
+        return {"class": "infrastructure_invalid", "efficacy_eligible": False, "rerunnable": True}
+    if agent_crashed or budget_exhausted or failure_stage in {"agent", "worker"}:
+        return {"class": "outcome_failure", "efficacy_eligible": True, "score": 0.0, "rerunnable": False}
+    return {"class": "outcome_failure", "efficacy_eligible": True, "score": 0.0, "rerunnable": False}
+
+
 def parse_budget(value: dict[str, Any] | None) -> Budget:
     value = value or {}
     return Budget(
