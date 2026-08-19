@@ -40,6 +40,15 @@ def score_task(result: dict[str, Any]) -> dict[str, Any]:
     agent-driver flag for counterexample/do-not-apply tasks.
     """
     task_info = result.get("task", {})
+    verified = result.get("verified_speedup", {}) if isinstance(result.get("verified_speedup"), dict) else {}
+    numeric_values = [verified.get("median_speedup"), result.get("cost", {}).get("wall_time_s") if isinstance(result.get("cost"), dict) else None]
+    if any(isinstance(value, float) and not math.isfinite(value) for value in numeric_values):
+        return {
+            "task_id": result.get("task_id"), "verdict": "invalid", "kind": task_info.get("kind", "positive"),
+            "gates_passed": False, "inconclusive": False, "tripwired": True,
+            "perf_term": 0.0, "perf_note": "non-finite measurement", "diagnosis_correct": None,
+            "task_score": 0.0, "cost": result.get("cost", {}), "verified_speedup": verified,
+        }
     kind = task_info.get("kind", "positive")
     if result.get("validity") == "invalid":
         return {
@@ -67,11 +76,12 @@ def score_task(result: dict[str, Any]) -> dict[str, Any]:
         floor = result.get("measurement", {}).get("noise_floor_percent_observed") or 0.0
         floor_frac = max(float(floor), 2.0) / 100.0
         regressed = speedup is not None and speedup < (1.0 - floor_frac)
-        if abstained and not regressed:
+        abstention_reason = result.get("abstention_reason") or result.get("diagnosis", {}).get("reason")
+        if abstained and isinstance(abstention_reason, str) and abstention_reason.strip() and not regressed:
             perf_term = 1.0
             perf_note = "abstained with defensible record"
         else:
-            perf_note = "did not abstain" if not abstained else "regressed beyond noise floor"
+            perf_note = "did not abstain or lacked evidence" if not abstained else "regressed beyond noise floor or lacked evidence"
     else:
         speedup = result.get("verified_speedup", {}).get("median_speedup")
         verified = bool(result.get("verified_speedup", {}).get("verified"))

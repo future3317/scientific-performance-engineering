@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from benchmark.formal.sandbox_preflight import REQUIRED_NAMESPACE_CHECKS, validate_namespace_checks
+
 
 @dataclass(frozen=True)
 class ExecutorReceipt:
@@ -199,7 +201,9 @@ class ReferenceExecutor:
 import json, pathlib, socket
 checks = {{"python_started": True, "network_blocked": False, "readonly_enforced": False,
           "host_path_hidden": False, "benchmark_root_hidden": False,
-          "nonallowlist_hidden": False, "writable_dirs": False}}
+          "nonallowlist_hidden": False, "writable_dirs": False,
+          "oracle_hidden": False, "hidden_verifier_hidden": False,
+          "future_schedule_hidden": False, "git_hidden": False}}
 try:
     socket.create_connection(('1.1.1.1', 53), 1)
 except Exception:
@@ -216,6 +220,10 @@ host_visible = pathlib.Path({str(host_sentinel)!r}).exists()
 checks["host_path_hidden"] = not host_visible
 checks["benchmark_root_hidden"] = not pathlib.Path({str(benchmark_root)!r}).exists()
 checks["nonallowlist_hidden"] = not pathlib.Path('/benchmark').exists() and not pathlib.Path('/condition_store').exists()
+checks["oracle_hidden"] = not pathlib.Path('/worker/task/oracle').exists()
+checks["hidden_verifier_hidden"] = not pathlib.Path('/worker/task/hidden_verifier').exists()
+checks["future_schedule_hidden"] = not pathlib.Path('/future_schedule').exists()
+checks["git_hidden"] = not pathlib.Path('/.git').exists()
 try:
     pathlib.Path('/worker/solution/.canary-write').write_text('ok', encoding='utf-8')
     pathlib.Path('/worker/result/.canary-write').write_text('ok', encoding='utf-8')
@@ -230,11 +238,11 @@ print(json.dumps(checks))
                 text=True, capture_output=True, check=False,
             )
             if completed.returncode != 0:
-                return {"python_started": False, "network_blocked": False, "readonly_enforced": False, "host_path_hidden": False, "benchmark_root_hidden": False, "nonallowlist_hidden": False, "writable_dirs": False}
+                return {key: False for key in REQUIRED_NAMESPACE_CHECKS}
             value = json.loads(completed.stdout.strip().splitlines()[-1])
-            return {key: bool(value.get(key, False)) for key in ("python_started", "network_blocked", "readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")}
+            return validate_namespace_checks(value)
         except (OSError, ValueError, json.JSONDecodeError, IndexError):
-            return {"python_started": False, "network_blocked": False, "readonly_enforced": False, "host_path_hidden": False, "benchmark_root_hidden": False, "nonallowlist_hidden": False, "writable_dirs": False}
+            return {key: False for key in REQUIRED_NAMESPACE_CHECKS}
         finally:
             host_sentinel.unlink(missing_ok=True)
             for path in (worker_root / "solution" / ".canary-write", worker_root / "result" / ".canary-write"):
@@ -248,7 +256,10 @@ print(json.dumps(checks))
         canary = self._run_isolation_canary(Path(worker_root))
         canary_executed = True
         wall_time_s = time.monotonic() - started
-        checks = {key: bool(canary.get(key, False)) for key in ("python_started", "network_blocked", "readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")}
+        # These observations came from the probe process inside the same
+        # namespace as the worker; the shared preflight validator is the
+        # single gate used for receipt attestation.
+        checks = validate_namespace_checks(canary)
         executor_digest = hashlib.sha256(Path(shutil.which(self.executable)).read_bytes()).hexdigest()
         environment_digest = self._environment_digest(command)
         canary_mode = "executed" if canary_executed else "not_executed"

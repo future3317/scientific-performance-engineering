@@ -184,7 +184,7 @@ def run(out_dir: Path) -> dict[str, Any]:
         worker_result = worker_root / "result" / "worker_result.json"
         solution_output = worker_root / "solution" / "worker-output.json"
         checks = receipt.get("canary_checks", {}) if isinstance(receipt, dict) else {}
-        required_checks = ("python_started", "network_blocked", "readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs")
+        required_checks = ("python_started", "network_blocked", "readonly_enforced", "host_path_hidden", "benchmark_root_hidden", "nonallowlist_hidden", "writable_dirs", "oracle_hidden", "hidden_verifier_hidden", "future_schedule_hidden", "git_hidden")
         passed = (
             completed.returncode == 0
             and worker_result.is_file()

@@ -108,6 +108,24 @@ def _raw_experience_forbidden(value: Any) -> bool:
     return False
 
 
+def _placebo_text(token_count: int) -> tuple[str, str]:
+    """Render a task-free placebo with an explicit deterministic tokenizer."""
+    if token_count < 1:
+        raise ValueError("token_count must be positive")
+    try:
+        import tiktoken  # type: ignore
+        encoding = tiktoken.get_encoding("cl100k_base")
+        text = " ".join(["context"] * token_count)
+        ids = encoding.encode(text)
+        if len(ids) != token_count:
+            text = encoding.decode([encoding.encode("x")[0]] * token_count)
+        return text, "cl100k_base"
+    except ImportError:
+        # The formal environment records this tokenizer id; it is a stable
+        # byte-level fallback only for local harnesses without tiktoken.
+        return " ".join(["x"] * token_count), "whitespace_v1"
+
+
 def store_digest(condition_dir: str | Path) -> str:
     """Digest the attested store contents, excluding its mutable manifest."""
     files = anticheat.hash_tree(Path(condition_dir))
@@ -167,7 +185,9 @@ def materialize_condition(
         # A_CTX intentionally has no skill.  The harness may mount this
         # fixed-size placebo file to control prompt length without exposing
         # task, family, mechanism, or condition information.
-        (out_dir / "placebo_context.txt").write_text("[PLACEBO_CONTEXT]\n" + ("x" * 4096) + "\n", encoding="utf-8")
+        placebo, tokenizer_id = _placebo_text(int(policy["context_tokens"]))
+        (out_dir / "placebo_context.txt").write_text(placebo + "\n", encoding="utf-8")
+        (out_dir / "placebo_context.json").write_text(json.dumps({"token_count": int(policy["context_tokens"]), "tokenizer": tokenizer_id, "task_free": True}, indent=2) + "\n", encoding="utf-8")
         return _attest(out_dir, condition, policy, None, context_mode)
 
     if snapshot_dir is None:

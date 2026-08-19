@@ -1,70 +1,103 @@
 {
   "schema_version": 1,
   "population_id": "SPE-EvoBench-v1.0-30-pilot",
+  "active_manifest": "benchmark/pilot_population.json",
+  "active_task_ids": [
+    "CORE-SCALAR-SYNC-01",
+    "CORE-H2D-PIPELINE-03",
+    "CORE-COMPILE-DYNAMIC-11",
+    "CORE-MEM-RETAINED-GRAPH-13",
+    "CORE-AUTOGRAD-BATCHED-VJP-15",
+    "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+    "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+    "CORE-H2D-OVERFANOUT-23R2",
+    "CORE-REPEATED-BACKBONE-02",
+    "CORE-COMPILE-RECOMPILE-04",
+    "CORE-COMPILE-TINY-12",
+    "CORE-CHECKPOINT-AMPLE-MEM-14",
+    "SCIML-GNN-DYNAMIC-GRAPH-18",
+    "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
+    "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+    "CORE-AUTOGRAD-VJP-SMALL-25",
+    "SCIML-CRYSTAL-DIFFUSION-07",
+    "CORE-KERNEL-FUSION-09",
+    "CORE-DATALOADER-FANOUT-16",
+    "SCIML-FORCE-AUTOGRAD-19",
+    "SCIML-EQUIV-LOWORDER-26",
+    "SCIML-GRAPH-CACHE-BOUNDARY-27",
+    "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
+    "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+    "EVOL-COMPILER-DRIFT-20",
+    "EVOL-EQUIVARIANT-SPECIALIZE-30",
+    "EVOL-EPISODE-POISON-10",
+    "SCIML-GRAPH-REBUILD-08",
+    "SCIML-GNN-RAGGED-05",
+    "SCIML-EQUIV-RECOMPUTE-06"
+  ],
   "num_tasks": 30,
   "track_counts": {
     "spe_core": 16,
-    "evolution": 3,
-    "sciml": 11
+    "sciml": 11,
+    "evolution": 3
   },
   "mechanism_distribution": {
-    "batched_vjp": 2,
-    "checkpoint_ample_memory": 1,
-    "activation_memory": 1,
+    "scalar_sync": 2,
+    "h2d_blocking": 2,
     "compile_dynamic_shapes": 1,
+    "retained_graph": 1,
+    "batched_vjp": 2,
+    "static_graph_cache": 2,
+    "repeated_compute": 4,
     "compile_graph_break": 1,
     "compile_tiny_graphs": 1,
-    "dataloader_worker_fanout": 1,
-    "h2d_blocking": 2,
-    "launch_fragmentation": 2,
-    "retained_graph": 1,
-    "repeated_compute": 4,
-    "scalar_sync": 2,
-    "['compile_dynamic_shapes', 'runtime_drift']": 1,
-    "['scalar_sync', 'h2d_blocking', 'repeated_compute', 'launch_fragmentation', 'graph_rebuild']": 1,
-    "['repeated_compute', 'scientific_regime_drift']": 1,
-    "['scalar_sync', 'launch_fragmentation']": 1,
-    "graph_rebuild": 2,
-    "force_autograd": 1,
+    "checkpoint_ample_memory": 1,
     "dynamic_graph_rebuild": 1,
-    "['ragged_loops', 'autograd_overhead']": 1,
-    "static_graph_cache": 2
+    "activation_memory": 1,
+    "['scalar_sync', 'launch_fragmentation']": 1,
+    "launch_fragmentation": 2,
+    "dataloader_worker_fanout": 1,
+    "force_autograd": 1,
+    "graph_rebuild": 2,
+    "['compile_dynamic_shapes', 'runtime_drift']": 1,
+    "['repeated_compute', 'scientific_regime_drift']": 1,
+    "['scalar_sync', 'h2d_blocking', 'repeated_compute', 'launch_fragmentation', 'graph_rebuild']": 1,
+    "['ragged_loops', 'autograd_overhead']": 1
   },
   "family_distribution": {
-    "autograd": 2,
-    "memory": 3,
-    "compiler": 4,
-    "data_pipeline": 3,
-    "repeated_compute": 2,
     "training_loop_overhead": 2,
-    "episode": 3,
+    "data_pipeline": 3,
+    "compiler": 4,
+    "memory": 3,
+    "autograd": 2,
+    "graph_energy_force": 5,
+    "repeated_compute": 2,
     "crystal_generation": 2,
-    "crystal_sampling": 2,
     "equivariant_head": 2,
-    "graph_energy_force": 5
+    "crystal_sampling": 2,
+    "episode": 3
   },
   "family_id_distribution": {
-    "autograd": 2,
-    "checkpoint": 3,
-    "compile": 4,
-    "h2d_pipeline": 3,
-    "repeated_compute": 2,
     "scalar_sync": 2,
-    "episode": 3,
+    "h2d_pipeline": 3,
+    "compile": 4,
+    "checkpoint": 3,
+    "autograd": 2,
+    "graph_cache": 5,
+    "repeated_compute": 2,
     "crystal_generation": 2,
-    "crystal_sampling": 2,
     "equivariant_head": 2,
-    "graph_cache": 5
+    "crystal_sampling": 2,
+    "episode": 3
   },
   "anchor_projection": {
-    "autograd": [
-      "CORE-AUTOGRAD-BATCHED-VJP-15",
-      "CORE-AUTOGRAD-VJP-SMALL-25"
+    "scalar_sync": [
+      "CORE-SCALAR-SYNC-01",
+      "CORE-SCALAR-SYNC-LOW-CADENCE-21"
     ],
-    "checkpoint": [
-      "CORE-CHECKPOINT-AMPLE-MEM-14",
-      "CORE-CHECKPOINT-HIGH-PRESSURE-24",
-      "CORE-MEM-RETAINED-GRAPH-13"
+    "h2d_pipeline": [
+      "CORE-DATALOADER-FANOUT-16",
+      "CORE-H2D-OVERFANOUT-23R2",
+      "CORE-H2D-PIPELINE-03"
     ],
     "compile": [
       "CORE-COMPILE-DYNAMIC-11",
@@ -72,35 +105,14 @@
       "CORE-COMPILE-TINY-12",
       "CORE-KERNEL-FUSION-09"
     ],
-    "h2d_pipeline": [
-      "CORE-DATALOADER-FANOUT-16",
-      "CORE-H2D-OVERFANOUT-23",
-      "CORE-H2D-PIPELINE-03"
+    "checkpoint": [
+      "CORE-CHECKPOINT-AMPLE-MEM-14",
+      "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+      "CORE-MEM-RETAINED-GRAPH-13"
     ],
-    "repeated_compute": [
-      "CORE-REPEATED-BACKBONE-02",
-      "CORE-REPEATED-BACKBONE-LOW-REUSE-22"
-    ],
-    "scalar_sync": [
-      "CORE-SCALAR-SYNC-01",
-      "CORE-SCALAR-SYNC-LOW-CADENCE-21"
-    ],
-    "episode": [
-      "EVOL-COMPILER-DRIFT-20",
-      "EVOL-EPISODE-POISON-10",
-      "EVOL-EQUIVARIANT-SPECIALIZE-30"
-    ],
-    "crystal_generation": [
-      "SCIML-CRYSTAL-DIFFUSION-07",
-      "SCIML-CRYSTAL-HIGH-GUIDANCE-28"
-    ],
-    "crystal_sampling": [
-      "SCIML-CRYSTAL-STATIC-SAMPLING-29",
-      "SCIML-GRAPH-REBUILD-08"
-    ],
-    "equivariant_head": [
-      "SCIML-EQUIV-LOWORDER-26",
-      "SCIML-EQUIV-RECOMPUTE-06"
+    "autograd": [
+      "CORE-AUTOGRAD-BATCHED-VJP-15",
+      "CORE-AUTOGRAD-VJP-SMALL-25"
     ],
     "graph_cache": [
       "SCIML-FORCE-AUTOGRAD-19",
@@ -108,6 +120,27 @@
       "SCIML-GNN-RAGGED-05",
       "SCIML-GNN-STATIC-GRAPH-CACHE-17",
       "SCIML-GRAPH-CACHE-BOUNDARY-27"
+    ],
+    "repeated_compute": [
+      "CORE-REPEATED-BACKBONE-02",
+      "CORE-REPEATED-BACKBONE-LOW-REUSE-22"
+    ],
+    "crystal_generation": [
+      "SCIML-CRYSTAL-DIFFUSION-07",
+      "SCIML-CRYSTAL-HIGH-GUIDANCE-28"
+    ],
+    "equivariant_head": [
+      "SCIML-EQUIV-LOWORDER-26",
+      "SCIML-EQUIV-RECOMPUTE-06"
+    ],
+    "crystal_sampling": [
+      "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+      "SCIML-GRAPH-REBUILD-08"
+    ],
+    "episode": [
+      "EVOL-COMPILER-DRIFT-20",
+      "EVOL-EPISODE-POISON-10",
+      "EVOL-EQUIVARIANT-SPECIALIZE-30"
     ]
   },
   "polarity_distribution": {
@@ -116,14 +149,58 @@
     "do_not_apply": 1
   },
   "difficulty_distribution": {
-    "hard": 11,
-    "medium": 19
+    "medium": 19,
+    "hard": 11
   },
   "duplicate_near_duplicate_findings": [],
   "oracle_effect_distribution": [
     [
+      1.2,
+      2.0
+    ],
+    [
+      1.1,
+      1.5
+    ],
+    [
+      2.56,
+      3.34
+    ],
+    [
       1.15,
       1.5
+    ],
+    [
+      1.15,
+      1.5
+    ],
+    [
+      3.0,
+      8.0
+    ],
+    [
+      0.9,
+      1.1
+    ],
+    [
+      0.9,
+      1.1
+    ],
+    [
+      1.8,
+      2.5
+    ],
+    [
+      0.9,
+      1.1
+    ],
+    [
+      0.9,
+      1.1
+    ],
+    [
+      0.9,
+      1.1
     ],
     [
       0.9,
@@ -138,28 +215,12 @@
       2.5
     ],
     [
-      2.56,
-      3.34
-    ],
-    [
       0.9,
       1.1
     ],
     [
-      0.9,
-      1.1
-    ],
-    [
-      1.15,
-      1.5
-    ],
-    [
-      0.9,
-      1.1
-    ],
-    [
-      1.1,
-      1.5
+      2.0,
+      25.0
     ],
     [
       1.3,
@@ -170,36 +231,16 @@
       1.5
     ],
     [
-      1.8,
-      2.5
-    ],
-    [
-      0.9,
-      1.1
+      3.0,
+      8.0
     ],
     [
       1.2,
-      2.0
-    ],
-    [
-      0.9,
-      1.1
-    ],
-    [
-      1.2,
-      5.0
-    ],
-    [
-      1.2,
-      5.0
+      3.5
     ],
     [
       1.2,
       4.0
-    ],
-    [
-      2.0,
-      25.0
     ],
     [
       0.9,
@@ -211,31 +252,23 @@
     ],
     [
       1.2,
-      3.5
-    ],
-    [
-      0.9,
-      1.1
-    ],
-    [
-      3.0,
-      8.0
-    ],
-    [
-      0.9,
-      1.1
-    ],
-    [
-      3.0,
-      8.0
-    ],
-    [
-      3.0,
-      8.0
+      5.0
     ],
     [
       1.2,
       4.0
+    ],
+    [
+      1.2,
+      5.0
+    ],
+    [
+      0.9,
+      1.1
+    ],
+    [
+      3.0,
+      8.0
     ],
     [
       0.9,
@@ -244,19 +277,13 @@
   ],
   "baseline_noise_distribution_percent": [
     2.0,
-    3.0,
     2.0,
-    3.0,
-    2.0,
-    2.0,
-    2.0,
-    2.0,
-    3.0,
     2.0,
     2.0,
     2.0,
     2.0,
     2.0,
+    3.0,
     2.0,
     2.0,
     2.0,
@@ -270,11 +297,41 @@
     2.0,
     2.0,
     2.0,
-    2.0,
     3.0,
+    3.0,
+    3.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
+    2.0,
     2.0
   ],
   "runtime_cost_distribution": [
+    {
+      "task_id": "CORE-SCALAR-SYNC-01",
+      "time_budget_s": 600,
+      "measured_iterations": 100,
+      "repetitions": 5
+    },
+    {
+      "task_id": "CORE-H2D-PIPELINE-03",
+      "time_budget_s": 300,
+      "measured_iterations": 15,
+      "repetitions": 6
+    },
+    {
+      "task_id": "CORE-COMPILE-DYNAMIC-11",
+      "time_budget_s": 300,
+      "measured_iterations": 256,
+      "repetitions": 5
+    },
+    {
+      "task_id": "CORE-MEM-RETAINED-GRAPH-13",
+      "time_budget_s": 300,
+      "measured_iterations": 50,
+      "repetitions": 12
+    },
     {
       "task_id": "CORE-AUTOGRAD-BATCHED-VJP-15",
       "time_budget_s": 300,
@@ -282,27 +339,27 @@
       "repetitions": 12
     },
     {
-      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25",
+      "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+      "time_budget_s": 600,
+      "measured_iterations": 25,
+      "repetitions": 4
+    },
+    {
+      "task_id": "CORE-SCALAR-SYNC-LOW-CADENCE-21",
       "time_budget_s": 180,
-      "measured_iterations": 12,
+      "measured_iterations": 30,
       "repetitions": 5
     },
     {
-      "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14",
-      "time_budget_s": 300,
-      "measured_iterations": 50,
-      "repetitions": 12
-    },
-    {
-      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24",
-      "time_budget_s": 240,
-      "measured_iterations": 15,
+      "task_id": "CORE-H2D-OVERFANOUT-23R2",
+      "time_budget_s": 180,
+      "measured_iterations": 30,
       "repetitions": 5
     },
     {
-      "task_id": "CORE-COMPILE-DYNAMIC-11",
-      "time_budget_s": 300,
-      "measured_iterations": 256,
+      "task_id": "CORE-REPEATED-BACKBONE-02",
+      "time_budget_s": 600,
+      "measured_iterations": 100,
       "repetitions": 5
     },
     {
@@ -318,40 +375,16 @@
       "repetitions": 3
     },
     {
-      "task_id": "CORE-DATALOADER-FANOUT-16",
+      "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14",
       "time_budget_s": 300,
       "measured_iterations": 50,
       "repetitions": 12
     },
     {
-      "task_id": "CORE-H2D-OVERFANOUT-23",
-      "time_budget_s": 180,
-      "measured_iterations": 30,
-      "repetitions": 5
-    },
-    {
-      "task_id": "CORE-H2D-PIPELINE-03",
-      "time_budget_s": 300,
-      "measured_iterations": 15,
-      "repetitions": 6
-    },
-    {
-      "task_id": "CORE-KERNEL-FUSION-09",
+      "task_id": "SCIML-GNN-DYNAMIC-GRAPH-18",
       "time_budget_s": 600,
       "measured_iterations": 25,
       "repetitions": 4
-    },
-    {
-      "task_id": "CORE-MEM-RETAINED-GRAPH-13",
-      "time_budget_s": 300,
-      "measured_iterations": 50,
-      "repetitions": 12
-    },
-    {
-      "task_id": "CORE-REPEATED-BACKBONE-02",
-      "time_budget_s": 600,
-      "measured_iterations": 100,
-      "repetitions": 5
     },
     {
       "task_id": "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
@@ -360,40 +393,52 @@
       "repetitions": 5
     },
     {
-      "task_id": "CORE-SCALAR-SYNC-01",
-      "time_budget_s": 600,
-      "measured_iterations": 100,
+      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+      "time_budget_s": 240,
+      "measured_iterations": 15,
       "repetitions": 5
     },
     {
-      "task_id": "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25",
       "time_budget_s": 180,
-      "measured_iterations": 30,
+      "measured_iterations": 12,
       "repetitions": 5
-    },
-    {
-      "task_id": "EVOL-COMPILER-DRIFT-20",
-      "time_budget_s": 600,
-      "measured_iterations": 1,
-      "repetitions": 3
-    },
-    {
-      "task_id": "EVOL-EPISODE-POISON-10",
-      "time_budget_s": 600,
-      "measured_iterations": 1,
-      "repetitions": 3
-    },
-    {
-      "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
-      "time_budget_s": 600,
-      "measured_iterations": 1,
-      "repetitions": 3
     },
     {
       "task_id": "SCIML-CRYSTAL-DIFFUSION-07",
       "time_budget_s": 600,
       "measured_iterations": 10,
       "repetitions": 4
+    },
+    {
+      "task_id": "CORE-KERNEL-FUSION-09",
+      "time_budget_s": 600,
+      "measured_iterations": 25,
+      "repetitions": 4
+    },
+    {
+      "task_id": "CORE-DATALOADER-FANOUT-16",
+      "time_budget_s": 300,
+      "measured_iterations": 50,
+      "repetitions": 12
+    },
+    {
+      "task_id": "SCIML-FORCE-AUTOGRAD-19",
+      "time_budget_s": 600,
+      "measured_iterations": 25,
+      "repetitions": 4
+    },
+    {
+      "task_id": "SCIML-EQUIV-LOWORDER-26",
+      "time_budget_s": 180,
+      "measured_iterations": 20,
+      "repetitions": 5
+    },
+    {
+      "task_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
+      "time_budget_s": 180,
+      "measured_iterations": 12,
+      "repetitions": 5
     },
     {
       "task_id": "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
@@ -408,27 +453,27 @@
       "repetitions": 5
     },
     {
-      "task_id": "SCIML-EQUIV-LOWORDER-26",
-      "time_budget_s": 180,
+      "task_id": "EVOL-COMPILER-DRIFT-20",
+      "time_budget_s": 600,
+      "measured_iterations": 1,
+      "repetitions": 3
+    },
+    {
+      "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+      "time_budget_s": 600,
+      "measured_iterations": 1,
+      "repetitions": 3
+    },
+    {
+      "task_id": "EVOL-EPISODE-POISON-10",
+      "time_budget_s": 600,
+      "measured_iterations": 1,
+      "repetitions": 3
+    },
+    {
+      "task_id": "SCIML-GRAPH-REBUILD-08",
+      "time_budget_s": 600,
       "measured_iterations": 20,
-      "repetitions": 5
-    },
-    {
-      "task_id": "SCIML-EQUIV-RECOMPUTE-06",
-      "time_budget_s": 600,
-      "measured_iterations": 25,
-      "repetitions": 4
-    },
-    {
-      "task_id": "SCIML-FORCE-AUTOGRAD-19",
-      "time_budget_s": 600,
-      "measured_iterations": 25,
-      "repetitions": 4
-    },
-    {
-      "task_id": "SCIML-GNN-DYNAMIC-GRAPH-18",
-      "time_budget_s": 600,
-      "measured_iterations": 25,
       "repetitions": 4
     },
     {
@@ -438,21 +483,9 @@
       "repetitions": 4
     },
     {
-      "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+      "task_id": "SCIML-EQUIV-RECOMPUTE-06",
       "time_budget_s": 600,
       "measured_iterations": 25,
-      "repetitions": 4
-    },
-    {
-      "task_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
-      "time_budget_s": 180,
-      "measured_iterations": 12,
-      "repetitions": 5
-    },
-    {
-      "task_id": "SCIML-GRAPH-REBUILD-08",
-      "time_budget_s": 600,
-      "measured_iterations": 20,
       "repetitions": 4
     }
   ],
@@ -489,14 +522,36 @@
       "efficacy_claim": "not_claimed"
     }
   },
-  "retired_for_formal": [
-    {
-      "task_id": "CORE-H2D-OVERFANOUT-23",
-      "replacement_task_id": "CORE-H2D-PIPELINE-03",
-      "reason": "same-family calibration anchor is blocked by high observed same-host noise; retain only as a pilot counterexample"
-    }
-  ],
+  "retired_for_formal": [],
   "public_context": {
+    "CORE-SCALAR-SYNC-01": {
+      "workload": {
+        "scalar_syncs_per_step": 12,
+        "metric_cadence": 4
+      }
+    },
+    "CORE-H2D-PIPELINE-03": {
+      "workload": {
+        "batch_size": 4096,
+        "worker_count": 2,
+        "prefetch_factor": 2,
+        "pin_memory": true
+      }
+    },
+    "CORE-COMPILE-DYNAMIC-11": {
+      "workload": {
+        "logical_steps": 256,
+        "graph_size": 128,
+        "dynamic_shape_rate": 0.3
+      }
+    },
+    "CORE-MEM-RETAINED-GRAPH-13": {
+      "workload": {
+        "memory_pressure": 0.7,
+        "segment_count": 4,
+        "recompute_ratio": 0.2
+      }
+    },
     "CORE-AUTOGRAD-BATCHED-VJP-15": {
       "workload": {
         "output_count": 8,
@@ -506,34 +561,35 @@
         "seed": 0
       }
     },
-    "CORE-AUTOGRAD-VJP-SMALL-25": {
+    "SCIML-GNN-STATIC-GRAPH-CACHE-17": {
       "workload": {
-        "output_count": 2,
-        "input_dim": 64,
-        "jacobian_density": 0.5,
-        "fixture_index": 1,
+        "geometry_displacement": 0.03,
+        "skin": 0.4,
+        "graph_size": 96,
+        "dynamic_rate": 0.1
+      }
+    },
+    "CORE-SCALAR-SYNC-LOW-CADENCE-21": {
+      "workload": {
+        "scalar_syncs_per_step": 4,
+        "metric_cadence": 8
+      }
+    },
+    "CORE-H2D-OVERFANOUT-23R2": {
+      "workload": {
+        "batch_size": 32,
+        "worker_count": 5,
+        "prefetch_factor": 4,
+        "pin_memory": true
+      }
+    },
+    "CORE-REPEATED-BACKBONE-02": {
+      "workload": {
+        "repeat_count": 4,
+        "backbone_width": 256,
+        "batch_size": 32,
+        "fixture_index": 0,
         "seed": 0
-      }
-    },
-    "CORE-CHECKPOINT-AMPLE-MEM-14": {
-      "workload": {
-        "memory_pressure": 0.4,
-        "segment_count": 3,
-        "recompute_ratio": 0.2
-      }
-    },
-    "CORE-CHECKPOINT-HIGH-PRESSURE-24": {
-      "workload": {
-        "memory_pressure": 0.8,
-        "segment_count": 4,
-        "recompute_ratio": 0.5
-      }
-    },
-    "CORE-COMPILE-DYNAMIC-11": {
-      "workload": {
-        "logical_steps": 256,
-        "graph_size": 128,
-        "dynamic_shape_rate": 0.3
       }
     },
     "CORE-COMPILE-RECOMPILE-04": {
@@ -550,51 +606,19 @@
         "dynamic_shape_rate": 0.8
       }
     },
-    "CORE-DATALOADER-FANOUT-16": {
+    "CORE-CHECKPOINT-AMPLE-MEM-14": {
       "workload": {
-        "batch_size": 64,
-        "worker_count": 3,
-        "prefetch_factor": 4,
-        "pin_memory": true
-      }
-    },
-    "CORE-H2D-OVERFANOUT-23": {
-      "workload": {
-        "batch_size": 32,
-        "worker_count": 6,
-        "prefetch_factor": 4,
-        "pin_memory": true
-      }
-    },
-    "CORE-H2D-PIPELINE-03": {
-      "workload": {
-        "batch_size": 4096,
-        "worker_count": 2,
-        "prefetch_factor": 2,
-        "pin_memory": true
-      }
-    },
-    "CORE-KERNEL-FUSION-09": {
-      "workload": {
-        "logical_steps": 192,
-        "graph_size": 320,
-        "dynamic_shape_rate": 0.2
-      }
-    },
-    "CORE-MEM-RETAINED-GRAPH-13": {
-      "workload": {
-        "memory_pressure": 0.7,
-        "segment_count": 4,
+        "memory_pressure": 0.4,
+        "segment_count": 3,
         "recompute_ratio": 0.2
       }
     },
-    "CORE-REPEATED-BACKBONE-02": {
+    "SCIML-GNN-DYNAMIC-GRAPH-18": {
       "workload": {
-        "repeat_count": 4,
-        "backbone_width": 256,
-        "batch_size": 32,
-        "fixture_index": 0,
-        "seed": 0
+        "geometry_displacement": 0.08,
+        "skin": 0.6,
+        "graph_size": 96,
+        "dynamic_rate": 0.8
       }
     },
     "CORE-REPEATED-BACKBONE-LOW-REUSE-22": {
@@ -606,42 +630,19 @@
         "seed": 0
       }
     },
-    "CORE-SCALAR-SYNC-01": {
+    "CORE-CHECKPOINT-HIGH-PRESSURE-24": {
       "workload": {
-        "scalar_syncs_per_step": 12,
-        "metric_cadence": 4
+        "memory_pressure": 0.8,
+        "segment_count": 4,
+        "recompute_ratio": 0.5
       }
     },
-    "CORE-SCALAR-SYNC-LOW-CADENCE-21": {
+    "CORE-AUTOGRAD-VJP-SMALL-25": {
       "workload": {
-        "scalar_syncs_per_step": 4,
-        "metric_cadence": 8
-      }
-    },
-    "EVOL-COMPILER-DRIFT-20": {
-      "workload": {
-        "runtime_version": "B",
-        "context_width": 3,
-        "drift_rate": 0.25,
+        "output_count": 2,
+        "input_dim": 64,
+        "jacobian_density": 0.5,
         "fixture_index": 1,
-        "seed": 0
-      }
-    },
-    "EVOL-EPISODE-POISON-10": {
-      "workload": {
-        "runtime_version": "A",
-        "context_width": 2,
-        "drift_rate": 0.05,
-        "fixture_index": 0,
-        "seed": 0
-      }
-    },
-    "EVOL-EQUIVARIANT-SPECIALIZE-30": {
-      "workload": {
-        "runtime_version": "A",
-        "context_width": 4,
-        "drift_rate": 0.3,
-        "fixture_index": 2,
         "seed": 0
       }
     },
@@ -652,6 +653,46 @@
         "guidance_scale": 2.0,
         "fixture_index": 0,
         "seed": 0
+      }
+    },
+    "CORE-KERNEL-FUSION-09": {
+      "workload": {
+        "logical_steps": 192,
+        "graph_size": 320,
+        "dynamic_shape_rate": 0.2
+      }
+    },
+    "CORE-DATALOADER-FANOUT-16": {
+      "workload": {
+        "batch_size": 64,
+        "worker_count": 3,
+        "prefetch_factor": 4,
+        "pin_memory": true
+      }
+    },
+    "SCIML-FORCE-AUTOGRAD-19": {
+      "workload": {
+        "geometry_displacement": 0.02,
+        "skin": 0.8,
+        "graph_size": 128,
+        "dynamic_rate": 0.3
+      }
+    },
+    "SCIML-EQUIV-LOWORDER-26": {
+      "workload": {
+        "irrep_order": 1,
+        "node_count": 64,
+        "recompute_rate": 0.75,
+        "fixture_index": 1,
+        "seed": 0
+      }
+    },
+    "SCIML-GRAPH-CACHE-BOUNDARY-27": {
+      "workload": {
+        "geometry_displacement": 0.05,
+        "skin": 0.4,
+        "graph_size": 128,
+        "dynamic_rate": 0.2
       }
     },
     "SCIML-CRYSTAL-HIGH-GUIDANCE-28": {
@@ -672,38 +713,40 @@
         "seed": 0
       }
     },
-    "SCIML-EQUIV-LOWORDER-26": {
+    "EVOL-COMPILER-DRIFT-20": {
       "workload": {
-        "irrep_order": 1,
-        "node_count": 64,
-        "recompute_rate": 0.75,
+        "runtime_version": "B",
+        "context_width": 3,
+        "drift_rate": 0.25,
         "fixture_index": 1,
         "seed": 0
       }
     },
-    "SCIML-EQUIV-RECOMPUTE-06": {
+    "EVOL-EQUIVARIANT-SPECIALIZE-30": {
       "workload": {
-        "irrep_order": 2,
-        "node_count": 64,
-        "recompute_rate": 0.5,
+        "runtime_version": "A",
+        "context_width": 4,
+        "drift_rate": 0.3,
+        "fixture_index": 2,
+        "seed": 0
+      }
+    },
+    "EVOL-EPISODE-POISON-10": {
+      "workload": {
+        "runtime_version": "A",
+        "context_width": 2,
+        "drift_rate": 0.05,
         "fixture_index": 0,
         "seed": 0
       }
     },
-    "SCIML-FORCE-AUTOGRAD-19": {
+    "SCIML-GRAPH-REBUILD-08": {
       "workload": {
-        "geometry_displacement": 0.02,
-        "skin": 0.8,
-        "graph_size": 128,
-        "dynamic_rate": 0.3
-      }
-    },
-    "SCIML-GNN-DYNAMIC-GRAPH-18": {
-      "workload": {
-        "geometry_displacement": 0.08,
-        "skin": 0.6,
-        "graph_size": 96,
-        "dynamic_rate": 0.8
+        "neighbor_count": 12,
+        "sample_count": 24,
+        "geometry_variation": 0.7,
+        "fixture_index": 0,
+        "seed": 0
       }
     },
     "SCIML-GNN-RAGGED-05": {
@@ -714,27 +757,11 @@
         "dynamic_rate": 0.0
       }
     },
-    "SCIML-GNN-STATIC-GRAPH-CACHE-17": {
+    "SCIML-EQUIV-RECOMPUTE-06": {
       "workload": {
-        "geometry_displacement": 0.03,
-        "skin": 0.4,
-        "graph_size": 96,
-        "dynamic_rate": 0.1
-      }
-    },
-    "SCIML-GRAPH-CACHE-BOUNDARY-27": {
-      "workload": {
-        "geometry_displacement": 0.05,
-        "skin": 0.4,
-        "graph_size": 128,
-        "dynamic_rate": 0.2
-      }
-    },
-    "SCIML-GRAPH-REBUILD-08": {
-      "workload": {
-        "neighbor_count": 12,
-        "sample_count": 24,
-        "geometry_variation": 0.7,
+        "irrep_order": 2,
+        "node_count": 64,
+        "recompute_rate": 0.5,
         "fixture_index": 0,
         "seed": 0
       }

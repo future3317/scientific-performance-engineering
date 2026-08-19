@@ -2,7 +2,7 @@ split_id: sequential-v1
 phases:
   - index: 1
     name: acquisition
-    tasks: ["CORE-SCALAR-SYNC-01", "CORE-H2D-PIPELINE-03", "CORE-COMPILE-DYNAMIC-11", "CORE-MEM-RETAINED-GRAPH-13", "CORE-AUTOGRAD-BATCHED-VJP-15", "SCIML-GNN-STATIC-GRAPH-CACHE-17", "CORE-SCALAR-SYNC-LOW-CADENCE-21", "CORE-H2D-OVERFANOUT-23"]
+    tasks: ["CORE-SCALAR-SYNC-01", "CORE-H2D-PIPELINE-03", "CORE-COMPILE-DYNAMIC-11", "CORE-MEM-RETAINED-GRAPH-13", "CORE-AUTOGRAD-BATCHED-VJP-15", "SCIML-GNN-STATIC-GRAPH-CACHE-17", "CORE-SCALAR-SYNC-LOW-CADENCE-21", "CORE-H2D-OVERFANOUT-23R2"]
     lineage_keys:
       - ["training_loop_overhead", "scalar_sync", "synthetic", "MT-SCALAR-SYNC-V1"]
       - ["data_pipeline", "h2d_blocking", "synthetic", "MT-H2D-BLOCKING-V1"]

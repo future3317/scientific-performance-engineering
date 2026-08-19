@@ -23,9 +23,11 @@ sequence and are the only quantities eligible for routing.
 ## Context estimand
 
 The current promotion scheduler samples the preregistered deterministic family
-lattice. Its claim is finite-lattice coverage, not an iid population
-generalization probability. Any future distribution-sampling protocol must be
-registered before use.
+lattice. The confirmatory finite-lattice claim is evaluated by the registered
+task/lineage estimator over the complete sealed lattice; the Beta--Binomial
+mixture lower bound remains only the bounded promotion-admission gate and is
+not interpreted as finite-population coverage or an iid population probability.
+Any future distribution-sampling protocol must be registered before use.
 
 ## Missingness and reruns
 

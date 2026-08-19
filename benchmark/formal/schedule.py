@@ -500,37 +500,53 @@ def build_schedule(
     if any(mode not in {"reset", "carry"} for mode in context_modes):
         raise ValueError("unknown context mode")
     tasks = task_order(split_path)
+    return build_task_block_schedule(
+        tasks, conditions=conditions, context_modes=context_modes,
+        outer_trials=outer_trials, schedule_seed=schedule_seed,
+        task_visibility={task_id: "public_dev" for _phase, task_id in tasks},
+    )
+def task_order_from_materialized(manifest: Mapping[str, Any]) -> list[tuple[int, str]]:
+    """Build formal order only from the materialized frozen slot manifest."""
+    if manifest.get("status") != "materialized_frozen":
+        raise ValueError("formal schedule requires materialized_frozen population")
+    slots = list(manifest.get("slots", []))
+    if len(slots) != 50:
+        raise ValueError("formal schedule requires exactly 50 materialized slots")
+    return [(index, str(slot["task_id"])) for index, slot in enumerate(slots, start=1)]
+
+
+def build_task_block_schedule(
+    tasks: list[tuple[int, str]], *, conditions: tuple[str, ...],
+    context_modes: tuple[str, ...], outer_trials: int, schedule_seed: int,
+    task_visibility: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Randomize conditions within each task block, not as complete streams."""
     schedule: list[dict[str, Any]] = []
     index = 0
     for outer_trial in range(outer_trials):
-        # Rotate the condition stream between outer trials.  Task order within
-        # a condition remains fixed, while thermal/cache and queue effects are
-        # not deterministically assigned to one treatment.
-        # This is preregistered blocked randomization with a rotation and a
-        # seeded shuffle; it is intentionally not called a Latin square.
-        rotation = outer_trial % len(conditions)
-        rotated = conditions[rotation:] + conditions[:rotation]
-        rng = random.Random(int(schedule_seed) + outer_trial)
-        order = list(rotated)
-        rng.shuffle(order)
-        ordered_conditions = tuple(order)
-        for condition in ordered_conditions:
-            for context_mode in context_modes:
-                stream_id = f"trial-{outer_trial:03d}-{condition}-{context_mode}"
-                for phase, task_id in tasks:
-                    schedule.append(
-                        {
-                            "schedule_index": index,
-                            "stream_id": stream_id,
-                            "outer_trial_id": f"outer-{outer_trial:03d}",
-                            "outer_trial_index": outer_trial,
-                            "condition": condition,
-                            "condition_block_order": list(ordered_conditions),
-                            "randomization_seed": int(schedule_seed) + outer_trial,
-                            "context_mode": context_mode,
-                            "phase": phase,
-                            "task_id": task_id,
-                        }
-                    )
+        for phase, task_id in tasks:
+            rng = random.Random(int(schedule_seed) + outer_trial * 1000003 + index)
+            ordered_conditions = list(conditions)
+            rng.shuffle(ordered_conditions)
+            for condition in ordered_conditions:
+                for context_mode in context_modes:
+                    schedule.append({
+                        "schedule_index": index,
+                        # A stream owns one condition store for the whole
+                        # outer trial.  Tasks are randomized inside each
+                        # block, but their evolution state must persist
+                        # across the task sequence.
+                        "stream_id": f"trial-{outer_trial:03d}-{condition}-{context_mode}",
+                        "outer_trial_id": f"outer-{outer_trial:03d}",
+                        "outer_trial_index": outer_trial,
+                        "condition": condition,
+                        "condition_block_order": list(ordered_conditions),
+                        "randomization_seed": int(schedule_seed) + outer_trial,
+                        "context_mode": context_mode,
+                        "phase": phase,
+                        "task_id": task_id,
+                        "slot_id": task_id,
+                        "visibility": str((task_visibility or {}).get(str(task_id), "sealed")),
+                    })
                     index += 1
     return schedule

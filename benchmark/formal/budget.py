@@ -69,6 +69,15 @@ class EvolutionComputeBudget:
     wall_time_s: float = 0.0
     usd: float = 0.0
 
+    LIMITS = {
+        "replay_executions": 256,
+        "cpu_seconds": 3600.0,
+        "gpu_seconds": 1800.0,
+        "tokens": 500_000,
+        "wall_time_s": 7200.0,
+        "usd": 100.0,
+    }
+
     def add(self, **delta: float | int) -> "EvolutionComputeBudget":
         values = asdict(self)
         for key, value in delta.items():
@@ -77,7 +86,10 @@ class EvolutionComputeBudget:
         return EvolutionComputeBudget(**values)
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {**asdict(self), "limits": dict(self.LIMITS)}
+
+    def exceeds_limits(self) -> list[str]:
+        return [key for key, limit in self.LIMITS.items() if float(getattr(self, key)) > float(limit)]
 
 
 def classify_failure(*, failure_stage: str | None, protocol_failure: bool = False, agent_crashed: bool = False, budget_exhausted: bool = False) -> dict[str, Any]:

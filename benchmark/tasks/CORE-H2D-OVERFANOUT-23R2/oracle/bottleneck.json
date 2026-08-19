@@ -1,0 +1,6 @@
+{
+  "mechanism": "h2d_blocking",
+  "injected_condition": "tiny batch, worker_count=6",
+  "preferred_action": "abstain",
+  "action_under_test": "pin_memory_pipeline"
+}
