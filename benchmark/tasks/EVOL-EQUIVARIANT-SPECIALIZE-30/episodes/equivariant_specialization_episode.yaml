@@ -30,7 +30,7 @@ phases:
         scientific_invariants: [equivariance_preserved]
         source_cases: [SCIML-EQUIV-LOWORDER-26]
         admission_cases: [REG-EQUIV-LOWORDER-26]
-        regression_cases: [SCIML-EQUIV-RECOMPUTE-06]
+        regression_cases: [REG-SCIML-EQUIV-RECOMPUTE-06]
         collector_confidence: high
         confidence: {method: beta-binomial-mixture-e-process, prior_alpha: 1, prior_beta: 1, successes: 0, failures: 0, p_min: 0.5, delta: 0.05, posterior_probability: 0.0, effective_samples: 0, promotion_probability_lower_bound: 0.0}
         promotion: {replay_status: pending, human_review: false}

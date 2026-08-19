@@ -1,9 +1,9 @@
 {
-  "baseline_validation": "passed_local_package_smoke",
-  "oracle_validation": "passed_local_package_smoke",
+  "baseline_validation": "passed_local_package_smoke_and_cuda_execution",
+  "oracle_validation": "passed_local_package_smoke_and_cuda_execution",
   "anti_cheat": "architecture/work-unit/source-contrast checks included; formal repo anti-cheat not run",
   "deterministic_fixture": true,
-  "formal_population_status": "canonical_pilot_calibration_pending",
+  "formal_population_status": "canonical_pilot_calibration_blocked",
   "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
   "local_validation": {
     "task_id": "CORE-H2D-OVERFANOUT-23",
@@ -16,10 +16,22 @@
     "baseline_science": true,
     "oracle_science": true,
     "oracle_activation_matches_action": false,
-    "oracle_is_source_identical": true
+    "oracle_is_source_identical": true,
+    "cuda_execution": true,
+    "cuda_device": "NVIDIA GeForce RTX 4060 Ti",
+    "torch_version": "2.12.1+cu126"
   },
   "counterexample_probe": {
     "probe": "per-step pin_memory + non_blocking",
-    "status": "requires_cuda_server_calibration"
+    "status": "calibration_blocked",
+    "oracle_verdict": "inconclusive",
+    "median_speedup": 1.0068949386822383,
+    "ci_low": 0.9934453688607481,
+    "ci_high": 1.0548158792620774,
+    "declared_noise_floor_percent": 3.0,
+    "observed_noise_floor_percent": [9.552585764156362, 14.638783285431245, 26.82251414438599, 32.42061668211007],
+    "effective_noise_floor_percent_max": 32.42061668211007,
+    "reason": "observed same-host noise exceeds the task's oracle margin; no eligibility claim",
+    "summary_artifact": "benchmark/calibration/h2d-overfanout-23-summary.json"
   }
 }

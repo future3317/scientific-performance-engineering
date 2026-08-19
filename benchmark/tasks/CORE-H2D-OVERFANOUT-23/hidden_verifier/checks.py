@@ -9,7 +9,10 @@ def check_batch(solution, fixtures):
     model = solution.build_model(fixtures)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.0)
     seen = {}
-    handle = model.register_forward_pre_hook(lambda _m, args: seen.setdefault('x', args[0].detach().cpu().clone()))
+    def capture_input(_module, args):
+        seen.setdefault('x', args[0].detach().cpu().clone())
+
+    handle = model.register_forward_pre_hook(capture_input)
     result = solution.train_step(model, fixtures['batch'], optimizer)
     handle.remove()
     x, _ = fixtures['batch']

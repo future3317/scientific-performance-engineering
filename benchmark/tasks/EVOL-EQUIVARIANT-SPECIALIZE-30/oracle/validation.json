@@ -1,9 +1,9 @@
 {
-  "baseline_validation": "structural_only_requires_full_repo",
-  "oracle_validation": "structural_only_requires_full_repo",
+  "baseline_validation": "full_repo_evolution_harness_passed",
+  "oracle_validation": "full_repo_evolution_harness_passed",
   "anti_cheat": "architecture/work-unit/source-contrast checks included; formal repo anti-cheat not run",
   "deterministic_fixture": true,
-  "formal_population_status": "canonical_pilot_calibration_pending",
+  "formal_population_status": "canonical_pilot_calibration_observed",
   "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
   "local_validation": {
     "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
@@ -11,10 +11,27 @@
     "family_id": "episode",
     "reference_patch_equivalent": true,
     "public_test_pass": "validated_in_batch",
-    "execution": "requires_full_repo_evolution_harness",
+    "execution": "full_repo_evolution_harness",
     "phase_count": 6,
     "baseline_condition_C": true,
     "oracle_condition_D": true,
-    "expected_action": "rule_update"
+    "expected_action": "rule_update",
+    "condition_C": {
+      "status": "complete",
+      "canonical_rule_count": 0,
+      "promoted_rules": [],
+      "negative_transfer_rate": 0.0,
+      "poisoning_survival_rate": 1.0
+    },
+    "condition_D": {
+      "status": "complete",
+      "canonical_rule_count": 1,
+      "promoted_rules": ["equiv-loworder-reuse-rule"],
+      "rule_precision": 1.0,
+      "negative_transfer_rate": 0.0,
+      "poisoning_survival_rate": 1.0,
+      "replay_and_validation": "passed"
+    },
+    "calibration_claim": "execution and governance closure only; no efficacy superiority claim"
   }
 }

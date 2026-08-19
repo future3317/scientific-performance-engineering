@@ -46,6 +46,13 @@ def make_fixtures(seed:int,device:str='cuda'):
     for p in m.parameters(): p.data.normal_(0,0.02,generator=g)
     return {'device':device,'in_dim':d,'batch':(x,y),'logical_batch_size':32,'lr':0.01,'init_state':m.state_dict()}
 
+def clone_fixtures(fixtures: dict[str, Any]) -> dict[str, Any]:
+    """Keep one generated H2D fixture per repetition while isolating each arm."""
+    cloned = dict(fixtures)
+    cloned['batch'] = tuple(value.clone() for value in fixtures['batch'])
+    cloned['init_state'] = {name: value.clone() for name, value in fixtures['init_state'].items()}
+    return cloned
+
 
 def run_correctness(solution,fixtures): return _CHECKS.check_batch(solution,fixtures)
 

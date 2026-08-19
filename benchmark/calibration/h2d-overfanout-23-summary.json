@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "task_id": "CORE-H2D-OVERFANOUT-23",
+  "status": "blocked",
+  "scope": "pilot calibration evidence; not a formal efficacy claim",
+  "benchmark_revision": "8f4e1d1",
+  "task_manifest_digest": "61391d292e329f5d6de1b2b52a5c2183080efabe281fe34d8be541b415bccaed",
+  "environment": {
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python_version": "3.11.15",
+    "torch_version": "2.12.1+cu126",
+    "cuda_version": "12.6",
+    "gpu": "NVIDIA GeForce RTX 4060 Ti",
+    "driver_version": "591.86",
+    "compile_threads": 0,
+    "compiler_cache_policy": "verifier-invocation-scoped"
+  },
+  "noise_control": {
+    "outer_trials": 4,
+    "repetitions_per_trial": 5,
+    "declared_noise_floor_percent": 3.0,
+    "observed_noise_floor_percent": [
+      14.638783285431245,
+      26.82251414438599,
+      9.552585764156362,
+      32.42061668211007
+    ],
+    "effective_noise_floor_percent_max": 32.42061668211007,
+    "artifact_digests": [
+      "6d9844f5a31f8a5c8cb116bffe1105579496145d3757b69509eec7274d2238f1",
+      "96bca54c31eb95df3a06f5759ffffd3d9c149cbdf6b9628890045124dab7635d",
+      "8e48518000a654ff103c0cd46d66cbd7469ecfeeccdff166cf107eed848cf1d5",
+      "215d7afe9f4a85084aa8626f0583103bb5b7b71a187f8c1c398d18c7739ab0c7"
+    ]
+  },
+  "oracle": {
+    "correctness_pass": true,
+    "scientific_gates_pass": true,
+    "verdict": "inconclusive",
+    "median_speedup": 1.0068949386822383,
+    "ci": [0.9934453688607481, 1.0548158792620774],
+    "noise_control_used": true,
+    "calibration_block_reason": "effective noise floor reaches or exceeds oracle speedup cap"
+  },
+  "interpretation": "CUDA execution completed, but high same-host noise prevents eligibility; retain as a calibrated counterexample candidate and do not promote it."
+}

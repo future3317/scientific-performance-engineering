@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmark.taskgen.validate_population import _empirical_flags, build_report
+from benchmark.harness import miniyaml
 
 
 def main() -> None:
@@ -84,6 +85,27 @@ def test_empirical_floor_can_clear_high_declared_noise() -> None:
     assert flags["oracle_effect_unstable"] == []
     assert flags["noise_too_high"] == []
     assert calibration["calibration_gate"] == "ready_for_review"
+
+
+def test_h2d_task_exposes_fixture_clone_contract() -> None:
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[2]
+    task_dir = repo_root / "benchmark" / "tasks" / "CORE-H2D-OVERFANOUT-23"
+    spec = importlib.util.spec_from_file_location("h2d_overfanout_23", task_dir / "benchmark.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert callable(getattr(module, "clone_fixtures", None))
+
+
+def test_evolution_regression_cases_use_regression_namespace() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    episode = repo_root / "benchmark" / "tasks" / "EVOL-EQUIVARIANT-SPECIALIZE-30" / "episodes" / "equivariant_specialization_episode.yaml"
+    payload = miniyaml.load(str(episode))
+    candidate = payload["phases"][0]["inject_experiences"][0]
+    cases = candidate["regression_cases"]
+    assert cases and all(str(case).startswith("REG-") for case in cases)
 
 
 if __name__ == "__main__":
