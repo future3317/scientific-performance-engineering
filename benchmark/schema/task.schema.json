@@ -98,10 +98,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "primary_metric": {
-          "type": "string",
-          "enum": ["step_ms_p50", "throughput_units_per_s", "time_to_quality_s"]
-        },
+        "primary_metric": {"type": "string"},
         "higher_is_better": {"type": "boolean"},
         "warmup_iterations": {"type": "integer", "minimum": 0},
         "measured_iterations": {"type": "integer", "minimum": 1},
@@ -153,7 +150,7 @@
     },
     "oracle": {
       "type": "object",
-      "required": ["expected_speedup_range"],
+      "required": [],
       "additionalProperties": false,
       "properties": {
         "expected_speedup_range": {
@@ -161,6 +158,10 @@
           "minItems": 2,
           "maxItems": 2,
           "items": {"type": "number", "exclusiveMinimum": 0}
+        },
+        "expected_score_range": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "number"}
         }
       }
     },
@@ -184,5 +185,22 @@
         "evidence": {"type": "object"}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"track": {"const": "evolution"}}},
+      "then": {
+        "properties": {
+          "measurement": {"properties": {"primary_metric": {"const": "episode_score"}}},
+          "oracle": {"required": ["expected_score_range"]}
+        }
+      },
+      "else": {
+        "properties": {
+          "measurement": {"properties": {"primary_metric": {"enum": ["step_ms_p50", "throughput_units_per_s", "time_to_quality_s"]}}, "required": ["primary_metric"]},
+          "oracle": {"required": ["expected_speedup_range"]}
+        }
+      }
+    }
+  ]
 }

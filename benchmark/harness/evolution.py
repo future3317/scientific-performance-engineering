@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import random
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -581,6 +582,8 @@ def run_episode(
     snapshot_dir: str | Path | None = None,
     core_repo: str | Path | None = None,
     context_mode: str = "reset",
+    seed: int | None = None,
+    max_wall_time_s: float | None = None,
 ) -> dict[str, Any]:
     """Run one episode under condition C or D; write episode_result.json + attestation.
 
@@ -594,6 +597,10 @@ def run_episode(
     if condition not in ("C", "C_STRESS", "D"):
         raise ValueError(f"episodes run under conditions C, C_STRESS, or D, got {condition!r}")
     episode = load_episode(episode_path)
+    if seed is not None:
+        episode = dict(episode)
+        episode["seed"] = int(seed)
+    deadline = time.monotonic() + float(max_wall_time_s) if max_wall_time_s is not None else None
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     core_repo = Path(core_repo) if core_repo else _core_repo_root()
@@ -624,6 +631,8 @@ def run_episode(
     drift_start: int | None = None
 
     for phase in episode["phases"]:
+        if deadline is not None and time.monotonic() > deadline:
+            raise TimeoutError(f"episode exceeded max_wall_time_s={max_wall_time_s}")
         if phase.get("family_id") and phase.get("transformation"):
             transform = transformation(str(phase["family_id"]), str(phase["transformation"]), **dict(phase.get("transformation_parameters") or {}))
             family_transformations.append(transform.__dict__)
@@ -643,6 +652,8 @@ def run_episode(
         if not task_records:
             task_records = [{"task_id": task_id} for task_id in (phase.get("tasks") or [])]
         for record in task_records:
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError(f"episode exceeded max_wall_time_s={max_wall_time_s}")
             visible = _environment_result(condition, phase, _strip_poison_labels(record), store, environment_state)
             phase_results.append(visible)
             paired_results.append(visible)

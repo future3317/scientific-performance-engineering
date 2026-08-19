@@ -34,7 +34,7 @@ diagnosis:
   enabled: true
   choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_break, memory_pressure]
 oracle:
-  expected_speedup_range: [1.2, 5.0]
+  expected_score_range: [0.0, 1.0]
 generator_family_id: GEN-EPISODE
 oracle_fix_pattern_id: FIX-EVOL-EPISODE-POISON-10
 scientific_contract_id: CONTRACT-EVOLUTION-GOVERNANCE

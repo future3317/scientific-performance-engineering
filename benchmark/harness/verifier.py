@@ -18,6 +18,7 @@ that passed S2-S4 (P2/P3).
 from __future__ import annotations
 
 import json
+import copy
 import time
 import traceback
 from pathlib import Path
@@ -171,6 +172,11 @@ def validate_task(task_dir: str | Path, check_fixtures: bool = True) -> list[str
         ):
             if key not in measurement:
                 errors.append(f"measurement.{key} is required")
+        primary_metric = measurement.get("primary_metric")
+        if spec.get("track") == "evolution" and primary_metric != "episode_score":
+            errors.append("evolution tasks must use measurement.primary_metric=episode_score")
+        if spec.get("track") != "evolution" and primary_metric == "episode_score":
+            errors.append("episode_score is reserved for evolution tasks")
 
     correctness = spec.get("correctness")
     if not isinstance(correctness, dict) or "num_fresh_inputs" not in correctness:
@@ -274,6 +280,8 @@ def calibrate_noise_control(
     outer_trial_id: str,
     benchmark_revision: str,
     task_manifest_digest: str,
+    task_package_digest: str | None = None,
+    population_manifest_digest: str | None = None,
     hardware_fingerprint: dict[str, Any] | None = None,
     compiler_cache_policy: str | None = None,
     seed: int = 0,
@@ -286,6 +294,8 @@ def calibrate_noise_control(
     task_dir = Path(task_dir)
     solution_dir = Path(solution_dir)
     spec = load_task_yaml(task_dir)
+    if spec["workspace"].get("api") == "episode_v1":
+        raise ValueError("episode_v1 uses bounded-score paired execution; noise control is not applicable")
     compiler_cache_policy = compiler_cache_policy or cache_policy_for_task(spec)
     fingerprint = hardware_fingerprint or capture_fingerprint()
     device, usable = runner.select_device(bool(spec.get("requires_cuda")))
@@ -321,6 +331,8 @@ def calibrate_noise_control(
         "outer_trial_id": outer_trial_id,
         "benchmark_revision": benchmark_revision,
         "task_manifest_digest": task_manifest_digest,
+        "task_package_digest": task_package_digest or task_manifest_digest,
+        "population_manifest_digest": population_manifest_digest or task_manifest_digest,
         "hardware_fingerprint": fingerprint,
         "software_fingerprint": fingerprint,
         "compile_threads": int(measurement_cfg.get("compile_threads", 0)),
@@ -360,6 +372,15 @@ def verify_task(
     spec = load_task_yaml(task_dir)  # raises cleanly on missing task
     if not solution_dir.is_dir():
         raise FileNotFoundError(f"solution directory not found: {solution_dir}")
+
+    # Evolution episodes have a bounded-score contract, not an atomic
+    # latency/speedup contract.  Keep them on their own verifier path so one
+    # outer trial executes exactly one baseline and one candidate episode.
+    if spec["workspace"].get("api") == "episode_v1":
+        return _verify_episode_task(
+            task_dir, solution_dir, out_path=out_path, seed=seed,
+            condition=condition, context_mode=context_mode,
+        )
 
     result: dict[str, Any] = {
         "schema_version": 1,
@@ -663,6 +684,123 @@ def verify_task(
 
     result["verdict"] = "pass" if verdict["verified"] else "inconclusive"
     mark_stage("S6")
+    return _finalize(result, started, out_path)
+
+
+def _verify_episode_task(
+    task_dir: Path,
+    solution_dir: Path,
+    *,
+    out_path: str | Path | None,
+    seed: int,
+    condition: str,
+    context_mode: str,
+) -> dict[str, Any]:
+    """Verify one evolution episode with one paired C/D execution.
+
+    ``episode_v1`` reports a bounded score.  Repetitions in its task manifest
+    identify independent outer trials; they are not inner performance arms.
+    """
+    started = time.perf_counter()
+    spec = load_task_yaml(task_dir)
+    result: dict[str, Any] = {
+        "schema_version": 1, "task_id": spec["task_id"], "metric_class": "evolution", "condition": condition,
+        "context_mode": context_mode, "verdict": "error", "validity": "invalid",
+        "execution_validity": "invalid", "protocol_failure": False,
+        "correctness_pass": False, "scientific_gates": {},
+        "task": {"track": spec["track"], "family": spec["family"], "kind": spec["kind"],
+                 "metric_class": "evolution", "expected_score_range": spec.get("oracle", {}).get("expected_score_range", [0.0, 1.0])},
+        "cost": {"wall_time_s": 0.0, "tokens": None, "tool_calls": None, "retries": 0},
+        "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "canary_tripped": False},
+        "fingerprint": capture_fingerprint(), "calibration_status": "not_evaluated",
+        "stage_times_s": {}, "errors": [],
+    }
+    try:
+        sandbox = runner.materialize_sandbox(task_dir)
+        result["sandbox_dir"] = str(sandbox)
+        oracle_dir = task_dir / "oracle"
+        hard_fail, findings = _scan_solution(solution_dir, anticheat.load_canaries(oracle_dir))
+        result["anticheat"].update({"hard_fail": hard_fail, "findings": findings})
+        if hard_fail:
+            result["verdict"] = "fail"
+            return _finalize(result, started, out_path)
+        device, usable = runner.select_device(bool(spec.get("requires_cuda")))
+        if not usable:
+            result["verdict"] = "inconclusive"
+            result["execution_validity"] = "resource_blocked"
+            result["errors"].append("episode requires CUDA; host has none")
+            return _finalize(result, started, out_path)
+        module = runner.import_module_by_path(task_dir / "benchmark.py")
+        entrypoint = str(spec["workspace"]["entrypoint"])
+        baseline_path = task_dir / "workspace" / entrypoint
+        candidate_path = solution_dir / entrypoint
+        if not candidate_path.is_file():
+            candidates = sorted(solution_dir.rglob(entrypoint))
+            if candidates:
+                candidate_path = candidates[0]
+            else:
+                raise FileNotFoundError(f"candidate entrypoint {entrypoint} not found")
+        fixtures = runner.call_benchmark_fn(module.make_fixtures, seed=seed, device=device)
+        baseline = runner.call_benchmark_fn(
+            module.run_performance,
+            solution=runner.call_benchmark_fn(module.load_solution, path=str(baseline_path), device=device),
+            fixtures=copy.deepcopy(fixtures), warmup=0, iterations=1, device=device,
+        )
+        candidate = runner.call_benchmark_fn(
+            module.run_performance,
+            solution=runner.call_benchmark_fn(module.load_solution, path=str(candidate_path), device=device),
+            fixtures=copy.deepcopy(fixtures), warmup=0, iterations=1, device=device,
+        )
+        base = runner.normalize_performance(baseline)
+        cand = runner.normalize_performance(candidate)
+        base_raw = base.get("raw", {}) if isinstance(base.get("raw"), dict) else {}
+        cand_raw = cand.get("raw", {}) if isinstance(cand.get("raw"), dict) else {}
+        base_score = base.get("value")
+        cand_score = cand.get("value")
+        if not isinstance(base_score, (int, float)) or not isinstance(cand_score, (int, float)):
+            raise ValueError("episode run_performance must return numeric episode_score")
+        base_gates = base_raw.get("episode_gates", {})
+        gates = cand_raw.get("episode_gates", {})
+        if not isinstance(base_gates, dict):
+            base_gates = {}
+        if not isinstance(gates, dict):
+            gates = {}
+        result["correctness_pass"] = True
+        result["scientific_gates"] = {str(k): bool(v) for k, v in gates.items()}
+        result["baseline_scientific_gates"] = {str(k): bool(v) for k, v in base_gates.items()}
+        result["scientific_gate_details"] = cand_raw.get("episode_gate_details", {})
+        result["episode_measurement"] = {
+            "metric_class": "evolution",
+            "seed": seed,
+            "required_outer_trials": int(spec["measurement"].get("repetitions", 1)),
+            "baseline_score": float(base_score), "candidate_score": float(cand_score),
+            "absolute_score_delta": float(cand_score) - float(base_score),
+            "paired_seed_effect": {
+                "seed": seed, "baseline_score": float(base_score),
+                "candidate_score": float(cand_score),
+                "delta": float(cand_score) - float(base_score),
+            },
+            "baseline_wall_time_s": base.get("raw", {}).get("timing", {}).get("wall_time_s"),
+            "candidate_wall_time_s": cand.get("raw", {}).get("timing", {}).get("wall_time_s"),
+            "baseline_result": base_raw.get("episode_result"),
+            "candidate_result": cand_raw.get("episode_result"),
+            "baseline_gates": result["baseline_scientific_gates"],
+            "candidate_gates": result["scientific_gates"],
+        }
+        result["task_score"] = float(cand_score)
+        result["execution_validity"] = "valid"
+        result["validity"] = "valid"
+        result["efficacy_eligible"] = True
+        gates_ok = all(result["scientific_gates"].values()) and all(result["baseline_scientific_gates"].values())
+        result["calibration_status"] = "eligible" if gates_ok else "blocked"
+        result["verdict"] = "pass" if gates_ok else "fail"
+    except Exception as exc:
+        result["verdict"] = "error"
+        result["validity"] = "invalid"
+        result["execution_validity"] = "invalid"
+        result["protocol_failure"] = True
+        result["errors"].append(f"episode verifier raised: {exc!r}")
+        result["failure_detail"] = {"exception_type": type(exc).__name__, "exception_message": str(exc), "traceback": traceback.format_exc()}
     return _finalize(result, started, out_path)
 
 

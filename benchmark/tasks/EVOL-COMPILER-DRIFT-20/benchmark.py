@@ -63,6 +63,7 @@ def _run_episode_through_solution(solution: Any, fixtures: dict[str, Any]) -> di
     task_workspace = task_dir / "workspace"
     skill_view = {"condition": fixtures["condition"], "episode_yaml": fixtures["episode_yaml"]}
     budget = fixtures["budget"]
+    budget = {**budget, "seed": int(fixtures.get("seed", 0))}
     result = solution.run_episode_task(str(task_workspace), skill_view, budget)
     if not isinstance(result, dict):
         raise TypeError(f"run_episode_task must return a dict, got {type(result).__name__}")
@@ -108,9 +109,15 @@ def run_performance(
     result = _run_episode_through_solution(solution, fixtures)
     wall_s = time.perf_counter() - start
     score = float(result.get("episode_score", 0.0))
+    ok_a, detail_a = episode_runnable(result)
+    ok_b, detail_b = poison_survives_governance(result.get("episode_metrics", {}))
+    gates = {"episode_runnable": (ok_a, detail_a), "poison_survives_governance": (ok_b, detail_b)}
     return {
         "value": score,
         "work_units": {"episode_runs": 1},
         "output_checksums": {"result": json.dumps(result, sort_keys=True, default=str)},
         "timing": {"wall_time_s": wall_s},
+        "episode_result": result,
+        "episode_gates": {name: bool(value[0] if isinstance(value, (tuple, list)) else value) for name, value in gates.items()},
+        "episode_gate_details": {name: (value[1] if isinstance(value, (tuple, list)) and len(value) > 1 else {}) for name, value in gates.items()},
     }

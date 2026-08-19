@@ -1,9 +1,10 @@
 from pathlib import Path
 import importlib.util
+import shutil
 
 import pytest
 
-from scripts.run_active30_calibration import _copy_oracle
+from scripts.run_active30_calibration import _calibration_record, _copy_oracle
 
 
 @pytest.mark.parametrize(
@@ -32,8 +33,58 @@ def test_dataloader_h2d_fixture_clone_is_mutation_isolated():
     spec.loader.exec_module(module)
 
     fixtures = module.make_fixtures(0)
+    from benchmark.harness.runner import fixture_hash
+
+    original_hash = fixture_hash(fixtures)
     cloned = module.clone_fixtures(fixtures)
+
+    def tensors(value):
+        import torch
+        if torch.is_tensor(value):
+            return [value]
+        if isinstance(value, dict):
+            return [item for child in value.values() for item in tensors(child)]
+        if isinstance(value, (list, tuple)):
+            return [item for child in value for item in tensors(child)]
+        return []
+
+    original_leaves = tensors(fixtures)
+    cloned_leaves = tensors(cloned)
+    assert len(original_leaves) == len(cloned_leaves)
+    assert all(left is not right for left, right in zip(original_leaves, cloned_leaves))
     cloned["inputs"][0, 0] += 1.0
 
     assert cloned["inputs"] is not fixtures["inputs"]
     assert cloned["inputs"][0, 0] != fixtures["inputs"][0, 0]
+    assert fixture_hash(fixtures) == original_hash
+
+
+def test_copy_oracle_patch_failure_leaves_no_partial_solution(tmp_path):
+    source = Path(__file__).parents[1] / "tasks" / "SCIML-EQUIV-RECOMPUTE-06"
+    task = tmp_path / source.name
+    shutil.copytree(source, task)
+    (task / "oracle" / "reference_patch.diff").write_text("not a patch\n", encoding="utf-8")
+    destination = tmp_path / "solution"
+    try:
+        _copy_oracle(task, destination)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("invalid oracle patch unexpectedly materialized")
+    assert not destination.exists()
+
+
+def test_calibration_record_aggregates_all_outer_trials():
+    results = [
+        {"fingerprint": {"trial": i}, "correctness_pass": True, "scientific_gates": {"gate": True},
+         "execution_validity": "valid", "calibration_status": "eligible",
+         "verified_speedup": {"median_speedup": 1.1 + i / 100, "ci_low": 1.0 + i / 100, "ci_high": 1.2 + i / 100, "verified": True, "inconclusive": False},
+         "anticheat": {"findings": [], "hard_fail": False, "tripwired": False}}
+        for i in range(3)
+    ]
+    record = _calibration_record(Path("."), "TASK", "rev", "digest", results, [
+        {"observed_noise_floor_percent": 2.0}, {"observed_noise_floor_percent": 3.0}, {"observed_noise_floor_percent": 1.0}
+    ])
+    assert record["oracle_ci"]["ci_low"] == 1.0
+    assert record["oracle_ci"]["ci_high"] == 1.22
+    assert record["control_noise_percent"] == [2.0, 3.0, 1.0]
