@@ -180,12 +180,20 @@ def test_episode_candidate_input_excludes_runtime_identity() -> None:
 
         fixtures = module.make_fixtures(123 + index)
         module.run_performance(SpySolution(), fixtures)
+        declared = miniyaml.load(str(task_dir / "task.yaml"))
         assert set(observed["skill_view"]) == {"public_context"}
         assert "seed" not in str(observed["skill_view"]).lower()
         assert "condition" not in str(observed["skill_view"]).lower()
         assert "episode_yaml" not in str(observed["skill_view"]).lower()
         assert set(observed["budget"]) == {"max_wall_time_s"}
         assert "seed" not in observed["budget"]
+        assert observed["budget"]["max_wall_time_s"] == declared["time_budget_s"]
+
+
+def test_episode_budget_uses_declared_task_budget() -> None:
+    from benchmark.harness.verifier import _episode_arm_budget
+
+    assert _episode_arm_budget({"time_budget_s": 600}) == 600.0
 
 
 if __name__ == "__main__":

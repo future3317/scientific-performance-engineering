@@ -44,7 +44,7 @@ def make_fixtures(seed: int, device: str = "cpu") -> dict[str, Any]:
     """Deterministic fixture describing the episode to run."""
     return {
         "public_context": {"workload": {"runtime_version": "A", "context_width": 2, "drift_rate": 0.05, "fixture_index": 0}},
-        "budget": {"max_wall_time_s": 120},
+        "budget": {"max_wall_time_s": 600},
         "device": device,
         "seed": seed,
     }

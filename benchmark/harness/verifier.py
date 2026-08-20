@@ -702,6 +702,14 @@ def verify_task(
     return _finalize(result, started, out_path)
 
 
+def _episode_arm_budget(spec: Mapping[str, Any]) -> float:
+    """Use the task's declared wall-time contract for each episode arm."""
+    budget = float(spec["time_budget_s"])
+    if budget <= 0.0:
+        raise ValueError("episode time_budget_s must be positive")
+    return budget
+
+
 def _verify_episode_task(
     task_dir: Path,
     solution_dir: Path,
@@ -779,6 +787,8 @@ def _verify_episode_task(
                 raise ValueError("episode action condition must be C, C_STRESS, or D")
             return action
 
+        arm_budget = _episode_arm_budget(spec)
+
         def execute_action(probe: Any, label: str) -> dict[str, Any]:
             action = action_from_probe(probe)
             episode_path = next(task_dir.glob("episodes/*.yaml"), None)
@@ -791,14 +801,14 @@ def _verify_episode_task(
                     f"r=evolution.run_episode({str(episode_path)!r}, {str(action['condition']).upper()!r}, "
                     f"{str(out_dir)!r}, core_repo={str(Path(__file__).resolve().parents[2])!r}, "
                     f"snapshot_dir={str(Path(__file__).resolve().parents[2])!r}, context_mode={context_mode!r}, "
-                    f"seed={int(seed)!r}, max_wall_time_s=120.0); "
+                    f"seed={int(seed)!r}, max_wall_time_s={arm_budget!r}); "
                     f"open({str(out_dir / 'harness_episode.json')!r}, 'w', encoding='utf-8').write(json.dumps(r, default=str))"
                 )
                 completed = runner.run_python_subprocess(
-                    snippet=snippet, timeout=120.0, cwd=Path(__file__).resolve().parents[2]
+                    snippet=snippet, timeout=arm_budget, cwd=Path(__file__).resolve().parents[2]
                 )
                 if completed["timed_out"]:
-                    raise TimeoutError(f"episode arm {label} exceeded 120s")
+                    raise TimeoutError(f"episode arm {label} exceeded {arm_budget:g}s")
                 if completed["exit_code"] != 0:
                     raise RuntimeError(f"episode arm {label} failed: {completed['stderr'] or completed['stdout']}")
                 return json.loads((out_dir / "harness_episode.json").read_text(encoding="utf-8"))
