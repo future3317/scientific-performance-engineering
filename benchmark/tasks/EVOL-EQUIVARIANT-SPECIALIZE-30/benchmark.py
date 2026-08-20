@@ -59,4 +59,7 @@ def score_harness_episode(result):
 
 def gates_harness_episode(result):
     scored={'episode_score':score_harness_episode(result),'episode_metrics':result.get('metrics',{}),'condition_used':result.get('condition')}
-    return {'state_transition_valid':_SCIENCE.state_transition_valid(scored),'specialization_applied':_SCIENCE.specialization_applied(scored.get('episode_metrics',{}))}
+    gates={'state_transition_valid':_SCIENCE.state_transition_valid(scored)}
+    if str(result.get('condition', '')).upper() == 'D':
+        gates['specialization_applied']=_SCIENCE.specialization_applied(scored.get('episode_metrics',{}))
+    return gates

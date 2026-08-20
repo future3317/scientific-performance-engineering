@@ -196,5 +196,17 @@ def test_episode_budget_uses_declared_task_budget() -> None:
     assert _episode_arm_budget({"time_budget_s": 600}) == 600.0
 
 
+def test_evolution_specialization_gate_is_candidate_only() -> None:
+    import importlib.util
+
+    task_dir = Path(__file__).parents[1] / "tasks" / "EVOL-EQUIVARIANT-SPECIALIZE-30"
+    module_spec = importlib.util.spec_from_file_location("evol30_contract", task_dir / "benchmark.py")
+    assert module_spec is not None and module_spec.loader is not None
+    benchmark_module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(benchmark_module)
+    result = {"metrics": {"rule_precision": None, "negative_transfer_rate": 0.0}, "condition": "C"}
+    assert "specialization_applied" not in benchmark_module.gates_harness_episode(result)
+
+
 if __name__ == "__main__":
     main()
