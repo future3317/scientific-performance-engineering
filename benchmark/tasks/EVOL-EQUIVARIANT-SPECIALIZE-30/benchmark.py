@@ -35,9 +35,9 @@ def _sync(device: str) -> None:
         torch.cuda.synchronize()
 
 REQUIRED_API=('run_episode_task',)
-def make_fixtures(seed:int,device:str='cpu'): return {'device':device,'condition':'C','budget':{'max_wall_time_s':120},'seed':seed}
+def make_fixtures(seed:int,device:str='cpu'): return {'device':device,'public_context':{'workload':{'runtime_version':'A','context_width':4,'drift_rate':0.3,'fixture_index':2}},'budget':{'max_wall_time_s':120},'seed':seed}
 def _run(solution,fixtures):
-    skill_view={'condition':fixtures['condition']}; budget={**fixtures['budget'],'seed':int(fixtures.get('seed',0))}; return solution.run_episode_task(str(_TASK_DIR/'workspace'),skill_view,budget)
+    skill_view={'public_context':fixtures['public_context']}; budget={'max_wall_time_s':float(fixtures['budget']['max_wall_time_s'])}; return solution.run_episode_task(str(_TASK_DIR/'workspace'),skill_view,budget)
 def run_correctness(solution,fixtures):
     try: r=_run(solution,fixtures); return {'passed':isinstance(r.get('action'),dict),'details':{'keys':sorted(r)}}
     except Exception as exc: return {'passed':False,'details':{'error':repr(exc)}}

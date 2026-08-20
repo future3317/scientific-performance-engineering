@@ -37,6 +37,7 @@ EMPIRICAL_FLAGS = (
     "difficulty_floor",
     "platform_direction_flip",
     "agent_shortcut_detected",
+    "evolution_delta_out_of_range",
 )
 CALIBRATION_FIELDS = (
     "task_digest", "revision", "environment", "outer_trials", "noise_control",
@@ -234,8 +235,22 @@ def _empirical_flags(
                 flags["noise_too_high"].append(task_id)
             if not evolution_record and (not isinstance(record.get("oracle_ci"), dict) or not record.get("oracle_ci")):
                 flags["oracle_effect_unstable"].append(task_id)
-            if evolution_record and (not isinstance(record.get("episode_effect"), dict) or not isinstance(record.get("episode_effect", {}).get("outer_trial_deltas"), list) or len(record.get("episode_effect", {}).get("outer_trial_deltas", [])) != int(spec.get("measurement", {}).get("repetitions", 3))):
-                flags["semantic_gate_too_weak"].append(task_id)
+            if evolution_record:
+                episode_effect = record.get("episode_effect")
+                deltas = episode_effect.get("outer_trial_deltas") if isinstance(episode_effect, dict) else None
+                expected_repetitions = int(spec.get("measurement", {}).get("repetitions", 3))
+                if not isinstance(deltas, list) or len(deltas) != expected_repetitions:
+                    flags["semantic_gate_too_weak"].append(task_id)
+                else:
+                    numeric_deltas = [float(value) for value in deltas if isinstance(value, (int, float)) and math.isfinite(float(value))]
+                    mean_delta = episode_effect.get("mean_absolute_score_delta") if isinstance(episode_effect, dict) else None
+                    if len(numeric_deltas) != len(deltas) or not isinstance(mean_delta, (int, float)) or not math.isfinite(float(mean_delta)):
+                        flags["semantic_gate_too_weak"].append(task_id)
+                    expected_delta = spec.get("oracle", {}).get("expected_delta_range")
+                    if isinstance(expected_delta, list) and len(expected_delta) == 2 and isinstance(mean_delta, (int, float)):
+                        lower, upper = float(expected_delta[0]), float(expected_delta[1])
+                        if not lower <= float(mean_delta) <= upper:
+                            flags["evolution_delta_out_of_range"].append(task_id)
             if not isinstance(record.get("semantic_gates"), dict) or not record.get("semantic_gates"):
                 flags["semantic_gate_too_weak"].append(task_id)
             if not isinstance(record.get("anti_cheat"), dict) or record.get("anti_cheat", {}).get("status") not in {"pass", "passed", "clean"}:

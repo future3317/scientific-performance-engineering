@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark.formal import attest
 from benchmark.harness import miniyaml, stats
 from benchmark.harness.fingerprint import fingerprints_compatible
+from scripts.run_active30_calibration import classify_calibration_result
 
 
 def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object]:
@@ -33,6 +34,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
     fingerprint = capture_fingerprint()
     reusable: list[dict[str, str]] = []
     rerun: list[dict[str, str]] = []
+    blocked: list[dict[str, str]] = []
     for task_id in active["task_ids"]:
         task_id = str(task_id)
         task_dir = task_root / task_id
@@ -56,6 +58,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                     "population_manifest_digest": population_digest,
                     "harness_digest": static_harness,
                     "calibration_runner_digest": runner_digest,
+                    "fingerprint": fingerprint,
                 }
                 if attest.validate_calibration_envelope(payload, expected):
                     reason = "provenance_mismatch"
@@ -82,18 +85,27 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                         reason = "raw_result_digest_mismatch"
                     elif not reason and (noise_payload.get("task_package_digest") != task_digest or noise_payload.get("population_manifest_digest") != population_digest):
                         reason = "noise_identity_mismatch"
+                    if not reason:
+                        classification = classify_calibration_result(raw_payload)
+                        if classification == "blocked_requires_revision":
+                            reason = "blocked_requires_revision"
+                        elif classification == "rerun":
+                            reason = "rerun_required"
             except (OSError, json.JSONDecodeError, KeyError):
                 reason = "legacy_or_incomplete_envelope"
             cell = {"task_id": task_id, "outer_trial_id": outer_id}
-            if reason:
+            if reason == "blocked_requires_revision":
+                cell["reason"] = reason
+                blocked.append(cell)
+            elif reason:
                 cell["reason"] = reason
                 rerun.append(cell)
             else:
                 reusable.append(cell)
     report = {
         "schema_version": 1, "producer_revision": revision,
-        "reusable": reusable, "rerun_required": rerun,
-        "counts": {"reusable": len(reusable), "rerun_required": len(rerun)},
+        "reusable": reusable, "rerun_required": rerun, "blocked_requires_revision": blocked,
+        "counts": {"reusable": len(reusable), "rerun_required": len(rerun), "blocked_requires_revision": len(blocked)},
     }
     destination = out / "calibration_resume_audit.json"
     destination.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from benchmark.formal import aggregate
+from benchmark.formal import release_manifest, run_campaign
 from benchmark.formal.attest import validate_experiment
 from benchmark.taskgen.validate_population import validate_formal_readiness
 
@@ -54,3 +55,53 @@ def test_formal_manifest_requires_agent_provenance_fields():
         "cuda_version": None,
     }
     assert any("formal agent_config missing provider" in error for error in validate_experiment(manifest))
+
+
+def test_campaign_config_accepts_repo_relative_and_absolute_same_manifest(tmp_path: Path):
+    config = ROOT / "benchmark" / "formal" / "campaign_config.yaml"
+    manifest = (ROOT / "benchmark" / "manifests" / "v1.0-50-slots.json").resolve()
+    validated = run_campaign._validate_campaign_config(
+        config,
+        conditions=("A", "B", "C", "D"),
+        context_modes=("reset",),
+        outer_trials=3,
+        schedule_seed=0,
+        population_manifest=manifest,
+        repo_root=ROOT,
+    )
+    assert validated["population_manifest"] == "benchmark/manifests/v1.0-50-slots.json"
+    bad_config = tmp_path / "campaign.yaml"
+    bad_config.write_text("mode: formal\npopulation_manifest: benchmark/manifests/other.json\n", encoding="utf-8")
+    try:
+        run_campaign._validate_campaign_config(
+            bad_config,
+            conditions=("A", "B", "C", "D"), context_modes=("reset",),
+            outer_trials=3, schedule_seed=0, population_manifest=manifest, repo_root=ROOT,
+        )
+    except ValueError as exc:
+        assert "population_manifest" in str(exc)
+    else:
+        raise AssertionError("different manifest path unexpectedly accepted")
+
+
+def test_release_manifest_rejects_empty_executor_image(tmp_path: Path):
+    paths = []
+    for name in ("claims", "protocol", "campaign"):
+        path = tmp_path / name
+        path.write_text("{}\n", encoding="utf-8")
+        paths.append(path)
+    try:
+        release_manifest.build_release_manifest(
+            repo_root=ROOT,
+            population={},
+            approval={},
+            contamination={},
+            claims_path=paths[0],
+            protocol_path=paths[1],
+            campaign_config=paths[2],
+            executor_image="",
+        )
+    except ValueError as exc:
+        assert "executor_image" in str(exc)
+    else:
+        raise AssertionError("empty executor_image unexpectedly accepted")

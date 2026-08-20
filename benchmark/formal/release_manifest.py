@@ -87,6 +87,8 @@ def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | 
 
 def build_release_manifest(*, repo_root: str | Path, population: dict[str, Any], approval: dict[str, Any], contamination: dict[str, Any], claims_path: Path, protocol_path: Path, campaign_config: Path, executor_image: str) -> dict[str, Any]:
     root = Path(repo_root)
+    if not isinstance(executor_image, str) or not executor_image.strip():
+        raise ValueError("executor_image must be a non-empty image digest or reference")
     manifest = {
         "schema_version": 1,
         "status": "frozen",

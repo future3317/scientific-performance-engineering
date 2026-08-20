@@ -26,6 +26,22 @@ from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_comp
 from benchmark.taskgen.validate_population import build_pilot_calibration, build_report
 
 
+def classify_calibration_result(raw: dict[str, Any]) -> str:
+    """Classify a persisted raw result before resume reuse."""
+    execution_validity = str(raw.get("execution_validity", ""))
+    if bool(raw.get("protocol_failure")):
+        return "blocked_requires_revision"
+    if execution_validity == "resource_blocked" or bool(raw.get("timeout")):
+        return "rerun"
+    if raw.get("failure_class") == "infrastructure" or str(raw.get("failure_stage", "")) in {"executor", "worker", "agent"}:
+        return "rerun"
+    if execution_validity == "invalid":
+        return "blocked_requires_revision"
+    if execution_validity == "valid" and raw.get("efficacy_eligible") is True:
+        return "reusable"
+    return "rerun"
+
+
 def _patch_strip_level(patch_path: Path, solution_dir: Path) -> int:
     """Return the strip level matching the copied workspace layout.
 
@@ -224,14 +240,22 @@ def run(args: argparse.Namespace) -> int:
                 "harness_digest": harness_digest, "calibration_runner_digest": runner_digest,
                 "fingerprint": fingerprint,
             }
-            if _cell_envelope_compatible(envelope_path, static=static_envelope, noise_path=noise_path, result_path=result_path):
+            cell_compatible = _cell_envelope_compatible(envelope_path, static=static_envelope, noise_path=noise_path, result_path=result_path)
+            if cell_compatible:
                 noise = json.loads(noise_path.read_text(encoding="utf-8"))
                 result = json.loads(result_path.read_text(encoding="utf-8"))
-                if result.get("protocol_failure") or (result.get("validity") == "invalid" and result.get("execution_validity") == "invalid"):
+                classification = classify_calibration_result(result)
+                if classification == "blocked_requires_revision":
                     raise RuntimeError(f"calibration cell {task_id}/{outer_id} has a protocol failure and is blocked_requires_revision")
-                task_envelopes.append(json.loads(envelope_path.read_text(encoding="utf-8")))
+                if classification != "reusable":
+                    _quarantine_cell_files(out, task_id, outer_id, [noise_path, result_path, envelope_path])
+                    classification = "rerun"
+                else:
+                    task_envelopes.append(json.loads(envelope_path.read_text(encoding="utf-8")))
             else:
                 _quarantine_cell_files(out, task_id, outer_id, [noise_path, result_path, envelope_path])
+                classification = "rerun"
+            if classification == "rerun":
                 if spec.get("workspace", {}).get("api") == "episode_v1":
                     noise = {
                         "schema_version": 1, "metric_class": "evolution",
@@ -252,7 +276,6 @@ def run(args: argparse.Namespace) -> int:
                         hardware_fingerprint=fingerprint,
                         compiler_cache_policy=verifier.cache_policy_for_task(spec), seed=outer,
                     )
-                task_noises.append(noise)
                 print(json.dumps({"event": "start_verifier", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
                 result = verifier.verify_task(
                     task_dir, solution_dir, out_path=result_path, seed=outer,
@@ -276,8 +299,7 @@ def run(args: argparse.Namespace) -> int:
                 )
                 envelope_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 task_envelopes.append(envelope)
-            if not task_noises or task_noises[-1] is not noise:
-                task_noises.append(noise)
+            task_noises.append(noise)
             task_results.append(result)
             print(json.dumps({"task_id": task_id, "outer_trial_id": outer_id, "verdict": result.get("verdict"), "calibration_status": result.get("calibration_status"), "wall_time_s": result.get("cost", {}).get("wall_time_s")}, ensure_ascii=False), flush=True)
         empirical.append(_calibration_record(task_dir, task_id, revision, task_digest, task_results, task_noises, task_envelopes))
