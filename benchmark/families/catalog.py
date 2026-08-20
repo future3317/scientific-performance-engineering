@@ -554,9 +554,6 @@ _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
         {"path": "workload.logical_steps", "type": "numeric"},
         {"path": "workload.dynamic_shape_rate", "type": "numeric"},
         {"path": "workload.graph_size", "type": "numeric"},
-        {"path": "workload.evidence.graph_break_count", "type": "numeric"},
-        {"path": "workload.evidence.recompile_count", "type": "numeric"},
-        {"path": "workload.evidence.compile_worthiness", "type": "categorical"},
     ),
     "graph_cache": (
         {"path": "workload.geometry_displacement", "type": "numeric"},

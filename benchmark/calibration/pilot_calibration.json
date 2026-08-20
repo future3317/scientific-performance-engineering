@@ -33,7 +33,7 @@
     "SCIML-GNN-RAGGED-05",
     "SCIML-EQUIV-RECOMPUTE-06"
   ],
-  "population_report_digest": "05befede59296c56392fdf552c8bc0644d46aa1042bcba13fd96927dd43efca4",
+  "population_report_digest": "8b2740322b163c332a5fb2939d15a499096da1268ed5d34543f8b3c3da0849fc",
   "calibration_gate": "blocked",
   "tasks": [
     {
@@ -195,7 +195,7 @@
     },
     {
       "task_id": "CORE-H2D-OVERFANOUT-23R2",
-      "task_digest": "ae8d5d66c6dc599dff11b8459b1df0abeb8ec0294baf76b6921b935df78f3c98",
+      "task_digest": "2f2a9b6c289dab7ccb7918afe5c3593e183d98a1954af08b449f9b5f084d8bb7",
       "revision": "unknown",
       "environment": {},
       "outer_trials": [],
@@ -442,7 +442,7 @@
     },
     {
       "task_id": "CORE-DATALOADER-FANOUT-16",
-      "task_digest": "f5a6c8b9d4e4d86dfd8907a7fedf6b3ec81f61a2394ec2d0e690520027479af1",
+      "task_digest": "c7fee5dda0a88ba75eb1340ebadfc857e93ceb7bb0ac51ef373dafcd470e6f45",
       "revision": "unknown",
       "environment": {},
       "outer_trials": [],
@@ -576,7 +576,7 @@
     },
     {
       "task_id": "EVOL-COMPILER-DRIFT-20",
-      "task_digest": "6a5675d37e627f506e43abc0a3261fd3329ae3e14900edc7f831478d23453506",
+      "task_digest": "aff450140ccf1d668c956283d814187fa36502b33ffe7aef67be6a93831da2e5",
       "revision": "unknown",
       "environment": {},
       "outer_trials": [],
@@ -599,7 +599,7 @@
     },
     {
       "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
-      "task_digest": "ff3443b54337c414e157fc9bd9d82252d1aaa3c82a38392c3d519ed65175a795",
+      "task_digest": "9cf1746983287a31e8ccec30249697ad463fa8bd0ee41819358b30ff7925e37e",
       "revision": "unknown",
       "environment": {},
       "outer_trials": [],
@@ -622,7 +622,7 @@
     },
     {
       "task_id": "EVOL-EPISODE-POISON-10",
-      "task_digest": "a9e60d597d289f78da0bf5c0104d98c68635a59e26050fd8eba816ebdc75b4a1",
+      "task_digest": "5ba868787a0e6262e5b1362161c5bebe0eb7aee78891c5a1c1c2b96ab0e58e97",
       "revision": "unknown",
       "environment": {},
       "outer_trials": [],
@@ -645,7 +645,7 @@
     },
     {
       "task_id": "SCIML-GRAPH-REBUILD-08",
-      "task_digest": "40299ab7d7b62226893044c994e4b277eb338aacb78b6b3b8de71e4096730158",
+      "task_digest": "3ef8c4ab8edee3525ebdddff350bc174dc89cbf715cf948b213641fdde3cc020",
       "revision": "unknown",
       "environment": {},
       "outer_trials": [],
@@ -716,5 +716,5 @@
     }
   ],
   "formal_50_generation": "withheld",
-  "artifact_digest": "4fd67058f078b4e1c66b896d8bfa7d1ad5182e36aecc127f7503d887d59c701a"
+  "artifact_digest": "0e890ce046494749881bb99ff0e31055a9c757b2fd3c00986abb0288f44fb4b2"
 }

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from benchmark.formal import aggregate
 from benchmark.formal import release_manifest, run_campaign
 from benchmark.formal.attest import validate_experiment
 from benchmark.taskgen.validate_population import validate_formal_readiness
+from benchmark.taskgen import validate_population
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +28,26 @@ def test_blocked_approval_cannot_open_formal_readiness():
     calibration = {"calibration_gate": "blocked", "tasks": []}
     approval = {"approved": False}
     assert validate_formal_readiness(report, calibration, approval)
+
+
+def test_strict_formal_cli_fails_closed_without_crashing(tmp_path: Path, monkeypatch):
+    report_path = tmp_path / "population_report.json"
+    calibration_path = tmp_path / "pilot_calibration.json"
+    approval_path = tmp_path / "calibration_approval.json"
+    report_path.write_text(json.dumps({
+        "empirical_calibration": {"calibration_gate": "blocked"},
+        "semantic_gate_failures": [],
+        "empirical_rejection_flags": {},
+        "retired_for_formal": [],
+    }), encoding="utf-8")
+    calibration_path.write_text(json.dumps({"calibration_gate": "blocked", "tasks": []}), encoding="utf-8")
+    approval_path.write_text(json.dumps({"approved": False}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "validate_population", "--strict-formal", "--out", str(report_path),
+        "--empirical", str(calibration_path), "--pilot-calibration", str(calibration_path),
+        "--approval", str(approval_path),
+    ])
+    assert validate_population.main() == 1
 
 
 def test_confirmatory_aggregate_withholds_incomplete_matrix():
