@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "revision": "d6f1313",
+  "diagnostic_scope": "bounded_structural_and_calibration_diagnostic",
+  "claims": {
+    "formal_50": "not_generated",
+    "efficacy": "not_claimed",
+    "calibration_approval": "blocked"
+  },
+  "population": {
+    "task_count": 30,
+    "track_counts": {
+      "spe_core": 16,
+      "sciml": 11,
+      "evolution": 3
+    },
+    "structural_validator": {
+      "errors": [],
+      "status": "pass"
+    },
+    "cross_view_consistency": {
+      "surface_count": 6,
+      "anchor_count": 30,
+      "reconstructed_anchor_count": 30,
+      "errors": [],
+      "status": "pass"
+    }
+  },
+  "boundary_diagnostic": {
+    "surface_count": 24,
+    "families": {
+      "autograd": {"status": "identified", "sealed_errors": 0},
+      "checkpoint": {"status": "identified", "sealed_errors": 0},
+      "compile": {"status": "underidentified", "sealed_errors": 2},
+      "crystal_generation": {"status": "identified", "sealed_errors": 0},
+      "crystal_sampling": {"status": "identified", "sealed_errors": 0},
+      "episode": {"status": "identified", "sealed_errors": 0},
+      "equivariant_head": {"status": "underidentified", "sealed_errors": 0},
+      "graph_cache": {"status": "underidentified", "sealed_errors": 0},
+      "h2d_pipeline": {"status": "underidentified", "sealed_errors": 0},
+      "repeated_compute": {"status": "identified", "sealed_errors": 0},
+      "scalar_sync": {"status": "identified", "sealed_errors": 0}
+    },
+    "interpretation": "diagnostic_only; underidentified families are not efficacy-eligible"
+  },
+  "interaction_diagnostic": {
+    "surface_count": 16,
+    "wrong_relation_rate_among_resolved": 0.75,
+    "unresolved_rate": 0.0,
+    "total_identification_failure_rate": 0.75,
+    "interpretation": "short power diagnostic; not suitable for efficacy aggregation"
+  },
+  "evolution_reference": {
+    "artifact": "benchmark/calibration/staged-probes/2026-08-19/evol-equivariant-specialize-30-episode.json",
+    "condition": "D",
+    "canonical_rule_count": 1,
+    "poisoning_survival_rate": 1.0,
+    "efficacy_claim": false
+  },
+  "existing_empirical_evidence": {
+    "dynamic": "benchmark/calibration/dynamic-calibration-v3-summary.json",
+    "h2d": "benchmark/calibration/staged-probes/2026-08-19/summary.json",
+    "interpretation": "task-level calibration evidence only; population approval remains blocked"
+  },
+  "long_surface_runner": {
+    "surface_count": 100,
+    "status": "not_completed_in_this_run",
+    "reason": "bounded diagnostic window expired before completion",
+    "formal_evidence": false
+  }
+}

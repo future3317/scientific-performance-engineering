@@ -137,6 +137,24 @@ def test_evolution_regression_cases_use_regression_namespace() -> None:
     assert cases and all(str(case).startswith("REG-") for case in cases)
 
 
+def test_cross_view_consistency_uses_active_manifest_not_retired_tasks() -> None:
+    from benchmark.families.consistency import validate_cross_view_consistency
+
+    repo_root = Path(__file__).resolve().parents[2]
+    report = validate_cross_view_consistency(
+        tasks_root=repo_root / "benchmark" / "tasks", surface_count=6,
+    )
+    assert report["ok"], report["errors"]
+
+
+def test_compile_boundary_grammar_uses_public_workload_features() -> None:
+    from benchmark.families import family_predicate_grammar, family_decision_lattice
+    grammar = family_predicate_grammar("compile")
+    assert all(".evidence." not in feature["path"] for feature in grammar["features"])
+    assert all(".evidence." not in path for path in grammar["threshold_universe"])
+    assert family_decision_lattice("compile", count=8)
+
+
 def test_episode_candidate_input_excludes_runtime_identity() -> None:
     import importlib.util
 

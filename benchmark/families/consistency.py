@@ -98,7 +98,21 @@ def validate_cross_view_consistency(
     if tasks_root is not None:
         tasks_root = Path(tasks_root)
         seen: dict[str, str] = {}
-        for task_dir in sorted(tasks_root.iterdir()):
+        manifest_path = tasks_root.parent / "pilot_population.json"
+        active_task_ids: set[str] | None = None
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest.get("status") == "active_manifest" and isinstance(manifest.get("task_ids"), list):
+                    active_task_ids = {str(task_id) for task_id in manifest["task_ids"]}
+            except (OSError, json.JSONDecodeError):
+                active_task_ids = None
+        task_dirs = (
+            [tasks_root / task_id for task_id in sorted(active_task_ids)]
+            if active_task_ids is not None
+            else sorted(tasks_root.iterdir())
+        )
+        for task_dir in task_dirs:
             task_path = task_dir / "task.yaml"
             if not task_path.is_file():
                 continue

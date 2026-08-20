@@ -610,6 +610,7 @@ def main() -> int:
             return 1
         report_path = args.out or (args.tasks_root.parent / "population_report.json")
         calibration_path = args.pilot_calibration or report_path.with_name("pilot_calibration.json")
+        errors: list[str] = []
         try:
             report = json.loads(report_path.read_text(encoding="utf-8"))
             calibration = json.loads(calibration_path.read_text(encoding="utf-8"))

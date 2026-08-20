@@ -251,16 +251,16 @@
       18.0
     ],
     [
-      1.2,
-      5.0
+      0.0,
+      1.0
     ],
     [
-      1.2,
-      4.0
+      0.0,
+      1.0
     ],
     [
-      1.2,
-      5.0
+      0.0,
+      1.0
     ],
     [
       0.9,
@@ -777,7 +777,8 @@
     "difficulty_ceiling": [],
     "difficulty_floor": [],
     "platform_direction_flip": [],
-    "agent_shortcut_detected": []
+    "agent_shortcut_detected": [],
+    "evolution_delta_out_of_range": []
   },
   "formal_50_task_results": "not_claimed",
   "split_leakage_findings": []
