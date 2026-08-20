@@ -191,7 +191,7 @@ def _environment_result(
     deployed_outcome = environment.evaluate(context.workload, deployed_ids, state)
     oracle_outcome = environment.oracle(context.workload, state)
     baseline_outcome = environment.evaluate(context.workload, (), state)
-    source = "drift" if phase.get("name") == "drift" else "poison" if phase.get("name") == "misleading_experience" else "recovery" if phase.get("name") == "recovery" else "acquisition" if phase.get("name") == "acquisition" else "negative_transfer"
+    source = "drift" if phase.get("name") == "drift" else "poison" if phase.get("name") in {"misleading_experience", "poisoned_experience"} else "recovery" if phase.get("name") == "recovery" else "acquisition" if phase.get("name") == "acquisition" else "negative_transfer"
     return {**raw, "task_id": task_id, "family_id": family_id, "public_context": context.to_dict(), "utility_on": deployed_outcome.utility, "utility_off": baseline_outcome.utility, "task_score_on": deployed_outcome.utility, "task_score_off": baseline_outcome.utility, "delta": deployed_outcome.utility - baseline_outcome.utility, "noise_floor": 0.05, "reused": bool(deployed_ids), "oracle_bundle": list(oracle_outcome.oracle_bundle), "deployed_bundle": deployed_ids, "oracle_utility": oracle_outcome.utility, "deployed_utility": deployed_outcome.utility, "scientific_gates": dict(deployed_outcome.scientific_gates), "experiment_cost": 1.0, "failure_source": source}
 
 

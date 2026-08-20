@@ -118,7 +118,7 @@ phases:
     name: misleading_experience
     family_id: compile
     poison_operator: overbroad_rule
-    tasks: []
+    tasks: [CORE-COMPILE-DYNAMIC-11]
     inject_experiences: []
     inject_poisons:
       - schema_version: 1

@@ -120,6 +120,13 @@ class RawExperienceRetriever:
             if record.get("record_type") != "causal_evidence":
                 lesson = record.get("lesson")
                 proposed = lesson.get("proposed_interventions", []) if isinstance(lesson, dict) else []
+                if not proposed:
+                    attempts = record.get("attempts", [])
+                    proposed = [
+                        attempt.get("action")
+                        for attempt in attempts
+                        if isinstance(attempt, dict) and attempt.get("action")
+                    ] if isinstance(attempts, list) else []
                 if isinstance(proposed, list):
                     actions.extend(str(item) for item in proposed if item)
                 continue
