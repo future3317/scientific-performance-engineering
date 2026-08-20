@@ -74,6 +74,16 @@ def _make_read_only(path: Path) -> None:
     path.chmod(stat.S_IRUSR | stat.S_IXUSR)
 
 
+def _remove_materialized_store(path: Path) -> None:
+    """Remove a prior store even when B's read-only lock is still present."""
+    def _make_writable(function: Any, failed_path: str, _exc_info: Any) -> None:
+        target = Path(failed_path)
+        target.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+        function(failed_path)
+
+    shutil.rmtree(path, onerror=_make_writable)
+
+
 def _attest(out_dir: Path, condition: str, policy: dict[str, Any], snapshot_dir: Path | None, context_mode: str) -> dict[str, Any]:
     manifest = {
         "schema_version": 1,
@@ -174,7 +184,7 @@ def materialize_condition(
         raise ValueError(f"condition must be one of {CONDITIONS}, got {condition!r}")
     out_dir = Path(out_dir)
     if out_dir.exists():
-        shutil.rmtree(out_dir)
+        _remove_materialized_store(out_dir)
     out_dir.mkdir(parents=True)
 
     policy = dict(INJECTION_POLICIES[condition])
