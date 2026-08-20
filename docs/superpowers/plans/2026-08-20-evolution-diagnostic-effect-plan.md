@@ -18,6 +18,16 @@
 - Keep ``bounded_log_speedup_v1`` and its conservative utility LCB unchanged;
   only repair evidence scale consistency and the router's token-cost units.
 
+## Contents
+
+- [Global Constraints](#global-constraints)
+- [Task 1: Prevent premature interaction stopping](#task-1-prevent-premature-interaction-stopping)
+- [Task 2: Exercise a real positive evolution transfer cell](#task-2-exercise-a-real-positive-evolution-transfer-cell)
+- [Task 3: Make boundary diagnostics honor the declared horizon](#task-3-make-boundary-diagnostics-honor-the-declared-horizon)
+- [Task 4: Close replay scale and governed reuse](#task-4-close-replay-scale-and-governed-reuse)
+- [Task 5: Verification and evidence update](#task-5-verification-and-evidence-update)
+- [Self-review](#self-review)
+
 ---
 
 ### Task 1: Prevent premature interaction stopping
