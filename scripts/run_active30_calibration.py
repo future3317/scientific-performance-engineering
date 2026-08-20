@@ -72,7 +72,11 @@ def _copy_oracle(task_dir: Path, solution_dir: Path) -> None:
     solution_dir.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f".{solution_dir.name}.", dir=solution_dir.parent) as temp:
         staged = Path(temp) / "solution"
-        shutil.copytree(task_dir / "workspace", staged)
+        shutil.copytree(
+            task_dir / "workspace",
+            staged,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
         oracle = task_dir / "oracle" / "solution_oracle.py"
         if oracle.is_file():
             target = staged / entrypoint
