@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": "d6f1313",
+  "revision": "62d66f8",
   "diagnostic_scope": "bounded_structural_and_calibration_diagnostic",
   "claims": {
     "formal_50": "not_generated",
