@@ -1221,6 +1221,26 @@ def _read_executor_receipt(
     return receipt, errors
 
 
+def _manifest_executor_receipt(receipt: Mapping[str, Any], errors: Sequence[str]) -> dict[str, Any] | None:
+    """Return only an attested receipt for the experiment manifest.
+
+    A missing or invalid receipt is itself an executor failure.  Keeping the
+    invalid payload out of the manifest lets the failure record be persisted
+    instead of making manifest validation terminate the campaign.
+    """
+    if errors:
+        return None
+    return {
+        key: receipt.get(key)
+        for key in (
+            "mode", "network_mode", "mount_allowlist", "executor_digest", "worker_uid",
+            "skill_view_digest", "canary_executed_this_invocation", "canary_mode",
+            "executor_attested", "attestation_digest", "attested_environment_digest",
+        )
+        if key in receipt
+    }
+
+
 def _read_agent_extensions(path: Path) -> dict[str, Any]:
     """Read only worker-supplied lesson/proposal extensions before verification.
 
@@ -2565,15 +2585,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             budget_exhausted=bool(usage_errors),
         )
         execution_valid = bool(failure_policy["efficacy_eligible"])
-        manifest["worker_isolation"]["executor_receipt"] = {
-            key: receipt.get(key)
-            for key in (
-                "mode", "network_mode", "mount_allowlist", "executor_digest", "worker_uid",
-                "skill_view_digest", "canary_executed_this_invocation", "canary_mode",
-                "executor_attested", "attestation_digest", "attested_environment_digest",
-            )
-            if key in receipt
-        }
+        manifest["worker_isolation"]["executor_receipt"] = _manifest_executor_receipt(receipt, receipt_errors)
         attest.write_experiment(trial_dir / "experiment.json", manifest)
         if receipt_errors:
             failure = _trial_failure_record(

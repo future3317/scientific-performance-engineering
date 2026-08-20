@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from benchmark.formal import aggregate, attest
-from benchmark.formal.run_campaign import _build_required_experiment_executor, _cleanup_process_group, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from benchmark.formal.run_campaign import _build_required_experiment_executor, _cleanup_process_group, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
 from scripts.run_active30_calibration import classify_calibration_result
 from benchmark.harness import conditions
 from core.cost import BudgetedContextRenderer
@@ -41,6 +41,12 @@ def test_calibration_resume_requires_valid_eligible_raw_result() -> None:
     assert classify_calibration_result({"execution_validity": "invalid", "failure_stage": "executor"}) == "rerun"
     assert classify_calibration_result({"execution_validity": "invalid", "protocol_failure": True}) == "blocked_requires_revision"
     assert classify_calibration_result({"execution_validity": "valid", "efficacy_eligible": False}) == "rerun"
+
+
+def test_missing_executor_receipt_is_not_written_into_manifest() -> None:
+    assert _manifest_executor_receipt({}, ["external executor receipt missing or invalid"]) is None
+    receipt = {"network_mode": "none", "executor_digest": "digest"}
+    assert _manifest_executor_receipt(receipt, []) == receipt
 
 
 def test_primary_db_estimator_averages_trials_before_tasks_and_reports_variance() -> None:
