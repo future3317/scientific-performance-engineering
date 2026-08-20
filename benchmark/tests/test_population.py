@@ -196,6 +196,42 @@ def test_episode_budget_uses_declared_task_budget() -> None:
     assert _episode_arm_budget({"time_budget_s": 600}) == 600.0
 
 
+def test_poison_episode_control_exposes_retrieved_poison_regression(tmp_path: Path) -> None:
+    from benchmark.harness.evolution import run_episode
+
+    repo_root = Path(__file__).resolve().parents[2]
+    episode = repo_root / "benchmark" / "tasks" / "EVOL-EPISODE-POISON-10" / "episodes" / "poison_episode.yaml"
+    result = run_episode(
+        episode,
+        "C",
+        tmp_path / "control",
+        core_repo=repo_root,
+        snapshot_dir=repo_root,
+        seed=0,
+        max_wall_time_s=600,
+    )
+
+    assert result["metrics"]["poisoning_survival_rate"] == 0.5
+
+
+def test_compiler_drift_control_exposes_poison_regression(tmp_path: Path) -> None:
+    from benchmark.harness.evolution import run_episode
+
+    repo_root = Path(__file__).resolve().parents[2]
+    episode = repo_root / "benchmark" / "tasks" / "EVOL-COMPILER-DRIFT-20" / "episodes" / "compiler_drift_episode.yaml"
+    result = run_episode(
+        episode,
+        "C",
+        tmp_path / "control",
+        core_repo=repo_root,
+        snapshot_dir=repo_root,
+        seed=0,
+        max_wall_time_s=600,
+    )
+
+    assert result["metrics"]["poisoning_survival_rate"] == 0.0
+
+
 def test_evolution_specialization_gate_is_candidate_only() -> None:
     import importlib.util
 
