@@ -1470,7 +1470,7 @@ def post_task_update(
             subject_ids=(*engine.rule_states, *engine.relation_states),
         )
         maintenance_decisions.append({"operation": "OBSERVE", "observed": maintenance_step.observed, "assessment": maintenance_step.assessment})
-        maintenance_decisions.extend(asdict(item) for item in maintenance_step.lifecycle_decisions)
+        maintenance_decisions.extend(asdict(item) for item in maintenance_step.decisions)
         active_ledger = ledger or EvolutionDecisionLedger()
         candidates_dir = store / "evolution" / "candidates"
         candidates_dir.mkdir(parents=True, exist_ok=True)

@@ -106,6 +106,30 @@ def test_protocol_invalid_does_not_mutate_condition_store(tmp_path: Path) -> Non
     assert transition["pre_store_digest"] == before == transition["post_store_digest"]
 
 
+def test_governed_maintenance_consumes_core_transition_decisions(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+    from scripts.render_skill_view import render_skill_view
+
+    bundle = tmp_path / "bundle"
+    render_skill_view(skill, bundle)
+    store = tmp_path / "store"
+    conditions.materialize_condition("D", bundle, store, context_mode="reset")
+    transition = post_task_update(
+        condition="D",
+        store=store,
+        task_id="T1",
+        result={"verdict": "fail", "task_id": "T1", "evidence_events": []},
+        scored={"task_score": 0.0},
+        core_repo=repo_root,
+        out_dir=tmp_path,
+        execution_validity="valid",
+    )
+    assert transition["status"] == "governed_maintenance"
+
+
 def test_trial_compiler_cache_restores_environment(tmp_path: Path) -> None:
     old_torch = os.environ.get("TORCHINDUCTOR_CACHE_DIR")
     old_triton = os.environ.get("TRITON_CACHE_DIR")
