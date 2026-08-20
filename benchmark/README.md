@@ -71,6 +71,26 @@ declared), and a D evolution governance episode (one canonical rule and poison
 survival 1.0). These artifacts extend the audit trail only; they do not update
 the population approval gate or create formal-50 content.
 
+## Recent external-execution closure
+
+The current server attestation was run from commit `c103257` in the
+`equivcompiler` environment with the real `ReferenceExecutor`/bubblewrap path
+on GPU 4. Python boot, network blocking, read-only task mounts, writable
+solution/result mounts, hidden host/repository paths, and process cleanup all
+passed. The executor digest was
+`af662c55cd85178a58da083220a9348c4a7d3c24333fd0bc7badb18c93392987`.
+
+The subsequent B/D execution smoke covered four tasks in reset context (eight
+cells): all cells were execution-valid, all receipts were attested, no cell was
+resource-blocked, and no process survived cleanup. The worker was deliberately
+a no-op smoke worker, so every scientific outcome was `inconclusive`. A separate
+three-task D restart smoke completed two mutable tasks, was interrupted, and
+resumed from the contiguous prefix; all three final cells were execution-valid,
+attested, and produced valid store transitions. These runs establish executor,
+resume, and governance plumbing only. They do not establish C/D efficacy,
+approve calibration, or generate formal-50. The operator-side evidence remains
+under `RESULTS/SPE` on the server.
+
 ## Family source of truth
 
 The workload source of truth is now the Family catalog. All eleven canonical

@@ -633,6 +633,12 @@ editing the report alone cannot satisfy the claim gate.
   executor with a no-network receipt, read-only task/skill mounts, an observed isolation
   canary, and harness-owned usage accounting. Without that receipt, required experiments
   and formal promotion remain blocked.
+- Current execution-closure evidence: on server commit `c103257`, the `equivcompiler`
+  environment and real `ReferenceExecutor`/bubblewrap path passed the isolation contract.
+  An 8-cell B/D no-op smoke and a 3-task D interruption/resume smoke were execution-valid
+  with attested receipts, clean process groups, and persistent store transitions. These
+  are readiness observations only; they keep `results_claimed=false` and do not open
+  empirical calibration or formal-50.
 
 ## 14. External sources
 
