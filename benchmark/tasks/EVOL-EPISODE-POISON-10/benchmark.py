@@ -42,11 +42,8 @@ def load_solution(path: str | Path, device: str | None = None) -> Any:
 
 def make_fixtures(seed: int, device: str = "cpu") -> dict[str, Any]:
     """Deterministic fixture describing the episode to run."""
-    task_dir = Path(__file__).resolve().parent
-    episode_yaml = task_dir / "episodes" / "poison_episode.yaml"
     return {
-        "episode_yaml": str(episode_yaml),
-        "condition": "C",
+        "public_context": {"workload": {"runtime_version": "A", "context_width": 2, "drift_rate": 0.05, "fixture_index": 0}},
         "budget": {"max_wall_time_s": 120},
         "device": device,
         "seed": seed,
@@ -57,9 +54,8 @@ def _run_episode_through_solution(solution: Any, fixtures: dict[str, Any]) -> di
     """Helper: invoke the solution's episode API and parse its result."""
     task_dir = Path(__file__).resolve().parent
     task_workspace = task_dir / "workspace"
-    skill_view = {"condition": fixtures["condition"], "episode_yaml": fixtures["episode_yaml"]}
-    budget = fixtures["budget"]
-    budget = {**budget, "seed": int(fixtures.get("seed", 0))}
+    skill_view = {"public_context": fixtures["public_context"]}
+    budget = {"max_wall_time_s": float(fixtures["budget"]["max_wall_time_s"])}
     result = solution.run_episode_task(str(task_workspace), skill_view, budget)
     if not isinstance(result, dict):
         raise TypeError(f"run_episode_task must return a dict, got {type(result).__name__}")

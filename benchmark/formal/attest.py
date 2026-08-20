@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.harness import anticheat, miniyaml
+from benchmark.harness.fingerprint import fingerprints_compatible
 from scripts.render_skill_view import validate_skill_view_bundle
 
 
@@ -109,7 +110,14 @@ def validate_calibration_envelope(payload: dict[str, Any], expected: dict[str, A
     if payload.get("envelope_digest") != digest_mapping({key: value for key, value in payload.items() if key != "envelope_digest"}):
         errors.append("envelope_digest mismatch")
     for key, value in (expected or {}).items():
-        if key in {"fingerprint"}:
+        if key == "fingerprint":
+            actual_fingerprint = payload.get("fingerprint")
+            if not isinstance(actual_fingerprint, dict) or not isinstance(value, dict):
+                errors.append("fingerprint missing or invalid")
+            else:
+                compatible, reasons = fingerprints_compatible(actual_fingerprint, value)
+                if not compatible:
+                    errors.append("fingerprint mismatch: " + "; ".join(reasons))
             continue
         if key in payload and payload.get(key) != value:
             errors.append(f"{key} mismatch")

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from benchmark.formal import aggregate, attest
 from benchmark.formal.run_campaign import _build_required_experiment_executor, _cleanup_process_group, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from scripts.run_active30_calibration import classify_calibration_result
 from benchmark.harness import conditions
 from core.cost import BudgetedContextRenderer
 
@@ -32,6 +33,33 @@ def test_protocol_valid_task_failure_remains_efficacy_eligible() -> None:
     summary = aggregate.aggregate_trials([record], required_cells=cell)
     assert summary["readiness"]["efficacy_aggregate_status"] == "available"
     assert summary["readiness"]["outcome_counts"] == {"fail": 1}
+
+
+def test_calibration_resume_requires_valid_eligible_raw_result() -> None:
+    assert classify_calibration_result({"execution_validity": "valid", "efficacy_eligible": True}) == "reusable"
+    assert classify_calibration_result({"execution_validity": "resource_blocked"}) == "rerun"
+    assert classify_calibration_result({"execution_validity": "invalid", "failure_stage": "executor"}) == "rerun"
+    assert classify_calibration_result({"execution_validity": "invalid", "protocol_failure": True}) == "blocked_requires_revision"
+    assert classify_calibration_result({"execution_validity": "valid", "efficacy_eligible": False}) == "rerun"
+
+
+def test_primary_db_estimator_averages_trials_before_tasks_and_reports_variance() -> None:
+    records = []
+    for task, lineage, values in (("T1", "L1", (0.2, 0.4)), ("T2", "L1", (0.6, 0.8)), ("T3", "L2", (1.0, 1.2))):
+        for trial, delta in enumerate(values):
+            for condition, score in (("B", 0.0), ("D", delta)):
+                records.append({
+                    "task_id": task, "lineage_id": lineage, "outer_trial_id": f"outer-{trial:03d}",
+                    "context_mode": "reset", "condition": condition, "visibility": "sealed",
+                    "execution_validity": "valid", "efficacy_eligible": True, "score": score,
+                })
+    result = aggregate.primary_db_estimator(records)
+    assert result["outer_trial_count"] == 2
+    assert result["task_count"] == 3
+    assert result["lineage_count"] == 2
+    assert result["task_level_variance"] is not None
+    assert result["lineage_level_variance"] is not None
+    assert result["estimate"] == (0.5 + 1.1) / 2
 
 
 def test_withheld_readiness_hides_paired_effect_values() -> None:

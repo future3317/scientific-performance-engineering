@@ -365,12 +365,35 @@ def primary_db_estimator(records: list[dict[str, Any]], *, required_cells: list[
             if left is not None and right is not None:
                 task_by_lineage[lineage][task].append(left - right)
     lineage_means: dict[str, float] = {}
+    task_means_by_lineage: dict[str, dict[str, float]] = {}
     for lineage, tasks in task_by_lineage.items():
-        task_means = [sum(v) / len(v) for v in tasks.values() if v]
+        task_means = {task: sum(values) / len(values) for task, values in tasks.items() if values}
         if task_means:
-            lineage_means[lineage] = sum(task_means) / len(task_means)
+            task_means_by_lineage[lineage] = task_means
+            lineage_means[lineage] = sum(task_means.values()) / len(task_means)
     values = list(lineage_means.values())
-    return {"status": "available" if values else "withheld", "estimand": "mean(D - B) over sealed task/lineage pairs", "weighting": "equal_task_then_equal_lineage", **_ci(values)}
+    task_means = [value for tasks in task_means_by_lineage.values() for value in tasks.values()]
+    outer_trials = {
+        str(record.get("outer_trial_id"))
+        for record in records
+        if str(record.get("condition")) in {"D", "B"} and record.get("outer_trial_id")
+    }
+    def variance(values: list[float]) -> float | None:
+        if not values:
+            return None
+        mean = sum(values) / len(values)
+        return sum((value - mean) ** 2 for value in values) / len(values)
+    return {
+        "status": "available" if values else "withheld",
+        "estimand": "mean(D - B) over sealed task/lineage pairs",
+        "weighting": "equal_outer_trial_then_equal_task_then_equal_lineage",
+        "outer_trial_count": len(outer_trials),
+        "task_count": len(task_means),
+        "lineage_count": len(values),
+        "task_level_variance": variance(task_means),
+        "lineage_level_variance": variance(values),
+        **_ci(values),
+    }
 
 
 def split_transfer_estimands(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

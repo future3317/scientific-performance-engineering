@@ -397,6 +397,8 @@ def verify_task(
         "condition": condition,
         "context_mode": context_mode,
         "verdict": "error",
+        "validity": "invalid", "execution_validity": "invalid", "efficacy_eligible": False,
+        "protocol_failure": False,
         "correctness_pass": False,
         "scientific_gates": {},
         "verified_speedup": {
@@ -494,6 +496,7 @@ def verify_task(
     device, usable = runner.select_device(bool(spec.get("requires_cuda")))
     if not usable:
         result["verdict"] = "inconclusive"
+        result["execution_validity"] = "resource_blocked"
         result["verified_speedup"]["reason"] = "task requires CUDA; host has none"
         mark_stage("S2")
         return _finalize(result, started, out_path)
@@ -692,6 +695,9 @@ def verify_task(
         return _finalize(result, started, out_path)
 
     result["verdict"] = "pass" if verdict["verified"] else "inconclusive"
+    result["validity"] = "valid"
+    result["execution_validity"] = "valid"
+    result["efficacy_eligible"] = True
     mark_stage("S6")
     return _finalize(result, started, out_path)
 

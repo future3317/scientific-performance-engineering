@@ -5,6 +5,7 @@ import shutil
 import pytest
 
 from scripts.run_active30_calibration import _calibration_record, _copy_oracle
+from benchmark.formal.attest import calibration_envelope, validate_calibration_envelope
 
 
 @pytest.mark.parametrize(
@@ -88,3 +89,22 @@ def test_calibration_record_aggregates_all_outer_trials():
     assert record["oracle_ci"]["ci_low"] == 1.0
     assert record["oracle_ci"]["ci_high"] == 1.22
     assert record["control_noise_percent"] == [2.0, 3.0, 1.0]
+
+
+def test_calibration_envelope_rejects_incompatible_fingerprint():
+    fingerprint = {
+        "python_version": "3.12", "platform": "linux", "torch_version": "2.0",
+        "cuda_version": "12.1", "cuda_available": True, "gpu_name": "A",
+        "gpu_count": 1, "driver_version": "550", "gpu_uuid": "GPU-A",
+        "torch_geometric_version": None, "cpu_affinity": [0], "cuda_visible_devices": "0",
+    }
+    envelope = calibration_envelope(
+        producer_revision="a" * 40, task_package_digest="b" * 64,
+        population_manifest_digest="c" * 64, harness_digest_value="d" * 64,
+        calibration_runner_digest="e" * 64, noise_digest="f" * 64,
+        raw_result_digest="1" * 64, fingerprint=fingerprint,
+        task_id="T", outer_trial_id="outer-000", seed=0, measurement_class="evolution",
+    )
+    expected = {"fingerprint": {**fingerprint, "gpu_uuid": "GPU-B"}}
+    errors = validate_calibration_envelope(envelope, expected)
+    assert any("fingerprint mismatch" in error for error in errors)

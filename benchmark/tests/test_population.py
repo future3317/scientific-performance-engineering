@@ -26,7 +26,7 @@ def main() -> None:
         "oracle_effect_too_small", "noise_too_high", "oracle_effect_unstable",
         "baseline_already_optimal", "semantic_gate_too_weak", "repair_pattern_duplicate",
         "difficulty_ceiling", "difficulty_floor", "platform_direction_flip",
-        "agent_shortcut_detected",
+        "agent_shortcut_detected", "evolution_delta_out_of_range",
     }
     print("test_population: OK")
 
@@ -87,6 +87,35 @@ def test_empirical_floor_can_clear_high_declared_noise() -> None:
     assert calibration["calibration_gate"] == "ready_for_review"
 
 
+def test_evolution_expected_delta_is_a_hard_calibration_gate() -> None:
+    import json
+    import tempfile
+    from benchmark.formal.attest import task_package_digest
+
+    repo_root = Path(__file__).resolve().parents[2]
+    task_dir = repo_root / "benchmark" / "tasks" / "EVOL-EQUIVARIANT-SPECIALIZE-30"
+    spec = {
+        "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30", "track": "evolution",
+        "scientific_gates": ["state_transition_valid"], "measurement": {"repetitions": 3},
+        "oracle": {"expected_delta_range": [0.1, 1.0]}, "_task_dir": task_dir,
+    }
+    base = {
+        "task_digest": task_package_digest(task_dir), "revision": "a" * 40,
+        "environment": {"python_version": "3.12"}, "outer_trials": [{}, {}, {}],
+        "noise_control": {}, "oracle_ci": {}, "semantic_gates": {"state_transition_valid": True},
+        "anti_cheat": {"status": "pass"}, "calibration_status": "eligible",
+        "metric_class": "evolution",
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", encoding="utf-8", delete=False) as handle:
+        json.dump({"tasks": [{**base, "task_id": spec["task_id"], "episode_effect": {
+            "outer_trial_deltas": [0.01, 0.02, 0.03], "mean_absolute_score_delta": 0.02,
+        }}]}, handle)
+        path = Path(handle.name)
+    flags, calibration = _empirical_flags([spec], path, [])
+    assert flags["evolution_delta_out_of_range"] == [spec["task_id"]]
+    assert calibration["calibration_gate"] == "blocked"
+
+
 def test_h2d_task_exposes_fixture_clone_contract() -> None:
     import importlib.util
 
@@ -106,6 +135,39 @@ def test_evolution_regression_cases_use_regression_namespace() -> None:
     candidate = payload["phases"][0]["inject_experiences"][0]
     cases = candidate["regression_cases"]
     assert cases and all(str(case).startswith("REG-") for case in cases)
+
+
+def test_episode_candidate_input_excludes_runtime_identity() -> None:
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[2]
+    task_ids = (
+        "EVOL-EPISODE-POISON-10",
+        "EVOL-COMPILER-DRIFT-20",
+        "EVOL-EQUIVARIANT-SPECIALIZE-30",
+    )
+    for index, task_id in enumerate(task_ids):
+        task_dir = repo_root / "benchmark" / "tasks" / task_id
+        module_spec = importlib.util.spec_from_file_location(f"episode_contract_{index}", task_dir / "benchmark.py")
+        assert module_spec is not None and module_spec.loader is not None
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        observed: dict[str, object] = {}
+
+        class SpySolution:
+            @staticmethod
+            def run_episode_task(task_workspace, skill_view, budget):
+                observed.update({"task_workspace": task_workspace, "skill_view": skill_view, "budget": budget})
+                return {"action": {"condition": "C"}}
+
+        fixtures = module.make_fixtures(123 + index)
+        module.run_performance(SpySolution(), fixtures)
+        assert set(observed["skill_view"]) == {"public_context"}
+        assert "seed" not in str(observed["skill_view"]).lower()
+        assert "condition" not in str(observed["skill_view"]).lower()
+        assert "episode_yaml" not in str(observed["skill_view"]).lower()
+        assert set(observed["budget"]) == {"max_wall_time_s"}
+        assert "seed" not in observed["budget"]
 
 
 if __name__ == "__main__":
