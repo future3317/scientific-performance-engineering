@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "revision": "893a5e2",
+  "episode_id": "EVOL-COMPILER-DRIFT-20",
+  "condition": "D",
+  "execution_source": "synthetic_family_calibration",
+  "claims": {
+    "formal_50": "not_generated",
+    "efficacy": "not_claimed",
+    "calibration_approval": "blocked"
+  },
+  "metrics": {
+    "transfer_gain": 0.0666666666666667,
+    "rule_reuse_utility": 0.2,
+    "negative_transfer_rate": 0.0,
+    "rule_precision": 1.0,
+    "canonical_rule_count": 1,
+    "poisoning_survival_rate": 1.0,
+    "drift_recovery_latency": 1,
+    "evolution_regret_total": 6.4
+  },
+  "promotion": {
+    "rule_id": "compile-dynamic-guard-rule",
+    "utility_effect_lcb": 0.012034934960735488,
+    "promotion_probability_lcb": 0.9224775334273724,
+    "status": "canonical"
+  },
+  "transfer_cells": [
+    {
+      "task_id": "CORE-COMPILE-DYNAMIC-11",
+      "reused": true,
+      "delta": 0.2,
+      "deployed_action": "stabilize_dynamic_guards"
+    },
+    {
+      "task_id": "CORE-COMPILE-TINY-12",
+      "reused": false,
+      "delta": 0.0,
+      "deployed_action": null
+    },
+    {
+      "task_id": "CORE-KERNEL-FUSION-09",
+      "reused": false,
+      "delta": 0.0,
+      "deployed_action": null
+    },
+    {
+      "task_id": "CORE-COMPILE-DYNAMIC-11",
+      "reused": true,
+      "delta": 0.2,
+      "deployed_action": "stabilize_dynamic_guards"
+    }
+  ],
+  "interpretation": "calibration-only governed reuse evidence; not a D-over-B efficacy estimate"
+}
