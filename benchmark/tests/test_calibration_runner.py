@@ -26,6 +26,19 @@ def test_copy_oracle_applies_mixed_reference_patch_headers(task_id, tmp_path):
     ).read_text(encoding="utf-8")
 
 
+def test_copy_oracle_excludes_stale_bytecode_from_solution(tmp_path):
+    task_dir = Path(__file__).parents[1] / "tasks" / "EVOL-EQUIVARIANT-SPECIALIZE-30"
+
+    _copy_oracle(task_dir, tmp_path)
+
+    assert not list(tmp_path.rglob("*.pyc"))
+    module_spec = importlib.util.spec_from_file_location("evol30_oracle", tmp_path / "solution.py")
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    assert module.run_episode_task("", {}, {})["action"]["condition"] == "D"
+
+
 def test_dataloader_h2d_fixture_clone_is_mutation_isolated():
     task_dir = Path(__file__).parents[1] / "tasks" / "CORE-DATALOADER-FANOUT-16"
     spec = importlib.util.spec_from_file_location("dataloader_fanout_16", task_dir / "benchmark.py")
