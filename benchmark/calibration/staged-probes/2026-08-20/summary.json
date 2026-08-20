@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": "62d66f8",
+  "revision": "893a5e2",
   "diagnostic_scope": "bounded_structural_and_calibration_diagnostic",
   "claims": {
     "formal_50": "not_generated",
@@ -27,35 +27,41 @@
     }
   },
   "boundary_diagnostic": {
-    "surface_count": 24,
+    "surface_count": 100,
     "families": {
       "autograd": {"status": "identified", "sealed_errors": 0},
       "checkpoint": {"status": "identified", "sealed_errors": 0},
-      "compile": {"status": "underidentified", "sealed_errors": 2},
+      "compile": {"status": "identified", "sealed_errors": 0},
       "crystal_generation": {"status": "identified", "sealed_errors": 0},
-      "crystal_sampling": {"status": "identified", "sealed_errors": 0},
-      "episode": {"status": "identified", "sealed_errors": 0},
-      "equivariant_head": {"status": "underidentified", "sealed_errors": 0},
-      "graph_cache": {"status": "underidentified", "sealed_errors": 0},
-      "h2d_pipeline": {"status": "underidentified", "sealed_errors": 0},
-      "repeated_compute": {"status": "identified", "sealed_errors": 0},
+      "crystal_sampling": {"status": "underidentified", "sealed_errors": 0},
+      "episode": {"status": "underidentified", "sealed_errors": 0},
+      "equivariant_head": {"status": "identified", "sealed_errors": 0},
+      "graph_cache": {"status": "identified", "sealed_errors": 0},
+      "h2d_pipeline": {"status": "identified", "sealed_errors": 0},
+      "repeated_compute": {"status": "underidentified", "sealed_errors": 0},
       "scalar_sync": {"status": "identified", "sealed_errors": 0}
     },
     "interpretation": "diagnostic_only; underidentified families are not efficacy-eligible"
   },
   "interaction_diagnostic": {
     "surface_count": 16,
-    "wrong_relation_rate_among_resolved": 0.75,
-    "unresolved_rate": 0.0,
+    "wrong_relation_rate_among_resolved": 0.0,
+    "unresolved_rate": 0.75,
     "total_identification_failure_rate": 0.75,
     "interpretation": "short power diagnostic; not suitable for efficacy aggregation"
   },
   "evolution_reference": {
-    "artifact": "benchmark/calibration/staged-probes/2026-08-19/evol-equivariant-specialize-30-episode.json",
+    "artifact": "benchmark/calibration/staged-probes/2026-08-20/evol-compiler-drift-20-episode.json",
     "condition": "D",
     "canonical_rule_count": 1,
+    "transfer_gain": 0.0666666666666667,
+    "rule_reuse_utility": 0.2,
+    "negative_transfer_rate": 0.0,
+    "matched_reuse": ["CORE-COMPILE-DYNAMIC-11"],
+    "counterexample_abstention": ["CORE-COMPILE-TINY-12", "CORE-KERNEL-FUSION-09"],
     "poisoning_survival_rate": 1.0,
-    "efficacy_claim": false
+    "efficacy_claim": false,
+    "interpretation": "calibration-only governed reuse evidence; not D-over-B efficacy"
   },
   "existing_empirical_evidence": {
     "dynamic": "benchmark/calibration/dynamic-calibration-v3-summary.json",
