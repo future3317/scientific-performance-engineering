@@ -75,10 +75,15 @@ def materialize_sandbox(task_dir: str | Path, dest: str | Path | None = None) ->
 
 
 def hash_harness_files(harness_dir: str | Path | None = None) -> dict[str, str]:
-    """SHA-256 manifest of the harness itself (recorded at S0, re-checked at verdict)."""
+    """SHA-256 manifest of source harness files, excluding derived bytecode."""
     if harness_dir is None:
         harness_dir = Path(__file__).resolve().parent
-    return anticheat.hash_tree(harness_dir)
+    manifest = anticheat.hash_tree(harness_dir)
+    return {
+        path: digest
+        for path, digest in manifest.items()
+        if "__pycache__" not in Path(path).parts and not path.endswith(".pyc")
+    }
 
 
 # ---------------------------------------------------------------------------
