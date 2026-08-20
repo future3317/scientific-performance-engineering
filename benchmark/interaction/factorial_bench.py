@@ -162,7 +162,14 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
             row["relation_identifier"] = identified.decision
             row["context_decisions"] = dict(identified.context_decisions)
             estimates.append(row)
-            if chosen is None and identified.decision != "unresolved":
+            # A context-dependent sentinel is not a certified relation.  It
+            # means at least one registered context is still unresolved, so
+            # keep spending the preregistered block schedule instead of
+            # stopping on the first underpowered look.
+            if chosen is None and identified.decision not in {
+                "unresolved",
+                "underidentified_context_relation",
+            }:
                 chosen = (block_count, estimate, identified)
         if chosen is None:
             stopping_blocks, estimate = None, context_estimates["baseline"]
@@ -195,10 +202,18 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
     for item in details:
         canonical_hidden = canonical_relation_label(str(item["hidden_relation"]))
         false_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] != canonical_hidden)
-        unresolved_by_relation.setdefault(str(canonical_hidden), []).append(item["predicted_relation"] == "unresolved")
-    resolved = [item for item in details if item["predicted_relation"] != "unresolved"]
+        unresolved_by_relation.setdefault(str(canonical_hidden), []).append(
+            item["predicted_relation"] in {"unresolved", "underidentified_context_relation"}
+        )
+    resolved = [
+        item for item in details
+        if item["predicted_relation"] not in {"unresolved", "underidentified_context_relation"}
+    ]
     wrong_resolved = [item for item in resolved if item["predicted_relation"] != canonical_relation_label(str(item["hidden_relation"]))]
-    unresolved_count = len(details) - len(resolved)
+    unresolved_count = sum(
+        item["predicted_relation"] in {"unresolved", "underidentified_context_relation"}
+        for item in details
+    )
     return {
         "surface_count": count,
         "block_schedule": list(blocks),
@@ -212,10 +227,20 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
                 sum(
                     item["predicted_relation"] != key
                     for item in details
-                    if canonical_relation_label(str(item["hidden_relation"])) == key and item["predicted_relation"] != "unresolved"
+                    if canonical_relation_label(str(item["hidden_relation"])) == key
+                    and item["predicted_relation"] not in {"unresolved", "underidentified_context_relation"}
                 )
-                / sum(1 for item in details if canonical_relation_label(str(item["hidden_relation"])) == key and item["predicted_relation"] != "unresolved")
-                if any(canonical_relation_label(str(item["hidden_relation"])) == key and item["predicted_relation"] != "unresolved" for item in details)
+                / sum(
+                    1
+                    for item in details
+                    if canonical_relation_label(str(item["hidden_relation"])) == key
+                    and item["predicted_relation"] not in {"unresolved", "underidentified_context_relation"}
+                )
+                if any(
+                    canonical_relation_label(str(item["hidden_relation"])) == key
+                    and item["predicted_relation"] not in {"unresolved", "underidentified_context_relation"}
+                    for item in details
+                )
                 else None
             )
             for key in sorted(false_by_relation)

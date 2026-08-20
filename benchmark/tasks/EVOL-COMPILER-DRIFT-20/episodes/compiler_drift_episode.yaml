@@ -69,7 +69,9 @@ phases:
     inject_poisons: []
   - index: 2
     name: same_family_transfer
-    tasks: [CORE-COMPILE-TINY-12]
+    # One matched positive transfer and one boundary counterexample.  The
+    # first context satisfies the promoted predicate; the second must abstain.
+    tasks: [CORE-COMPILE-DYNAMIC-11, CORE-COMPILE-TINY-12]
     inject_experiences: []
     inject_poisons: []
   - index: 3

@@ -39,7 +39,7 @@ from .evolution_ledger import EvolutionDecisionLedger
 from core import governance
 from benchmark.families import poisoning_transformation, transformation
 from core.predicates import match_predicate
-from core.utility import utility_effect
+from core.utility import UTILITY_LOG_SCALE, utility_effect
 from core.sequential_stats import minimum_all_successes
 from benchmark.formal.aggregate import RegretStep, evolution_regret
 from core.models import TaskContext
@@ -174,7 +174,15 @@ def _environment_result(
         workload = dict(instance.parameters)
     except (KeyError, ValueError):
         workload = dict((raw.get("environment") or {}).get("workload", {})) if isinstance(raw.get("environment"), dict) else {}
-    context = TaskContext(domain="runtime", workload=workload, hardware={}, software={}, evidence={}, token_budget=4096)
+    # Episode routing must use the same public domain vocabulary as the
+    # candidate rule cards.  ``runtime`` is the historical default, but it
+    # would make compiler/sciml rules fail the router's domain gate even when
+    # their workload predicate matches.
+    domain = {
+        "compile": "compiler",
+        "equivariant_head": "sciml",
+    }.get(family_id, "runtime")
+    context = TaskContext(domain=domain, workload=workload, hardware={}, software={}, evidence={}, token_budget=4096)
     environment = FamilyEnvironment(family_id)
     deployed_ids = FormalConditionAdapter(
         condition, store, token_budget=context.token_budget, family_id=family_id
@@ -710,13 +718,21 @@ def run_episode(
                         # Draw additional preregistered slices until the
                         # promotion budget can be filled; no hidden labels are
                         # used for this scheduling decision.
+                        # A family surface is intentionally disjoint, but a
+                        # sparse applicability predicate can occupy only a
+                        # fraction of one representative slice (for example
+                        # irrep_order == 1 is one of three equivariant
+                        # strata).  Collect up to three preregistered slices
+                        # before synthesis so the positive side has enough
+                        # independent groups for the existing utility CS.
+                        target_contexts = scheduler.max_groups * 3
                         for schedule_seed in range(int(episode.get("seed", 0)), int(episode.get("seed", 0)) + 8):
                             for item in scheduler.pending_contexts(family, seed=schedule_seed):
                                 context_id = str(item.get("context_id", ""))
                                 if context_id and context_id not in seen_contexts:
                                     seen_contexts.add(context_id)
                                     scheduled.append(item)
-                            if len(scheduled) >= scheduler.minimum_groups * 3:
+                            if len(scheduled) >= target_contexts:
                                 break
                         for scheduled_context in scheduled:
                             context = dict(scheduled_context.get("context", {}))
@@ -733,7 +749,12 @@ def run_episode(
                                 "baseline_measurements": [max(-1.0, min(1.0, float(baseline.utility) + noise)) for noise in shared_noise],
                                 "control_measured": True,
                                 "higher_is_better": True,
-                                "utility_scale": 1.0,
+                                # Episode replay must use the same versioned
+                                # bounded utility transform as formal replay.
+                                # A local scale here would change the meaning
+                                # of the evidence and can turn a real positive
+                                # effect into a routing abstention.
+                                "utility_scale": UTILITY_LOG_SCALE,
                                 "scientific_ok": all(bool(item) for item in deployed.scientific_gates.values()),
                                 "quality_ok": all(bool(item) for item in deployed.scientific_gates.values()),
                                 "paired_replay": True,

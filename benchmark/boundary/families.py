@@ -83,16 +83,19 @@ def _grammar_for(family: str) -> PredicateGrammar:
     grammar = family_predicate_grammar(canonical)
     if not grammar:
         raise ValueError(f"family {canonical} has no registered predicate grammar")
-    grammar["max_literals"] = min(3, int(grammar.get("max_literals", 3)))
+    # Compile's public action contract has four independent literals; the
+    # other families retain the historical three-literal diagnostic budget.
+    grammar["max_literals"] = min(4 if canonical == "compile" else 3, int(grammar.get("max_literals", 3)))
     return PredicateGrammar.from_dict(grammar)
 
 
 def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) -> dict[str, Any]:
     canonical_family = {"graph_cache_geometry_motion": "graph_cache", "compile_horizon": "compile"}.get(family, family)
-    if canonical_family in {"compile", "graph_cache", "h2d_pipeline", "checkpoint", "scalar_sync"}:
-        pools = family_cases(canonical_family, surface_count=surface_count, seed=seed)
-    else:
-        pools = family_cases(family)
+    # Every canonical family shares the same caller-provided diagnostic
+    # horizon.  Previously the SciML/evolution families silently fell back to
+    # the 24-surface default, so a 100-surface pilot could not resolve their
+    # declared boundary even though the lattice had enough contexts.
+    pools = family_cases(canonical_family, surface_count=surface_count, seed=seed)
     representative = [item for item in pools["representative_pool"] if item.positive_anchor()]
     query = pools.get("active_query_pool", pools.get("query_pool", []))
     counterexamples = [item for item in query if item.certified_counterexample()]
@@ -104,8 +107,9 @@ def run_boundary_family(family: str, *, surface_count: int = 24, seed: int = 0) 
             return items
         return [items[round(index * (len(items) - 1) / (limit - 1))] for index in range(limit)]
 
-    representative = fit_slice(representative)
-    counterexamples = fit_slice(counterexamples)
+    evidence_limit = max(16, min(64, surface_count // 2))
+    representative = fit_slice(representative, limit=evidence_limit)
+    counterexamples = fit_slice(counterexamples, limit=evidence_limit)
     parent = None
     grammar = _grammar_for(canonical_family)
     result = StatisticalCEGIS(grammar).synthesize(

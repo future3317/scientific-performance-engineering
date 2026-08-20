@@ -324,7 +324,14 @@ class ConservativeCausalRouter:
         if len(bundle) >= 3:
             uncertainty_penalty += self.zeta * (len(bundle) - 2) * 0.1
         score -= uncertainty_penalty
-        score -= self.lambda_tokens * sum(self._tokens(spec) for spec in bundle)
+        # ``lambda_tokens`` is a dimensionless trade-off weight.  Charge the
+        # bundle's prompt cost as a fraction of the active context budget;
+        # subtracting raw token counts made a normal 30--100 token RuleView
+        # cost 0.3--1.0 utility units and caused the empty bundle to beat a
+        # genuinely positive rule.  The budget remains a hard feasibility
+        # constraint above; this term is only the soft within-budget cost.
+        token_fraction = sum(self._tokens(spec) for spec in bundle) / self.token_budget
+        score -= self.lambda_tokens * token_fraction
         return score
 
     def route(
