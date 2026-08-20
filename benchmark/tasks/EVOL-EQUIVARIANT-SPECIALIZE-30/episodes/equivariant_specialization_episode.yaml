@@ -44,7 +44,9 @@ phases:
     inject_poisons: []
   - index: 2
     name: same_family_transfer
-    tasks: [SCIML-EQUIV-RECOMPUTE-06]
+    # The low-order anchor exercises reuse; the rank-2 task remains a
+    # same-family counterexample that must be rejected by the predicate.
+    tasks: [SCIML-EQUIV-LOWORDER-26, SCIML-EQUIV-RECOMPUTE-06]
     inject_experiences: []
     inject_poisons: []
   - index: 3
