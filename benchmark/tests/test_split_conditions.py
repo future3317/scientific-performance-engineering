@@ -143,6 +143,12 @@ def main() -> None:
             ok, diffs = conditions.verify_attestation(out)
             assert ok, (cond, diffs)
 
+        # Resume/restart must be able to rematerialize a frozen B store after
+        # the first materialization locked its skill tree read-only.
+        conditions.materialize_condition("B", snapshot_bundle, root / "condB")
+        ok, diffs = conditions.verify_attestation(root / "condB")
+        assert ok, diffs
+
         # C must have a writable experience/inbox; D must have the full pipeline dirs.
         assert (root / "condC" / "experience" / "inbox").is_dir()
         probe = root / "condC" / "experience" / "inbox" / "probe.json"
