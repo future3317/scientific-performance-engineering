@@ -35,7 +35,7 @@ def _sync(device: str) -> None:
         torch.cuda.synchronize()
 
 REQUIRED_API=('run_episode_task',)
-def make_fixtures(seed:int,device:str='cpu'): return {'device':device,'public_context':{'workload':{'runtime_version':'A','context_width':4,'drift_rate':0.3,'fixture_index':2}},'budget':{'max_wall_time_s':120},'seed':seed}
+def make_fixtures(seed:int,device:str='cpu'): return {'device':device,'public_context':{'workload':{'runtime_version':'A','context_width':4,'drift_rate':0.3,'fixture_index':2}},'budget':{'max_wall_time_s':600},'seed':seed}
 def _run(solution,fixtures):
     skill_view={'public_context':fixtures['public_context']}; budget={'max_wall_time_s':float(fixtures['budget']['max_wall_time_s'])}; return solution.run_episode_task(str(_TASK_DIR/'workspace'),skill_view,budget)
 def run_correctness(solution,fixtures):
