@@ -39,6 +39,18 @@ def test_copy_oracle_excludes_stale_bytecode_from_solution(tmp_path):
     assert module.run_episode_task("", {}, {})["action"]["condition"] == "D"
 
 
+def test_harness_hash_ignores_derived_bytecode(tmp_path):
+    from benchmark.harness.runner import hash_harness_files
+
+    (tmp_path / "runner.py").write_text("value = 1\n", encoding="utf-8")
+    before = hash_harness_files(tmp_path)
+    cache = tmp_path / "__pycache__"
+    cache.mkdir()
+    (cache / "runner.cpython-311.pyc").write_bytes(b"derived bytecode")
+
+    assert hash_harness_files(tmp_path) == before
+
+
 def test_dataloader_h2d_fixture_clone_is_mutation_isolated():
     task_dir = Path(__file__).parents[1] / "tasks" / "CORE-DATALOADER-FANOUT-16"
     spec = importlib.util.spec_from_file_location("dataloader_fanout_16", task_dir / "benchmark.py")
