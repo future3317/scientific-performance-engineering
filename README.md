@@ -10,6 +10,7 @@ the executable SPE-EvoBench calibration harness.
 - [Quickstart](#quickstart)
 - [Repository map](#repository-map)
 - [Benchmark status](#benchmark-status)
+- [Recent execution evidence](#recent-execution-evidence)
 - [Documentation policy](#documentation-policy)
 - [License](#license)
 
@@ -109,6 +110,27 @@ same read-only rendered skill view; C retrieves raw experiences only; D alone
 performs governed promotion and routing. Formal execution is invalid without a
 real no-network executor receipt. See [`benchmark/README.md`](benchmark/README.md)
 for the current calibration boundary and commands.
+
+## Recent execution evidence
+
+The latest server-side closure run used the `equivcompiler` environment and the
+real `ReferenceExecutor`/bubblewrap path on GPU 4. The executor attestation
+passed Python boot, network blocking, read-only task mounts, writable solution
+and result mounts, hidden host/repository paths, and process cleanup. Its
+digest was `af662c55cd85178a58da083220a9348c4a7d3c24333fd0bc7badb18c93392987`.
+
+An eight-cell B/D smoke (`4 tasks × 2 conditions`, reset context) completed with
+8/8 execution-valid cells, valid receipts, no resource-blocked cells, and no
+surviving processes. The worker intentionally performed no optimization patch,
+so all scientific outcomes were `inconclusive`; this run validates execution,
+store-transition, and governance plumbing only.
+
+A separate three-task D restart smoke completed two mutable tasks, was
+intentionally interrupted, and resumed from the contiguous prefix. The resumed
+campaign finished 3/3 execution-valid cells with 3/3 attested receipts and
+store digest transitions, while keeping `results_claimed=false`. These artifacts
+are operator-side evidence under `RESULTS/SPE`; they do not open the empirical
+calibration gate, generate formal-50, or support an ACRE-versus-baseline claim.
 
 ## Documentation policy
 
