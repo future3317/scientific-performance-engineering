@@ -37,6 +37,10 @@ def validate_calibration_approval(
         if not approval.get(key):
             errors.append(f"calibration approval missing {key}")
     if approval.get("approved") is True:
+        for key in ("empirical_digest", "calibration_protocol_digest", "benchmark_revision"):
+            if not approval.get(key):
+                errors.append(f"calibration approval missing {key}")
+    if approval.get("approved") is True:
         body = {key: value for key, value in approval.items() if key != "approval_digest"}
         if approval.get("approval_digest") != _digest(body):
             errors.append("calibration approval digest mismatch")
@@ -56,6 +60,11 @@ def validate_calibration_approval(
         errors.append("calibration approval population digest mismatch")
     if approval.get("pilot_calibration_digest") != calibration.get("artifact_digest"):
         errors.append("calibration approval pilot digest mismatch")
+    expected_empirical = report.get("empirical_calibration", {}).get("empirical_digest")
+    if approval.get("empirical_digest") != expected_empirical:
+        errors.append("calibration approval empirical digest mismatch")
+    if approval.get("empirical_digest") != calibration.get("empirical_digest"):
+        errors.append("calibration approval pilot empirical digest mismatch")
     active_ids = set(str(item) for item in (active_manifest or {}).get("task_ids", report.get("active_task_ids", [])))
     calibrated = {str(item.get("task_id")) for item in calibration.get("tasks", []) if isinstance(item, dict)}
     approved_tasks = set(str(item) for item in approval.get("approved_task_ids", []))
@@ -73,6 +82,7 @@ def validate_calibration_approval(
             "benchmark_revision": root,
             "claims_digest": root / "CLAIMS.yaml",
             "statistical_protocol_digest": root / "references" / "STATISTICAL_PROTOCOL.md",
+            "calibration_protocol_digest": root / "benchmark" / "calibration" / "calibration_protocol.json",
         }
         for field, path in bindings.items():
             if field in approval and field.endswith("_digest"):

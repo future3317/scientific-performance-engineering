@@ -194,6 +194,7 @@ def test_episode_budget_uses_declared_task_budget() -> None:
     from benchmark.harness.verifier import _episode_arm_budget
 
     assert _episode_arm_budget({"time_budget_s": 600}) == 600.0
+    assert _episode_arm_budget({"time_budget_s": 600}, 17.5) == 17.5
 
 
 def test_poison_episode_control_exposes_retrieved_poison_regression(tmp_path: Path) -> None:

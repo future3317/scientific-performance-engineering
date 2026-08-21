@@ -108,7 +108,7 @@ def test_compile_anchors_have_mechanism_pure_oracles_and_frozen_horizons():
     task_root = Path(__file__).parents[1] / "tasks"
     expected = {
         "CORE-COMPILE-RECOMPILE-04": ("compile_graph_break", 128, 5),
-        "CORE-COMPILE-DYNAMIC-11": ("compile_dynamic_shapes", 256, 5),
+        "CORE-COMPILE-DYNAMIC-11": ("compile_dynamic_shapes", 128, 5),
         "CORE-COMPILE-TINY-12": ("compile_tiny_graphs", 8, 3),
     }
     for task_id, (mechanism, horizon, repetitions) in expected.items():

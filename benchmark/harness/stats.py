@@ -158,6 +158,7 @@ def _noise_control_digest(payload: dict[str, Any]) -> str:
 def write_noise_control(path: str | Path, artifact: dict[str, Any]) -> dict[str, Any]:
     """Write one immutable task×outer-trial same-host control artifact."""
     payload = dict(artifact)
+    payload.setdefault("control_implementation", "baseline")
     # Older unit fixtures used one manifest digest for both identities.  Keep
     # their serialization readable while calibration production callers pass
     # the two explicit digests below; resume validation requires both fields.
@@ -191,6 +192,7 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
     required = {
         "task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest",
         "task_package_digest", "population_manifest_digest",
+        "control_implementation",
         "hardware_fingerprint", "software_fingerprint", "compile_threads",
         "compiler_cache_policy", "control_a_runs", "control_b_runs",
         "observed_noise_floor_percent", "declared_noise_floor_percent",
@@ -201,13 +203,15 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         raise ValueError("noise control artifact missing: " + ", ".join(missing))
     if not isinstance(payload["control_a_runs"], list) or not isinstance(payload["control_b_runs"], list):
         raise ValueError("noise control control runs must be arrays")
+    if payload.get("control_implementation") != "baseline":
+        raise ValueError("noise control must use the registered baseline implementation")
     if len(payload["control_a_runs"]) != 5 or len(payload["control_b_runs"]) != 5:
         raise ValueError("noise control artifact requires five control repetitions per arm")
     for key in ("control_a_runs", "control_b_runs"):
         if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in payload[key]):
             raise ValueError(f"noise control {key} must contain positive finite measurements")
     expected = expected or {}
-    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "task_package_digest", "population_manifest_digest", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better", "expected_speedup_range"):
+    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "task_package_digest", "population_manifest_digest", "control_implementation", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better", "expected_speedup_range"):
         if key in expected and payload.get(key) != expected[key]:
             raise ValueError(f"noise control {key} mismatch")
     for key in ("hardware_fingerprint", "software_fingerprint"):

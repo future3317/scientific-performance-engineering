@@ -56,8 +56,13 @@ def _cmd_run_task(args: argparse.Namespace) -> int:
                 "outer_trial_id": args.outer_trial_id,
                 "benchmark_revision": args.benchmark_revision,
                 "task_manifest_digest": args.task_manifest_digest,
+                "task_package_digest": args.task_package_digest,
+                "population_manifest_digest": args.population_manifest_digest,
             }.items() if value is not None
         },
+        outer_trial_id=args.outer_trial_id,
+        task_package_digest=args.task_package_digest,
+        population_manifest_digest=args.population_manifest_digest,
     )
     verdict = result["verdict"]
     speedup = result.get("verified_speedup", {})
@@ -80,6 +85,8 @@ def _cmd_calibrate_noise_control(args: argparse.Namespace) -> int:
         outer_trial_id=args.outer_trial_id,
         benchmark_revision=args.benchmark_revision,
         task_manifest_digest=args.task_manifest_digest,
+        task_package_digest=args.task_package_digest,
+        population_manifest_digest=args.population_manifest_digest,
         compiler_cache_policy=args.compiler_cache_policy,
         seed=args.seed,
     )
@@ -166,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--outer-trial-id", default=None)
     p.add_argument("--benchmark-revision", default=None)
     p.add_argument("--task-manifest-digest", default=None)
+    p.add_argument("--task-package-digest", default=None)
+    p.add_argument("--population-manifest-digest", default=None)
     p.set_defaults(func=_cmd_run_task)
 
     p = sub.add_parser("calibrate-noise-control", help="run one same-host baseline-vs-baseline calibration")
@@ -176,6 +185,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--outer-trial-id", required=True)
     p.add_argument("--benchmark-revision", required=True)
     p.add_argument("--task-manifest-digest", required=True)
+    p.add_argument("--task-package-digest", required=True)
+    p.add_argument("--population-manifest-digest", required=True)
     p.add_argument("--compiler-cache-policy", default=None)
     p.add_argument("--seed", type=int, default=0)
     p.set_defaults(func=_cmd_calibrate_noise_control)

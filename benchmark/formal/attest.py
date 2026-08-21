@@ -48,6 +48,7 @@ def harness_digest(repo_root: str | Path) -> str:
     roots = [root / "benchmark" / "harness", root / "benchmark" / "formal"]
     paths = [
         root / "scripts" / "run_active30_calibration.py",
+        root / "benchmark" / "calibration" / "calibration_protocol.json",
         root / "benchmark" / "schema" / "task.schema.json",
         root / "benchmark" / "schema" / "result.schema.json",
     ]
@@ -74,6 +75,7 @@ def calibration_envelope(
     outer_trial_id: str,
     seed: int,
     measurement_class: str,
+    calibration_protocol_digest: str | None = None,
 ) -> dict[str, Any]:
     """Return the immutable identity envelope for one calibration cell."""
     envelope = {
@@ -91,6 +93,8 @@ def calibration_envelope(
         "raw_result_digest": str(raw_result_digest),
         "fingerprint": dict(fingerprint),
     }
+    if calibration_protocol_digest is not None:
+        envelope["calibration_protocol_digest"] = str(calibration_protocol_digest)
     envelope["envelope_digest"] = digest_mapping(envelope)
     return envelope
 
@@ -119,7 +123,9 @@ def validate_calibration_envelope(payload: dict[str, Any], expected: dict[str, A
                 if not compatible:
                     errors.append("fingerprint mismatch: " + "; ".join(reasons))
             continue
-        if key in payload and payload.get(key) != value:
+        if key not in payload:
+            errors.append(f"missing {key}")
+        elif payload.get(key) != value:
             errors.append(f"{key} mismatch")
     return errors
 

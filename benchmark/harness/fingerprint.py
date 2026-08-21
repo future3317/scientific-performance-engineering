@@ -29,6 +29,7 @@ _COMPARABLE_FIELDS = (
     "driver_version",
     "cuda_visible_devices",
     "gpu_uuid",
+    "thread_topology",
 )
 
 
@@ -99,6 +100,30 @@ def _psutil_extras() -> dict[str, Any]:
         return {}
 
 
+def selected_gpu_foreign_pids() -> list[int]:
+    """Return compute PIDs on the selected GPU without modifying them."""
+    selected = _selected_gpu_uuid()
+    if not selected:
+        return []
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-compute-apps=pid,gpu_uuid", "--format=csv,noheader,nounits"],
+            text=True, stderr=subprocess.DEVNULL, timeout=10,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return []
+    pids: list[int] = []
+    for line in output.splitlines():
+        fields = [item.strip() for item in line.split(",", 1)]
+        if len(fields) != 2 or fields[1] != selected:
+            continue
+        try:
+            pids.append(int(fields[0]))
+        except ValueError:
+            continue
+    return sorted(set(pids))
+
+
 def capture_fingerprint() -> dict[str, Any]:
     """Capture the current hw/sw fingerprint as a JSON-serializable dict."""
     fingerprint: dict[str, Any] = {
@@ -116,6 +141,15 @@ def capture_fingerprint() -> dict[str, Any]:
         "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
         "torch_geometric_version": _optional_pyg_version(),
         "env": {key: os.environ.get(key) for key in _ENV_KEYS},
+        "thread_topology": {
+            "omp_num_threads": os.environ.get("OMP_NUM_THREADS"),
+            "mkl_num_threads": os.environ.get("MKL_NUM_THREADS"),
+            "openblas_num_threads": os.environ.get("OPENBLAS_NUM_THREADS"),
+            "numexpr_num_threads": os.environ.get("NUMEXPR_NUM_THREADS"),
+            "torch_num_threads": None,
+            "torch_num_interop_threads": None,
+            "compiler_threads": os.environ.get("TORCHINDUCTOR_COMPILE_THREADS") or os.environ.get("MAX_JOBS"),
+        },
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
     try:
@@ -129,6 +163,8 @@ def capture_fingerprint() -> dict[str, Any]:
             fingerprint["gpu_name"] = torch.cuda.get_device_name(0)
             fingerprint["driver_version"] = _nvidia_smi_driver()
             fingerprint["gpu_uuid"] = _selected_gpu_uuid()
+        fingerprint["thread_topology"]["torch_num_threads"] = torch.get_num_threads()
+        fingerprint["thread_topology"]["torch_num_interop_threads"] = torch.get_num_interop_threads()
     except Exception as exc:  # torch missing/broken must not kill the harness
         fingerprint["torch_error"] = repr(exc)
     fingerprint["psutil_extras"] = _psutil_extras()

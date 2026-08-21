@@ -15,6 +15,11 @@ on:
         required: false
         default: false
         type: boolean
+      calibration_empirical:
+        description: "Immutable empirical.json path for strict formal readiness"
+        required: false
+        default: "benchmark/calibration/empirical.json"
+        type: string
 
 jobs:
   contract:
@@ -117,6 +122,7 @@ jobs:
           python -m benchmark.taskgen.validate_population \
             --tasks-root benchmark/tasks \
             --out benchmark/population_report.json \
+            --empirical "${{ inputs.calibration_empirical }}" \
             --pilot-calibration benchmark/calibration/pilot_calibration.json \
             --approval benchmark/calibration/calibration_approval.json \
             --strict-formal

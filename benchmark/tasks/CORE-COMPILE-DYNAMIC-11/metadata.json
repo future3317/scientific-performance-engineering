@@ -25,7 +25,9 @@
   "family_id": "compile",
   "anchor_instance_id": "CORE-COMPILE-DYNAMIC-11",
   "calibration": {
-    "status": "eligible",
+    "status": "historical_calibration",
+    "stale_for_current_task_digest": true,
+    "superseded_by": "current-revision active30 calibration",
     "revision": "abd36b9",
     "artifact": "benchmark/calibration/dynamic-calibration-v3-summary.json",
     "runs": 3,

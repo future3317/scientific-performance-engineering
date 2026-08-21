@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "population_id": "SPE-EvoBench-v1.0-30-pilot",
+  "atomic_outer_trials": 3,
+  "evolution_outer_trials": "declared_measurement_repetitions",
+  "noise_control_repetitions_per_arm": 5,
+  "device_policy": "cuda_when_available",
+  "outer_trial_identity": ["task_id", "task_package_digest", "population_manifest_digest", "outer_trial_id", "seed", "measurement_class"],
+  "timeout_policy": "shared_outer_deadline"
+}

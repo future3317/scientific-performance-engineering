@@ -91,6 +91,18 @@ def test_noise_control_range_change_invalidates_old_artifact() -> None:
             raise AssertionError("noise artifact from the stale oracle range was accepted")
 
 
+def test_noise_control_requires_registered_baseline_implementation() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "noise_control.json"
+        stats.write_noise_control(path, _artifact(control_implementation="oracle"))
+        try:
+            stats.read_noise_control(path, {})
+        except ValueError as exc:
+            assert "baseline" in str(exc)
+        else:
+            raise AssertionError("oracle control implementation was accepted")
+
+
 def test_noise_control_environment_bindings_are_fail_closed() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "noise_control.json"
