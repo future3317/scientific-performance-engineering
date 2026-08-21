@@ -230,6 +230,16 @@ class ResourceBlockedError(RuntimeError):
     """A subprocess boundary was contaminated by an external resource."""
 
 
+def _posix_process_group_alive(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _terminate_process_group(process: subprocess.Popen[str], *, process_group: int) -> tuple[bool, bool]:
     """Terminate a residual process group and return (term_sent, kill_sent)."""
     term_sent = False
@@ -247,15 +257,19 @@ def _terminate_process_group(process: subprocess.Popen[str], *, process_group: i
         os.killpg(process_group, signal.SIGTERM)
     except ProcessLookupError:
         return term_sent, kill_sent
-    try:
-        process.wait(timeout=2.0)
-    except subprocess.TimeoutExpired:
+    deadline = time.monotonic() + 2.0
+    while _posix_process_group_alive(process_group) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if _posix_process_group_alive(process_group):
         try:
             kill_sent = True
             os.killpg(process_group, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        process.wait()
+        deadline = time.monotonic() + 2.0
+        while _posix_process_group_alive(process_group) and time.monotonic() < deadline:
+            time.sleep(0.05)
+    process.wait()
     return term_sent, kill_sent
 
 
@@ -303,13 +317,7 @@ def run_python_subprocess(
     def group_alive() -> bool:
         if os.name == "nt":
             return process.poll() is None
-        try:
-            os.killpg(process.pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
+        return _posix_process_group_alive(process.pid)
 
     residual_detected = False
     try:
@@ -338,9 +346,6 @@ def run_python_subprocess(
         stderr += f"\n[harness] subprocess timed out after {timeout}s"
     if residual_detected:
         stderr += "\n[harness] subprocess exited with a residual process group; it was terminated"
-        deadline = time.monotonic() + 2.0
-        while group_alive() and time.monotonic() < deadline:
-            time.sleep(0.05)
     quiescent = not group_alive()
     return {
         "exit_code": exit_code,

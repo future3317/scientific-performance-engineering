@@ -38,13 +38,11 @@ Evolution). The current pilot contains 16 Core, 11 SciML, and 3 Evolution
 tasks; 8 Core, 9 SciML, and 3 Evolution slots remain ungenerated and are
 gated on pilot calibration.
 
-`CORE-COMPILE-DYNAMIC-11` is the first re-frozen empirical positive anchor:
-three independent same-host oracle runs give the outward-rounded expected
-speedup range `[2.56, 3.34]` and observed control floors of 51.87--61.22%.
-The high cold-compile variance is retained as a task characteristic; the
-anchor is eligible only because every oracle CI clears the corresponding
-observed floor. This does not complete population calibration, start an
-efficacy campaign, or generate formal-50.
+`CORE-COMPILE-DYNAMIC-11` has historical same-host oracle evidence with an
+outward-rounded expected speedup range `[2.56, 3.34]` and observed control
+floors of 51.87--61.22%. That evidence is stale for the current task digest,
+so it does not confer current calibration eligibility. The task remains in the
+pilot and requires current-revision calibration before any formal use.
 
 The ten-task authoring bundle (21–30) is retained under
 [`archive/candidate-bundles/`](archive/candidate-bundles/). It expands
@@ -54,11 +52,10 @@ The archive keeps the source bundle and provenance; it is not a second
 executable task source. The tasks remain calibration candidates and do not
 produce efficacy claims or sealed formal-50 content.
 
-Two of the new packages now have task-local calibration evidence. The CUDA
-counterexample `CORE-H2D-OVERFANOUT-23` executes correctly, but its same-host
-noise floor (9.55--32.42%) blocks eligibility; see
-[`calibration/h2d-overfanout-23-summary.json`](calibration/h2d-overfanout-23-summary.json).
-The evolution episode `EVOL-EQUIVARIANT-SPECIALIZE-30` completed the full C/D
+The current H2D counterexample candidate is
+`CORE-H2D-OVERFANOUT-23R2`, an independent replacement that requires fresh
+target-runtime calibration; it remains a pilot candidate and does not confer
+formal eligibility. The evolution episode `EVOL-EQUIVARIANT-SPECIALIZE-30` completed the full C/D
 harness: C produced no canonical promotion, while D produced one validated
 promotion with replay and poison checks passing. These are execution and
 governance observations only, not efficacy or superiority claims.
