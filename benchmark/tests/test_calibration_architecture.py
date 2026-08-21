@@ -110,3 +110,12 @@ def test_validate_skill_uses_formal_evolution_authority():
     source = (root / "scripts" / "validate_skill.py").read_text(encoding="utf-8")
     assert "from benchmark.formal import evolution_validation" in source
     assert 'root / "scripts" / "validate_evolution.py"' not in source
+
+
+def test_evolution_fixtures_use_formal_authority_not_cli_wrapper():
+    root = Path(__file__).parents[2]
+    for name in ("evolution_contract_tests.py", "evolution_utility_tests.py"):
+        source = (root / "scripts" / name).read_text(encoding="utf-8")
+        assert "benchmark.formal import evolution_validation" in source
+        assert 'load("validate_evolution.py")' not in source
+        assert 'ROOT / "scripts" / "validate_evolution.py"' not in source
