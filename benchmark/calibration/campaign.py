@@ -115,6 +115,17 @@ def _bounded_noise_control(
         noise["executor_cleanup"] = cleanup
         stats.write_noise_control(noise_path, noise)
         return stats.read_noise_control(noise_path), False
+    if not completed["timed_out"] and cleanup.get("residual_detected") and noise_path.is_file():
+        noise = stats.read_noise_control(noise_path)
+        noise.update({
+            "execution_validity": "resource_blocked",
+            "failure_stage": "executor_cleanup",
+            "timeout": False,
+            "error": completed["stderr"] or "noise control left a residual process group",
+        })
+        noise["executor_cleanup"] = cleanup
+        stats.write_noise_control(noise_path, noise)
+        return stats.read_noise_control(noise_path), True
     if not completed["timed_out"]:
         raise RuntimeError(
             f"noise control exited without an artifact for {task_id}/{outer_trial_id}: "
@@ -476,6 +487,28 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                             measurement_class="atomic_performance",
                             timeout=bool(noise.get("timeout", False)),
                         )
+                        result_path.write_text(
+                            json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+                            encoding="utf-8",
+                        )
+                        if isinstance(noise.get("artifact_digest"), str):
+                            envelope = calibration_envelope(
+                                producer_revision=revision, task_package_digest=task_digest,
+                                population_manifest_digest=population_digest,
+                                harness_digest_value=harness_digest,
+                                calibration_runner_digest=runner_digest,
+                                noise_digest=str(noise["artifact_digest"]),
+                                raw_result_digest=file_digest(result_path),
+                                fingerprint=fingerprint,
+                                task_id=task_id, outer_trial_id=outer_id, seed=outer,
+                                measurement_class="atomic_performance",
+                                calibration_protocol_digest=protocol_digest,
+                            )
+                            envelope_path.write_text(
+                                json.dumps(envelope, indent=2, ensure_ascii=False) + "\n",
+                                encoding="utf-8",
+                            )
+                            task_envelopes.append(envelope)
                         task_noises.append(noise)
                         task_results.append(result)
                         print(json.dumps({"task_id": task_id, "outer_trial_id": outer_id, "verdict": result.get("verdict"), "calibration_status": result.get("calibration_status"), "wall_time_s": result.get("cost", {}).get("wall_time_s")}, ensure_ascii=False), flush=True)

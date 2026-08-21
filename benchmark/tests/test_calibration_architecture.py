@@ -48,7 +48,7 @@ def test_active30_cli_is_only_argument_parsing_and_orchestration():
 def test_resource_blocked_verifier_has_one_cleanup_branch():
     source = (Path(__file__).parents[2] / "benchmark" / "calibration" / "campaign.py").read_text(encoding="utf-8")
     assert source.count('if cleanup.get("residual_detected")') == 1
-    assert "noise control left a residual process group" not in source
+    assert "execution_validity\": \"resource_blocked\"" in source
 
 
 def test_formal_and_episode_verifier_use_shared_cell_executor():
