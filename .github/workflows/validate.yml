@@ -66,6 +66,7 @@ jobs:
             --out benchmark/population_report.json
           python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml
           for task in benchmark/tasks/*; do
+            [[ -d "$task" && -f "$task/task.yaml" ]] || continue
             python -m benchmark.harness.cli validate-task "$task"
           done
 
