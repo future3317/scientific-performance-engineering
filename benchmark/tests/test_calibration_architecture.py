@@ -39,3 +39,13 @@ def test_formal_and_episode_verifier_use_shared_cell_executor():
     assert "from benchmark.calibration.execution import CellExecutor" in formal
     assert "from benchmark.calibration.execution import CellExecutor" in verifier
     assert "subprocess.Popen(" not in verifier
+
+
+def test_population_structural_checks_have_a_single_module():
+    root = Path(__file__).parents[2]
+    structural = (root / "benchmark" / "population" / "structural.py").read_text(encoding="utf-8")
+    validator = (root / "benchmark" / "taskgen" / "validate_population.py").read_text(encoding="utf-8")
+    assert "def artifact_findings" in structural
+    assert "def metadata_findings" in structural
+    assert "def _artifact_findings" not in validator
+    assert "def _metadata_findings" not in validator

@@ -23,6 +23,12 @@ from benchmark.families.catalog import FAMILY_SPECS, family_instance_digest, rec
 from benchmark.formal.attest import task_package_digest
 from benchmark.formal import attest
 from benchmark.calibration.identity import canonical_cell_identity
+from benchmark.population.structural import (
+    artifact_findings,
+    isolated_validate_task,
+    load_active_manifest,
+    metadata_findings,
+)
 
 
 ATOMIC_REQUIRED = (
@@ -60,90 +66,6 @@ CALIBRATION_FIELDS = (
 
 def _json_digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
-
-
-def load_active_manifest(tasks_root: str | Path, manifest_path: str | Path | None = None) -> dict[str, Any]:
-    """Load the explicit active population; never infer formal population from a directory listing."""
-    root = Path(tasks_root)
-    path = Path(manifest_path) if manifest_path is not None else root.parent / "pilot_population.json"
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"active population manifest is unreadable: {path}: {exc}") from exc
-    task_ids = payload.get("task_ids") if isinstance(payload, dict) else None
-    if payload.get("status") != "active_manifest" or not isinstance(task_ids, list) or len(task_ids) != len(set(task_ids)):
-        raise ValueError("active population manifest must be status=active_manifest with unique task_ids")
-    return payload
-
-
-def _artifact_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
-    oracle = task_dir / "oracle"
-    required = ["bottleneck.json", "expected_mechanism.json", "reference_patch.diff", "tempting_wrong_patch.md", "noise_floor.json", "validation.json"]
-    errors = [f"{task_dir.name}: missing oracle/{name}" for name in required if not (oracle / name).is_file()]
-    if not (task_dir / "workspace" / str(spec["workspace"]["entrypoint"])).is_file():
-        errors.append(f"{task_dir.name}: baseline workspace entrypoint missing")
-    if not (task_dir / "benchmark.py").is_file():
-        errors.append(f"{task_dir.name}: benchmark.py missing")
-    validation_path = oracle / "validation.json"
-    if validation_path.is_file():
-        try:
-            payload = json.loads(validation_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            errors.append(f"{task_dir.name}: validation.json is invalid: {exc}")
-        else:
-            for key in ("baseline_validation", "oracle_validation", "anti_cheat", "deterministic_fixture"):
-                if key not in payload:
-                    errors.append(f"{task_dir.name}: validation.json lacks {key}")
-    noise_path = oracle / "noise_floor.json"
-    if noise_path.is_file():
-        try:
-            noise = json.loads(noise_path.read_text(encoding="utf-8"))
-            if not isinstance(noise.get("declared_percent"), (int, float)):
-                errors.append(f"{task_dir.name}: noise_floor.json lacks numeric declared_percent")
-        except json.JSONDecodeError as exc:
-            errors.append(f"{task_dir.name}: noise_floor.json is invalid: {exc}")
-    if not (task_dir / "hidden_verifier").is_dir():
-        errors.append(f"{task_dir.name}: hidden_verifier directory missing")
-    return errors
-
-
-def _metadata_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
-    path = task_dir / "metadata.json"
-    if not path.is_file():
-        return [f"{task_dir.name}: metadata.json missing"]
-    try:
-        metadata = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        return [f"{task_dir.name}: metadata.json is invalid: {exc}"]
-    lineage = spec.get("lineage", {})
-    errors: list[str] = []
-    if metadata.get("task_id") != spec.get("task_id"):
-        errors.append(f"{task_dir.name}: metadata task_id does not match task.yaml")
-    if metadata.get("track") != spec.get("track") or metadata.get("family") != spec.get("family"):
-        errors.append(f"{task_dir.name}: metadata track/family does not match task.yaml")
-    metadata_lineage = metadata.get("lineage", {})
-    for key in ("source", "mutation_template_id"):
-        if metadata_lineage.get(key) != lineage.get(key):
-            errors.append(f"{task_dir.name}: metadata lineage.{key} does not match task.yaml")
-    if metadata.get("difficulty") != spec.get("difficulty_tier"):
-        errors.append(f"{task_dir.name}: metadata difficulty does not match difficulty_tier")
-    for key in ("family_id", "anchor_instance_id"):
-        if spec.get(key) and metadata.get(key) != spec.get(key):
-            errors.append(f"{task_dir.name}: metadata {key} does not match task.yaml")
-    return errors
-
-
-def _isolated_validate_task(task_dir: Path) -> list[str]:
-    completed = subprocess.run(
-        [sys.executable, "-m", "benchmark.harness.cli", "validate-task", str(task_dir), "--no-fixture-check"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    if completed.returncode == 0:
-        return []
-    output = (completed.stderr or completed.stdout).strip()
-    return [output or "isolated validate-task failed"]
 
 
 def _calibration_protocol(tasks_root: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -509,7 +431,7 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
             continue
         spec["_task_dir"] = task_dir
         specs.append(spec)
-        errors.extend(_metadata_findings(task_dir, spec))
+        errors.extend(metadata_findings(task_dir, spec))
         errors.extend(_compile_projection_findings(task_dir, spec))
         public_context = spec.get("public_context")
         if not isinstance(public_context, dict) or not isinstance(public_context.get("workload"), dict) or not public_context.get("workload"):
@@ -549,13 +471,13 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
                             errors.append(f"{task_dir.name}: task polarity disagrees with FamilySpec applicability")
                 except KeyError:
                     errors.append(f"{task_dir.name}: unknown family_id {spec.get('family_id')}")
-        errors.extend(_artifact_findings(task_dir, spec))
+        errors.extend(artifact_findings(task_dir, spec))
         actual_hash = ast_skeleton_hash(task_dir)
         if spec.get("workspace_ast_skeleton_hash") != actual_hash:
             errors.append(f"{task_dir.name}: workspace_ast_skeleton_hash is stale")
         if int(spec.get("ast_skeleton_version", 0)) != 2:
             errors.append(f"{task_dir.name}: ast_skeleton_version must be 2")
-        errors.extend(f"{task_dir.name}: {item}" for item in _isolated_validate_task(task_dir))
+        errors.extend(f"{task_dir.name}: {item}" for item in isolated_validate_task(task_dir))
 
     counts = Counter(str(spec.get("track")) for spec in specs)
     if len(specs) != len(active_task_ids):
