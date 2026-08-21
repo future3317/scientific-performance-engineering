@@ -15,12 +15,14 @@ from typing import Any
 
 from benchmark.harness import miniyaml
 from benchmark.harness import stats
+from benchmark.harness.api import execution_class_for_task
 from benchmark.harness.split import check_leakage
 from benchmark.taskgen.generate import ast_skeleton_hash
 from benchmark.families import resolve_family_id
 from benchmark.families.catalog import FAMILY_SPECS, family_instance_digest, reconstruct_anchor_instance
 from benchmark.formal.attest import task_package_digest
 from benchmark.formal import attest
+from benchmark.calibration.identity import canonical_cell_identity
 
 
 ATOMIC_REQUIRED = (
@@ -154,7 +156,7 @@ def _calibration_protocol(tasks_root: Path) -> tuple[dict[str, Any] | None, str 
 
 
 def _expected_outer_count(spec: dict[str, Any], protocol: dict[str, Any] | None) -> int:
-    if spec.get("workspace", {}).get("api") == "episode_v1":
+    if execution_class_for_task(spec) == "episode":
         return int(spec.get("measurement", {}).get("repetitions", 0))
     return int((protocol or {}).get("atomic_outer_trials", 0))
 
@@ -175,7 +177,7 @@ def _bundle_integrity_errors(record: dict[str, Any], spec: dict[str, Any], empir
     expected_count = len(trials)
     if len(raw_paths) != expected_count or len(noise_paths) != expected_count or len(envelope_paths) != expected_count or len(envelopes) != expected_count:
         errors.append("calibration bundle artifact/envelope/trial counts differ")
-    expected_class = "evolution" if str(record.get("metric_class")) == "evolution" else "atomic_performance"
+    expected_class = "evolution" if execution_class_for_task(spec) == "episode" else "atomic_performance"
     task_id = str(record.get("task_id"))
     for index, (raw_rel, noise_rel, envelope_rel) in enumerate(zip(raw_paths, noise_paths, envelope_paths)):
         try:
@@ -188,7 +190,7 @@ def _bundle_integrity_errors(record: dict[str, Any], spec: dict[str, Any], empir
         except (OSError, json.JSONDecodeError, TypeError) as exc:
             errors.append(f"cell {index} artifact unreadable: {exc}")
             continue
-        identity = attest.canonical_cell_identity(
+        identity = canonical_cell_identity(
             task_id=task_id, outer_trial_id=f"outer-{index:03d}", seed=index,
             measurement_family=expected_class,
             task_package_digest=str(record.get("task_digest")),
@@ -728,16 +730,6 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
     return artifact
 
 
-def rebuild_calibration_views(
-    *, tasks_root: str | Path, empirical_path: str | Path,
-    manifest_path: str | Path | None = None,
-) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
-    """Rebuild derived calibration projections from their evidence authority."""
-    report, errors = build_report(tasks_root, empirical_path, manifest_path)
-    pilot = build_pilot_calibration(report, tasks_root)
-    return report, pilot, errors
-
-
 def validate_formal_readiness(
     report: dict[str, Any], calibration: dict[str, Any] | None,
     approval: dict[str, Any] | None, empirical: dict[str, Any] | None = None,
@@ -746,6 +738,7 @@ def validate_formal_readiness(
 ) -> list[str]:
     """Fail closed for formal generation/campaign entry points."""
     from benchmark.formal.approval import validate_calibration_approval
+    from benchmark.calibration.report import rebuild_calibration_views
     errors: list[str] = []
     if repo_root is not None and empirical_path is not None:
         try:

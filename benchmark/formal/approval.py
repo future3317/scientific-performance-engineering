@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any
 
 
-def _digest(value: Any) -> str:
+def json_digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def _file_digest(path: Path) -> str | None:
+def file_digest(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
@@ -42,7 +42,7 @@ def validate_calibration_approval(
                 errors.append(f"calibration approval missing {key}")
     if approval.get("approved") is True:
         body = {key: value for key, value in approval.items() if key != "approval_digest"}
-        if approval.get("approval_digest") != _digest(body):
+        if approval.get("approval_digest") != json_digest(body):
             errors.append("calibration approval digest mismatch")
     if repo_root is not None:
         try:
@@ -56,7 +56,7 @@ def validate_calibration_approval(
     if not isinstance(report, dict) or not isinstance(calibration, dict):
         errors.append("population report or pilot calibration is missing")
         return errors
-    if approval.get("population_report_digest") != _digest(report):
+    if approval.get("population_report_digest") != json_digest(report):
         errors.append("calibration approval population digest mismatch")
     if approval.get("pilot_calibration_digest") != calibration.get("artifact_digest"):
         errors.append("calibration approval pilot digest mismatch")
@@ -86,7 +86,7 @@ def validate_calibration_approval(
         }
         for field, path in bindings.items():
             if field in approval and field.endswith("_digest"):
-                expected = _file_digest(path) if path.is_file() else None
+                expected = file_digest(path) if path.is_file() else None
                 if expected is None or approval.get(field) != expected:
                     errors.append(f"calibration approval {field} mismatch")
     return errors

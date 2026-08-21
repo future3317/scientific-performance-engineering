@@ -10,8 +10,8 @@ from scripts.run_active30_calibration import (
     _bounded_verifier_result,
     _calibration_record,
     _copy_oracle,
-    _outer_trial_count,
 )
+from benchmark.calibration.protocol import outer_trial_count
 from benchmark.formal.attest import calibration_envelope, validate_calibration_envelope
 
 
@@ -124,13 +124,13 @@ def test_calibration_record_aggregates_all_outer_trials():
 
 
 def test_outer_trial_count_uses_declared_episode_repetitions():
-    assert _outer_trial_count(
+    assert outer_trial_count(
         {"workspace": {"api": "episode_v1"}, "measurement": {"repetitions": 3}},
-        default_outer_trials=1,
+        {"atomic_outer_trials": 1},
     ) == 3
-    assert _outer_trial_count(
+    assert outer_trial_count(
         {"workspace": {"api": "train_loop_v1"}, "measurement": {"repetitions": 12}},
-        default_outer_trials=1,
+        {"atomic_outer_trials": 1},
     ) == 1
 
 
@@ -241,7 +241,7 @@ def test_subprocess_timeout_returns_cleanup_receipt():
 
 
 def test_evolution_cell_identity_separates_raw_class_from_measurement_family():
-    from benchmark.formal.attest import canonical_cell_identity
+    from benchmark.calibration.identity import canonical_cell_identity
 
     identity = canonical_cell_identity(
         task_id="EVOL", outer_trial_id="outer-000", seed=0,

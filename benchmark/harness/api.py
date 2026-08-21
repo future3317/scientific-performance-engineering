@@ -20,6 +20,8 @@ from typing import Any
 #   notes:               free-form contract notes
 API_REGISTRY: dict[str, dict[str, Any]] = {
     "train_loop_v1": {
+        "execution_class": "atomic",
+        "metric_type": "latency",
         "entrypoint": "solution.py",
         "required_callables": {
             "build_model": "build_model(fixtures) -> torch.nn.Module",
@@ -29,6 +31,8 @@ API_REGISTRY: dict[str, dict[str, Any]] = {
         "notes": "SPE-Core training-loop tasks. train_step is the hot loop body under measurement; it must execute the same forward/backward/optimizer units as the baseline (work-unit counters are compared).",
     },
     "energy_force_v1": {
+        "execution_class": "atomic",
+        "metric_type": "energy_force",
         "entrypoint": "solution.py",
         "required_callables": {
             "build_model": "build_model(fixtures) -> torch.nn.Module",
@@ -38,6 +42,8 @@ API_REGISTRY: dict[str, dict[str, Any]] = {
         "notes": "SciML graph/materials tasks. Gates check F == -dE/dx via autograd, so energy_fn must keep positions differentiable.",
     },
     "sampler_v1": {
+        "execution_class": "atomic",
+        "metric_type": "sampling",
         "entrypoint": "solution.py",
         "required_callables": {
             "build_sampler": "build_sampler(fixtures) -> sampler object",
@@ -47,6 +53,8 @@ API_REGISTRY: dict[str, dict[str, Any]] = {
         "notes": "SciML diffusion/score sampling loops. time-to-quality tasks measure wall-clock to a fixed validity threshold.",
     },
     "kernel_module_v1": {
+        "execution_class": "atomic",
+        "metric_type": "kernel",
         "entrypoint": "solution.py",
         "required_callables": {
             "init": "init(fixtures) -> opaque context",
@@ -55,6 +63,8 @@ API_REGISTRY: dict[str, dict[str, Any]] = {
         "notes": "KernelBench-style kernel/compiler tasks (spe_core family 'compiler'). Measured with CUDA events plus host wall clock and L2-thrash between trials.",
     },
     "episode_v1": {
+        "execution_class": "episode",
+        "metric_type": "episode_score",
         "entrypoint": "solution.py",
         "required_callables": {
             "run_episode_task": "run_episode_task(task_workspace, skill_view, budget) -> {'action': declarative policy}",
@@ -74,6 +84,34 @@ def get_api(name: str) -> dict[str, Any]:
     if name not in API_REGISTRY:
         raise KeyError(f"unknown api {name!r}; registered: {', '.join(list_apis())}")
     return API_REGISTRY[name]
+
+
+def execution_class_for_api(name: str) -> str:
+    """Return the registered execution class for a workspace API."""
+    execution_class = get_api(name).get("execution_class")
+    if execution_class not in {"atomic", "episode"}:
+        raise ValueError(f"API {name!r} has no valid execution_class")
+    return str(execution_class)
+
+
+def execution_class_for_task(spec: dict[str, Any]) -> str:
+    """Resolve a task's execution class through the API registry."""
+    try:
+        api_name = str(spec["workspace"]["api"])
+    except (KeyError, TypeError) as exc:
+        raise ValueError("task spec lacks workspace.api") from exc
+    return execution_class_for_api(api_name)
+
+
+def metric_type_for_task(spec: dict[str, Any]) -> str:
+    try:
+        api_name = str(spec["workspace"]["api"])
+    except (KeyError, TypeError) as exc:
+        raise ValueError("task spec lacks workspace.api") from exc
+    metric_type = get_api(api_name).get("metric_type")
+    if not isinstance(metric_type, str) or not metric_type:
+        raise ValueError(f"API {api_name!r} has no metric_type")
+    return metric_type
 
 
 def validate_solution_api(module: ModuleType, api_name: str) -> list[str]:
