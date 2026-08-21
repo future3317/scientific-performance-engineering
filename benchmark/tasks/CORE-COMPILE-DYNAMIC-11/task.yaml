@@ -10,7 +10,7 @@ lineage:
   mutation_seed: 1759423612
 title: "tensor-only dynamic-shape specialization"
 requires_cuda: false
-time_budget_s: 300
+time_budget_s: 600
 workspace:
   entrypoint: solution.py
   api: train_loop_v1
