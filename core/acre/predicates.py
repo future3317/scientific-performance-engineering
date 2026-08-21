@@ -7,6 +7,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from core.predicates import match_predicate
+
 
 SYNTHESIZER_VERSION = "acre-predicate-synth-v2"
 
@@ -119,24 +121,51 @@ class PredicateGrammar:
     def candidates(self, contexts: list[Mapping[str, Any]], parent_predicate: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         atoms = self._atoms(contexts)
         fragments = atoms + [{"not": atom} for atom in atoms]
-        candidates: list[dict[str, Any]] = []
+        context_masks = [
+            sum(1 << index for index, context in enumerate(contexts) if match_predicate(fragment, context))
+            for fragment in fragments
+        ]
+        full_mask = (1 << len(contexts)) - 1
+        representatives: dict[int, tuple[tuple[int, int, int, str], dict[str, Any]]] = {}
+
+        def add(candidate: dict[str, Any], signature: int) -> None:
+            if not self._within_bounds(candidate):
+                return
+            candidate_key = _key(candidate)
+            complexity = predicate_complexity(candidate)
+            priority = (len(candidate_key), complexity["depth"], complexity["literals"], candidate_key)
+            current = representatives.get(signature)
+            if current is None or priority < current[0]:
+                representatives[signature] = (priority, candidate)
+
         if parent_predicate is not None and self._within_bounds(parent_predicate):
             # A specialization may preserve the parent or narrow it; it must
             # never introduce a complement/OR branch that broadens coverage.
-            candidates.append(parent_predicate)
+            parent_mask = sum(
+                1 << index for index, context in enumerate(contexts)
+                if match_predicate(parent_predicate, context)
+            )
+            add(parent_predicate, parent_mask)
+        else:
+            parent_mask = None
         for width in range(1, min(self.max_literals, len(fragments)) + 1):
-            for selected in itertools.combinations(fragments, width):
+            for selected_indices in itertools.combinations(range(len(fragments)), width):
+                selected = tuple(fragments[index] for index in selected_indices)
+                all_mask = full_mask
+                any_mask = 0
+                for index in selected_indices:
+                    all_mask &= context_masks[index]
+                    any_mask |= context_masks[index]
                 if parent_predicate is not None:
-                    candidates.append({"all": [parent_predicate, *selected]})
+                    add({"all": [parent_predicate, *selected]}, parent_mask & all_mask)
                     if width > 1:
                         # A disjunction is safe only inside the parent
                         # predicate: parent AND (a OR b) is still a true
                         # specialization, whereas (parent OR a) is not.
-                        candidates.append({"all": [parent_predicate, {"any": list(selected)}]})
-                        candidates.append({"any": [{"all": [parent_predicate, selected[0]]}]})
+                        add({"all": [parent_predicate, {"any": list(selected)}]}, parent_mask & any_mask)
+                        add({"any": [{"all": [parent_predicate, selected[0]]}]}, parent_mask & context_masks[selected_indices[0]])
                 else:
-                    candidates.append(selected[0] if width == 1 else {"all": list(selected)})
+                    add(selected[0] if width == 1 else {"all": list(selected)}, all_mask)
                     if width > 1:
-                        candidates.append({"any": list(selected)})
-        unique = {_key(candidate): candidate for candidate in candidates if self._within_bounds(candidate)}
-        return [unique[key] for key in sorted(unique)]
+                        add({"any": list(selected)}, any_mask)
+        return [item[1] for item in sorted(representatives.values(), key=lambda item: item[0][3])]
