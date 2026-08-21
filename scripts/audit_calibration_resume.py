@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark.formal import attest
 from benchmark.harness import miniyaml, stats
 from benchmark.harness.fingerprint import fingerprints_compatible
-from scripts.run_active30_calibration import classify_calibration_result
+from scripts.run_active30_calibration import classify_calibration_result, load_calibration_protocol, _outer_trial_count
 
 
 def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object]:
@@ -32,6 +32,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
     runner_digest = attest.file_digest(repo_root / "scripts" / "run_active30_calibration.py")
     from benchmark.harness.fingerprint import capture_fingerprint
     fingerprint = capture_fingerprint()
+    protocol, protocol_digest = load_calibration_protocol(repo_root)
     reusable: list[dict[str, str]] = []
     rerun: list[dict[str, str]] = []
     blocked: list[dict[str, str]] = []
@@ -40,7 +41,10 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
         task_dir = task_root / task_id
         task_digest = attest.task_package_digest(task_dir)
         task_spec = miniyaml.load(str(task_dir / "task.yaml"))
-        for outer in range(outer_trials):
+        if task_spec.get("workspace", {}).get("api") != "episode_v1" and outer_trials != int(protocol["atomic_outer_trials"]):
+            blocked.append({"task_id": task_id, "reason": "protocol_outer_trial_count_mismatch"})
+            continue
+        for outer in range(_outer_trial_count(task_spec, int(protocol["atomic_outer_trials"]))):
             outer_id = f"outer-{outer:03d}"
             noise = out / "noise-control" / outer_id / f"{task_id}.json"
             raw = out / "raw" / outer_id / f"{task_id}.json"
@@ -58,6 +62,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                     "population_manifest_digest": population_digest,
                     "harness_digest": static_harness,
                     "calibration_runner_digest": runner_digest,
+                    "calibration_protocol_digest": protocol_digest,
                     "fingerprint": fingerprint,
                 }
                 if attest.validate_calibration_envelope(payload, expected):

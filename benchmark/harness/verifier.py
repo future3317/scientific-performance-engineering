@@ -297,7 +297,6 @@ def calibrate_noise_control(
     verifiers consume its immutable artifact and never rerun these controls.
     """
     task_dir = Path(task_dir)
-    solution_dir = Path(solution_dir)
     spec = load_task_yaml(task_dir)
     if spec["workspace"].get("api") == "episode_v1":
         raise ValueError("episode_v1 uses bounded-score paired execution; noise control is not applicable")
@@ -308,9 +307,12 @@ def calibrate_noise_control(
         raise RuntimeError("noise control requires CUDA but no usable device is available")
     module = runner.import_module_by_path(task_dir / "benchmark.py")
     entrypoint = str(spec["workspace"]["entrypoint"])
-    baseline_path = solution_dir / entrypoint
+    # Noise is a null control for the registered baseline.  The oracle is
+    # intentionally never used here; its variability belongs to verifier
+    # evidence, not to the denominator-side null distribution.
+    baseline_path = task_dir / "workspace" / entrypoint
     if not baseline_path.is_file():
-        baseline_path = task_dir / "workspace" / entrypoint
+        raise FileNotFoundError(f"baseline entrypoint not found: {baseline_path}")
     measurement_cfg = spec["measurement"]
     calibration_cfg = dict(measurement_cfg)
     calibration_cfg["repetitions"] = 5
@@ -338,6 +340,7 @@ def calibrate_noise_control(
         "task_manifest_digest": task_manifest_digest,
         "task_package_digest": task_package_digest or task_manifest_digest,
         "population_manifest_digest": population_manifest_digest or task_manifest_digest,
+        "control_implementation": "baseline",
         "hardware_fingerprint": fingerprint,
         "software_fingerprint": fingerprint,
         "compile_threads": int(measurement_cfg.get("compile_threads", 0)),
@@ -366,12 +369,17 @@ def verify_task(
     noise_control_required: bool = False,
     noise_control_expected: Mapping[str, Any] | None = None,
     outer_trial_id: str | None = None,
+    task_package_digest: str | None = None,
+    population_manifest_digest: str | None = None,
 ) -> dict[str, Any]:
     """Run the S0-S6 pipeline; return (and optionally write) the result dict."""
     started = time.perf_counter()
     task_dir = Path(task_dir)
     solution_dir = Path(solution_dir)
     errors: list[str] = []
+    expected_identity = dict(noise_control_expected or {})
+    task_package_digest = task_package_digest or expected_identity.get("task_package_digest")
+    population_manifest_digest = population_manifest_digest or expected_identity.get("population_manifest_digest")
 
     if context_mode not in {"reset", "carry"}:
         raise ValueError("context_mode must be reset or carry")
@@ -386,12 +394,16 @@ def verify_task(
         return _verify_episode_task(
             task_dir, solution_dir, out_path=out_path, seed=seed,
             condition=condition, context_mode=context_mode, outer_trial_id=outer_trial_id,
+            task_package_digest=task_package_digest,
+            population_manifest_digest=population_manifest_digest,
         )
 
     result: dict[str, Any] = {
         "schema_version": 1,
         "task_id": spec["task_id"],
         "outer_trial_id": outer_trial_id,
+        "task_package_digest": task_package_digest,
+        "population_manifest_digest": population_manifest_digest,
         "seed": int(seed),
         "measurement_class": "atomic_performance",
         "condition": condition,
@@ -702,12 +714,14 @@ def verify_task(
     return _finalize(result, started, out_path)
 
 
-def _episode_arm_budget(spec: Mapping[str, Any]) -> float:
-    """Use the task's declared wall-time contract for each episode arm."""
+def _episode_arm_budget(spec: Mapping[str, Any], remaining_s: float | None = None) -> float:
+    """Return the arm cap, never exceeding the shared outer deadline."""
     budget = float(spec["time_budget_s"])
     if budget <= 0.0:
         raise ValueError("episode time_budget_s must be positive")
-    return budget
+    if remaining_s is None:
+        return budget
+    return max(0.0, min(budget, float(remaining_s)))
 
 
 def _verify_episode_task(
@@ -719,6 +733,8 @@ def _verify_episode_task(
     condition: str,
     context_mode: str,
     outer_trial_id: str | None,
+    task_package_digest: str | None,
+    population_manifest_digest: str | None,
 ) -> dict[str, Any]:
     """Verify one evolution episode with one paired C/D execution.
 
@@ -730,6 +746,8 @@ def _verify_episode_task(
     result: dict[str, Any] = {
         "schema_version": 1, "task_id": spec["task_id"], "metric_class": "evolution", "condition": condition,
         "outer_trial_id": outer_trial_id, "seed": int(seed), "measurement_class": "episode_bounded_score",
+        "task_package_digest": task_package_digest,
+        "population_manifest_digest": population_manifest_digest,
         "context_mode": context_mode, "verdict": "error", "validity": "invalid",
         "execution_validity": "invalid", "protocol_failure": False,
         "correctness_pass": False, "scientific_gates": {},
@@ -787,10 +805,14 @@ def _verify_episode_task(
                 raise ValueError("episode action condition must be C, C_STRESS, or D")
             return action
 
-        arm_budget = _episode_arm_budget(spec)
+        outer_budget = float(spec["time_budget_s"])
+        deadline = started + outer_budget
 
         def execute_action(probe: Any, label: str) -> dict[str, Any]:
             action = action_from_probe(probe)
+            arm_budget = _episode_arm_budget(spec, deadline - time.perf_counter())
+            if arm_budget <= 0.0:
+                raise TimeoutError("evolution outer deadline exhausted before episode arm")
             episode_path = next(task_dir.glob("episodes/*.yaml"), None)
             if episode_path is None:
                 raise FileNotFoundError(f"episode manifest missing in {task_dir}")
@@ -813,9 +835,11 @@ def _verify_episode_task(
                     raise RuntimeError(f"episode arm {label} failed: {completed['stderr'] or completed['stdout']}")
                 return json.loads((out_dir / "harness_episode.json").read_text(encoding="utf-8"))
 
+        if time.perf_counter() >= deadline:
+            raise TimeoutError("evolution outer deadline exhausted before baseline arm")
         base_raw = execute_action(baseline_probe, "baseline")
         cand_raw = execute_action(candidate_probe, "candidate")
-        if time.perf_counter() - started > float(spec.get("time_budget_s", 600.0)):
+        if time.perf_counter() > deadline:
             result["verdict"] = "inconclusive"
             result["validity"] = "valid"
             result["execution_validity"] = "resource_blocked"
@@ -877,6 +901,16 @@ def _verify_episode_task(
             result["validity"] = "invalid"
             result["execution_validity"] = "invalid"
             result["errors"].append(f"harness files mutated during episode evaluation: {diffs}")
+    except TimeoutError as exc:
+        result["verdict"] = "inconclusive"
+        result["validity"] = "valid"
+        result["execution_validity"] = "resource_blocked"
+        result["efficacy_eligible"] = False
+        result["calibration_status"] = "blocked"
+        result["timeout"] = True
+        result["failure_stage"] = "evolution_outer"
+        result["protocol_failure"] = False
+        result["errors"].append(str(exc))
     except Exception as exc:
         result["verdict"] = "error"
         result["validity"] = "invalid"

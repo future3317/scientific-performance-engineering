@@ -134,6 +134,20 @@ def test_outer_trial_count_uses_declared_episode_repetitions():
     ) == 1
 
 
+def test_calibration_cli_exposes_full_cell_identity():
+    from benchmark.harness.cli import build_parser
+
+    args = build_parser().parse_args([
+        "run-task", "task", "--solution", "solution", "--out", "result",
+        "--outer-trial-id", "outer-001", "--benchmark-revision", "rev",
+        "--task-manifest-digest", "manifest", "--task-package-digest", "package",
+        "--population-manifest-digest", "population",
+    ])
+    assert args.outer_trial_id == "outer-001"
+    assert args.task_package_digest == "package"
+    assert args.population_manifest_digest == "population"
+
+
 def test_bounded_verifier_timeout_is_persisted_as_resource_block(tmp_path, monkeypatch):
     result_path = tmp_path / "result.json"
 
@@ -215,3 +229,12 @@ def test_calibration_envelope_rejects_incompatible_fingerprint():
     expected = {"fingerprint": {**fingerprint, "gpu_uuid": "GPU-B"}}
     errors = validate_calibration_envelope(envelope, expected)
     assert any("fingerprint mismatch" in error for error in errors)
+
+
+def test_subprocess_timeout_returns_cleanup_receipt():
+    from benchmark.harness.runner import run_python_subprocess
+
+    result = run_python_subprocess(snippet="import time; time.sleep(1)", timeout=0.05)
+    assert result["timed_out"] is True
+    assert result["cleanup"]["process_group"]
+    assert result["cleanup"]["quiescent"] is True

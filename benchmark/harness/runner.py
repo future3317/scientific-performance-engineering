@@ -183,7 +183,7 @@ def run_python_subprocess(
 ) -> dict[str, Any]:
     """Run ``sys.executable -c snippet`` or ``-m module`` with a hard timeout.
 
-    Returns {exit_code, stdout, stderr, wall_time_s, timed_out}. Exactly one of
+    Returns {exit_code, stdout, stderr, wall_time_s, timed_out, cleanup}. Exactly one of
     *snippet* / *module* must be given.
     """
     if (snippet is None) == (module is None):
@@ -199,6 +199,9 @@ def run_python_subprocess(
         env.update(extra_env)
     start = time.perf_counter()
     timed_out = False
+    term_sent = False
+    kill_sent = False
+    process_group = None
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -209,6 +212,19 @@ def run_python_subprocess(
         start_new_session=os.name != "nt",
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
+    process_group = int(process.pid)
+
+    def group_alive() -> bool:
+        if os.name == "nt":
+            return process.poll() is None
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
     try:
         stdout, stderr = process.communicate(timeout=timeout)
         exit_code = process.returncode
@@ -217,9 +233,12 @@ def run_python_subprocess(
         stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
         stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
         if os.name == "nt":
+            term_sent = True
+            kill_sent = True
             subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
         else:
             try:
+                term_sent = True
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
@@ -229,6 +248,7 @@ def run_python_subprocess(
                 stderr += stderr_tail or ""
             except subprocess.TimeoutExpired:
                 try:
+                    kill_sent = True
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
@@ -243,6 +263,13 @@ def run_python_subprocess(
         "stderr": stderr,
         "wall_time_s": time.perf_counter() - start,
         "timed_out": timed_out,
+        "cleanup": {
+            "process_group": process_group,
+            "term_sent": term_sent,
+            "kill_sent": kill_sent,
+            "quiescent": not group_alive(),
+            "residual_pids": [] if not group_alive() else [process_group],
+        },
     }
 
 

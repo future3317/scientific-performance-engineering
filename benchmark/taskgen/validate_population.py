@@ -14,11 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.harness import miniyaml
+from benchmark.harness import stats
 from benchmark.harness.split import check_leakage
 from benchmark.taskgen.generate import ast_skeleton_hash
 from benchmark.families import resolve_family_id
 from benchmark.families.catalog import FAMILY_SPECS, family_instance_digest, reconstruct_anchor_instance
 from benchmark.formal.attest import task_package_digest
+from benchmark.formal import attest
 
 
 ATOMIC_REQUIRED = (
@@ -38,10 +40,19 @@ EMPIRICAL_FLAGS = (
     "platform_direction_flip",
     "agent_shortcut_detected",
     "evolution_delta_out_of_range",
+    "protocol_invalid",
+    "resource_blocked",
+    "scientific_gate_failed",
+    "effect_too_small",
+    "effect_unstable",
+    "episode_delta_out_of_range",
+    "anti_cheat_blocked",
+    "calibration_blocked",
 )
 CALIBRATION_FIELDS = (
     "task_digest", "revision", "environment", "outer_trials", "noise_control",
     "oracle_ci", "semantic_gates", "anti_cheat", "calibration_status",
+    "calibration_protocol_digest", "population_manifest_digest", "artifact_paths",
 )
 
 
@@ -122,9 +133,10 @@ def _metadata_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
 
 def _isolated_validate_task(task_dir: Path) -> list[str]:
     completed = subprocess.run(
-        [sys.executable, "-m", "benchmark.harness.cli", "validate-task", str(task_dir)],
+        [sys.executable, "-m", "benchmark.harness.cli", "validate-task", str(task_dir), "--no-fixture-check"],
         capture_output=True,
         text=True,
+        timeout=120,
     )
     if completed.returncode == 0:
         return []
@@ -132,7 +144,98 @@ def _isolated_validate_task(task_dir: Path) -> list[str]:
     return [output or "isolated validate-task failed"]
 
 
-def _compile_projection_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
+def _calibration_protocol(tasks_root: Path) -> tuple[dict[str, Any] | None, str | None]:
+    path = tasks_root.parent / "calibration" / "calibration_protocol.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload, attest.file_digest(path)
+    except (OSError, json.JSONDecodeError):
+        return None, None
+
+
+def _expected_outer_count(spec: dict[str, Any], protocol: dict[str, Any] | None) -> int:
+    if spec.get("workspace", {}).get("api") == "episode_v1":
+        return int(spec.get("measurement", {}).get("repetitions", 0))
+    return int((protocol or {}).get("atomic_outer_trials", 0))
+
+
+def _bundle_integrity_errors(record: dict[str, Any], spec: dict[str, Any], empirical_path: Path, protocol_digest: str | None) -> list[str]:
+    """Validate raw/noise/envelope identity before any empirical aggregation."""
+    errors: list[str] = []
+    paths = record.get("artifact_paths")
+    envelopes = record.get("evidence_envelopes")
+    trials = record.get("outer_trials")
+    if not isinstance(paths, dict) or not isinstance(envelopes, list) or not isinstance(trials, list):
+        return ["calibration bundle is missing artifact paths, envelopes, or trials"]
+    raw_paths = paths.get("raw")
+    noise_paths = paths.get("noise")
+    envelope_paths = paths.get("envelopes")
+    if not all(isinstance(value, list) for value in (raw_paths, noise_paths, envelope_paths)):
+        return ["calibration bundle artifact paths must be arrays"]
+    expected_count = len(trials)
+    if len(raw_paths) != expected_count or len(noise_paths) != expected_count or len(envelope_paths) != expected_count or len(envelopes) != expected_count:
+        errors.append("calibration bundle artifact/envelope/trial counts differ")
+    expected_class = "evolution" if str(record.get("metric_class")) == "evolution" else "atomic_performance"
+    task_id = str(record.get("task_id"))
+    for index, (raw_rel, noise_rel, envelope_rel) in enumerate(zip(raw_paths, noise_paths, envelope_paths)):
+        try:
+            raw_path = empirical_path.parent / str(raw_rel)
+            noise_path = empirical_path.parent / str(noise_rel)
+            envelope_path = empirical_path.parent / str(envelope_rel)
+            raw = json.loads(raw_path.read_text(encoding="utf-8"))
+            noise = json.loads(noise_path.read_text(encoding="utf-8"))
+            envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError) as exc:
+            errors.append(f"cell {index} artifact unreadable: {exc}")
+            continue
+        expected = {
+            "schema_version": 1,
+            "task_id": task_id,
+            "outer_trial_id": f"outer-{index:03d}",
+            "seed": index,
+            "measurement_class": "episode" if expected_class == "evolution" else expected_class,
+            "producer_revision": record.get("revision"),
+            "task_package_digest": record.get("task_digest"),
+            "population_manifest_digest": record.get("population_manifest_digest"),
+        }
+        if protocol_digest:
+            expected["calibration_protocol_digest"] = protocol_digest
+        if expected_class == "evolution":
+            expected["measurement_class"] = "evolution"
+        envelope_errors = attest.validate_calibration_envelope(envelope, expected)
+        if envelope_errors:
+            errors.extend(f"cell {index} envelope: {item}" for item in envelope_errors)
+        identity_fields = ("task_id", "outer_trial_id", "seed", "task_package_digest", "population_manifest_digest")
+        for key in identity_fields:
+            expected_value = expected.get(key)
+            if raw.get(key) != expected_value and not (key in {"task_package_digest", "population_manifest_digest"} and expected_value is None):
+                errors.append(f"cell {index} raw {key} mismatch")
+        if raw.get("measurement_class") not in {expected_class, "episode_bounded_score"}:
+            errors.append(f"cell {index} raw measurement_class mismatch")
+        if noise.get("task_id") != task_id or noise.get("outer_trial_id") != expected["outer_trial_id"]:
+            errors.append(f"cell {index} noise identity mismatch")
+        if noise.get("task_package_digest") != record.get("task_digest") or noise.get("population_manifest_digest") != record.get("population_manifest_digest"):
+            errors.append(f"cell {index} noise package/population digest mismatch")
+        if expected_class == "atomic_performance":
+            try:
+                stats.read_noise_control(noise_path, {
+                    "task_id": task_id,
+                    "outer_trial_id": expected["outer_trial_id"],
+                    "benchmark_revision": record.get("revision"),
+                    "task_package_digest": record.get("task_digest"),
+                    "population_manifest_digest": record.get("population_manifest_digest"),
+                    "control_implementation": "baseline",
+                })
+            except (OSError, ValueError) as exc:
+                errors.append(f"cell {index} noise artifact invalid: {exc}")
+        if envelope.get("noise_digest") != noise.get("artifact_digest"):
+            errors.append(f"cell {index} envelope/noise digest mismatch")
+        if envelope.get("raw_result_digest") != attest.file_digest(raw_path):
+            errors.append(f"cell {index} envelope/raw digest mismatch")
+    return errors
+
+
+def _compile_projection_findings_inprocess(task_dir: Path, spec: dict[str, Any]) -> list[str]:
     """Check that compile task metadata reaches the executable benchmark."""
     if str(spec.get("task_id")) not in {
         "CORE-COMPILE-RECOMPILE-04",
@@ -169,6 +272,33 @@ def _compile_projection_findings(task_dir: Path, spec: dict[str, Any]) -> list[s
     except Exception as exc:
         errors.append(f"{task_dir.name}: compile executable projection unavailable: {exc}")
     return errors
+
+
+def _compile_projection_findings(task_dir: Path, spec: dict[str, Any]) -> list[str]:
+    """Run executable compile projection checks in a bounded child process."""
+    payload = {key: value for key, value in spec.items() if key != "_task_dir"}
+    snippet = (
+        "import json, sys; "
+        "from pathlib import Path; "
+        "from benchmark.taskgen.validate_population import _compile_projection_findings_inprocess; "
+        "task_dir=Path(sys.argv[1]); spec=json.loads(sys.argv[2]); "
+        "print(json.dumps(_compile_projection_findings_inprocess(task_dir, spec)))"
+    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", snippet, str(task_dir), json.dumps(payload, ensure_ascii=False)],
+            capture_output=True, text=True, cwd=task_dir.parents[2], timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return [f"{task_dir.name}: compile executable projection timed out"]
+    if completed.returncode != 0:
+        output = (completed.stderr or completed.stdout).strip()
+        return [f"{task_dir.name}: compile executable projection failed: {output or 'child process exited non-zero'}"]
+    try:
+        findings = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return [f"{task_dir.name}: compile executable projection returned invalid JSON"]
+    return [str(item) for item in findings] if isinstance(findings, list) else [f"{task_dir.name}: compile executable projection returned a non-list"]
 
 
 def _empirical_flags(
@@ -209,7 +339,10 @@ def _empirical_flags(
             "hard_flags": ["empirical input must contain a tasks list"],
             "calibration_gate": "blocked",
         }
+    empirical_digest = _json_digest(payload)
     specs_by_id = {str(spec.get("task_id")): spec for spec in specs}
+    tasks_root = Path(specs[0]["_task_dir"]).parent if specs and "_task_dir" in specs[0] else None
+    protocol, protocol_digest = _calibration_protocol(tasks_root) if tasks_root else (None, None)
     seen: set[str] = set()
     records_by_task: dict[str, dict[str, Any]] = {}
     for record in records:
@@ -226,11 +359,18 @@ def _empirical_flags(
             missing_fields = [key for key in CALIBRATION_FIELDS if key not in record]
             if missing_fields:
                 flags["semantic_gate_too_weak"].append(task_id)
-                continue
             if not isinstance(record.get("environment"), dict) or not record.get("environment"):
                 flags["semantic_gate_too_weak"].append(task_id)
             if not isinstance(record.get("outer_trials"), list) or not record.get("outer_trials"):
                 flags["semantic_gate_too_weak"].append(task_id)
+            expected_outer_trials = _expected_outer_count(spec, protocol)
+            if expected_outer_trials < 1 or len(record.get("outer_trials", [])) != expected_outer_trials:
+                flags["protocol_invalid"].append(task_id)
+            if record.get("calibration_protocol_digest") != protocol_digest:
+                flags["protocol_invalid"].append(task_id)
+            bundle_errors = _bundle_integrity_errors(record, spec, empirical_path, protocol_digest)
+            if bundle_errors:
+                flags["protocol_invalid"].append(task_id)
             if not evolution_record and (not isinstance(record.get("noise_control"), dict) or not record.get("noise_control")):
                 flags["noise_too_high"].append(task_id)
             if not evolution_record and (not isinstance(record.get("oracle_ci"), dict) or not record.get("oracle_ci")):
@@ -251,12 +391,21 @@ def _empirical_flags(
                         lower, upper = float(expected_delta[0]), float(expected_delta[1])
                         if not lower <= float(mean_delta) <= upper:
                             flags["evolution_delta_out_of_range"].append(task_id)
+                            flags["episode_delta_out_of_range"].append(task_id)
+                if not all(all(bool(value) for value in trial.get("scientific_gates", {}).values()) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
+                    flags["scientific_gate_failed"].append(task_id)
             if not isinstance(record.get("semantic_gates"), dict) or not record.get("semantic_gates"):
                 flags["semantic_gate_too_weak"].append(task_id)
             if not isinstance(record.get("anti_cheat"), dict) or record.get("anti_cheat", {}).get("status") not in {"pass", "passed", "clean"}:
                 flags["agent_shortcut_detected"].append(task_id)
+                flags["anti_cheat_blocked"].append(task_id)
             if record.get("calibration_status") != "eligible":
-                flags["noise_too_high"].append(task_id)
+                if any(str(trial.get("execution_validity")) == "resource_blocked" or bool(trial.get("timeout")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
+                    flags["resource_blocked"].append(task_id)
+                elif any(bool(trial.get("protocol_failure")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
+                    flags["protocol_invalid"].append(task_id)
+                elif evolution_record and task_id not in flags["episode_delta_out_of_range"]:
+                    flags["calibration_blocked"].append(task_id)
         if "_task_dir" in spec:
             task_dir = Path(spec.get("_task_dir", ""))
             if record.get("task_digest") != task_package_digest(task_dir):
@@ -283,8 +432,10 @@ def _empirical_flags(
         if kind == "positive" and not evolution_record:
             if isinstance(high, (int, float)) and float(high) < empirical_floor:
                 flags["oracle_effect_too_small"].append(task_id)
+                flags["effect_too_small"].append(task_id)
             elif isinstance(low, (int, float)) and float(low) <= empirical_floor:
                 flags["oracle_effect_unstable"].append(task_id)
+                flags["effect_unstable"].append(task_id)
         baseline = record.get("baseline_speedups")
         if kind == "positive" and isinstance(baseline, list) and baseline and all(
             isinstance(value, (int, float)) and float(value) <= 1.0 + empirical_floor / 100.0 for value in baseline
@@ -319,6 +470,7 @@ def _empirical_flags(
     return flags, {
         "status": "observed",
         "source": str(empirical_path),
+        "empirical_digest": empirical_digest,
         "records": len(records),
         "missing_task_ids": missing,
         "hard_flags": sorted(set(hard_flags)),
@@ -488,6 +640,7 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         },
         "lineage_leakage_checked": True,
         "empirical_calibration": empirical_calibration,
+        "calibration_protocol_digest": empirical_calibration.get("calibration_protocol_digest"),
         "task_calibration": task_calibration,
         "retired_for_formal": sorted(retired_tasks, key=lambda item: item["task_id"]),
         "public_context": {
@@ -559,6 +712,8 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
         "population_id": report.get("population_id"),
         "active_task_ids": task_ids,
         "population_report_digest": _json_digest(report),
+        "empirical_digest": report.get("empirical_calibration", {}).get("empirical_digest"),
+        "calibration_protocol_digest": report.get("calibration_protocol_digest"),
         "calibration_gate": report.get("empirical_calibration", {}).get("calibration_gate", "blocked"),
         "tasks": tasks,
         "formal_50_generation": "withheld",
@@ -567,7 +722,11 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
     return artifact
 
 
-def validate_formal_readiness(report: dict[str, Any], calibration: dict[str, Any] | None, approval: dict[str, Any] | None) -> list[str]:
+def validate_formal_readiness(
+    report: dict[str, Any], calibration: dict[str, Any] | None,
+    approval: dict[str, Any] | None, empirical: dict[str, Any] | None = None,
+    repo_root: str | Path | None = None,
+) -> list[str]:
     """Fail closed for formal generation/campaign entry points."""
     from benchmark.formal.approval import validate_calibration_approval
     errors: list[str] = []
@@ -579,7 +738,15 @@ def validate_formal_readiness(report: dict[str, Any], calibration: dict[str, Any
         errors.append("empirical hard flags are present")
     if calibration is None or calibration.get("calibration_gate") != "ready_for_review":
         errors.append("pilot_calibration artifact is missing or blocked")
-    errors.extend(validate_calibration_approval(report, calibration, approval))
+    errors.extend(validate_calibration_approval(report, calibration, approval, repo_root=repo_root))
+    if not isinstance(empirical, dict):
+        errors.append("strict-formal empirical artifact is missing or invalid")
+    else:
+        empirical_digest = _json_digest(empirical)
+        if report.get("empirical_calibration", {}).get("empirical_digest") != empirical_digest:
+            errors.append("strict-formal empirical digest does not match population report")
+        if calibration and calibration.get("empirical_digest") != empirical_digest:
+            errors.append("strict-formal empirical digest does not match pilot calibration")
     calibration_tasks = list((calibration or {}).get("tasks", []))
     active_ids = set(str(item) for item in report.get("active_task_ids", []))
     observed_ids = {str(item.get("task_id")) for item in calibration_tasks}
@@ -616,10 +783,14 @@ def main() -> int:
             calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
             approval_path = args.approval or report_path.with_name("calibration_approval.json")
             approval = json.loads(approval_path.read_text(encoding="utf-8"))
+            empirical = json.loads(args.empirical.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            report, calibration, approval = {}, None, None
+            report, calibration, approval, empirical = {}, None, None, None
             errors = [f"read-only formal readiness inputs unavailable: {exc}"]
-        errors.extend(validate_formal_readiness(report, calibration, approval))
+        errors.extend(validate_formal_readiness(
+            report, calibration, approval, empirical=empirical,
+            repo_root=args.tasks_root.resolve().parents[1],
+        ))
     else:
         report, errors = build_report(args.tasks_root, args.empirical, args.population_manifest)
         split_errors = check_leakage(args.split, args.tasks_root)

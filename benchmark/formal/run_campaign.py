@@ -263,9 +263,22 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
             command.extend(["--noise-control", str(noise_path)])
         if kwargs.get("noise_control_required"):
             command.append("--noise-control-required")
-        for flag, key in (("--outer-trial-id", "noise_outer_trial_id"), ("--benchmark-revision", "noise_benchmark_revision"), ("--task-manifest-digest", "noise_task_manifest_digest")):
-            if kwargs.get(key) is not None:
-                command.extend([flag, str(kwargs[key])])
+        for flag, key in (
+            ("--outer-trial-id", "noise_outer_trial_id"),
+            ("--benchmark-revision", "noise_benchmark_revision"),
+            ("--task-manifest-digest", "noise_task_manifest_digest"),
+            ("--task-package-digest", "noise_task_package_digest"),
+            ("--population-manifest-digest", "noise_population_manifest_digest"),
+        ):
+            value = kwargs.get(key)
+            if value is None and isinstance(kwargs.get("noise_control_expected"), Mapping):
+                expected_key = {
+                    "noise_task_package_digest": "task_package_digest",
+                    "noise_population_manifest_digest": "population_manifest_digest",
+                }.get(key, key.removeprefix("noise_"))
+                value = kwargs["noise_control_expected"].get(expected_key)
+            if value is not None:
+                command.extend([flag, str(value)])
         process = subprocess.Popen(
             command,
             cwd=str(Path(__file__).resolve().parents[2]),
@@ -342,6 +355,8 @@ def _calibrate_noise_control_with_cache(
     outer_trial_id: str,
     benchmark_revision: str,
     task_manifest_digest: str,
+    task_package_digest: str | None = None,
+    population_manifest_digest: str | None = None,
     timeout_s: float,
 ) -> dict[str, Any]:
     """Run one calibration subprocess under the normal cache/process boundary."""
@@ -355,6 +370,10 @@ def _calibrate_noise_control_with_cache(
             "--benchmark-revision", benchmark_revision,
             "--task-manifest-digest", task_manifest_digest,
         ]
+        if task_package_digest is not None:
+            command.extend(["--task-package-digest", task_package_digest])
+        if population_manifest_digest is not None:
+            command.extend(["--population-manifest-digest", population_manifest_digest])
         process = subprocess.Popen(
             command,
             cwd=str(Path(__file__).resolve().parents[2]),
@@ -2265,6 +2284,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             render_skill_view(args.skill_source, skill_view)
     skill_digest = attest.skill_view_digest(skill_view)
     task_digest = attest.task_manifest_digest(tasks_root, task_ids)
+    population_digest = hashlib.sha256(population_manifest.read_bytes()).hexdigest() if population_manifest.is_file() else "unknown"
     conditions_list = tuple(item.strip().upper() for item in args.conditions.split(",") if item.strip())
     context_modes = tuple(item.strip() for item in args.context_modes.split(",") if item.strip())
     if getattr(args, "formal", False):
@@ -2345,6 +2365,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "outer_trial_id": noise_outer_trial_id,
             "benchmark_revision": campaign["benchmark_revision"],
             "task_manifest_digest": task_digest,
+            "task_package_digest": attest.task_package_digest(tasks_root / noise_task_id),
+            "population_manifest_digest": population_digest,
+            "control_implementation": "baseline",
             "hardware_fingerprint": fingerprint,
             "software_fingerprint": fingerprint,
             "compiler_cache_policy": verifier.cache_policy_for_task(noise_spec),
@@ -2366,6 +2389,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             outer_trial_id=noise_outer_trial_id,
             benchmark_revision=campaign["benchmark_revision"],
             task_manifest_digest=task_digest,
+            task_package_digest=expected_noise["task_package_digest"],
+            population_manifest_digest=population_digest,
             timeout_s=float(min(300.0, budgets.wall_time_s)),
         )
         if calibration.get("ok"):
@@ -2421,6 +2446,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "outer_trial_id": str(item["outer_trial_id"]),
             "benchmark_revision": campaign["benchmark_revision"],
             "task_manifest_digest": task_digest,
+            "task_package_digest": attest.task_package_digest(tasks_root / task_id),
+            "population_manifest_digest": population_digest,
+            "control_implementation": "baseline",
             "hardware_fingerprint": fingerprint,
             "software_fingerprint": fingerprint,
             "compiler_cache_policy": verifier.cache_policy_for_task(task_spec),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 
 from core.acre.acquisition import (
     AcquisitionPolicy,
@@ -40,7 +41,9 @@ def test_predicate_complexity_gates_parent_and_boolean_specializations() -> None
     parent = {"equals": {"kind": "graph"}}
     candidates = grammar.candidates([{"x": 1, "kind": "graph"}, {"x": 3, "kind": "graph"}], parent)
     assert any("all" in value for value in candidates)
-    assert any("not" in value or "any" in value for value in candidates)
+    # Parent-safe boolean forms are nested under ``all`` after equivalent
+    # candidate pruning; inspect the predicate tree rather than only its root.
+    assert any("not" in json.dumps(value) or "any" in json.dumps(value) for value in candidates)
     assert all(predicate_complexity(value)["depth"] <= 3 for value in candidates)
     assert all(predicate_complexity(value)["literals"] <= 3 for value in candidates)
 
