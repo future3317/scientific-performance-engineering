@@ -23,46 +23,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal import attest
 from benchmark.harness import miniyaml, runner, stats, verifier
+from benchmark.harness.api import execution_class_for_task
 from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_compatible, selected_gpu_preflight
-from benchmark.taskgen.validate_population import build_pilot_calibration, build_report
-
-
-def load_calibration_protocol(repo_root: Path) -> tuple[dict[str, Any], str]:
-    path = repo_root / "benchmark" / "calibration" / "calibration_protocol.json"
-    protocol = json.loads(path.read_text(encoding="utf-8"))
-    if protocol.get("schema_version") != 1 or int(protocol.get("atomic_outer_trials", 0)) < 1:
-        raise ValueError(f"invalid calibration protocol: {path}")
-    topology = protocol.get("thread_topology")
-    required_topology = {
-        "omp_num_threads", "mkl_num_threads", "openblas_num_threads", "numexpr_num_threads",
-        "torch_num_threads", "torch_num_interop_threads", "compiler_threads",
-    }
-    if not isinstance(topology, dict) or set(topology) != required_topology:
-        raise ValueError("calibration protocol must declare the complete thread_topology")
-    return protocol, attest.file_digest(path)
-
-
-def classify_calibration_result(raw: dict[str, Any]) -> str:
-    """Classify a persisted raw result before resume reuse."""
-    execution_validity = str(raw.get("execution_validity", ""))
-    if bool(raw.get("protocol_failure")):
-        return "blocked_requires_revision"
-    if execution_validity == "resource_blocked" or bool(raw.get("timeout")):
-        return "rerun"
-    if raw.get("failure_class") == "infrastructure" or str(raw.get("failure_stage", "")) in {"executor", "worker", "agent"}:
-        return "rerun"
-    if execution_validity == "invalid":
-        return "blocked_requires_revision"
-    if execution_validity == "valid" and raw.get("efficacy_eligible") is True:
-        return "reusable"
-    return "rerun"
-
-
-def _outer_trial_count(spec: dict[str, Any], default_outer_trials: int) -> int:
-    """Use declared episode repetitions; keep atomic outer orchestration bounded."""
-    if spec.get("workspace", {}).get("api") == "episode_v1":
-        return int(spec.get("measurement", {}).get("repetitions", default_outer_trials))
-    return int(default_outer_trials)
+from benchmark.calibration.bundle import classify_result
+from benchmark.calibration.execution import CellExecutor
+from benchmark.calibration.identity import canonical_cell_identity
+from benchmark.calibration.protocol import load_calibration_protocol, outer_trial_count
+from benchmark.calibration.report import rebuild_calibration_views
 
 
 def _bounded_verifier_result(
@@ -70,9 +37,7 @@ def _bounded_verifier_result(
     module: str, args: tuple[str, ...], cwd: Path, measurement_class: str = "atomic_performance",
 ) -> dict[str, Any]:
     """Run one verifier cell in a killable process and persist timeout evidence."""
-    completed = runner.run_python_subprocess(
-        module=module, args=args, timeout=float(timeout_s), cwd=cwd,
-    )
+    completed = CellExecutor(cwd).run_module(module=module, args=args, timeout_s=float(timeout_s))
     cleanup = completed.get("cleanup", {})
     if cleanup.get("residual_detected"):
         result = _resource_blocked_result(
@@ -155,9 +120,7 @@ def _bounded_noise_control(
     args: tuple[str, ...], cwd: Path,
 ) -> tuple[dict[str, Any], bool]:
     """Run one noise-control cell in a killable process."""
-    completed = runner.run_python_subprocess(
-        module="benchmark.harness.cli", args=args, timeout=float(timeout_s), cwd=cwd,
-    )
+    completed = CellExecutor(cwd).run_noise_control(args=args, timeout_s=float(timeout_s))
     cleanup = completed.get("cleanup", {})
     if not completed["timed_out"] and noise_path.is_file() and not cleanup.get("residual_detected"):
         noise = json.loads(noise_path.read_text(encoding="utf-8"))
@@ -183,11 +146,8 @@ def _bounded_noise_control(
 
 def _bounded_post_validation(task_dir: Path, cwd: Path) -> dict[str, Any]:
     """Run the cheap structural validation with an OS-level bound."""
-    return runner.run_python_subprocess(
-        module="benchmark.harness.cli",
-        args=("validate-task", str(task_dir), "--no-fixture-check"),
-        timeout=120.0,
-        cwd=cwd,
+    return CellExecutor(cwd).run_atomic(
+        args=("validate-task", str(task_dir), "--no-fixture-check"), timeout_s=120.0,
     )
 
 
@@ -266,7 +226,7 @@ def _cell_envelope_compatible(path: Path, *, static: dict[str, Any], noise_path:
         envelope = json.loads(path.read_text(encoding="utf-8"))
         noise = json.loads(noise_path.read_text(encoding="utf-8"))
         raw = json.loads(result_path.read_text(encoding="utf-8"))
-        identity = attest.canonical_cell_identity(
+        identity = canonical_cell_identity(
             task_id=str(static["task_id"]), outer_trial_id=str(static["outer_trial_id"]),
             seed=int(static["seed"]), measurement_family=str(static["measurement_class"]),
             task_package_digest=str(static["task_package_digest"]),
@@ -306,7 +266,7 @@ def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str
     first = results[0] if results else {}
     declared_episode = False
     try:
-        declared_episode = miniyaml.load(str(task_dir / "task.yaml")).get("workspace", {}).get("api") == "episode_v1"
+        declared_episode = execution_class_for_task(miniyaml.load(str(task_dir / "task.yaml"))) == "episode"
     except (OSError, KeyError, TypeError, ValueError):
         pass
     episode = declared_episode or bool(results and isinstance(first.get("episode_measurement"), dict))
@@ -407,7 +367,7 @@ def run(args: argparse.Namespace) -> int:
         task_results: list[dict[str, Any]] = []
         task_noises: list[dict[str, Any]] = []
         task_envelopes: list[dict[str, Any]] = []
-        for outer in range(_outer_trial_count(spec, int(args.outer_trials))):
+        for outer in range(outer_trial_count(spec, protocol)):
             outer_id = f"outer-{outer:03d}"
             cell_started = time.perf_counter()
             timing = {
@@ -429,7 +389,7 @@ def run(args: argparse.Namespace) -> int:
                         f"selected GPU {fingerprint.get('gpu_uuid')} preflight {preflight.get('status')}: "
                         f"{preflight.get('reason')}"
                     ),
-                    measurement_class="evolution" if spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
+                    measurement_class="evolution" if execution_class_for_task(spec) == "episode" else "atomic_performance",
                     timeout=False,
                 )
                 result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), **preflight}
@@ -457,7 +417,7 @@ def run(args: argparse.Namespace) -> int:
             static_envelope = {
                 "schema_version": 1, "producer_revision": revision,
                 "task_id": task_id, "outer_trial_id": outer_id, "seed": outer,
-                "measurement_class": "evolution" if spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
+                "measurement_class": "evolution" if execution_class_for_task(spec) == "episode" else "atomic_performance",
                 "task_package_digest": task_digest, "population_manifest_digest": population_digest,
                 "harness_digest": harness_digest, "calibration_runner_digest": runner_digest,
                 "calibration_protocol_digest": protocol_digest,
@@ -467,7 +427,7 @@ def run(args: argparse.Namespace) -> int:
             if cell_compatible:
                 noise = json.loads(noise_path.read_text(encoding="utf-8"))
                 result = json.loads(result_path.read_text(encoding="utf-8"))
-                classification = classify_calibration_result(result)
+                classification = classify_result(result)
                 if classification == "blocked_requires_revision":
                     raise RuntimeError(f"calibration cell {task_id}/{outer_id} has a protocol failure and is blocked_requires_revision")
                 if classification != "reusable":
@@ -484,7 +444,7 @@ def run(args: argparse.Namespace) -> int:
                 timing["quarantined"] = had_artifacts
                 classification = "rerun"
             if classification == "rerun":
-                if spec.get("workspace", {}).get("api") == "episode_v1":
+                if execution_class_for_task(spec) == "episode":
                     noise = {
                         "schema_version": 1, "metric_class": "evolution",
                         "task_id": task_id, "outer_trial_id": outer_id,
@@ -543,7 +503,7 @@ def run(args: argparse.Namespace) -> int:
                     })
                 print(json.dumps({"event": "start_verifier", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
                 verifier_started = time.perf_counter()
-                if spec.get("workspace", {}).get("api") == "episode_v1":
+                if execution_class_for_task(spec) == "episode":
                     result = verifier.verify_task(
                         task_dir, solution_dir, out_path=result_path, seed=outer,
                         condition="standalone", context_mode="reset",
@@ -601,7 +561,7 @@ def run(args: argparse.Namespace) -> int:
                     calibration_runner_digest=runner_digest, noise_digest=str(noise["artifact_digest"]),
                     raw_result_digest=attest.file_digest(result_path), fingerprint=fingerprint,
                         task_id=task_id, outer_trial_id=outer_id, seed=outer,
-                        measurement_class="evolution" if spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
+                        measurement_class="evolution" if execution_class_for_task(spec) == "episode" else "atomic_performance",
                         calibration_protocol_digest=protocol_digest,
                 )
                 envelope_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -623,10 +583,11 @@ def run(args: argparse.Namespace) -> int:
     report_generation_started = time.perf_counter()
     empirical_path = out / "empirical.json"
     empirical_path.write_text(json.dumps({"schema_version": 1, "calibration_protocol_digest": protocol_digest, "tasks": empirical}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    report, errors = build_report(tasks_root, empirical_path, active_path)
+    report, calibration, errors = rebuild_calibration_views(
+        tasks_root=tasks_root, empirical_path=empirical_path, manifest_path=active_path,
+    )
     report_path = out / "population_report.json"
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    calibration = build_pilot_calibration(report, tasks_root)
     (out / "pilot_calibration.json").write_text(json.dumps(calibration, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (out / "summary.json").write_text(json.dumps({"task_count": len(empirical), "errors": errors, "calibration_gate": calibration.get("calibration_gate"), "eligible": [item["task_id"] for item in calibration["tasks"] if item.get("eligibility")], "blocked": [item["task_id"] for item in calibration["tasks"] if not item.get("eligibility")]}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     campaign_finished_monotonic = time.perf_counter()

@@ -92,6 +92,7 @@ def test_evolution_expected_delta_is_a_hard_calibration_gate() -> None:
     task_dir = repo_root / "benchmark" / "tasks" / "EVOL-EQUIVARIANT-SPECIALIZE-30"
     spec = {
         "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30", "track": "evolution",
+        "workspace": {"api": "episode_v1"},
         "scientific_gates": ["state_transition_valid"], "measurement": {"repetitions": 3},
         "oracle": {"expected_delta_range": [0.1, 1.0]}, "_task_dir": task_dir,
     }
@@ -244,11 +245,11 @@ def test_evolution_specialization_gate_is_candidate_only() -> None:
 def test_approval_rejects_tampered_derived_projection(tmp_path: Path, monkeypatch) -> None:
     import copy
     import json
-    import scripts.approve_calibration as approval_module
-    from benchmark.taskgen.validate_population import _json_digest
+    import benchmark.calibration.approval as approval_module
+    from benchmark.calibration.identity import json_digest
 
     empirical = {"schema_version": 1, "tasks": []}
-    digest = _json_digest(empirical)
+    digest = json_digest(empirical)
     canonical_report = {
         "active_task_ids": [],
         "empirical_calibration": {"calibration_gate": "ready_for_review", "empirical_digest": digest},
@@ -257,7 +258,7 @@ def test_approval_rejects_tampered_derived_projection(tmp_path: Path, monkeypatc
         "active_task_ids": [], "calibration_gate": "ready_for_review",
         "tasks": [], "empirical_digest": digest,
     }
-    canonical_pilot["artifact_digest"] = _json_digest(canonical_pilot)
+    canonical_pilot["artifact_digest"] = json_digest(canonical_pilot)
     monkeypatch.setattr(
         approval_module,
         "rebuild_calibration_views",
@@ -274,7 +275,7 @@ def test_approval_rejects_tampered_derived_projection(tmp_path: Path, monkeypatc
     empirical_path.write_text(json.dumps(empirical), encoding="utf-8")
 
     with __import__("pytest").raises(ValueError, match="derived calibration projections"):
-        approval_module.issue(
+        approval_module.issue_calibration_approval(
             report_path=report_path, pilot_path=pilot_path, empirical_path=empirical_path,
             out_path=tmp_path / "approval.json", repo_root=Path(__file__).parents[2],
             approver="test", timestamp="2026-08-21T00:00:00Z",

@@ -18,8 +18,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal import attest
 from benchmark.harness import miniyaml, runner, stats
+from benchmark.harness.api import execution_class_for_task
 from benchmark.harness.fingerprint import fingerprints_compatible
-from scripts.run_active30_calibration import classify_calibration_result, load_calibration_protocol, _outer_trial_count
+from benchmark.calibration.bundle import classify_result
+from benchmark.calibration.identity import canonical_cell_identity
+from benchmark.calibration.protocol import load_calibration_protocol, outer_trial_count
 
 
 def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object]:
@@ -42,10 +45,10 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
         task_dir = task_root / task_id
         task_digest = attest.task_package_digest(task_dir)
         task_spec = miniyaml.load(str(task_dir / "task.yaml"))
-        if task_spec.get("workspace", {}).get("api") != "episode_v1" and outer_trials != int(protocol["atomic_outer_trials"]):
+        if outer_trials != outer_trial_count(task_spec, protocol) and execution_class_for_task(task_spec) != "episode":
             blocked.append({"task_id": task_id, "reason": "protocol_outer_trial_count_mismatch"})
             continue
-        for outer in range(_outer_trial_count(task_spec, int(protocol["atomic_outer_trials"]))):
+        for outer in range(outer_trial_count(task_spec, protocol)):
             outer_id = f"outer-{outer:03d}"
             noise = out / "noise-control" / outer_id / f"{task_id}.json"
             raw = out / "raw" / outer_id / f"{task_id}.json"
@@ -55,9 +58,9 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                 payload = json.loads(envelope.read_text(encoding="utf-8"))
                 noise_payload = json.loads(noise.read_text(encoding="utf-8"))
                 raw_payload = json.loads(raw.read_text(encoding="utf-8"))
-                identity = attest.canonical_cell_identity(
+                identity = canonical_cell_identity(
                     task_id=task_id, outer_trial_id=outer_id, seed=outer,
-                    measurement_family=("evolution" if task_spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance"),
+                    measurement_family=("evolution" if execution_class_for_task(task_spec) == "episode" else "atomic_performance"),
                     task_package_digest=task_digest,
                     population_manifest_digest=population_digest,
                 )
@@ -91,7 +94,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                             "benchmark_revision": revision, "task_package_digest": task_digest,
                             "population_manifest_digest": population_digest,
                         }
-                        if expected["measurement_class"] == "atomic_performance":
+                    if expected["measurement_class"] == "atomic_performance":
                             try:
                                 stats.read_noise_control(noise, noise_expected)
                             except ValueError:
@@ -101,7 +104,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                     elif not reason and (noise_payload.get("task_package_digest") != task_digest or noise_payload.get("population_manifest_digest") != population_digest):
                         reason = "noise_identity_mismatch"
                     if not reason:
-                        classification = classify_calibration_result(raw_payload)
+                        classification = classify_result(raw_payload)
                         if classification == "blocked_requires_revision":
                             reason = "blocked_requires_revision"
                         elif classification == "rerun":

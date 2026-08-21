@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import anticheat, miniyaml, runner, stats
+from .api import execution_class_for_task, metric_type_for_task
 from .fingerprint import capture_fingerprint
 
 TASK_YAML_REQUIRED = (
@@ -298,7 +299,7 @@ def calibrate_noise_control(
     """
     task_dir = Path(task_dir)
     spec = load_task_yaml(task_dir)
-    if spec["workspace"].get("api") == "episode_v1":
+    if execution_class_for_task(spec) == "episode":
         raise ValueError("episode_v1 uses bounded-score paired execution; noise control is not applicable")
     compiler_cache_policy = compiler_cache_policy or cache_policy_for_task(spec)
     fingerprint = hardware_fingerprint or capture_fingerprint()
@@ -316,7 +317,7 @@ def calibrate_noise_control(
     measurement_cfg = spec["measurement"]
     calibration_cfg = dict(measurement_cfg)
     calibration_cfg["repetitions"] = 5
-    is_kernel = str(spec.get("family", "")) == "compiler" or spec["workspace"].get("api") == "kernel_module_v1"
+    is_kernel = str(spec.get("family", "")) == "compiler" or metric_type_for_task(spec) == "kernel"
     record = runner.run_paired_measurement(
         module,
         baseline_path=baseline_path,
@@ -390,7 +391,7 @@ def verify_task(
     # Evolution episodes have a bounded-score contract, not an atomic
     # latency/speedup contract.  Keep them on their own verifier path so one
     # outer trial executes exactly one baseline and one candidate episode.
-    if spec["workspace"].get("api") == "episode_v1":
+    if execution_class_for_task(spec) == "episode":
         return _verify_episode_task(
             task_dir, solution_dir, out_path=out_path, seed=seed,
             condition=condition, context_mode=context_mode, outer_trial_id=outer_trial_id,
@@ -597,7 +598,7 @@ def verify_task(
 
     # --- S5: paired interleaved performance -----------------------------------
     measurement_cfg = spec["measurement"]
-    kernel_task = str(spec.get("family", "")) == "compiler" or spec["workspace"].get("api") == "kernel_module_v1"
+    kernel_task = str(spec.get("family", "")) == "compiler" or metric_type_for_task(spec) == "kernel"
     reuse_fixture_per_repetition = str(spec.get("family_id", "")) == "h2d_pipeline"
     try:
         record = runner.run_paired_measurement(

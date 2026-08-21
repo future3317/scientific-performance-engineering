@@ -22,34 +22,6 @@ def digest_mapping(value: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
-def canonical_cell_identity(
-    *, task_id: str, outer_trial_id: str, seed: int,
-    measurement_family: str, task_package_digest: str,
-    population_manifest_digest: str,
-) -> dict[str, Any]:
-    """Return the shared identity for one persisted calibration cell.
-
-    Evolution evidence has two deliberate labels: the envelope identifies the
-    measurement family as ``evolution`` while the verifier raw result uses its
-    concrete ``episode_bounded_score`` class.  Resume and bundle checks must
-    compare each field to the right layer instead of treating those labels as
-    interchangeable strings.
-    """
-    family = str(measurement_family)
-    if family not in {"atomic_performance", "evolution"}:
-        raise ValueError(f"unsupported calibration measurement family: {family}")
-    return {
-        "task_id": str(task_id),
-        "outer_trial_id": str(outer_trial_id),
-        "seed": int(seed),
-        "measurement_family": family,
-        "raw_measurement_class": "episode_bounded_score" if family == "evolution" else family,
-        "envelope_measurement_class": family,
-        "task_package_digest": str(task_package_digest),
-        "population_manifest_digest": str(population_manifest_digest),
-    }
-
-
 def skill_view_digest(bundle: str | Path) -> str:
     bundle = Path(bundle)
     errors = validate_skill_view_bundle(bundle)

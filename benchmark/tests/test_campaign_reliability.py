@@ -6,7 +6,7 @@ from pathlib import Path
 
 from benchmark.formal import aggregate, attest
 from benchmark.formal.run_campaign import _build_required_experiment_executor, _cleanup_process_group, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
-from scripts.run_active30_calibration import classify_calibration_result
+from benchmark.calibration.bundle import classify_result as classify_calibration_result
 from benchmark.harness import conditions
 from core.cost import BudgetedContextRenderer
 
