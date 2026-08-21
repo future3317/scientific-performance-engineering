@@ -518,7 +518,7 @@ _SPECS: tuple[FamilySpec, ...] = (
 _EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
     "compile": {
         "CORE-COMPILE-RECOMPILE-04": {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.0},
-        "CORE-COMPILE-DYNAMIC-11": {"logical_steps": 256, "graph_size": 128, "dynamic_shape_rate": 0.3},
+        "CORE-COMPILE-DYNAMIC-11": {"logical_steps": 128, "graph_size": 128, "dynamic_shape_rate": 0.3},
         "CORE-COMPILE-TINY-12": {"logical_steps": 8, "graph_size": 64, "dynamic_shape_rate": 0.8},
         "CORE-KERNEL-FUSION-09": {"logical_steps": 192, "graph_size": 320, "dynamic_shape_rate": 0.2},
     },

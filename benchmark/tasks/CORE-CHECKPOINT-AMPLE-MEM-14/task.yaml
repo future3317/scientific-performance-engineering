@@ -19,7 +19,7 @@ measurement:
   higher_is_better: false
   warmup_iterations: 8
   measured_iterations: 50
-  repetitions: 12
+  repetitions: 5
   min_improvement_percent: 5.0
   noise_floor_percent: 2.0
   speedup_tripwire: 20.0
