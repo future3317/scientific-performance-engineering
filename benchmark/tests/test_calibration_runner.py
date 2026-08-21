@@ -10,6 +10,7 @@ from scripts.run_active30_calibration import (
     _bounded_verifier_result,
     _calibration_record,
     _copy_oracle,
+    _outer_trial_count,
 )
 from benchmark.formal.attest import calibration_envelope, validate_calibration_envelope
 
@@ -120,6 +121,17 @@ def test_calibration_record_aggregates_all_outer_trials():
     assert record["oracle_ci"]["ci_low"] == 1.0
     assert record["oracle_ci"]["ci_high"] == 1.22
     assert record["control_noise_percent"] == [2.0, 3.0, 1.0]
+
+
+def test_outer_trial_count_uses_declared_episode_repetitions():
+    assert _outer_trial_count(
+        {"workspace": {"api": "episode_v1"}, "measurement": {"repetitions": 3}},
+        default_outer_trials=1,
+    ) == 3
+    assert _outer_trial_count(
+        {"workspace": {"api": "train_loop_v1"}, "measurement": {"repetitions": 12}},
+        default_outer_trials=1,
+    ) == 1
 
 
 def test_bounded_verifier_timeout_is_persisted_as_resource_block(tmp_path, monkeypatch):

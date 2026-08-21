@@ -42,6 +42,13 @@ def classify_calibration_result(raw: dict[str, Any]) -> str:
     return "rerun"
 
 
+def _outer_trial_count(spec: dict[str, Any], default_outer_trials: int) -> int:
+    """Use declared episode repetitions; keep atomic outer orchestration bounded."""
+    if spec.get("workspace", {}).get("api") == "episode_v1":
+        return int(spec.get("measurement", {}).get("repetitions", default_outer_trials))
+    return int(default_outer_trials)
+
+
 def _bounded_verifier_result(
     *, task_id: str, outer_trial_id: str, result_path: Path, timeout_s: float,
     module: str, args: tuple[str, ...], cwd: Path,
@@ -306,7 +313,7 @@ def run(args: argparse.Namespace) -> int:
         task_results: list[dict[str, Any]] = []
         task_noises: list[dict[str, Any]] = []
         task_envelopes: list[dict[str, Any]] = []
-        for outer in range(int(args.outer_trials)):
+        for outer in range(_outer_trial_count(spec, int(args.outer_trials))):
             outer_id = f"outer-{outer:03d}"
             print(json.dumps({"event": "start_outer_trial", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
             solution_dir = out / "solutions" / task_id / outer_id
