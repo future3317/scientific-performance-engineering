@@ -103,3 +103,10 @@ def test_population_cli_is_only_a_wrapper_around_current_authority():
     assert "from benchmark.calibration.report import main" in source
     assert "def build_report" not in source
     assert "def build_pilot_calibration" not in source
+
+
+def test_validate_skill_uses_formal_evolution_authority():
+    root = Path(__file__).parents[2]
+    source = (root / "scripts" / "validate_skill.py").read_text(encoding="utf-8")
+    assert "from benchmark.formal import evolution_validation" in source
+    assert 'root / "scripts" / "validate_evolution.py"' not in source

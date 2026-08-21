@@ -276,20 +276,21 @@ def validate_experience_with_tool(root: Path) -> None:
 
 
 def validate_evolution_with_tool(root: Path) -> None:
-    source = (root / "scripts" / "validate_evolution.py").read_text(encoding="utf-8")
-    namespace: dict[str, Any] = {"__name__": "validate_evolution", "__file__": str(root / "scripts" / "validate_evolution.py")}
-    exec(compile(source, "validate_evolution.py", "exec"), namespace)
-    schema = namespace["load_schema"](root / "assets" / "rule_candidate.schema.json")
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from benchmark.formal import evolution_validation
+
+    schema = evolution_validation.load_schema(root / "assets" / "rule_candidate.schema.json")
     card = json.loads((root / "assets" / "rule_candidate.json").read_text(encoding="utf-8"))
-    errors = namespace["validate_rule"](card, schema)
+    errors = evolution_validation.validate_rule(card, schema)
     if errors:
         raise ValueError(f"rule_candidate.json failed validation: {'; '.join(errors)}")
-    regression_schema = namespace["load_schema"](root / "assets" / "rule_regression_case.schema.json")
+    regression_schema = evolution_validation.load_schema(root / "assets" / "rule_regression_case.schema.json")
     regression = json.loads((root / "assets" / "rule_regression_case.json").read_text(encoding="utf-8"))
-    errors = namespace["validate_regression_case"](regression, regression_schema)
+    errors = evolution_validation.validate_regression_case(regression, regression_schema)
     if errors:
         raise ValueError(f"rule_regression_case.json failed validation: {'; '.join(errors)}")
-    errors = namespace["audit"](root)
+    errors = evolution_validation.audit(root)
     if errors:
         raise ValueError(f"evolution audit failed: {'; '.join(errors)}")
 

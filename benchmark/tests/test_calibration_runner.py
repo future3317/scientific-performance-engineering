@@ -1,6 +1,7 @@
 from pathlib import Path
 import importlib.util
 import json
+import os
 import shutil
 
 import pytest
@@ -268,6 +269,20 @@ def test_normal_exit_cleans_residual_process_group():
 
     assert result["timed_out"] is False
     assert result["cleanup"]["residual_detected"] is True
+    assert result["cleanup"]["quiescent"] is True
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process-group membership is POSIX-specific")
+def test_sigkill_escalates_for_term_resistant_descendant():
+    from benchmark.harness.runner import run_python_subprocess
+
+    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)"
+    parent_code = f"import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', {child_code!r}]); time.sleep(0.2); raise SystemExit(3)"
+    result = run_python_subprocess(snippet=parent_code, timeout=5.0)
+
+    assert result["exit_code"] == 3
+    assert result["cleanup"]["term_sent"] is True
+    assert result["cleanup"]["kill_sent"] is True
     assert result["cleanup"]["quiescent"] is True
 
 
