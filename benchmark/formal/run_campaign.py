@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from benchmark.harness import conditions, miniyaml, scoring, stats, verifier
+from benchmark.calibration.execution import CellExecutor
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
@@ -137,19 +138,6 @@ def _trial_failure_record(manifest: dict[str, Any], task_spec: Mapping[str, Any]
     }
 
 
-def _process_identity(pid: int) -> dict[str, int | None]:
-    """Capture the verifier process identifiers before it exits."""
-    identity: dict[str, int | None] = {"pid": int(pid), "pgid": None, "sid": None}
-    if os.name != "posix":
-        return identity
-    for name, getter in (("pgid", os.getpgid), ("sid", os.getsid)):
-        try:
-            identity[name] = int(getter(pid))
-        except (OSError, ProcessLookupError):
-            pass
-    return identity
-
-
 def _compiler_process_snapshot() -> list[dict[str, Any]]:
     """Report live TorchInductor workers for failure diagnostics."""
     if os.name != "posix":
@@ -173,75 +161,9 @@ def _compiler_process_snapshot() -> list[dict[str, Any]]:
     return workers
 
 
-def _process_group_pids(pgid: int) -> list[int]:
-    if os.name != "posix":
-        return []
-    try:
-        completed = subprocess.run(
-            ["ps", "-eo", "pid=,pgid="], text=True, capture_output=True, check=False,
-        )
-    except OSError:
-        return []
-    pids: list[int] = []
-    for line in completed.stdout.splitlines():
-        parts = line.split()
-        if len(parts) != 2:
-            continue
-        try:
-            if int(parts[1]) == int(pgid):
-                pids.append(int(parts[0]))
-        except ValueError:
-            continue
-    return pids
-
-
-def _cleanup_process_group(process: subprocess.Popen[str], grace_s: float = 1.0) -> list[int]:
-    """Terminate the verifier session and reap every descendant on all exits."""
-    if os.name != "posix":
-        if process.poll() is None:
-            process.kill()
-        process.wait()
-        return []
-    pgid = process.pid
-    try:
-        if process.poll() is None or _process_group_pids(pgid):
-            os.killpg(pgid, signal.SIGTERM)
-    except (OSError, ProcessLookupError):
-        pass
-
-    deadline = time.monotonic() + max(0.0, grace_s)
-    while time.monotonic() < deadline:
-        survivors = _process_group_pids(pgid)
-        if not survivors:
-            break
-        if process.poll() is None:
-            try:
-                process.wait(timeout=min(0.05, max(0.0, deadline - time.monotonic())))
-            except subprocess.TimeoutExpired:
-                pass
-        else:
-            time.sleep(0.05)
-
-    survivors = _process_group_pids(pgid)
-    if survivors:
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except (OSError, ProcessLookupError):
-            pass
-        kill_deadline = time.monotonic() + 1.0
-        while time.monotonic() < kill_deadline:
-            survivors = _process_group_pids(pgid)
-            if not survivors:
-                break
-            time.sleep(0.05)
-    if process.poll() is None:
-        process.wait()
-    return _process_group_pids(pgid)
-
-
 def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "candidate", timeout_s: float | None = None, **kwargs: Any) -> dict[str, Any]:
     with _trial_compiler_cache(trial_dir, invocation_id):
-        if timeout_s is None or os.name != "posix":
+        if timeout_s is None:
             try:
                 return verifier.verify_task(*args, **kwargs)
             except (OSError, ValueError, TypeError, RuntimeError) as exc:
@@ -279,31 +201,17 @@ def _verify_task_with_cache(*args: Any, trial_dir: Path, invocation_id: str = "c
                 value = kwargs["noise_control_expected"].get(expected_key)
             if value is not None:
                 command.extend([flag, str(value)])
-        process = subprocess.Popen(
-            command,
-            cwd=str(Path(__file__).resolve().parents[2]),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
+        completed = CellExecutor(Path(__file__).resolve().parents[2]).run_atomic(
+            args=tuple(command[3:]), timeout_s=float(timeout_s),
         )
-        identity = _process_identity(process.pid)
-        timed_out = False
-        try:
-            stdout, stderr = process.communicate(timeout=float(timeout_s))
-            return_code = process.returncode
-        except subprocess.TimeoutExpired as exc:
-            timed_out = True
-            stdout = exc.stdout or ""
-            stderr = exc.stderr or ""
-            if isinstance(stdout, bytes):
-                stdout = stdout.decode(errors="replace")
-            if isinstance(stderr, bytes):
-                stderr = stderr.decode(errors="replace")
-            return_code = 124
-        finally:
-            workers_before_cleanup = _compiler_process_snapshot()
-            survivors = _cleanup_process_group(process)
+        cleanup = completed.get("cleanup", {})
+        timed_out = bool(completed["timed_out"])
+        stdout = completed.get("stdout", "")
+        stderr = completed.get("stderr", "")
+        return_code = completed.get("exit_code", -1)
+        workers_before_cleanup = _compiler_process_snapshot()
+        survivors = list(cleanup.get("residual_pids", []))
+        identity = {"pid": cleanup.get("process_group"), "pgid": cleanup.get("process_group"), "sid": None}
         diagnostics = {
             "verifier_pid": identity["pid"],
             "verifier_pgid": identity["pgid"],
@@ -374,25 +282,13 @@ def _calibrate_noise_control_with_cache(
             command.extend(["--task-package-digest", task_package_digest])
         if population_manifest_digest is not None:
             command.extend(["--population-manifest-digest", population_manifest_digest])
-        process = subprocess.Popen(
-            command,
-            cwd=str(Path(__file__).resolve().parents[2]),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=(os.name == "posix"),
+        completed = CellExecutor(Path(__file__).resolve().parents[2]).run_atomic(
+            args=tuple(command[3:]), timeout_s=float(timeout_s),
         )
-        try:
-            stdout, stderr = process.communicate(timeout=float(timeout_s))
-        except subprocess.TimeoutExpired as exc:
-            if os.name == "posix":
-                _cleanup_process_group(process)
-            else:
-                process.kill()
-                process.wait()
-            return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration timed out", "stdout": exc.stdout or "", "stderr": exc.stderr or ""}
-        if process.returncode != 0 or not out_path.is_file():
-            return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration failed", "stdout": stdout, "stderr": stderr}
+        if completed["timed_out"]:
+            return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration timed out", "stdout": completed.get("stdout", ""), "stderr": completed.get("stderr", "")}
+        if completed["exit_code"] != 0 or not out_path.is_file():
+            return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration failed", "stdout": completed.get("stdout", ""), "stderr": completed.get("stderr", "")}
     return {"ok": True, "status": "calibrated", "path": str(out_path)}
 
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import json
 from pathlib import Path
+import pytest
 
 from benchmark.formal import aggregate, attest
-from benchmark.formal.run_campaign import _build_required_experiment_executor, _cleanup_process_group, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from benchmark.formal.run_campaign import _build_required_experiment_executor, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from benchmark.calibration.execution import CellExecutor
 from benchmark.calibration.bundle import classify_result as classify_calibration_result
 from benchmark.harness import conditions
 from core.cost import BudgetedContextRenderer
@@ -160,28 +162,22 @@ def test_required_experiment_timeout_is_resource_blocked(tmp_path: Path) -> None
     assert result["status"] == "resource_blocked"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="process-group descendant semantics are POSIX-specific")
 def test_verifier_process_group_cleanup_reaps_grandchild() -> None:
-    import subprocess
-    import sys
-
     child_code = "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); raise SystemExit(3)"
-    process = subprocess.Popen([sys.executable, "-c", child_code], start_new_session=True)
-    process.wait(timeout=5)
-    assert process.returncode == 3
-    assert _cleanup_process_group(process) == []
+    completed = CellExecutor(Path.cwd()).run_episode(snippet=child_code, timeout_s=5.0)
+    assert completed["exit_code"] == 3
+    assert completed["cleanup"]["quiescent"] is True
 
 
 
+@pytest.mark.skipif(os.name == "nt", reason="process-group descendant semantics are POSIX-specific")
 def test_verifier_process_group_cleanup_kills_term_resistant_grandchild() -> None:
-    import subprocess
-    import sys
-
     child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
     parent_code = f"import subprocess,sys; subprocess.Popen([sys.executable, '-c', {child_code!r}]); raise SystemExit(3)"
-    process = subprocess.Popen([sys.executable, "-c", parent_code], start_new_session=True)
-    process.wait(timeout=5)
-    assert process.returncode == 3
-    assert _cleanup_process_group(process, grace_s=0.05) == []
+    completed = CellExecutor(Path.cwd()).run_episode(snippet=parent_code, timeout_s=5.0)
+    assert completed["exit_code"] == 3
+    assert completed["cleanup"]["quiescent"] is True
 
 def test_resume_uses_final_digest_and_persists_stream_block(tmp_path: Path) -> None:
     from scripts.render_skill_view import render_skill_view
