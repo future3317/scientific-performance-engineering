@@ -339,6 +339,7 @@ def run(args: argparse.Namespace) -> int:
         )
     empirical: list[dict[str, Any]] = []
     timing_rows: list[dict[str, Any]] = []
+    campaign_foreign_pids = selected_gpu_foreign_pids() if fingerprint.get("gpu_uuid") else []
     for task_id in task_ids:
         task_dir = tasks_root / task_id
         spec = miniyaml.load(str(task_dir / "task.yaml"))
@@ -357,7 +358,7 @@ def run(args: argparse.Namespace) -> int:
                 "cleanup_status": "not_recorded",
             }
             print(json.dumps({"event": "start_outer_trial", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
-            foreign_pids = selected_gpu_foreign_pids() if fingerprint.get("gpu_uuid") else []
+            foreign_pids = campaign_foreign_pids
             if foreign_pids:
                 result = _resource_blocked_result(
                     task_id=task_id, outer_trial_id=outer_id,
