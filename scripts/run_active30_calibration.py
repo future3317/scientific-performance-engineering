@@ -57,7 +57,22 @@ def _bounded_verifier_result(
             f"verifier exited without a result for {task_id}/{outer_trial_id}: "
             f"{completed['stderr'] or completed['stdout']}"
         )
-    result = {
+    result = _resource_blocked_result(
+        task_id=task_id, outer_trial_id=outer_trial_id,
+        failure_stage="verifier", timeout_s=timeout_s,
+        wall_time_s=float(completed["wall_time_s"]),
+        error=completed["stderr"] or f"verifier timed out after {timeout_s:g}s",
+    )
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return result
+
+
+def _resource_blocked_result(
+    *, task_id: str, outer_trial_id: str, failure_stage: str,
+    timeout_s: float, wall_time_s: float, error: str,
+) -> dict[str, Any]:
+    return {
         "schema_version": 1,
         "task_id": task_id,
         "outer_trial_id": outer_trial_id,
@@ -72,17 +87,40 @@ def _bounded_verifier_result(
         "correctness_pass": False,
         "scientific_gates": {},
         "calibration_status": "blocked",
-        "calibration_block_reason": "verifier exceeded the task time budget",
+        "calibration_block_reason": f"{failure_stage} exceeded the task time budget",
         "timeout": True,
-        "failure_stage": "verifier",
-        "cost": {"wall_time_s": float(completed["wall_time_s"]), "tokens": None, "tool_calls": None, "retries": 0},
+        "failure_stage": failure_stage,
+        "cost": {"wall_time_s": wall_time_s, "tokens": None, "tool_calls": None, "retries": 0},
         "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "status": "pass"},
-        "errors": [completed["stderr"] or f"verifier timed out after {timeout_s:g}s"],
+        "errors": [error or f"{failure_stage} timed out after {timeout_s:g}s"],
         "fingerprint": capture_fingerprint(),
     }
-    result_path.parent.mkdir(parents=True, exist_ok=True)
-    result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return result
+
+
+def _bounded_noise_control(
+    *, task_id: str, outer_trial_id: str, noise_path: Path, timeout_s: float,
+    args: tuple[str, ...], cwd: Path,
+) -> tuple[dict[str, Any], bool]:
+    """Run one noise-control cell in a killable process."""
+    completed = runner.run_python_subprocess(
+        module="benchmark.harness.cli", args=args, timeout=float(timeout_s), cwd=cwd,
+    )
+    if not completed["timed_out"] and noise_path.is_file():
+        return json.loads(noise_path.read_text(encoding="utf-8")), False
+    if not completed["timed_out"]:
+        raise RuntimeError(
+            f"noise control exited without an artifact for {task_id}/{outer_trial_id}: "
+            f"{completed['stderr'] or completed['stdout']}"
+        )
+    return {
+        "schema_version": 1,
+        "task_id": task_id,
+        "outer_trial_id": outer_trial_id,
+        "timeout": True,
+        "failure_stage": "noise_control",
+        "error": completed["stderr"] or f"noise control timed out after {timeout_s:g}s",
+        "wall_time_s": float(completed["wall_time_s"]),
+    }, True
 
 
 def _patch_strip_level(patch_path: Path, solution_dir: Path) -> int:
@@ -315,14 +353,31 @@ def run(args: argparse.Namespace) -> int:
                     noise_path.write_text(json.dumps(noise, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 else:
                     print(json.dumps({"event": "start_noise_control", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
-                    noise = verifier.calibrate_noise_control(
-                        task_dir, solution_dir, noise_path,
-                        task_id=task_id, outer_trial_id=outer_id,
-                        benchmark_revision=revision, task_manifest_digest=digest,
-                        task_package_digest=task_digest, population_manifest_digest=population_digest,
-                        hardware_fingerprint=fingerprint,
-                        compiler_cache_policy=verifier.cache_policy_for_task(spec), seed=outer,
+                    noise, noise_timed_out = _bounded_noise_control(
+                        task_id=task_id, outer_trial_id=outer_id, noise_path=noise_path,
+                        timeout_s=float(spec.get("time_budget_s", 600.0)),
+                        args=(
+                            "calibrate-noise-control", str(task_dir), "--solution", str(solution_dir),
+                            "--out", str(noise_path), "--task-id", task_id,
+                            "--outer-trial-id", outer_id, "--benchmark-revision", revision,
+                            "--task-manifest-digest", digest,
+                            "--compiler-cache-policy", verifier.cache_policy_for_task(spec),
+                            "--seed", str(outer),
+                        ),
+                        cwd=repo_root,
                     )
+                    if noise_timed_out:
+                        result = _resource_blocked_result(
+                            task_id=task_id, outer_trial_id=outer_id,
+                            failure_stage="noise_control",
+                            timeout_s=float(spec.get("time_budget_s", 600.0)),
+                            wall_time_s=float(noise.get("wall_time_s", 0.0)),
+                            error=str(noise.get("error", "noise control timed out")),
+                        )
+                        task_noises.append(noise)
+                        task_results.append(result)
+                        print(json.dumps({"task_id": task_id, "outer_trial_id": outer_id, "verdict": result.get("verdict"), "calibration_status": result.get("calibration_status"), "wall_time_s": result.get("cost", {}).get("wall_time_s")}, ensure_ascii=False), flush=True)
+                        continue
                 print(json.dumps({"event": "start_verifier", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
                 if spec.get("workspace", {}).get("api") == "episode_v1":
                     result = verifier.verify_task(
