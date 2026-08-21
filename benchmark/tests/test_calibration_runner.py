@@ -213,6 +213,65 @@ def test_bounded_noise_control_timeout_is_reported(tmp_path, monkeypatch):
     assert noise["failure_stage"] == "noise_control"
 
 
+def test_bounded_noise_control_residual_group_is_resource_blocked(tmp_path, monkeypatch):
+    noise_path = tmp_path / "noise.json"
+    from benchmark.harness.stats import write_noise_control
+
+    write_noise_control(noise_path, {
+        "task_id": "CORE-COMPILE-DYNAMIC-11",
+        "outer_trial_id": "outer-000",
+        "benchmark_revision": "rev",
+        "task_manifest_digest": "manifest",
+        "task_package_digest": "package",
+        "population_manifest_digest": "population",
+        "hardware_fingerprint": {},
+        "software_fingerprint": {},
+        "compile_threads": 2,
+        "compiler_cache_policy": "fresh",
+        "primary_metric": "schedule_wall_ms",
+        "higher_is_better": False,
+        "control_a_runs": [1, 1, 1, 1, 1],
+        "control_b_runs": [1, 1, 1, 1, 1],
+        "observed_noise_floor_percent": 0.0,
+        "declared_noise_floor_percent": 2.0,
+        "expected_speedup_range": [1.0, 2.0],
+    })
+
+    def residual_runner(**kwargs):
+        return {
+            "timed_out": False,
+            "wall_time_s": 12.0,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "[harness] subprocess exited with a residual process group",
+            "cleanup": {
+                "residual_detected": True,
+                "quiescent": True,
+                "term_sent": True,
+                "kill_sent": True,
+            },
+        }
+
+    monkeypatch.setattr(
+        "benchmark.calibration.campaign.runner.run_python_subprocess",
+        residual_runner,
+    )
+
+    noise, blocked = _bounded_noise_control(
+        task_id="CORE-COMPILE-DYNAMIC-11",
+        outer_trial_id="outer-000",
+        noise_path=noise_path,
+        timeout_s=600.0,
+        args=("calibrate-noise-control",),
+        cwd=tmp_path,
+    )
+
+    assert blocked is True
+    assert noise["failure_stage"] == "executor_cleanup"
+    assert noise["execution_validity"] == "resource_blocked"
+    assert noise["executor_cleanup"]["kill_sent"] is True
+
+
 def test_calibration_envelope_rejects_incompatible_fingerprint():
     fingerprint = {
         "python_version": "3.12", "platform": "linux", "torch_version": "2.0",
