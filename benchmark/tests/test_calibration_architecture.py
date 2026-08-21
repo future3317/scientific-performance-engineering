@@ -40,6 +40,8 @@ def test_active30_cli_is_only_argument_parsing_and_orchestration():
     assert "def _resource_blocked_result" not in source
     assert "def _calibration_record" not in source
     assert "run_calibration_campaign" in source
+    assert "import sys" in source
+    assert "sys.path.insert(0, str(Path(__file__).resolve().parents[1]))" in source
     assert len(source.splitlines()) < 40
 
 
