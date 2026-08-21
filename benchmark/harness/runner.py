@@ -338,6 +338,9 @@ def run_python_subprocess(
         stderr += f"\n[harness] subprocess timed out after {timeout}s"
     if residual_detected:
         stderr += "\n[harness] subprocess exited with a residual process group; it was terminated"
+        deadline = time.monotonic() + 2.0
+        while group_alive() and time.monotonic() < deadline:
+            time.sleep(0.05)
     quiescent = not group_alive()
     return {
         "exit_code": exit_code,
