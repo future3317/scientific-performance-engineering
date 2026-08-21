@@ -69,7 +69,7 @@ def main() -> None:
         root = Path(tmp)
         (root / "registry").mkdir()
         (root / "registry" / "rules.json").write_text(json.dumps({"schema_version": 1, "rules": []}), encoding="utf-8")
-        validation = {"synthesis_case_ids": ["CASE-1"], "promotion_case_ids": ["CASE-1"], "heldout_regression_cases": [{"case_id": "HELDOUT-1", "executed": True, "execution_source": "verifier", "scientific_ok": True, "effect_lcb": 0.1}], "poison_probe_cases": [{"case_id": "POISON-1", "executed": True, "execution_source": "environment", "accepted": False}]}
+        validation = {"synthesis_case_ids": ["SYNTH-1"], "promotion_case_ids": ["CASE-1"], "heldout_regression_cases": [{"case_id": "HELDOUT-1", "executed": True, "execution_source": "verifier", "scientific_ok": True, "effect_lcb": 0.1}], "poison_probe_cases": [{"case_id": "POISON-1", "executed": True, "execution_source": "environment", "accepted": False}]}
         validation_path = root / "evolution" / "validation.json"
         validation_path.parent.mkdir(parents=True)
         validation_path.write_text(json.dumps(validation), encoding="utf-8")
