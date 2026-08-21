@@ -246,10 +246,12 @@ def promote_via_replay(
     core_repo: Path,
     out_dir: Path,
     ledger: EvolutionDecisionLedger,
+    *,
+    replay_builder: Any | None = None,
 ) -> list[str]:
     """Replay-grounded promotion (D): build case bundles from measured paired
     runs, attest via the core build_manifest, promote passing rules to canonical."""
-    build_manifest = _import_core_replay_build_manifest(core_repo)
+    build_manifest = replay_builder or _import_core_replay_build_manifest(core_repo)
     promoted: list[str] = []
     for index, candidate in enumerate(candidate_results):
         if str(candidate.get("scope", "calibration")) == "formal":
@@ -636,6 +638,7 @@ def run_episode(
     family_transformations: list[dict[str, Any]] = []
     environment_state = EpisodeEnvironmentState()
     ledger = EvolutionDecisionLedger(out_dir / "evolution_decision_ledger.jsonl")
+    replay_builder = _import_core_replay_build_manifest(core_repo) if condition == "D" else None
     drift_start: int | None = None
 
     for phase in episode["phases"]:
@@ -792,7 +795,9 @@ def run_episode(
                                 ]
                     if record.get("cases"):
                         candidates.append(record)
-            promoted_total.extend(promote_via_replay(store, candidates, core_repo, out_dir, ledger))
+            promoted_total.extend(promote_via_replay(
+                store, candidates, core_repo, out_dir, ledger, replay_builder=replay_builder
+            ))
 
     rules_dir = store / "rules"
     canonical_rules = [

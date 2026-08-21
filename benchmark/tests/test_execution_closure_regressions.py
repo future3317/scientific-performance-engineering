@@ -72,6 +72,33 @@ def test_replay_certificate_uses_group_mixture_not_all_success_count():
     assert result["successes"] == 2
 
 
+def test_evolution_episode_loads_replay_builder_once(tmp_path: Path, monkeypatch):
+    from benchmark.harness import evolution
+
+    repo_root = Path(__file__).resolve().parents[2]
+    episode = repo_root / "benchmark" / "tasks" / "EVOL-COMPILER-DRIFT-20" / "episodes" / "compiler_drift_episode.yaml"
+    calls = []
+    original_import = evolution._import_core_replay_build_manifest
+
+    def counted_import(*args, **kwargs):
+        calls.append(str(args[0]))
+        return original_import(*args, **kwargs)
+
+    monkeypatch.setattr(evolution, "_import_core_replay_build_manifest", counted_import)
+    monkeypatch.setattr(evolution, "EPISODE_REPLAY_REPETITIONS", 1)
+    evolution.run_episode(
+        episode,
+        "D",
+        tmp_path / "candidate",
+        core_repo=repo_root,
+        snapshot_dir=repo_root,
+        seed=0,
+        max_wall_time_s=600,
+    )
+
+    assert len(calls) == 1
+
+
 def test_higher_order_execution_registers_typed_router_certificate():
     from core.acre.engine import AcreEngine
     engine = AcreEngine()
