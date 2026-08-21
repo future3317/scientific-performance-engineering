@@ -13,6 +13,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from benchmark.formal import evolution_validation as validator
 
 
 def load(name: str):
@@ -47,7 +51,6 @@ def main() -> None:
         (root / "input.json").write_text(json.dumps(payload), encoding="utf-8")
         manifest = replay.build_manifest(payload, Path("input.json"), Path("replay.json"), "a" * 40)
         (root / "replay.json").write_text(json.dumps(manifest), encoding="utf-8")
-        validator = load("validate_evolution.py")
         card = {"rule_id": "PERF-SYNC-004", "status": "canonical", "confidence": {
             key: manifest["result"][key] for key in ("prior_alpha", "prior_beta", "successes", "failures", "p_min", "delta", "posterior_probability")
         }, "promotion": {"replay_manifest": {
