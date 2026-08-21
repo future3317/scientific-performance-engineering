@@ -207,7 +207,7 @@ def materialize_condition(
         raise FileNotFoundError(f"snapshot directory not found: {snapshot_dir}")
     if not (snapshot_dir / "skill_view_manifest.json").is_file():
         raise ValueError("snapshot must be a render_skill_view.py bundle, not a repository root")
-    from scripts.render_skill_view import validate_skill_view_bundle
+    from benchmark.harness.skill_view import validate_skill_view_bundle
 
     bundle_errors = validate_skill_view_bundle(snapshot_dir)
     if bundle_errors:

@@ -530,7 +530,7 @@ def run_episode(
     snapshot_dir = Path(snapshot_dir) if snapshot_dir else core_repo
 
     store = out_dir / "store"
-    from scripts.render_skill_view import render_skill_view
+    from benchmark.harness.skill_view import render_skill_view
 
     if (snapshot_dir / "skill_view_manifest.json").is_file():
         skill_view = snapshot_dir
@@ -756,7 +756,7 @@ def run_episode(
     }
 
     if condition == "D":
-        from scripts.validate_evolution import audit
+        from benchmark.formal.evolution_validation import audit
 
         validation_errors = audit(store)
         if validation_errors:

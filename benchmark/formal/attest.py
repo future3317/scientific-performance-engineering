@@ -11,7 +11,7 @@ from typing import Any
 
 from benchmark.harness import anticheat, miniyaml
 from benchmark.harness.fingerprint import fingerprints_compatible
-from scripts.render_skill_view import validate_skill_view_bundle
+from benchmark.harness.skill_view import validate_skill_view_bundle
 
 
 def canonical_json(value: Any) -> bytes:
@@ -42,10 +42,14 @@ def file_digest(path: str | Path) -> str:
 
 
 def harness_digest(repo_root: str | Path) -> str:
-    """Digest the executable calibration/verifier surface."""
+    """Digest only the executable calibration/verifier surface.
+
+    Formal aggregation and release/reporting code intentionally do not enter
+    this digest; changing analysis does not invalidate a completed cell.
+    """
     root = Path(repo_root)
     files: dict[str, str] = {}
-    roots = [root / "benchmark" / "harness", root / "benchmark" / "formal"]
+    roots = [root / "benchmark" / "harness", root / "benchmark" / "calibration"]
     paths = [
         root / "scripts" / "run_active30_calibration.py",
         root / "benchmark" / "calibration" / "calibration_protocol.json",

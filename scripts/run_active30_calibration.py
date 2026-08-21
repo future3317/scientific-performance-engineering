@@ -30,6 +30,7 @@ from benchmark.calibration.execution import CellExecutor
 from benchmark.calibration.identity import canonical_cell_identity
 from benchmark.calibration.protocol import load_calibration_protocol, outer_trial_count
 from benchmark.calibration.report import rebuild_calibration_views
+from benchmark.calibration.state import derive_cell_state, serialize_cell_state
 
 
 def _bounded_verifier_result(
@@ -90,7 +91,7 @@ def _resource_blocked_result(
     timeout_s: float, wall_time_s: float, error: str,
     measurement_class: str = "atomic_performance", timeout: bool = True,
 ) -> dict[str, Any]:
-    return {
+    result = {
         "schema_version": 1,
         "task_id": task_id,
         "outer_trial_id": outer_trial_id,
@@ -113,6 +114,7 @@ def _resource_blocked_result(
         "errors": [error or f"{failure_stage} timed out after {timeout_s:g}s"],
         "fingerprint": capture_fingerprint(),
     }
+    return serialize_cell_state(result)
 
 
 def _bounded_noise_control(
@@ -291,7 +293,7 @@ def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str
     episode_effects = [float(item["episode_measurement"]["absolute_score_delta"]) for item in results if isinstance(item.get("episode_measurement"), dict) and isinstance(item["episode_measurement"].get("absolute_score_delta"), (int, float))]
     anti_findings = [finding for item in results for finding in (item.get("anticheat", {}).get("findings", []) if isinstance(item.get("anticheat"), dict) else [])]
     anti = {"hard_fail": any(bool(item.get("anticheat", {}).get("hard_fail")) for item in results), "tripwired": any(bool(item.get("anticheat", {}).get("tripwired")) for item in results), "findings": anti_findings}
-    calibration_status = "eligible" if all(item.get("calibration_status") == "eligible" for item in results) else "blocked"
+    calibration_status = "eligible" if all(derive_cell_state(item) == "eligible" for item in results) else "blocked"
     return {
         "task_id": task_id,
         "task_digest": digest,
