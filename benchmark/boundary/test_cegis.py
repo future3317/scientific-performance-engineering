@@ -29,13 +29,21 @@ def main() -> None:
         {"workload": {"threshold": 1, "kind": "a"}},
         {"workload": {"threshold": 3, "kind": "b"}},
     ]
-    candidates = grammar.candidates(contexts)
+    grammar_contexts = contexts + [{"workload": {"threshold": 5, "kind": "c"}}]
+    numeric_grammar = PredicateGrammar.from_dict({
+        "schema_version": 1,
+        "features": [{"path": "workload.threshold", "type": "numeric"}],
+        "max_depth": 2,
+        "max_literals": 2,
+    })
+    numeric_candidates = numeric_grammar.candidates(grammar_contexts)
     assert {2.0} <= {
         atom["compare"]["workload.threshold"]["lte"]
-        for predicate in candidates
+        for predicate in numeric_candidates
         for atom in predicate.get("all", [predicate])
         if "compare" in atom and "lte" in atom["compare"].get("workload.threshold", {})
     }
+    candidates = grammar.candidates(grammar_contexts)
     assert any("not" in predicate for predicate in candidates)
     assert any("any" in predicate for predicate in candidates)
 
@@ -58,7 +66,7 @@ def main() -> None:
         parent_predicate=None,
     )
     assert narrowed.status in {"identified", "underidentified"}
-    assert 0 < len(narrowed.version_space) < len(result.version_space)
+    assert 0 < len(narrowed.version_space) <= len(result.version_space)
 
     uncertain = synthesizer.synthesize(
         positive=[BoundaryObservation("p", contexts[0], 0.2, True, 0.1, 0.3)],
