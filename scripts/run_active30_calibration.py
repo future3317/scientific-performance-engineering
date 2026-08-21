@@ -21,7 +21,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal import attest
-from benchmark.harness import miniyaml, stats, verifier
+from benchmark.harness import miniyaml, runner, stats, verifier
 from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_compatible
 from benchmark.taskgen.validate_population import build_pilot_calibration, build_report
 
@@ -40,6 +40,49 @@ def classify_calibration_result(raw: dict[str, Any]) -> str:
     if execution_validity == "valid" and raw.get("efficacy_eligible") is True:
         return "reusable"
     return "rerun"
+
+
+def _bounded_verifier_result(
+    *, task_id: str, outer_trial_id: str, result_path: Path, timeout_s: float,
+    module: str, args: tuple[str, ...], cwd: Path,
+) -> dict[str, Any]:
+    """Run one verifier cell in a killable process and persist timeout evidence."""
+    completed = runner.run_python_subprocess(
+        module=module, args=args, timeout=float(timeout_s), cwd=cwd,
+    )
+    if not completed["timed_out"] and result_path.is_file():
+        return json.loads(result_path.read_text(encoding="utf-8"))
+    if not completed["timed_out"]:
+        raise RuntimeError(
+            f"verifier exited without a result for {task_id}/{outer_trial_id}: "
+            f"{completed['stderr'] or completed['stdout']}"
+        )
+    result = {
+        "schema_version": 1,
+        "task_id": task_id,
+        "outer_trial_id": outer_trial_id,
+        "measurement_class": "atomic_performance",
+        "condition": "standalone",
+        "context_mode": "reset",
+        "verdict": "inconclusive",
+        "validity": "valid",
+        "execution_validity": "resource_blocked",
+        "efficacy_eligible": False,
+        "protocol_failure": False,
+        "correctness_pass": False,
+        "scientific_gates": {},
+        "calibration_status": "blocked",
+        "calibration_block_reason": "verifier exceeded the task time budget",
+        "timeout": True,
+        "failure_stage": "verifier",
+        "cost": {"wall_time_s": float(completed["wall_time_s"]), "tokens": None, "tool_calls": None, "retries": 0},
+        "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "status": "pass"},
+        "errors": [completed["stderr"] or f"verifier timed out after {timeout_s:g}s"],
+        "fingerprint": capture_fingerprint(),
+    }
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return result
 
 
 def _patch_strip_level(patch_path: Path, solution_dir: Path) -> int:
@@ -281,18 +324,34 @@ def run(args: argparse.Namespace) -> int:
                         compiler_cache_policy=verifier.cache_policy_for_task(spec), seed=outer,
                     )
                 print(json.dumps({"event": "start_verifier", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
-                result = verifier.verify_task(
-                    task_dir, solution_dir, out_path=result_path, seed=outer,
-                    condition="standalone", context_mode="reset",
-                    outer_trial_id=outer_id,
-                    noise_control_path=noise_path, noise_control_required=True,
-                    noise_control_expected={
-                        "task_id": task_id, "outer_trial_id": outer_id,
-                        "benchmark_revision": revision, "task_manifest_digest": digest,
-                        "task_package_digest": task_digest, "population_manifest_digest": population_digest,
-                        "hardware_fingerprint": fingerprint, "software_fingerprint": fingerprint,
-                    },
-                )
+                if spec.get("workspace", {}).get("api") == "episode_v1":
+                    result = verifier.verify_task(
+                        task_dir, solution_dir, out_path=result_path, seed=outer,
+                        condition="standalone", context_mode="reset",
+                        outer_trial_id=outer_id,
+                        noise_control_path=noise_path, noise_control_required=True,
+                        noise_control_expected={
+                            "task_id": task_id, "outer_trial_id": outer_id,
+                            "benchmark_revision": revision, "task_manifest_digest": digest,
+                            "task_package_digest": task_digest, "population_manifest_digest": population_digest,
+                            "hardware_fingerprint": fingerprint, "software_fingerprint": fingerprint,
+                        },
+                    )
+                else:
+                    result = _bounded_verifier_result(
+                        task_id=task_id, outer_trial_id=outer_id, result_path=result_path,
+                        timeout_s=float(spec.get("time_budget_s", 600.0)),
+                        module="benchmark.harness.cli",
+                        args=(
+                            "run-task", str(task_dir), "--solution", str(solution_dir),
+                            "--out", str(result_path), "--seed", str(outer),
+                            "--condition", "standalone", "--context-mode", "reset",
+                            "--noise-control", str(noise_path), "--noise-control-required",
+                            "--outer-trial-id", outer_id, "--benchmark-revision", revision,
+                            "--task-manifest-digest", digest,
+                        ),
+                        cwd=repo_root,
+                    )
                 envelope = attest.calibration_envelope(
                     producer_revision=revision, task_package_digest=task_digest,
                     population_manifest_digest=population_digest, harness_digest_value=harness_digest,
