@@ -6,6 +6,7 @@ import shutil
 import pytest
 
 from scripts.run_active30_calibration import (
+    _bounded_noise_control,
     _bounded_verifier_result,
     _calibration_record,
     _copy_oracle,
@@ -153,6 +154,36 @@ def test_bounded_verifier_timeout_is_persisted_as_resource_block(tmp_path, monke
     assert result["execution_validity"] == "resource_blocked"
     assert result["failure_stage"] == "verifier"
     assert json.loads(result_path.read_text(encoding="utf-8")) == result
+
+
+def test_bounded_noise_control_timeout_is_reported(tmp_path, monkeypatch):
+    def timed_out_runner(**kwargs):
+        assert kwargs["timeout"] == 3.0
+        return {
+            "timed_out": True,
+            "wall_time_s": 3.01,
+            "exit_code": -1,
+            "stdout": "",
+            "stderr": "[harness] subprocess timed out after 3s",
+        }
+
+    monkeypatch.setattr(
+        "scripts.run_active30_calibration.runner.run_python_subprocess",
+        timed_out_runner,
+    )
+
+    noise, timed_out = _bounded_noise_control(
+        task_id="CORE-COMPILE-DYNAMIC-11",
+        outer_trial_id="outer-000",
+        noise_path=tmp_path / "noise.json",
+        timeout_s=3.0,
+        args=("calibrate-noise-control",),
+        cwd=tmp_path,
+    )
+
+    assert timed_out is True
+    assert noise["timeout"] is True
+    assert noise["failure_stage"] == "noise_control"
 
 
 def test_calibration_envelope_rejects_incompatible_fingerprint():
