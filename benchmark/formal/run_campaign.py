@@ -38,7 +38,7 @@ from core.public_context import build_public_context
 from benchmark.harness.evolution import promote_via_replay
 from benchmark.harness.evolution_ledger import CandidateEvidenceLedger
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
-from scripts.render_skill_view import render_skill_view, validate_skill_view_bundle
+from benchmark.harness.skill_view import render_skill_view, validate_skill_view_bundle
 from core.models import identifier_digest, validate_identifier, ActionSpec, RawRealizationRecord, RealizationRecord
 from core.utility import UTILITY_LOG_SCALE, practical_effect_threshold, utility_effect
 from core.acre.cegis import synthesize_applicability, _case_effect_interval
@@ -1912,7 +1912,7 @@ def post_task_update(
             candidate["cases"] = hydrated_cases
         if candidates:
             promoted_rule_ids = promote_via_replay(store, candidates, core_repo, out_dir, active_ledger)
-        from scripts.validate_evolution import audit
+        from benchmark.formal.evolution_validation import audit
 
         errors = audit(store, schema_root=core_repo)
         if errors:
@@ -1922,7 +1922,7 @@ def post_task_update(
         valid, policy_errors = conditions.verify_condition_policy(store)
         if not valid:
             raise ValueError("governed transition failed store policy: " + "; ".join(policy_errors))
-        from scripts.validate_evolution import audit
+        from benchmark.formal.evolution_validation import audit
 
         errors = audit(store, schema_root=core_repo)
         if errors:

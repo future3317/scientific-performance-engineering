@@ -38,7 +38,7 @@ def test_protocol_valid_task_failure_remains_efficacy_eligible() -> None:
 
 
 def test_calibration_resume_requires_valid_eligible_raw_result() -> None:
-    assert classify_calibration_result({"execution_validity": "valid", "efficacy_eligible": True}) == "reusable"
+    assert classify_calibration_result({"execution_validity": "valid", "validity": "valid", "efficacy_eligible": True, "calibration_status": "eligible"}) == "reusable"
     assert classify_calibration_result({"execution_validity": "resource_blocked"}) == "rerun"
     assert classify_calibration_result({"execution_validity": "invalid", "failure_stage": "executor"}) == "rerun"
     assert classify_calibration_result({"execution_validity": "invalid", "protocol_failure": True}) == "blocked_requires_revision"

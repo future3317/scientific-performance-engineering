@@ -1,56 +1,22 @@
 #!/usr/bin/env python3
-"""Run every standalone test script in benchmark/tests/ and summarize.
+"""Compatibility entrypoint for the single repository pytest suite.
 
-Usage: python benchmark/tests/run_all.py
-Exit code 0 when all pass, 1 otherwise.
+The repository's test authority is pytest. This command remains only for
+local callers that used the historical path; it does not maintain a second
+test inventory.
 """
+
+from __future__ import annotations
 
 import subprocess
 import sys
-import time
 from pathlib import Path
-
-TESTS = (
-    "test_miniyaml.py",
-    "test_stats.py",
-    "test_sequential_stats.py",
-    "test_scoring.py",
-    "test_anticheat.py",
-    "test_split_conditions.py",
-    "test_scientific_gates.py",
-    "test_episode_split.py",
-    "test_runner.py",
-    "test_poison_label_never_visible.py",
-    "test_skill_view.py",
-    "test_context_mode.py",
-    "test_c_control.py",
-    "test_adversarial_boundaries.py",
-    "test_formal.py",
-    "test_population.py",
-    "test_families.py",
-    "test_acre_full_lifecycle_e2e.py",
-)
 
 
 def main() -> int:
-    here = Path(__file__).resolve().parent
-    failures = 0
-    for name in TESTS:
-        path = here / name
-        start = time.perf_counter()
-        completed = subprocess.run(
-            [sys.executable, str(path)], capture_output=True, text=True
-        )
-        elapsed = time.perf_counter() - start
-        status = "PASS" if completed.returncode == 0 else "FAIL"
-        print(f"[{status}] {name} ({elapsed:.1f}s)")
-        if completed.returncode != 0:
-            failures += 1
-            sys.stdout.write(completed.stdout)
-            sys.stderr.write(completed.stderr)
-    print(f"run_all: {len(TESTS) - failures}/{len(TESTS)} passed")
-    return 1 if failures else 0
+    repo_root = Path(__file__).resolve().parents[2]
+    return subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=repo_root).returncode
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

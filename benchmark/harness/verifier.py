@@ -27,6 +27,7 @@ from typing import Any, Mapping
 
 from . import anticheat, miniyaml, runner, stats
 from benchmark.calibration.execution import CellExecutor
+from benchmark.calibration.state import serialize_cell_state
 from .api import execution_class_for_task, metric_type_for_task
 from .fingerprint import capture_fingerprint
 
@@ -944,6 +945,7 @@ def _verify_episode_task(
 
 
 def _finalize(result: dict[str, Any], started: float, out_path: str | Path | None) -> dict[str, Any]:
+    serialize_cell_state(result)
     result["cost"]["wall_time_s"] = round(time.perf_counter() - started, 3)
     if out_path is not None:
         path = Path(out_path)

@@ -12,7 +12,7 @@ def test_api_registry_owns_execution_class():
 
 
 def test_calibration_authority_modules_are_public():
-    from benchmark.calibration import approval, bundle, execution, identity, protocol, report
+    from benchmark.calibration import approval, bundle, execution, identity, protocol, report, state
 
     assert callable(approval.issue_calibration_approval)
     assert callable(bundle.classify_result)
@@ -20,6 +20,7 @@ def test_calibration_authority_modules_are_public():
     assert callable(identity.canonical_cell_identity)
     assert callable(protocol.load_calibration_protocol)
     assert callable(report.rebuild_calibration_views)
+    assert state.derive_cell_state({"execution_validity": "valid", "efficacy_eligible": True, "calibration_status": "eligible"}) == "eligible"
 
 
 def test_calibration_cli_scripts_do_not_import_private_helpers():
@@ -49,3 +50,17 @@ def test_population_structural_checks_have_a_single_module():
     assert "def metadata_findings" in structural
     assert "def _artifact_findings" not in validator
     assert "def _metadata_findings" not in validator
+
+
+def test_executor_digest_excludes_formal_reporting_surface():
+    source = (Path(__file__).parents[2] / "benchmark" / "formal" / "attest.py").read_text(encoding="utf-8")
+    assert 'root / "benchmark" / "formal"' not in source
+    assert 'root / "benchmark" / "calibration"' in source
+
+
+def test_production_benchmark_layers_do_not_import_cli_scripts():
+    root = Path(__file__).parents[2]
+    for directory in (root / "benchmark" / "formal", root / "benchmark" / "harness"):
+        for path in directory.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            assert "from scripts." not in source and "import scripts." not in source, path
