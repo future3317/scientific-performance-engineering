@@ -126,46 +126,63 @@ class PredicateGrammar:
             for fragment in fragments
         ]
         full_mask = (1 << len(contexts)) - 1
+        fragment_keys = [_key(fragment) for fragment in fragments]
+        fragment_complexities = [predicate_complexity(fragment) for fragment in fragments]
         representatives: dict[int, tuple[tuple[int, int, int, str], dict[str, Any]]] = {}
 
-        def add(candidate: dict[str, Any], signature: int) -> None:
-            if not self._within_bounds(candidate):
+        def add(candidate: dict[str, Any], signature: int, candidate_key: str, depth: int, literals: int) -> None:
+            if depth > self.max_depth or literals > self.max_literals:
                 return
-            candidate_key = _key(candidate)
-            complexity = predicate_complexity(candidate)
-            priority = (len(candidate_key), complexity["depth"], complexity["literals"], candidate_key)
+            priority = (len(candidate_key), depth, literals, candidate_key)
             current = representatives.get(signature)
             if current is None or priority < current[0]:
                 representatives[signature] = (priority, candidate)
 
-        if parent_predicate is not None and self._within_bounds(parent_predicate):
-            # A specialization may preserve the parent or narrow it; it must
-            # never introduce a complement/OR branch that broadens coverage.
+        if parent_predicate is not None:
+            parent_key = _key(parent_predicate)
+            parent_complexity = predicate_complexity(parent_predicate)
             parent_mask = sum(
                 1 << index for index, context in enumerate(contexts)
                 if match_predicate(parent_predicate, context)
             )
-            add(parent_predicate, parent_mask)
+            # A specialization may preserve the parent or narrow it; it must
+            # never introduce a complement/OR branch that broadens coverage.
+            add(parent_predicate, parent_mask, parent_key, parent_complexity["depth"], parent_complexity["literals"])
         else:
+            parent_key = None
+            parent_complexity = None
             parent_mask = None
         for width in range(1, min(self.max_literals, len(fragments)) + 1):
             for selected_indices in itertools.combinations(range(len(fragments)), width):
                 selected = tuple(fragments[index] for index in selected_indices)
+                selected_keys = tuple(fragment_keys[index] for index in selected_indices)
                 all_mask = full_mask
                 any_mask = 0
+                selected_depth = 1
                 for index in selected_indices:
                     all_mask &= context_masks[index]
                     any_mask |= context_masks[index]
+                    selected_depth = max(selected_depth, fragment_complexities[index]["depth"])
                 if parent_predicate is not None:
-                    add({"all": [parent_predicate, *selected]}, parent_mask & all_mask)
+                    all_key = '{"all":[' + parent_key + ',' + ','.join(selected_keys) + ']}'
+                    all_depth = 1 + max(parent_complexity["depth"], selected_depth)
+                    add({"all": [parent_predicate, *selected]}, parent_mask & all_mask, all_key, all_depth, parent_complexity["literals"] + width)
                     if width > 1:
                         # A disjunction is safe only inside the parent
                         # predicate: parent AND (a OR b) is still a true
                         # specialization, whereas (parent OR a) is not.
-                        add({"all": [parent_predicate, {"any": list(selected)}]}, parent_mask & any_mask)
-                        add({"any": [{"all": [parent_predicate, selected[0]]}]}, parent_mask & context_masks[selected_indices[0]])
+                        any_key = '{"any":[' + ','.join(selected_keys) + ']}'
+                        nested_all_key = '{"all":[' + parent_key + ',' + any_key + ']}'
+                        nested_all_depth = 1 + max(parent_complexity["depth"], 1 + selected_depth)
+                        add({"all": [parent_predicate, {"any": list(selected)}]}, parent_mask & any_mask, nested_all_key, nested_all_depth, parent_complexity["literals"] + width)
+                        one_key = '{"all":[' + parent_key + ',' + selected_keys[0] + ']}'
+                        one_depth = 2 + max(parent_complexity["depth"], fragment_complexities[selected_indices[0]]["depth"])
+                        add({"any": [{"all": [parent_predicate, selected[0]]}]}, parent_mask & context_masks[selected_indices[0]], '{"any":[' + one_key + ']}', one_depth, parent_complexity["literals"] + 1)
                 else:
-                    add(selected[0] if width == 1 else {"all": list(selected)}, all_mask)
+                    if width == 1:
+                        add(selected[0], all_mask, selected_keys[0], fragment_complexities[selected_indices[0]]["depth"], 1)
+                    else:
+                        add({"all": list(selected)}, all_mask, '{"all":[' + ','.join(selected_keys) + ']}', 1 + selected_depth, width)
                     if width > 1:
-                        add({"any": list(selected)}, any_mask)
+                        add({"any": list(selected)}, any_mask, '{"any":[' + ','.join(selected_keys) + ']}', 1 + selected_depth, width)
         return [item[1] for item in sorted(representatives.values(), key=lambda item: item[0][3])]
