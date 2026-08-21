@@ -17,7 +17,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal import attest
-from benchmark.harness import miniyaml, stats
+from benchmark.harness import miniyaml, runner, stats
 from benchmark.harness.fingerprint import fingerprints_compatible
 from scripts.run_active30_calibration import classify_calibration_result, load_calibration_protocol, _outer_trial_count
 
@@ -30,9 +30,10 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
     population_digest = attest.file_digest(active_path)
     static_harness = attest.harness_digest(repo_root)
     runner_digest = attest.file_digest(repo_root / "scripts" / "run_active30_calibration.py")
+    protocol, protocol_digest = load_calibration_protocol(repo_root)
+    runner.configure_thread_topology(protocol["thread_topology"])
     from benchmark.harness.fingerprint import capture_fingerprint
     fingerprint = capture_fingerprint()
-    protocol, protocol_digest = load_calibration_protocol(repo_root)
     reusable: list[dict[str, str]] = []
     rerun: list[dict[str, str]] = []
     blocked: list[dict[str, str]] = []
@@ -54,10 +55,16 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                 payload = json.loads(envelope.read_text(encoding="utf-8"))
                 noise_payload = json.loads(noise.read_text(encoding="utf-8"))
                 raw_payload = json.loads(raw.read_text(encoding="utf-8"))
+                identity = attest.canonical_cell_identity(
+                    task_id=task_id, outer_trial_id=outer_id, seed=outer,
+                    measurement_family=("evolution" if task_spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance"),
+                    task_package_digest=task_digest,
+                    population_manifest_digest=population_digest,
+                )
                 expected = {
                     "schema_version": 1, "producer_revision": revision,
-                    "task_id": task_id, "outer_trial_id": outer_id, "seed": outer,
-                    "measurement_class": "evolution" if task_spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
+                    "task_id": identity["task_id"], "outer_trial_id": identity["outer_trial_id"], "seed": identity["seed"],
+                    "measurement_class": identity["envelope_measurement_class"],
                     "task_package_digest": task_digest,
                     "population_manifest_digest": population_digest,
                     "harness_digest": static_harness,
@@ -67,7 +74,10 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                 }
                 if attest.validate_calibration_envelope(payload, expected):
                     reason = "provenance_mismatch"
-                elif any(raw_payload.get(key) != expected.get(key) for key in ("task_id", "outer_trial_id", "seed", "measurement_class")):
+                elif (
+                    any(raw_payload.get(key) != identity[key] for key in ("task_id", "outer_trial_id", "seed"))
+                    or raw_payload.get("measurement_class") != identity["raw_measurement_class"]
+                ):
                     reason = "raw_identity_mismatch"
                 else:
                     compatible, _ = fingerprints_compatible(payload.get("fingerprint", {}), fingerprint)

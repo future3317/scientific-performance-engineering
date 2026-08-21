@@ -238,3 +238,78 @@ def test_subprocess_timeout_returns_cleanup_receipt():
     assert result["timed_out"] is True
     assert result["cleanup"]["process_group"]
     assert result["cleanup"]["quiescent"] is True
+
+
+def test_evolution_cell_identity_separates_raw_class_from_measurement_family():
+    from benchmark.formal.attest import canonical_cell_identity
+
+    identity = canonical_cell_identity(
+        task_id="EVOL", outer_trial_id="outer-000", seed=0,
+        measurement_family="evolution", task_package_digest="pkg",
+        population_manifest_digest="population",
+    )
+
+    assert identity["measurement_family"] == "evolution"
+    assert identity["raw_measurement_class"] == "episode_bounded_score"
+    assert identity["envelope_measurement_class"] == "evolution"
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="process-group membership is not queryable through the POSIX API on Windows")
+def test_normal_exit_cleans_residual_process_group():
+    from benchmark.harness.runner import run_python_subprocess
+
+    result = run_python_subprocess(
+        snippet=(
+            "import subprocess, sys; "
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'])"
+        ),
+        timeout=1.0,
+    )
+
+    assert result["timed_out"] is False
+    assert result["cleanup"]["residual_detected"] is True
+    assert result["cleanup"]["quiescent"] is True
+
+
+def test_gpu_preflight_query_failure_is_not_clean(monkeypatch):
+    from benchmark.harness import fingerprint
+
+    def fail(*args, **kwargs):
+        raise OSError("nvidia-smi unavailable")
+
+    monkeypatch.setattr(fingerprint, "_selected_gpu_uuid", lambda: "GPU-test")
+    monkeypatch.setattr(fingerprint.subprocess, "check_output", fail)
+
+    result = fingerprint.selected_gpu_preflight()
+
+    assert result["status"] == "unavailable"
+    assert "nvidia-smi" in result["reason"]
+
+
+def test_subprocess_applies_declared_thread_topology_before_fingerprint():
+    from benchmark.harness.runner import run_python_subprocess
+
+    result = run_python_subprocess(
+        snippet=(
+            "import json; from benchmark.harness.runner import configure_thread_topology_from_env; "
+            "configure_thread_topology_from_env(); "
+            "from benchmark.harness.fingerprint import capture_fingerprint; "
+            "print(json.dumps(capture_fingerprint()['thread_topology']))"
+        ),
+        timeout=10.0,
+        extra_env={
+            "OMP_NUM_THREADS": "8", "MKL_NUM_THREADS": "8",
+            "OPENBLAS_NUM_THREADS": "8", "NUMEXPR_NUM_THREADS": "8",
+            "TORCHINDUCTOR_COMPILE_THREADS": "2",
+            "SPE_TORCH_NUM_THREADS": "8", "SPE_TORCH_NUM_INTEROP_THREADS": "1",
+        },
+    )
+
+    assert result["exit_code"] == 0, result["stderr"]
+    topology = json.loads(result["stdout"].strip())
+    assert topology == {
+        "omp_num_threads": "8", "mkl_num_threads": "8",
+        "openblas_num_threads": "8", "numexpr_num_threads": "8",
+        "torch_num_threads": 8, "torch_num_interop_threads": 1,
+        "compiler_threads": "2",
+    }

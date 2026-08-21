@@ -168,9 +168,95 @@ def select_device(requires_cuda: bool) -> tuple[str, bool]:
     return "cpu", not requires_cuda
 
 
+def configure_thread_topology(topology: dict[str, Any]) -> dict[str, Any]:
+    """Apply and return the declared campaign thread topology before torch work."""
+    env_values = {
+        "OMP_NUM_THREADS": topology["omp_num_threads"],
+        "MKL_NUM_THREADS": topology["mkl_num_threads"],
+        "OPENBLAS_NUM_THREADS": topology["openblas_num_threads"],
+        "NUMEXPR_NUM_THREADS": topology["numexpr_num_threads"],
+        "TORCHINDUCTOR_COMPILE_THREADS": topology["compiler_threads"],
+    }
+    for key, value in env_values.items():
+        os.environ[key] = str(value)
+    os.environ["SPE_TORCH_NUM_THREADS"] = str(topology["torch_num_threads"])
+    os.environ["SPE_TORCH_NUM_INTEROP_THREADS"] = str(topology["torch_num_interop_threads"])
+    import torch
+
+    torch.set_num_threads(int(topology["torch_num_threads"]))
+    torch.set_num_interop_threads(int(topology["torch_num_interop_threads"]))
+    return {
+        "omp_num_threads": os.environ["OMP_NUM_THREADS"],
+        "mkl_num_threads": os.environ["MKL_NUM_THREADS"],
+        "openblas_num_threads": os.environ["OPENBLAS_NUM_THREADS"],
+        "numexpr_num_threads": os.environ["NUMEXPR_NUM_THREADS"],
+        "torch_num_threads": torch.get_num_threads(),
+        "torch_num_interop_threads": torch.get_num_interop_threads(),
+        "compiler_threads": os.environ["TORCHINDUCTOR_COMPILE_THREADS"],
+    }
+
+
+def configure_thread_topology_from_env() -> dict[str, Any] | None:
+    """Apply the topology exported by a configured calibration parent."""
+    keys = (
+        "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+        "TORCHINDUCTOR_COMPILE_THREADS", "SPE_TORCH_NUM_THREADS", "SPE_TORCH_NUM_INTEROP_THREADS",
+    )
+    if not any(os.environ.get(key) for key in keys):
+        return None
+    if not all(os.environ.get(key) for key in keys):
+        raise RuntimeError("calibration thread topology environment is incomplete")
+    import torch
+
+    torch.set_num_threads(int(os.environ["SPE_TORCH_NUM_THREADS"]))
+    torch.set_num_interop_threads(int(os.environ["SPE_TORCH_NUM_INTEROP_THREADS"]))
+    return {
+        "omp_num_threads": os.environ.get("OMP_NUM_THREADS"),
+        "mkl_num_threads": os.environ.get("MKL_NUM_THREADS"),
+        "openblas_num_threads": os.environ.get("OPENBLAS_NUM_THREADS"),
+        "numexpr_num_threads": os.environ.get("NUMEXPR_NUM_THREADS"),
+        "torch_num_threads": torch.get_num_threads(),
+        "torch_num_interop_threads": torch.get_num_interop_threads(),
+        "compiler_threads": os.environ.get("TORCHINDUCTOR_COMPILE_THREADS"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Subprocess isolation
 # ---------------------------------------------------------------------------
+
+
+class ResourceBlockedError(RuntimeError):
+    """A subprocess boundary was contaminated by an external resource."""
+
+
+def _terminate_process_group(process: subprocess.Popen[str], *, process_group: int) -> tuple[bool, bool]:
+    """Terminate a residual process group and return (term_sent, kill_sent)."""
+    term_sent = False
+    kill_sent = False
+    if os.name == "nt":
+        term_sent = True
+        kill_sent = True
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            capture_output=True, check=False,
+        )
+        return term_sent, kill_sent
+    try:
+        term_sent = True
+        os.killpg(process_group, signal.SIGTERM)
+    except ProcessLookupError:
+        return term_sent, kill_sent
+    try:
+        process.wait(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        try:
+            kill_sent = True
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    return term_sent, kill_sent
 
 
 def run_python_subprocess(
@@ -225,38 +311,34 @@ def run_python_subprocess(
             return True
         return True
 
+    residual_detected = False
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
+        # Wait for the direct child first.  communicate() alone can wait for a
+        # descendant holding inherited stdout/stderr pipes and hide a normal
+        # parent exit with a live process group.
+        process.wait(timeout=timeout)
+        residual_detected = group_alive()
+        if residual_detected:
+            term, killed = _terminate_process_group(process, process_group=process_group)
+            term_sent = term_sent or term
+            kill_sent = kill_sent or killed
+        stdout, stderr = process.communicate(timeout=2.0)
         exit_code = process.returncode
     except subprocess.TimeoutExpired as exc:
         timed_out = True
         stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
         stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
-        if os.name == "nt":
-            term_sent = True
-            kill_sent = True
-            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, check=False)
-        else:
-            try:
-                term_sent = True
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                stdout_tail, stderr_tail = process.communicate(timeout=2.0)
-                stdout += stdout_tail or ""
-                stderr += stderr_tail or ""
-            except subprocess.TimeoutExpired:
-                try:
-                    kill_sent = True
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                stdout_tail, stderr_tail = process.communicate()
-                stdout += stdout_tail or ""
-                stderr += stderr_tail or ""
+        term, killed = _terminate_process_group(process, process_group=process_group)
+        term_sent = term_sent or term
+        kill_sent = kill_sent or killed
+        stdout_tail, stderr_tail = process.communicate()
+        stdout += stdout_tail or ""
+        stderr += stderr_tail or ""
         exit_code = process.returncode if process.returncode is not None else -1
         stderr += f"\n[harness] subprocess timed out after {timeout}s"
+    if residual_detected:
+        stderr += "\n[harness] subprocess exited with a residual process group; it was terminated"
+    quiescent = not group_alive()
     return {
         "exit_code": exit_code,
         "stdout": stdout,
@@ -267,8 +349,9 @@ def run_python_subprocess(
             "process_group": process_group,
             "term_sent": term_sent,
             "kill_sent": kill_sent,
-            "quiescent": not group_alive(),
-            "residual_pids": [] if not group_alive() else [process_group],
+            "residual_detected": residual_detected,
+            "quiescent": quiescent,
+            "residual_pids": [process_group] if residual_detected and not quiescent else [],
         },
     }
 

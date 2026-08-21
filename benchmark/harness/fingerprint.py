@@ -100,18 +100,18 @@ def _psutil_extras() -> dict[str, Any]:
         return {}
 
 
-def selected_gpu_foreign_pids() -> list[int]:
-    """Return compute PIDs on the selected GPU without modifying them."""
+def selected_gpu_preflight() -> dict[str, Any]:
+    """Classify selected-GPU occupancy, failing closed on query errors."""
     selected = _selected_gpu_uuid()
     if not selected:
-        return []
+        return {"status": "unavailable", "foreign_pids": [], "reason": "selected GPU UUID is unavailable"}
     try:
         output = subprocess.check_output(
             ["nvidia-smi", "--query-compute-apps=pid,gpu_uuid", "--format=csv,noheader,nounits"],
             text=True, stderr=subprocess.DEVNULL, timeout=10,
         )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return []
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        return {"status": "unavailable", "foreign_pids": [], "reason": f"nvidia-smi query failed: {exc}"}
     pids: list[int] = []
     for line in output.splitlines():
         fields = [item.strip() for item in line.split(",", 1)]
@@ -121,8 +121,13 @@ def selected_gpu_foreign_pids() -> list[int]:
             pids.append(int(fields[0]))
         except ValueError:
             continue
-    return sorted(set(pids))
-
+    pids = sorted(set(pids))
+    return {
+        "status": "busy" if pids else "clean",
+        "foreign_pids": pids,
+        "gpu_uuid": selected,
+        "reason": "selected GPU has compute processes" if pids else "no compute processes reported",
+    }
 
 def capture_fingerprint() -> dict[str, Any]:
     """Capture the current hw/sw fingerprint as a JSON-serializable dict."""
