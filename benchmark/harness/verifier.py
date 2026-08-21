@@ -807,6 +807,7 @@ def _verify_episode_task(
 
         outer_budget = float(spec["time_budget_s"])
         deadline = started + outer_budget
+        arm_cleanups: list[dict[str, Any]] = []
 
         def execute_action(probe: Any, label: str) -> dict[str, Any]:
             action = action_from_probe(probe)
@@ -829,6 +830,13 @@ def _verify_episode_task(
                 completed = runner.run_python_subprocess(
                     snippet=snippet, timeout=arm_budget, cwd=Path(__file__).resolve().parents[2]
                 )
+                cleanup = completed.get("cleanup", {})
+                arm_cleanups.append(cleanup)
+                if cleanup.get("residual_detected"):
+                    result["executor_cleanup"] = list(arm_cleanups)
+                    raise runner.ResourceBlockedError(
+                        f"episode arm {label} left a residual process group: {cleanup}"
+                    )
                 if completed["timed_out"]:
                     raise TimeoutError(f"episode arm {label} exceeded {arm_budget:g}s")
                 if completed["exit_code"] != 0:
@@ -845,6 +853,7 @@ def _verify_episode_task(
             result["execution_validity"] = "resource_blocked"
             result["errors"].append("episode verifier exceeded the outer task budget")
             return _finalize(result, started, out_path)
+        result["executor_cleanup"] = list(arm_cleanups)
         score_fn = getattr(module, "score_harness_episode", None)
         gates_fn = getattr(module, "gates_harness_episode", None)
         if not callable(score_fn) or not callable(gates_fn):
@@ -901,6 +910,16 @@ def _verify_episode_task(
             result["validity"] = "invalid"
             result["execution_validity"] = "invalid"
             result["errors"].append(f"harness files mutated during episode evaluation: {diffs}")
+    except runner.ResourceBlockedError as exc:
+        result["verdict"] = "inconclusive"
+        result["validity"] = "valid"
+        result["execution_validity"] = "resource_blocked"
+        result["efficacy_eligible"] = False
+        result["calibration_status"] = "blocked"
+        result["failure_stage"] = "executor_cleanup"
+        result["protocol_failure"] = False
+        result["executor_cleanup"] = list(arm_cleanups) if "arm_cleanups" in locals() else []
+        result["errors"].append(str(exc))
     except TimeoutError as exc:
         result["verdict"] = "inconclusive"
         result["validity"] = "valid"
@@ -910,6 +929,7 @@ def _verify_episode_task(
         result["timeout"] = True
         result["failure_stage"] = "evolution_outer"
         result["protocol_failure"] = False
+        result["executor_cleanup"] = list(arm_cleanups) if "arm_cleanups" in locals() else []
         result["errors"].append(str(exc))
     except Exception as exc:
         result["verdict"] = "error"

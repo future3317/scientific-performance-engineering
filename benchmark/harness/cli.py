@@ -23,6 +23,12 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+# Apply the campaign topology before command handlers import verifier/task
+# modules that may initialize torch work.
+from .runner import configure_thread_topology_from_env
+configure_thread_topology_from_env()
+
+
 def _cmd_validate_task(args: argparse.Namespace) -> int:
     from . import verifier
 

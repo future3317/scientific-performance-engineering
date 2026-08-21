@@ -10,7 +10,7 @@ from pathlib import Path
 
 from benchmark.formal import attest
 from benchmark.formal.approval import _digest, validate_calibration_approval
-from benchmark.taskgen.validate_population import _json_digest
+from benchmark.taskgen.validate_population import _json_digest, rebuild_calibration_views
 
 
 def issue(
@@ -20,6 +20,17 @@ def issue(
     report = json.loads(report_path.read_text(encoding="utf-8"))
     pilot = json.loads(pilot_path.read_text(encoding="utf-8"))
     empirical = json.loads(empirical_path.read_text(encoding="utf-8"))
+    canonical_report, canonical_pilot, rebuild_errors = rebuild_calibration_views(
+        tasks_root=repo_root / "benchmark" / "tasks",
+        empirical_path=empirical_path,
+        manifest_path=repo_root / "benchmark" / "pilot_population.json",
+    )
+    if rebuild_errors:
+        raise ValueError("canonical calibration projections are not ready: " + "; ".join(rebuild_errors))
+    if _json_digest(report) != _json_digest(canonical_report) or _json_digest(pilot) != _json_digest(canonical_pilot):
+        raise ValueError("derived calibration projections do not match canonical rebuild")
+    report = canonical_report
+    pilot = canonical_pilot
     active_ids = [str(item) for item in report.get("active_task_ids", [])]
     if report.get("empirical_calibration", {}).get("calibration_gate") != "ready_for_review":
         raise ValueError("population report is not ready_for_review")

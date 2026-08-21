@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal import attest
 from benchmark.harness import miniyaml, runner, stats, verifier
-from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_compatible, selected_gpu_foreign_pids
+from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_compatible, selected_gpu_preflight
 from benchmark.taskgen.validate_population import build_pilot_calibration, build_report
 
 
@@ -32,6 +32,13 @@ def load_calibration_protocol(repo_root: Path) -> tuple[dict[str, Any], str]:
     protocol = json.loads(path.read_text(encoding="utf-8"))
     if protocol.get("schema_version") != 1 or int(protocol.get("atomic_outer_trials", 0)) < 1:
         raise ValueError(f"invalid calibration protocol: {path}")
+    topology = protocol.get("thread_topology")
+    required_topology = {
+        "omp_num_threads", "mkl_num_threads", "openblas_num_threads", "numexpr_num_threads",
+        "torch_num_threads", "torch_num_interop_threads", "compiler_threads",
+    }
+    if not isinstance(topology, dict) or set(topology) != required_topology:
+        raise ValueError("calibration protocol must declare the complete thread_topology")
     return protocol, attest.file_digest(path)
 
 
@@ -60,17 +67,41 @@ def _outer_trial_count(spec: dict[str, Any], default_outer_trials: int) -> int:
 
 def _bounded_verifier_result(
     *, task_id: str, outer_trial_id: str, result_path: Path, timeout_s: float,
-    module: str, args: tuple[str, ...], cwd: Path,
+    module: str, args: tuple[str, ...], cwd: Path, measurement_class: str = "atomic_performance",
 ) -> dict[str, Any]:
     """Run one verifier cell in a killable process and persist timeout evidence."""
     completed = runner.run_python_subprocess(
         module=module, args=args, timeout=float(timeout_s), cwd=cwd,
     )
-    if not completed["timed_out"] and result_path.is_file():
-        result = json.loads(result_path.read_text(encoding="utf-8"))
-        result["executor_cleanup"] = completed.get("cleanup", {})
+    cleanup = completed.get("cleanup", {})
+    if cleanup.get("residual_detected"):
+        result = _resource_blocked_result(
+            task_id=task_id, outer_trial_id=outer_trial_id,
+            failure_stage="executor_cleanup", timeout_s=timeout_s,
+            wall_time_s=float(completed["wall_time_s"]),
+            error="verifier left a residual process group",
+            measurement_class=measurement_class, timeout=False,
+        )
+        result["executor_cleanup"] = cleanup
+        result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return result
+    if not completed["timed_out"] and result_path.is_file():
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        result["executor_cleanup"] = cleanup
+        result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        return result
+    if not completed["timed_out"] and cleanup.get("residual_detected"):
+        return {
+            "schema_version": 1,
+            "task_id": task_id,
+            "outer_trial_id": outer_trial_id,
+            "timeout": False,
+            "failure_stage": "executor_cleanup",
+            "error": "noise control left a residual process group",
+            "wall_time_s": float(completed["wall_time_s"]),
+            "executor_cleanup": cleanup,
+        }, True
     if not completed["timed_out"]:
         raise RuntimeError(
             f"verifier exited without a result for {task_id}/{outer_trial_id}: "
@@ -81,8 +112,9 @@ def _bounded_verifier_result(
         failure_stage="verifier", timeout_s=timeout_s,
         wall_time_s=float(completed["wall_time_s"]),
         error=completed["stderr"] or f"verifier timed out after {timeout_s:g}s",
+        measurement_class=measurement_class,
     )
-    result["executor_cleanup"] = completed.get("cleanup", {})
+    result["executor_cleanup"] = cleanup
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return result
@@ -91,12 +123,13 @@ def _bounded_verifier_result(
 def _resource_blocked_result(
     *, task_id: str, outer_trial_id: str, failure_stage: str,
     timeout_s: float, wall_time_s: float, error: str,
+    measurement_class: str = "atomic_performance", timeout: bool = True,
 ) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "task_id": task_id,
         "outer_trial_id": outer_trial_id,
-        "measurement_class": "atomic_performance",
+        "measurement_class": measurement_class,
         "condition": "standalone",
         "context_mode": "reset",
         "verdict": "inconclusive",
@@ -107,8 +140,8 @@ def _resource_blocked_result(
         "correctness_pass": False,
         "scientific_gates": {},
         "calibration_status": "blocked",
-        "calibration_block_reason": f"{failure_stage} exceeded the task time budget",
-        "timeout": True,
+        "calibration_block_reason": error or f"{failure_stage} exceeded the task time budget",
+        "timeout": timeout,
         "failure_stage": failure_stage,
         "cost": {"wall_time_s": wall_time_s, "tokens": None, "tool_calls": None, "retries": 0},
         "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "status": "pass"},
@@ -125,8 +158,12 @@ def _bounded_noise_control(
     completed = runner.run_python_subprocess(
         module="benchmark.harness.cli", args=args, timeout=float(timeout_s), cwd=cwd,
     )
-    if not completed["timed_out"] and noise_path.is_file():
-        return json.loads(noise_path.read_text(encoding="utf-8")), False
+    cleanup = completed.get("cleanup", {})
+    if not completed["timed_out"] and noise_path.is_file() and not cleanup.get("residual_detected"):
+        noise = json.loads(noise_path.read_text(encoding="utf-8"))
+        noise["executor_cleanup"] = cleanup
+        stats.write_noise_control(noise_path, noise)
+        return stats.read_noise_control(noise_path), False
     if not completed["timed_out"]:
         raise RuntimeError(
             f"noise control exited without an artifact for {task_id}/{outer_trial_id}: "
@@ -140,6 +177,7 @@ def _bounded_noise_control(
         "failure_stage": "noise_control",
         "error": completed["stderr"] or f"noise control timed out after {timeout_s:g}s",
         "wall_time_s": float(completed["wall_time_s"]),
+        "executor_cleanup": cleanup,
     }, True
 
 
@@ -228,9 +266,17 @@ def _cell_envelope_compatible(path: Path, *, static: dict[str, Any], noise_path:
         envelope = json.loads(path.read_text(encoding="utf-8"))
         noise = json.loads(noise_path.read_text(encoding="utf-8"))
         raw = json.loads(result_path.read_text(encoding="utf-8"))
-        for key in ("task_id", "outer_trial_id", "seed", "measurement_class", "task_package_digest", "population_manifest_digest"):
-            if raw.get(key) != static.get(key):
+        identity = attest.canonical_cell_identity(
+            task_id=str(static["task_id"]), outer_trial_id=str(static["outer_trial_id"]),
+            seed=int(static["seed"]), measurement_family=str(static["measurement_class"]),
+            task_package_digest=str(static["task_package_digest"]),
+            population_manifest_digest=str(static["population_manifest_digest"]),
+        )
+        for key in ("task_id", "outer_trial_id", "seed", "task_package_digest", "population_manifest_digest"):
+            if raw.get(key) != identity[key]:
                 return False
+        if raw.get("measurement_class") != identity["raw_measurement_class"]:
+            return False
         if attest.validate_calibration_envelope(envelope, static):
             return False
         if any(envelope.get(key) != value for key, value in static.items() if key != "fingerprint"):
@@ -258,7 +304,12 @@ def _percent(value: Any) -> float | None:
 
 def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str, results: list[dict[str, Any]], noises: list[dict[str, Any]], envelopes: list[dict[str, Any]] | None = None, protocol_digest: str | None = None, population_manifest_digest: str | None = None, artifact_paths: dict[str, list[str]] | None = None) -> dict[str, Any]:
     first = results[0] if results else {}
-    episode = bool(results and isinstance(first.get("episode_measurement"), dict))
+    declared_episode = False
+    try:
+        declared_episode = miniyaml.load(str(task_dir / "task.yaml")).get("workspace", {}).get("api") == "episode_v1"
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+    episode = declared_episode or bool(results and isinstance(first.get("episode_measurement"), dict))
     gates = {
         "correctness_pass": all(bool(item.get("correctness_pass")) for item in results),
         "scientific_gates": all(all(bool(value) for value in item.get("scientific_gates", {}).values()) for item in results),
@@ -325,13 +376,21 @@ def run(args: argparse.Namespace) -> int:
     noise_root = out / "noise-control"
     raw_root.mkdir(parents=True, exist_ok=True)
     noise_root.mkdir(parents=True, exist_ok=True)
+    protocol, protocol_digest = load_calibration_protocol(repo_root)
+    observed_topology = runner.configure_thread_topology(protocol["thread_topology"])
+    if observed_topology != {
+        key: str(value) if key not in {"torch_num_threads", "torch_num_interop_threads"} else int(value)
+        for key, value in protocol["thread_topology"].items()
+    }:
+        raise RuntimeError(f"declared thread topology was not applied: {observed_topology}")
     revision = attest.benchmark_revision(repo_root)
     digest = attest.task_manifest_digest(tasks_root, [str(item) for item in active["task_ids"]])
     fingerprint = capture_fingerprint()
+    if fingerprint.get("thread_topology") != observed_topology:
+        raise RuntimeError("captured fingerprint does not match declared thread topology")
     population_digest = attest.file_digest(active_path)
     harness_digest = attest.harness_digest(repo_root)
     runner_digest = attest.file_digest(Path(__file__))
-    protocol, protocol_digest = load_calibration_protocol(repo_root)
     if int(args.outer_trials) != int(protocol["atomic_outer_trials"]):
         raise ValueError(
             f"atomic calibration requires --outer-trials={protocol['atomic_outer_trials']} "
@@ -339,7 +398,8 @@ def run(args: argparse.Namespace) -> int:
         )
     empirical: list[dict[str, Any]] = []
     timing_rows: list[dict[str, Any]] = []
-    campaign_foreign_pids = selected_gpu_foreign_pids() if fingerprint.get("gpu_uuid") else []
+    campaign_started_monotonic = time.perf_counter()
+    campaign_started_utc = time.time()
     for task_id in task_ids:
         task_dir = tasks_root / task_id
         spec = miniyaml.load(str(task_dir / "task.yaml"))
@@ -358,15 +418,21 @@ def run(args: argparse.Namespace) -> int:
                 "cleanup_status": "not_recorded",
             }
             print(json.dumps({"event": "start_outer_trial", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
-            foreign_pids = campaign_foreign_pids
-            if foreign_pids:
+            preflight = selected_gpu_preflight() if fingerprint.get("cuda_available") else {"status": "clean", "foreign_pids": []}
+            foreign_pids = list(preflight.get("foreign_pids", []))
+            if preflight.get("status") != "clean":
                 result = _resource_blocked_result(
                     task_id=task_id, outer_trial_id=outer_id,
                     failure_stage="resource_preflight", timeout_s=0.0,
                     wall_time_s=0.0,
-                    error=f"selected GPU {fingerprint.get('gpu_uuid')} has foreign compute PIDs: {foreign_pids}",
+                    error=(
+                        f"selected GPU {fingerprint.get('gpu_uuid')} preflight {preflight.get('status')}: "
+                        f"{preflight.get('reason')}"
+                    ),
+                    measurement_class="evolution" if spec.get("workspace", {}).get("api") == "episode_v1" else "atomic_performance",
+                    timeout=False,
                 )
-                result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), "foreign_pids": foreign_pids}
+                result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), **preflight}
                 task_results.append(result)
                 task_noises.append({
                     "schema_version": 1, "metric_class": "resource_blocked",
@@ -448,14 +514,19 @@ def run(args: argparse.Namespace) -> int:
                     )
                     timing["noise_control_s"] = round(time.perf_counter() - noise_started, 3)
                     if noise_timed_out:
-                        timing.update({"timeout": True, "total_s": round(time.perf_counter() - cell_started, 3)})
+                        cleanup = noise.get("executor_cleanup") if isinstance(noise, dict) else None
+                        if isinstance(cleanup, dict):
+                            timing["cleanup_status"] = "quiescent" if cleanup.get("quiescent") else "residual_process_group"
+                        timing.update({"timeout": bool(noise.get("timeout", False)), "total_s": round(time.perf_counter() - cell_started, 3)})
                         timing_rows.append(timing)
                         result = _resource_blocked_result(
                             task_id=task_id, outer_trial_id=outer_id,
-                            failure_stage="noise_control",
+                            failure_stage=str(noise.get("failure_stage", "noise_control")),
                             timeout_s=float(spec.get("time_budget_s", 600.0)),
                             wall_time_s=float(noise.get("wall_time_s", 0.0)),
                             error=str(noise.get("error", "noise control timed out")),
+                            measurement_class="atomic_performance",
+                            timeout=bool(noise.get("timeout", False)),
                         )
                         task_noises.append(noise)
                         task_results.append(result)
@@ -503,6 +574,7 @@ def run(args: argparse.Namespace) -> int:
                             "--population-manifest-digest", population_digest,
                         ),
                         cwd=repo_root,
+                        measurement_class="atomic_performance",
                     )
                 timing["verifier_s"] = round(time.perf_counter() - verifier_started, 3)
                 cleanup = result.get("executor_cleanup") if isinstance(result, dict) else None
@@ -548,6 +620,7 @@ def run(args: argparse.Namespace) -> int:
                 "envelopes": [str((out / "envelopes" / f"outer-{index:03d}" / f"{task_id}.json").relative_to(out)) for index in range(len(task_envelopes))],
             },
         ))
+    report_generation_started = time.perf_counter()
     empirical_path = out / "empirical.json"
     empirical_path.write_text(json.dumps({"schema_version": 1, "calibration_protocol_digest": protocol_digest, "tasks": empirical}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     report, errors = build_report(tasks_root, empirical_path, active_path)
@@ -556,7 +629,19 @@ def run(args: argparse.Namespace) -> int:
     calibration = build_pilot_calibration(report, tasks_root)
     (out / "pilot_calibration.json").write_text(json.dumps(calibration, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (out / "summary.json").write_text(json.dumps({"task_count": len(empirical), "errors": errors, "calibration_gate": calibration.get("calibration_gate"), "eligible": [item["task_id"] for item in calibration["tasks"] if item.get("eligibility")], "blocked": [item["task_id"] for item in calibration["tasks"] if not item.get("eligibility")]}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (out / "timing_report.json").write_text(json.dumps({"schema_version": 1, "protocol_digest": protocol_digest, "cells": timing_rows, "total_wall_s": sum(float(item.get("total_s", 0.0)) for item in timing_rows)}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    campaign_finished_monotonic = time.perf_counter()
+    timing_report = {
+        "schema_version": 1,
+        "protocol_digest": protocol_digest,
+        "campaign_started_monotonic": campaign_started_monotonic,
+        "campaign_finished_monotonic": campaign_finished_monotonic,
+        "campaign_started_unix_s": campaign_started_utc,
+        "campaign_total_wall_s": campaign_finished_monotonic - campaign_started_monotonic,
+        "report_generation_s": time.perf_counter() - report_generation_started,
+        "cells": timing_rows,
+        "cell_wall_sum_s": sum(float(item.get("total_s", 0.0)) for item in timing_rows),
+    }
+    (out / "timing_report.json").write_text(json.dumps(timing_report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return 0 if not errors else 1
 
 

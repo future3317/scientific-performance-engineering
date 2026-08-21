@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from benchmark.taskgen.validate_population import _empirical_flags, build_report
+from benchmark.taskgen.validate_population import EMPIRICAL_FLAGS, _empirical_flags, build_report
 from benchmark.harness import miniyaml
 
 
@@ -20,14 +20,10 @@ def main() -> None:
     assert report["track_counts"] == {"spe_core": 16, "sciml": 11, "evolution": 3}
     assert report["empirical_calibration"]["status"] == "pending"
     assert report["empirical_calibration"]["calibration_gate"] == "blocked"
-    assert report["task_calibration"]["CORE-COMPILE-DYNAMIC-11"]["status"] == "eligible"
+    assert report["task_calibration"]["CORE-COMPILE-DYNAMIC-11"]["status"] == "historical_calibration"
+    assert report["task_calibration"]["CORE-COMPILE-DYNAMIC-11"]["stale_for_current_task_digest"] is True
     assert report["formal_50_task_results"] == "not_claimed"
-    assert set(report["empirical_rejection_flags"]) == {
-        "oracle_effect_too_small", "noise_too_high", "oracle_effect_unstable",
-        "baseline_already_optimal", "semantic_gate_too_weak", "repair_pattern_duplicate",
-        "difficulty_ceiling", "difficulty_floor", "platform_direction_flip",
-        "agent_shortcut_detected", "evolution_delta_out_of_range",
-    }
+    assert set(report["empirical_rejection_flags"]) == set(EMPIRICAL_FLAGS)
     print("test_population: OK")
 
 
@@ -243,6 +239,46 @@ def test_evolution_specialization_gate_is_candidate_only() -> None:
     module_spec.loader.exec_module(benchmark_module)
     result = {"metrics": {"rule_precision": None, "negative_transfer_rate": 0.0}, "condition": "C"}
     assert "specialization_applied" not in benchmark_module.gates_harness_episode(result)
+
+
+def test_approval_rejects_tampered_derived_projection(tmp_path: Path, monkeypatch) -> None:
+    import copy
+    import json
+    import scripts.approve_calibration as approval_module
+    from benchmark.taskgen.validate_population import _json_digest
+
+    empirical = {"schema_version": 1, "tasks": []}
+    digest = _json_digest(empirical)
+    canonical_report = {
+        "active_task_ids": [],
+        "empirical_calibration": {"calibration_gate": "ready_for_review", "empirical_digest": digest},
+    }
+    canonical_pilot = {
+        "active_task_ids": [], "calibration_gate": "ready_for_review",
+        "tasks": [], "empirical_digest": digest,
+    }
+    canonical_pilot["artifact_digest"] = _json_digest(canonical_pilot)
+    monkeypatch.setattr(
+        approval_module,
+        "rebuild_calibration_views",
+        lambda **kwargs: (canonical_report, canonical_pilot, []),
+    )
+    report = copy.deepcopy(canonical_report)
+    report["derived_edit"] = "not-authoritative"
+    pilot = copy.deepcopy(canonical_pilot)
+    report_path = tmp_path / "report.json"
+    pilot_path = tmp_path / "pilot.json"
+    empirical_path = tmp_path / "empirical.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    pilot_path.write_text(json.dumps(pilot), encoding="utf-8")
+    empirical_path.write_text(json.dumps(empirical), encoding="utf-8")
+
+    with __import__("pytest").raises(ValueError, match="derived calibration projections"):
+        approval_module.issue(
+            report_path=report_path, pilot_path=pilot_path, empirical_path=empirical_path,
+            out_path=tmp_path / "approval.json", repo_root=Path(__file__).parents[2],
+            approver="test", timestamp="2026-08-21T00:00:00Z",
+        )
 
 
 if __name__ == "__main__":

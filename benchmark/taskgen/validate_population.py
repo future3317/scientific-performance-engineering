@@ -188,12 +188,18 @@ def _bundle_integrity_errors(record: dict[str, Any], spec: dict[str, Any], empir
         except (OSError, json.JSONDecodeError, TypeError) as exc:
             errors.append(f"cell {index} artifact unreadable: {exc}")
             continue
+        identity = attest.canonical_cell_identity(
+            task_id=task_id, outer_trial_id=f"outer-{index:03d}", seed=index,
+            measurement_family=expected_class,
+            task_package_digest=str(record.get("task_digest")),
+            population_manifest_digest=str(record.get("population_manifest_digest")),
+        )
         expected = {
             "schema_version": 1,
-            "task_id": task_id,
-            "outer_trial_id": f"outer-{index:03d}",
-            "seed": index,
-            "measurement_class": "episode" if expected_class == "evolution" else expected_class,
+            "task_id": identity["task_id"],
+            "outer_trial_id": identity["outer_trial_id"],
+            "seed": identity["seed"],
+            "measurement_class": identity["envelope_measurement_class"],
             "producer_revision": record.get("revision"),
             "task_package_digest": record.get("task_digest"),
             "population_manifest_digest": record.get("population_manifest_digest"),
@@ -210,7 +216,7 @@ def _bundle_integrity_errors(record: dict[str, Any], spec: dict[str, Any], empir
             expected_value = expected.get(key)
             if raw.get(key) != expected_value and not (key in {"task_package_digest", "population_manifest_digest"} and expected_value is None):
                 errors.append(f"cell {index} raw {key} mismatch")
-        if raw.get("measurement_class") not in {expected_class, "episode_bounded_score"}:
+        if raw.get("measurement_class") != identity["raw_measurement_class"]:
             errors.append(f"cell {index} raw measurement_class mismatch")
         if noise.get("task_id") != task_id or noise.get("outer_trial_id") != expected["outer_trial_id"]:
             errors.append(f"cell {index} noise identity mismatch")
@@ -722,14 +728,40 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
     return artifact
 
 
+def rebuild_calibration_views(
+    *, tasks_root: str | Path, empirical_path: str | Path,
+    manifest_path: str | Path | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """Rebuild derived calibration projections from their evidence authority."""
+    report, errors = build_report(tasks_root, empirical_path, manifest_path)
+    pilot = build_pilot_calibration(report, tasks_root)
+    return report, pilot, errors
+
+
 def validate_formal_readiness(
     report: dict[str, Any], calibration: dict[str, Any] | None,
     approval: dict[str, Any] | None, empirical: dict[str, Any] | None = None,
     repo_root: str | Path | None = None,
+    empirical_path: str | Path | None = None,
 ) -> list[str]:
     """Fail closed for formal generation/campaign entry points."""
     from benchmark.formal.approval import validate_calibration_approval
     errors: list[str] = []
+    if repo_root is not None and empirical_path is not None:
+        try:
+            canonical_report, canonical_pilot, rebuild_errors = rebuild_calibration_views(
+                tasks_root=Path(repo_root) / "benchmark" / "tasks",
+                empirical_path=empirical_path,
+                manifest_path=Path(repo_root) / "benchmark" / "pilot_population.json",
+            )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            errors.append(f"canonical calibration rebuild unavailable: {exc}")
+        else:
+            errors.extend(f"canonical calibration rebuild: {item}" for item in rebuild_errors)
+            if _json_digest(report) != _json_digest(canonical_report):
+                errors.append("population report does not match canonical calibration rebuild")
+            if calibration is None or _json_digest(calibration) != _json_digest(canonical_pilot):
+                errors.append("pilot calibration does not match canonical calibration rebuild")
     if report.get("empirical_calibration", {}).get("calibration_gate") != "ready_for_review":
         errors.append("empirical calibration gate is not ready_for_review")
     if report.get("semantic_gate_failures"):
@@ -789,7 +821,7 @@ def main() -> int:
             errors = [f"read-only formal readiness inputs unavailable: {exc}"]
         errors.extend(validate_formal_readiness(
             report, calibration, approval, empirical=empirical,
-            repo_root=args.tasks_root.resolve().parents[1],
+            repo_root=args.tasks_root.resolve().parents[1], empirical_path=args.empirical,
         ))
     else:
         report, errors = build_report(args.tasks_root, args.empirical, args.population_manifest)
