@@ -47,6 +47,18 @@ from core.models import identifier_digest, validate_identifier
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from benchmark.families import EpisodeEnvironmentState, FamilyEnvironment
 from core.acre.budget import StatisticalBudget
+from .metrics import (
+    conflict_rate,
+    drift_recovery_latency,
+    library_growth,
+    negative_transfer_rate,
+    poisoning_survival_rate,
+    rule_reuse_utility,
+    rule_precision,
+    transfer_gain,
+    utility_per_rule,
+    utility_per_token,
+)
 
 # Episode replay uses a fixed, preregistered repetition budget. These are
 # performance-style observations, so identical measurements still retain the
@@ -479,105 +491,6 @@ def promote_via_replay(
         else:
             ledger.record(ledger_subject, version, replay_digest, "rejected")
     return promoted
-
-
-# ---------------------------------------------------------------------------
-# Metrics (section 8.4) — pure functions
-# ---------------------------------------------------------------------------
-
-
-def transfer_gain(paired_results: list[dict[str, Any]]) -> float | None:
-    """Mean paired delta of task score vs the no-evolution control."""
-    deltas = [
-        float(r["task_score_on"]) - float(r["task_score_off"])
-        for r in paired_results
-        if "task_score_on" in r and "task_score_off" in r
-    ]
-    return sum(deltas) / len(deltas) if deltas else None
-
-
-def negative_transfer_rate(applications: list[dict[str, Any]], noise_floor: float | None = None) -> float | None:
-    """Fraction of rule applications regressing the paired control beyond the floor."""
-    if not applications:
-        return None
-    if noise_floor is None and not any(app.get("noise_floor") is not None for app in applications):
-        return None
-    regressions = sum(
-        1
-        for app in applications
-        if float(app.get("delta", 0.0)) < -abs(float(app.get("noise_floor", noise_floor or 0.0)))
-    )
-    return regressions / len(applications)
-
-
-def rule_reuse_utility(applications: list[dict[str, Any]]) -> float | None:
-    reused = [float(app["delta"]) for app in applications if app.get("reused") and "delta" in app]
-    return sum(reused) / len(reused) if reused else None
-
-
-def rule_precision(admitted: int, survived: int) -> float | None:
-    """Admitted rules surviving held-out regression / admitted rules."""
-    if admitted <= 0:
-        return None
-    return survived / admitted
-
-
-def library_growth(canonical_rules: list[dict[str, Any]]) -> dict[str, Any]:
-    """Canonical rule count + description length (rate-distortion view)."""
-    count = len(canonical_rules)
-    description_length = sum(
-        len(json.dumps(rule, ensure_ascii=False, default=str)) for rule in canonical_rules
-    )
-    return {"canonical_rule_count": count, "description_length": description_length}
-
-
-def utility_per_rule(total_gain: float | None, rule_count: int) -> float | None:
-    if total_gain is None or rule_count <= 0:
-        return None
-    return total_gain / rule_count
-
-
-def utility_per_token(total_gain: float | None, prompt_tokens: int) -> float | None:
-    if total_gain is None or prompt_tokens <= 0:
-        return None
-    return total_gain / prompt_tokens
-
-
-def conflict_rate(conflicting_pairs: int, canonical_pairs: int) -> float | None:
-    """Conflicting canonical pairs / canonical pairs (should be 0 under governance)."""
-    if canonical_pairs <= 0:
-        return None
-    return conflicting_pairs / canonical_pairs
-
-
-def drift_recovery_latency(utility_series: list[float], drift_start: int) -> int | None:
-    """Phases between the post-drift utility drop and return to pre-drift utility.
-
-    *utility_series* is per-phase mean utility; *drift_start* is the index of the
-    drift phase. Returns None when the series never drops or never recovers.
-    """
-    if drift_start <= 0 or drift_start >= len(utility_series):
-        return None
-    pre_drift = max(utility_series[:drift_start])
-    dropped = False
-    for index in range(drift_start, len(utility_series)):
-        if utility_series[index] < pre_drift:
-            dropped = True
-        elif dropped:
-            return index - drift_start
-    return None
-
-
-def poisoning_survival_rate(
-    poison_ids: list[str], canonical_rule_ids: list[str], regressions_caused: int = 0
-) -> float | None:
-    """Fraction of poisons that failed to reach canonical status (D) or caused
-    measurable regressions (C — pass regressions_caused explicitly)."""
-    if not poison_ids:
-        return None
-    canonized = sum(1 for pid in poison_ids if pid in set(canonical_rule_ids))
-    survived = len(poison_ids) - canonized - regressions_caused
-    return max(0, survived) / len(poison_ids)
 
 
 # ---------------------------------------------------------------------------
