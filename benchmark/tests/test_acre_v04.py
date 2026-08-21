@@ -113,3 +113,14 @@ def test_interaction_power_curve_crosses_effect_strength_and_noise():
     report = run_interaction_power_curve(blocks=(8, 16), repetitions=3)
     assert len(report["results"]) == 12
     assert {row["effect_strength"] for row in report["results"]} == {"near-null", "near-margin", "moderate", "strong"}
+
+
+def test_formal_family_grammar_deduplicates_lattice_equivalent_candidates():
+    from benchmark.families import family_decision_lattice, family_predicate_grammar
+
+    grammar = PredicateGrammar.from_dict(family_predicate_grammar("compile"))
+    contexts = family_decision_lattice("compile", count=1)
+
+    candidates = grammar.candidates(contexts)
+
+    assert len(candidates) < 10_000
