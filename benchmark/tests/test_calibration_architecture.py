@@ -30,3 +30,12 @@ def test_calibration_cli_scripts_do_not_import_private_helpers():
             if isinstance(node, ast.ImportFrom):
                 assert all(not alias.name.startswith("_") for alias in node.names), (name, ast.dump(node))
                 assert not (node.module or "").startswith("scripts."), (name, ast.dump(node))
+
+
+def test_formal_and_episode_verifier_use_shared_cell_executor():
+    root = Path(__file__).parents[2]
+    formal = (root / "benchmark" / "formal" / "run_campaign.py").read_text(encoding="utf-8")
+    verifier = (root / "benchmark" / "harness" / "verifier.py").read_text(encoding="utf-8")
+    assert "from benchmark.calibration.execution import CellExecutor" in formal
+    assert "from benchmark.calibration.execution import CellExecutor" in verifier
+    assert "subprocess.Popen(" not in verifier

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import anticheat, miniyaml, runner, stats
+from benchmark.calibration.execution import CellExecutor
 from .api import execution_class_for_task, metric_type_for_task
 from .fingerprint import capture_fingerprint
 
@@ -828,8 +829,8 @@ def _verify_episode_task(
                     f"seed={int(seed)!r}, max_wall_time_s={arm_budget!r}); "
                     f"open({str(out_dir / 'harness_episode.json')!r}, 'w', encoding='utf-8').write(json.dumps(r, default=str))"
                 )
-                completed = runner.run_python_subprocess(
-                    snippet=snippet, timeout=arm_budget, cwd=Path(__file__).resolve().parents[2]
+                completed = CellExecutor(Path(__file__).resolve().parents[2]).run_episode(
+                    snippet=snippet, timeout_s=arm_budget,
                 )
                 cleanup = completed.get("cleanup", {})
                 arm_cleanups.append(cleanup)
