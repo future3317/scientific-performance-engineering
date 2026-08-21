@@ -9,8 +9,8 @@ _API = configure(
     {
         "num_samples": 128,
         "in_dim": 16,
-        "logical_steps": 256,
-        "measurement_iterations": 256,
+        "logical_steps": 128,
+        "measurement_iterations": 128,
         "graph_size": 128,
         "batch_sizes": [8, 10, 12, 14, 16],
         "dynamic_shape_rate": 0.3,

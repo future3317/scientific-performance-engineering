@@ -18,7 +18,7 @@ measurement:
   primary_metric: schedule_wall_ms
   higher_is_better: false
   warmup_iterations: 0
-  measured_iterations: 256
+  measured_iterations: 128
   repetitions: 5
   compile_threads: 2
   min_improvement_percent: 5.0
@@ -47,13 +47,13 @@ workspace_ast_skeleton_hash: "8ace746fc476b1c031d9ec7f2403f724cb5b6e17c7a217485c
 family_id: compile
 anchor_instance_id: CORE-COMPILE-DYNAMIC-11
 family_parameters:
-  logical_steps: 256
+  logical_steps: 128
   graph_size: 128
   dynamic_shape_rate: 0.3
-family_instance_digest: b74434db7fd42b9ae3ce6dbc14fc5601ea9e28b544e6e6494c673d64bae41c98
+family_instance_digest: 7574a1983c0842250d56272bf2eeff4e667851176078806ebf8bf55b366dc0a0
 public_context:
   workload:
-    logical_steps: 256
+    logical_steps: 128
     graph_size: 128
     dynamic_shape_rate: 0.3
 ast_skeleton_version: 2
