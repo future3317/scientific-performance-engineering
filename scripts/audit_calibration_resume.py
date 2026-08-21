@@ -32,7 +32,7 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
     revision = attest.benchmark_revision(repo_root)
     population_digest = attest.file_digest(active_path)
     static_harness = attest.harness_digest(repo_root)
-    runner_digest = attest.file_digest(repo_root / "scripts" / "run_active30_calibration.py")
+    runner_digest = attest.file_digest(repo_root / "benchmark" / "calibration" / "campaign.py")
     protocol, protocol_digest = load_calibration_protocol(repo_root)
     runner.configure_thread_topology(protocol["thread_topology"])
     from benchmark.harness.fingerprint import capture_fingerprint

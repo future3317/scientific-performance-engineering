@@ -7,8 +7,8 @@ from pathlib import Path
 from benchmark.formal import aggregate
 from benchmark.formal import release_manifest, run_campaign
 from benchmark.formal.attest import validate_experiment
-from benchmark.taskgen.validate_population import validate_formal_readiness
-from benchmark.taskgen import validate_population
+from benchmark.calibration.report import validate_formal_readiness
+from benchmark.calibration import report as validate_population
 
 
 ROOT = Path(__file__).resolve().parents[2]

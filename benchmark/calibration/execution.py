@@ -6,6 +6,23 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.harness import runner
+from benchmark.provenance import digest_mapping, file_digest
+
+
+def executor_digest(repo_root: str | Path) -> str:
+    """Digest only files that can change one calibration cell's execution."""
+    root = Path(repo_root)
+    paths = [
+        root / "benchmark" / "harness" / name
+        for name in ("anticheat.py", "api.py", "cli.py", "fingerprint.py", "miniyaml.py", "runner.py", "stats.py", "verifier.py")
+    ]
+    paths.extend(root / "benchmark" / "calibration" / name for name in ("calibration_protocol.json", "execution.py", "identity.py"))
+    paths.extend(root / "benchmark" / "schema" / name for name in ("task.schema.json", "result.schema.json"))
+    files = {
+        path.relative_to(root).as_posix(): file_digest(path)
+        for path in sorted(set(paths)) if path.is_file()
+    }
+    return digest_mapping(files)
 
 
 class CellExecutor:

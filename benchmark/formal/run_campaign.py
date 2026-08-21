@@ -31,7 +31,7 @@ from benchmark.calibration.execution import CellExecutor
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
-from benchmark.formal.approval import validate_calibration_approval
+from benchmark.calibration.approval import validate_calibration_approval
 from benchmark.formal.release_manifest import validate_formal_release, validate_materialized_manifest
 from benchmark.formal.condition_adapter import FormalConditionAdapter
 from core.public_context import build_public_context

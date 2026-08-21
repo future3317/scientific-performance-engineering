@@ -5,7 +5,7 @@ import shutil
 
 import pytest
 
-from scripts.run_active30_calibration import (
+from benchmark.calibration.campaign import (
     _bounded_noise_control,
     _bounded_verifier_result,
     _calibration_record,
@@ -162,7 +162,7 @@ def test_bounded_verifier_timeout_is_persisted_as_resource_block(tmp_path, monke
         }
 
     monkeypatch.setattr(
-        "scripts.run_active30_calibration.runner.run_python_subprocess",
+        "benchmark.calibration.campaign.runner.run_python_subprocess",
         timed_out_runner,
     )
 
@@ -194,7 +194,7 @@ def test_bounded_noise_control_timeout_is_reported(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(
-        "scripts.run_active30_calibration.runner.run_python_subprocess",
+        "benchmark.calibration.campaign.runner.run_python_subprocess",
         timed_out_runner,
     )
 

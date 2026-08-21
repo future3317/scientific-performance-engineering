@@ -33,6 +33,22 @@ def test_calibration_cli_scripts_do_not_import_private_helpers():
                 assert not (node.module or "").startswith("scripts."), (name, ast.dump(node))
 
 
+def test_active30_cli_is_only_argument_parsing_and_orchestration():
+    root = Path(__file__).parents[2]
+    source = (root / "scripts" / "run_active30_calibration.py").read_text(encoding="utf-8")
+    assert "def _bounded_verifier_result" not in source
+    assert "def _resource_blocked_result" not in source
+    assert "def _calibration_record" not in source
+    assert "run_calibration_campaign" in source
+    assert len(source.splitlines()) < 40
+
+
+def test_resource_blocked_verifier_has_one_cleanup_branch():
+    source = (Path(__file__).parents[2] / "benchmark" / "calibration" / "campaign.py").read_text(encoding="utf-8")
+    assert source.count('if cleanup.get("residual_detected")') == 1
+    assert "noise control left a residual process group" not in source
+
+
 def test_formal_and_episode_verifier_use_shared_cell_executor():
     root = Path(__file__).parents[2]
     formal = (root / "benchmark" / "formal" / "run_campaign.py").read_text(encoding="utf-8")
@@ -50,12 +66,16 @@ def test_population_structural_checks_have_a_single_module():
     assert "def metadata_findings" in structural
     assert "def _artifact_findings" not in validator
     assert "def _metadata_findings" not in validator
+    assert "def build_report" not in validator
+    assert "def build_pilot_calibration" not in validator
 
 
 def test_executor_digest_excludes_formal_reporting_surface():
-    source = (Path(__file__).parents[2] / "benchmark" / "formal" / "attest.py").read_text(encoding="utf-8")
-    assert 'root / "benchmark" / "formal"' not in source
-    assert 'root / "benchmark" / "calibration"' in source
+    source = (Path(__file__).parents[2] / "benchmark" / "calibration" / "execution.py").read_text(encoding="utf-8")
+    assert "approval.py" not in source
+    assert "report.py" not in source
+    assert "bundle.py" not in source
+    assert "calibration_protocol.json" in source
 
 
 def test_production_benchmark_layers_do_not_import_cli_scripts():
@@ -64,3 +84,20 @@ def test_production_benchmark_layers_do_not_import_cli_scripts():
         for path in directory.rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             assert "from scripts." not in source and "import scripts." not in source, path
+
+
+def test_calibration_authority_does_not_depend_on_formal_or_population_cli():
+    root = Path(__file__).parents[2]
+    calibration = root / "benchmark" / "calibration"
+    for path in calibration.glob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "benchmark.formal" not in source, path
+        assert "benchmark.taskgen.validate_population" not in source, path
+
+
+def test_population_cli_is_only_a_wrapper_around_current_authority():
+    root = Path(__file__).parents[2]
+    source = (root / "benchmark" / "taskgen" / "validate_population.py").read_text(encoding="utf-8")
+    assert "from benchmark.calibration.report import main" in source
+    assert "def build_report" not in source
+    assert "def build_pilot_calibration" not in source

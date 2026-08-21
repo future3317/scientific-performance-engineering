@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from benchmark.formal import attest
+from benchmark.provenance import file_digest
 from benchmark.harness.api import execution_class_for_task
 
 
@@ -22,7 +22,7 @@ def load_calibration_protocol(repo_root: str | Path) -> tuple[dict[str, Any], st
     topology = protocol.get("thread_topology")
     if not isinstance(topology, dict) or set(topology) != required_topology:
         raise ValueError("calibration protocol must declare the complete thread_topology")
-    return protocol, attest.file_digest(path)
+    return protocol, file_digest(path)
 
 
 def outer_trial_count(spec: dict[str, Any], protocol: dict[str, Any]) -> int:
@@ -30,4 +30,3 @@ def outer_trial_count(spec: dict[str, Any], protocol: dict[str, Any]) -> int:
     if execution_class_for_task(spec) == "episode":
         return int(spec.get("measurement", {}).get("repetitions", 0))
     return int(protocol["atomic_outer_trials"])
-

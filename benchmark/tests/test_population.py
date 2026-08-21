@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from benchmark.taskgen.validate_population import EMPIRICAL_FLAGS, _empirical_flags, build_report
+from benchmark.calibration.report import EMPIRICAL_FLAGS, _empirical_flags, build_report
 from benchmark.harness import miniyaml
 
 

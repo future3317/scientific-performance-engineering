@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
 import re
 from pathlib import Path
 from typing import Any
@@ -12,14 +11,10 @@ from typing import Any
 from benchmark.harness import anticheat, miniyaml
 from benchmark.harness.fingerprint import fingerprints_compatible
 from benchmark.harness.skill_view import validate_skill_view_bundle
-
-
-def canonical_json(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-
-
-def digest_mapping(value: dict[str, Any]) -> str:
-    return hashlib.sha256(canonical_json(value)).hexdigest()
+from benchmark.provenance import benchmark_revision, canonical_json, digest_mapping, file_digest
+from benchmark.calibration.bundle import calibration_envelope, validate_calibration_envelope
+from benchmark.calibration.execution import executor_digest
+from benchmark.calibration.identity import task_package_digest, taskset_digest
 
 
 def skill_view_digest(bundle: str | Path) -> str:
@@ -32,146 +27,12 @@ def skill_view_digest(bundle: str | Path) -> str:
     return digest_mapping(files)
 
 
-PACKAGE_DIRS = ("workspace", "public_tests", "hidden_verifier", "oracle")
-PACKAGE_FILES = ("task.yaml", "metadata.json", "benchmark.py", "scientific_contract.py")
-
-
-def file_digest(path: str | Path) -> str:
-    """Digest one persisted calibration artifact by its exact bytes."""
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
 def harness_digest(repo_root: str | Path) -> str:
-    """Digest only the executable calibration/verifier surface.
-
-    Formal aggregation and release/reporting code intentionally do not enter
-    this digest; changing analysis does not invalidate a completed cell.
-    """
-    root = Path(repo_root)
-    files: dict[str, str] = {}
-    roots = [root / "benchmark" / "harness", root / "benchmark" / "calibration"]
-    paths = [
-        root / "scripts" / "run_active30_calibration.py",
-        root / "benchmark" / "calibration" / "calibration_protocol.json",
-        root / "benchmark" / "schema" / "task.schema.json",
-        root / "benchmark" / "schema" / "result.schema.json",
-    ]
-    for base in roots:
-        if base.is_dir():
-            paths.extend(path for path in base.rglob("*.py") if "__pycache__" not in path.parts)
-    for path in sorted(set(paths)):
-        if path.is_file():
-            files[path.relative_to(root).as_posix()] = file_digest(path)
-    return digest_mapping(files)
+    """Formal-facing name for the calibration executor digest."""
+    return executor_digest(repo_root)
 
 
-def calibration_envelope(
-    *,
-    producer_revision: str,
-    task_package_digest: str,
-    population_manifest_digest: str,
-    harness_digest_value: str,
-    calibration_runner_digest: str,
-    noise_digest: str,
-    raw_result_digest: str,
-    fingerprint: dict[str, Any],
-    task_id: str,
-    outer_trial_id: str,
-    seed: int,
-    measurement_class: str,
-    calibration_protocol_digest: str | None = None,
-) -> dict[str, Any]:
-    """Return the immutable identity envelope for one calibration cell."""
-    envelope = {
-        "schema_version": 1,
-        "task_id": str(task_id),
-        "outer_trial_id": str(outer_trial_id),
-        "seed": int(seed),
-        "measurement_class": str(measurement_class),
-        "producer_revision": str(producer_revision),
-        "task_package_digest": str(task_package_digest),
-        "population_manifest_digest": str(population_manifest_digest),
-        "harness_digest": str(harness_digest_value),
-        "calibration_runner_digest": str(calibration_runner_digest),
-        "noise_digest": str(noise_digest),
-        "raw_result_digest": str(raw_result_digest),
-        "fingerprint": dict(fingerprint),
-    }
-    if calibration_protocol_digest is not None:
-        envelope["calibration_protocol_digest"] = str(calibration_protocol_digest)
-    envelope["envelope_digest"] = digest_mapping(envelope)
-    return envelope
-
-
-def validate_calibration_envelope(payload: dict[str, Any], expected: dict[str, Any] | None = None) -> list[str]:
-    """Validate the cell identity and self-digest before reuse."""
-    errors: list[str] = []
-    required = {
-        "schema_version", "task_id", "outer_trial_id", "seed", "measurement_class",
-        "producer_revision", "task_package_digest", "population_manifest_digest",
-        "harness_digest", "calibration_runner_digest", "noise_digest", "raw_result_digest",
-        "fingerprint", "envelope_digest",
-    }
-    errors.extend(f"missing {key}" for key in sorted(required - set(payload)))
-    if payload.get("schema_version") != 1:
-        errors.append("schema_version mismatch")
-    if payload.get("envelope_digest") != digest_mapping({key: value for key, value in payload.items() if key != "envelope_digest"}):
-        errors.append("envelope_digest mismatch")
-    for key, value in (expected or {}).items():
-        if key == "fingerprint":
-            actual_fingerprint = payload.get("fingerprint")
-            if not isinstance(actual_fingerprint, dict) or not isinstance(value, dict):
-                errors.append("fingerprint missing or invalid")
-            else:
-                compatible, reasons = fingerprints_compatible(actual_fingerprint, value)
-                if not compatible:
-                    errors.append("fingerprint mismatch: " + "; ".join(reasons))
-            continue
-        if key not in payload:
-            errors.append(f"missing {key}")
-        elif payload.get(key) != value:
-            errors.append(f"{key} mismatch")
-    return errors
-
-
-def task_package_digest(task_dir: str | Path) -> str:
-    """Digest the executable task package, not just its declarative manifest."""
-    root = Path(task_dir)
-    if not root.is_dir():
-        raise FileNotFoundError(f"task package not found: {root}")
-    files: dict[str, str] = {}
-    paths = [root / name for name in PACKAGE_FILES]
-    for directory in PACKAGE_DIRS:
-        base = root / directory
-        if base.is_dir():
-            paths.extend(path for path in base.rglob("*") if path.is_file() and "__pycache__" not in path.parts and not path.name.endswith(".pyc"))
-    for path in sorted(paths):
-        if not path.is_file():
-            raise FileNotFoundError(f"task package member missing: {path}")
-        files[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return digest_mapping(files)
-
-
-def task_manifest_digest(tasks_root: str | Path, task_ids: list[str]) -> str:
-    root = Path(tasks_root)
-    payload: dict[str, Any] = {}
-    for task_id in task_ids:
-        task_dir = root / task_id
-        task_path = task_dir / "task.yaml"
-        if not task_path.is_file():
-            raise FileNotFoundError(f"task manifest not found: {task_path}")
-        payload[task_id] = {
-            "package_digest": task_package_digest(task_dir),
-            "task_id": task_id,
-        }
-    return digest_mapping(payload)
-
-
-def benchmark_revision(repo_root: str | Path) -> str:
-    try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root, text=True).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
+task_manifest_digest = taskset_digest
 
 
 REQUIRED_FIELDS = (
