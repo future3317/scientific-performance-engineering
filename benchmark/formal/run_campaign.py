@@ -112,6 +112,7 @@ def _trial_failure_record(manifest: dict[str, Any], task_spec: Mapping[str, Any]
         "visibility": item.get("visibility"),
         "family": task_spec.get("family"),
         "family_id": task_spec.get("family_id", task_spec.get("family")),
+        "track": task_spec.get("track"),
         "condition": item["condition"],
         "context_mode": item["context_mode"],
         "outer_trial_id": item["outer_trial_id"],
@@ -2102,6 +2103,16 @@ def _resume_stream_prefix(
     records: dict[tuple[str, str], dict[str, Any]] = {}
     expected_prefix = 0
     last_post_digest: str | None = None
+
+    def resume_class(record: Mapping[str, Any]) -> str:
+        if record.get("execution_validity") == "resource_blocked" or record.get("failure_class") == "infrastructure":
+            return "blocked"
+        if record.get("failure_stage") in {"executor", "hardware", "protocol"}:
+            return "blocked"
+        if record.get("transition", {}).get("status") == "state_mutation_error" or record.get("attestation_ok") is False:
+            return "blocked"
+        return "completed"
+
     for _phase, task_id in task_items:
         trial_path = stream_dir / task_id / "trial.json"
         if not trial_path.is_file():
@@ -2115,8 +2126,9 @@ def _resume_stream_prefix(
         transition = record.get("transition") if isinstance(record.get("transition"), dict) else {}
         if transition.get("post_store_digest") is not None:
             last_post_digest = str(transition["post_store_digest"])
-        if transition.get("status") == "state_mutation_error" or record.get("attestation_ok") is False:
+        if resume_class(record) == "blocked":
             blocked_streams.add(stream_id)
+            break
         records[(stream_id, task_id)] = record
         expected_prefix += 1
     if expected_prefix and last_post_digest is not None:
@@ -2126,6 +2138,13 @@ def _resume_stream_prefix(
         if candidate.name == "condition-store" or not candidate.is_dir():
             continue
         if candidate.name in task_position and task_position[candidate.name] >= expected_prefix and (candidate / "trial.json").is_file():
+            if task_position[candidate.name] == expected_prefix:
+                try:
+                    candidate_record = json.loads((candidate / "trial.json").read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    candidate_record = {}
+                if isinstance(candidate_record, dict) and resume_class(candidate_record) == "blocked":
+                    continue
             raise ValueError(f"resume requires a contiguous completed prefix for {stream_id}")
     return expected_prefix, records, store
 
@@ -2959,6 +2978,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "visibility": item.get("visibility"),
             "family": task_spec.get("family"),
             "family_id": task_spec.get("family_id", task_spec.get("family")),
+            "track": task_spec.get("track"),
             "anchor_instance_id": task_spec.get("anchor_instance_id", task_id),
             "family_instance_digest": task_spec.get("family_instance_digest"),
             "lineage_id": task_spec.get("lineage", {}).get("mutation_template_id", task_id),

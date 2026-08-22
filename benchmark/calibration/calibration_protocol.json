@@ -15,5 +15,9 @@
     "compiler_threads": 2
   },
   "outer_trial_identity": ["task_id", "task_package_digest", "population_manifest_digest", "outer_trial_id", "seed", "measurement_class"],
-  "timeout_policy": "shared_outer_deadline"
+  "timeout_policy": {
+    "atomic": "per_stage_task_budget",
+    "evolution": "shared_outer_deadline",
+    "post_validation_s": 120
+  }
 }

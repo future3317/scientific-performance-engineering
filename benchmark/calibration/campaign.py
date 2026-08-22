@@ -103,6 +103,56 @@ def _resource_blocked_result(
     return serialize_cell_state(result)
 
 
+def _write_resource_blocked_cell(
+    *, out: Path, task_id: str, outer_id: str, task_spec: dict[str, Any],
+    task_digest: str, population_digest: str, revision: str,
+    harness_digest: str, runner_digest: str, protocol_digest: str,
+    fingerprint: dict[str, Any], task_manifest_digest: str, error: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Persist a complete, reusable infrastructure-failure cell."""
+    measurement_class = "evolution" if execution_class_for_task(task_spec) == "episode" else "atomic_performance"
+    raw_path = out / "raw" / outer_id / f"{task_id}.json"
+    noise_path = out / "noise-control" / outer_id / f"{task_id}.json"
+    envelope_path = out / "envelopes" / outer_id / f"{task_id}.json"
+    result = _resource_blocked_result(
+        task_id=task_id, outer_trial_id=outer_id, failure_stage="resource_preflight",
+        timeout_s=0.0, wall_time_s=0.0, error=error,
+        measurement_class=measurement_class, timeout=False,
+    )
+    result["calibration_status"] = "blocked"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    measurement = task_spec.get("measurement", {})
+    noise = stats.write_noise_control(noise_path, {
+        "schema_version": 1, "metric_class": "resource_blocked",
+        "task_id": task_id, "outer_trial_id": outer_id,
+        "benchmark_revision": revision, "task_manifest_digest": task_manifest_digest,
+        "task_package_digest": task_digest, "population_manifest_digest": population_digest,
+        "hardware_fingerprint": fingerprint, "software_fingerprint": fingerprint,
+        "compile_threads": int(measurement.get("compile_threads", 2)),
+        "compiler_cache_policy": verifier.cache_policy_for_task(task_spec),
+        "primary_metric": measurement.get("primary_metric", "step_ms_p50"),
+        "higher_is_better": bool(measurement.get("higher_is_better", False)),
+        "control_a_runs": [1.0] * 5, "control_b_runs": [1.0] * 5,
+        "observed_noise_floor_percent": 0.0,
+        "declared_noise_floor_percent": float(measurement.get("noise_floor_percent", 2.0)),
+        "expected_speedup_range": list(task_spec.get("oracle", {}).get("expected_speedup_range", [0.0, 1.0])),
+        "execution_validity": "resource_blocked", "failure_stage": "resource_preflight",
+        "error": error,
+    })
+    envelope = calibration_envelope(
+        producer_revision=revision, task_package_digest=task_digest,
+        population_manifest_digest=population_digest, harness_digest_value=harness_digest,
+        calibration_runner_digest=runner_digest, noise_digest=str(noise["artifact_digest"]),
+        raw_result_digest=file_digest(raw_path), fingerprint=fingerprint,
+        task_id=task_id, outer_trial_id=outer_id, seed=int(outer_id.split("-")[-1]),
+        measurement_class=measurement_class, calibration_protocol_digest=protocol_digest,
+    )
+    envelope_path.parent.mkdir(parents=True, exist_ok=True)
+    envelope_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return result, noise, envelope
+
+
 def _bounded_noise_control(
     *, task_id: str, outer_trial_id: str, noise_path: Path, timeout_s: float,
     args: tuple[str, ...], cwd: Path,
@@ -331,6 +381,8 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
         if not task_ids:
             raise ValueError(f"task is not in active population: {args.task_id}")
     out = Path(args.out).resolve()
+    if args.task_id and out.exists() and any(out.iterdir()):
+        raise ValueError("--task-id requires an independent empty output directory")
     raw_root = out / "raw"
     noise_root = out / "noise-control"
     raw_root.mkdir(parents=True, exist_ok=True)
@@ -380,26 +432,35 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
             preflight = selected_gpu_preflight() if fingerprint.get("cuda_available") else {"status": "clean", "foreign_pids": []}
             foreign_pids = list(preflight.get("foreign_pids", []))
             if preflight.get("status") != "clean":
-                result = _resource_blocked_result(
-                    task_id=task_id, outer_trial_id=outer_id,
-                    failure_stage="resource_preflight", timeout_s=0.0,
-                    wall_time_s=0.0,
+                result, noise, envelope = _write_resource_blocked_cell(
+                    out=out, task_id=task_id, outer_id=outer_id, task_spec=spec,
+                    task_digest=task_digest, population_digest=population_digest,
+                    revision=revision, harness_digest=harness_digest,
+                    runner_digest=runner_digest, protocol_digest=protocol_digest,
+                    fingerprint=fingerprint, task_manifest_digest=digest,
                     error=(
                         f"selected GPU {fingerprint.get('gpu_uuid')} preflight {preflight.get('status')}: "
                         f"{preflight.get('reason')}"
                     ),
-                    measurement_class="evolution" if execution_class_for_task(spec) == "episode" else "atomic_performance",
-                    timeout=False,
                 )
                 result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), **preflight}
+                result = serialize_cell_state(result)
+                raw_path = out / "raw" / outer_id / f"{task_id}.json"
+                raw_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                envelope = calibration_envelope(
+                    producer_revision=revision, task_package_digest=task_digest,
+                    population_manifest_digest=population_digest, harness_digest_value=harness_digest,
+                    calibration_runner_digest=runner_digest, noise_digest=str(noise["artifact_digest"]),
+                    raw_result_digest=file_digest(raw_path), fingerprint=fingerprint,
+                    task_id=task_id, outer_trial_id=outer_id, seed=outer,
+                    measurement_class="evolution" if execution_class_for_task(spec) == "episode" else "atomic_performance",
+                    calibration_protocol_digest=protocol_digest,
+                )
+                envelope_path = out / "envelopes" / outer_id / f"{task_id}.json"
+                envelope_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
                 task_results.append(result)
-                task_noises.append({
-                    "schema_version": 1, "metric_class": "resource_blocked",
-                    "task_id": task_id, "outer_trial_id": outer_id,
-                    "task_package_digest": task_digest,
-                    "population_manifest_digest": population_digest,
-                    "error": result["errors"][0],
-                })
+                task_noises.append(noise)
+                task_envelopes.append(envelope)
                 timing.update({"timeout": False, "resource_blocked": True, "total_s": 0.0})
                 timing_rows.append(timing)
                 continue
@@ -575,6 +636,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     result["validity"] = "invalid"
                     result["execution_validity"] = "invalid"
                     result.setdefault("errors", []).append("post-run validate-task failed")
+                result = serialize_cell_state(result)
                 result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
                 envelope = calibration_envelope(
                     producer_revision=revision, task_package_digest=task_digest,

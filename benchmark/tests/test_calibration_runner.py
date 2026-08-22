@@ -11,9 +11,11 @@ from benchmark.calibration.campaign import (
     _bounded_verifier_result,
     _calibration_record,
     _copy_oracle,
+    _write_resource_blocked_cell,
 )
 from benchmark.calibration.protocol import outer_trial_count
 from benchmark.formal.attest import calibration_envelope, validate_calibration_envelope
+from benchmark.harness import stats
 
 
 @pytest.mark.parametrize(
@@ -32,6 +34,28 @@ def test_copy_oracle_applies_mixed_reference_patch_headers(task_id, tmp_path):
     assert (tmp_path / "solution.py").read_text(encoding="utf-8") != (
         task_dir / "workspace" / "solution.py"
     ).read_text(encoding="utf-8")
+
+
+def test_resource_preflight_writes_a_complete_reusable_cell(tmp_path):
+    task_id = "CORE-SCALAR-SYNC-01"
+    task_spec = {
+        "workspace": {"api": "train_loop_v1"},
+        "measurement": {"primary_metric": "step_ms_p50", "higher_is_better": False, "noise_floor_percent": 2.0},
+        "oracle": {"expected_speedup_range": [1.0, 2.0]},
+    }
+    result, noise, envelope = _write_resource_blocked_cell(
+        out=tmp_path, task_id=task_id, outer_id="outer-000", task_spec=task_spec,
+        task_digest="t" * 64, population_digest="p" * 64, revision="r" * 40,
+        harness_digest="h" * 64, runner_digest="c" * 64, protocol_digest="q" * 64,
+        fingerprint={"cuda_available": True, "gpu_uuid": "GPU-test"},
+        task_manifest_digest="m" * 64, error="GPU occupied",
+    )
+    assert result["execution_validity"] == "resource_blocked"
+    assert noise["execution_validity"] == "resource_blocked"
+    assert stats.read_noise_control(tmp_path / "noise-control" / "outer-000" / f"{task_id}.json")["task_id"] == task_id
+    assert envelope["raw_result_digest"]
+    assert (tmp_path / "raw" / "outer-000" / f"{task_id}.json").is_file()
+    assert (tmp_path / "envelopes" / "outer-000" / f"{task_id}.json").is_file()
 
 
 def test_copy_oracle_excludes_stale_bytecode_from_solution(tmp_path):

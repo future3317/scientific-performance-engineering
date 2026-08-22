@@ -13,7 +13,7 @@ import random
 import hashlib
 import json
 from dataclasses import dataclass
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any
 
 
@@ -220,6 +220,41 @@ def _readiness(
     }
 
 
+def _lineage_task_outer_ci(
+    observations: list[tuple[str, str, str, str, float]],
+    seed: int = 0,
+    samples: int = 2000,
+) -> dict[str, float | None]:
+    """Bootstrap the registered primary hierarchy: lineage -> task -> outer."""
+    hierarchy: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for _family, lineage, task, _trial, value in observations:
+        hierarchy[lineage][task].append(value)
+    lineages = sorted(hierarchy)
+    if not lineages:
+        return {"estimate": None, "ci_low": None, "ci_high": None, "n": 0}
+
+    def mean(source: dict[str, dict[str, list[float]]]) -> float:
+        lineage_means = []
+        for tasks in source.values():
+            task_means = [sum(values) / len(values) for values in tasks.values() if values]
+            if task_means:
+                lineage_means.append(sum(task_means) / len(task_means))
+        return sum(lineage_means) / len(lineage_means)
+
+    rng = random.Random(seed)
+    bootstrap = []
+    for _ in range(samples):
+        sampled = {lineage: hierarchy[rng.choice(lineages)] for lineage in lineages}
+        bootstrap.append(mean({str(index): tasks for index, tasks in enumerate(sampled.values())}))
+    bootstrap.sort()
+    return {
+        "estimate": mean(hierarchy),
+        "ci_low": bootstrap[int(0.025 * (len(bootstrap) - 1))],
+        "ci_high": bootstrap[int(0.975 * (len(bootstrap) - 1))],
+        "n": len(observations),
+    }
+
+
 def aggregate_trials(
     records: list[dict[str, Any]],
     *,
@@ -315,16 +350,30 @@ def aggregate_confirmatory(
     primary = claims.get("primary") if isinstance(claims, dict) else None
     if not isinstance(primary, dict) or str(primary.get("id")) != "D-B":
         return {"status": "withheld", "reason": "CLAIMS.yaml does not register D-B primary"}
-    if any("visibility" not in record for record in records):
-        return {"status": "withheld", "reason": "formal record missing explicit visibility"}
-    sealed = [record for record in records if str(record.get("visibility")) == "sealed"]
-    expected = set(required_cells)
-    observed = {
+    if any("visibility" not in record or "track" not in record for record in records):
+        return {"status": "withheld", "reason": "formal record missing explicit visibility or track"}
+    primary_tracks = {str(track) for track in primary.get("tracks", [])}
+    track_by_task = {str(record.get("task_id", "")): str(record.get("track")) for record in records}
+    expected = {
+        tuple(str(value) for value in cell)
+        for cell in required_cells
+        if track_by_task.get(str(cell[0])) in primary_tracks
+    }
+    if not expected:
+        return {"status": "withheld", "reason": "primary track has no expected cells"}
+    sealed = [
+        record for record in records
+        if str(record.get("visibility")) == "sealed" and str(record.get("track")) in primary_tracks
+    ]
+    observed_cells = [
         (str(item.get("task_id", "")), str(item.get("outer_trial_id", "")), str(item.get("context_mode", "reset")), str(item.get("condition", "")))
         for item in sealed
-    }
-    if observed != expected or any(not bool(item.get("efficacy_eligible", False)) for item in sealed):
-        return {"status": "withheld", "reason": "sealed matrix incomplete or contains ineligible cells", "expected_cells": len(expected), "observed_cells": len(observed)}
+    ]
+    observed_counts = Counter(observed_cells)
+    duplicates = sorted(cell for cell, count in observed_counts.items() if count != 1)
+    observed = set(observed_cells)
+    if observed != expected or duplicates or any(not bool(item.get("efficacy_eligible", False)) for item in sealed):
+        return {"status": "withheld", "reason": "sealed matrix incomplete, duplicated, or contains ineligible cells", "expected_cells": len(expected), "observed_cells": len(observed), "duplicate_cells": [list(item) for item in duplicates]}
     result = aggregate_trials(sealed, required_cells=required_cells)
     result["primary_db_estimator"] = primary_db_estimator(sealed, required_cells=required_cells)
     result["status"] = "available"
@@ -373,6 +422,12 @@ def primary_db_estimator(records: list[dict[str, Any]], *, required_cells: list[
             lineage_means[lineage] = sum(task_means.values()) / len(task_means)
     values = list(lineage_means.values())
     task_means = [value for tasks in task_means_by_lineage.values() for value in tasks.values()]
+    observations: list[tuple[str, str, str, str, float]] = []
+    for (task, lineage, trial, _mode), values_by_condition in indexed.items():
+        left = _task_score(values_by_condition.get("D", {})) if "D" in values_by_condition else None
+        right = _task_score(values_by_condition.get("B", {})) if "B" in values_by_condition else None
+        if left is not None and right is not None:
+            observations.append(("", lineage, task, trial, left - right))
     outer_trials = {
         str(record.get("outer_trial_id"))
         for record in records
@@ -392,7 +447,7 @@ def primary_db_estimator(records: list[dict[str, Any]], *, required_cells: list[
         "lineage_count": len(values),
         "task_level_variance": variance(task_means),
         "lineage_level_variance": variance(values),
-        **_ci(values),
+        **_lineage_task_outer_ci(observations),
     }
 
 

@@ -88,17 +88,16 @@ def audit(repo_root: Path, out: Path, outer_trials: int = 3) -> dict[str, object
                         reason = "fingerprint_mismatch"
                     elif payload.get("noise_digest") != noise_payload.get("artifact_digest"):
                         reason = "noise_digest_mismatch"
-                    else:
-                        noise_expected = {
-                            "task_id": task_id, "outer_trial_id": outer_id,
-                            "benchmark_revision": revision, "task_package_digest": task_digest,
-                            "population_manifest_digest": population_digest,
-                        }
-                    if expected["measurement_class"] == "atomic_performance":
-                            try:
-                                stats.read_noise_control(noise, noise_expected)
-                            except ValueError:
-                                reason = "noise_artifact_invalid"
+                    noise_expected = {
+                        "task_id": task_id, "outer_trial_id": outer_id,
+                        "benchmark_revision": revision, "task_package_digest": task_digest,
+                        "population_manifest_digest": population_digest,
+                    }
+                    if not reason and expected["measurement_class"] == "atomic_performance":
+                        try:
+                            stats.read_noise_control(noise, noise_expected)
+                        except (OSError, ValueError):
+                            reason = "noise_artifact_invalid"
                     if not reason and payload.get("raw_result_digest") != attest.file_digest(raw):
                         reason = "raw_result_digest_mismatch"
                     elif not reason and (noise_payload.get("task_package_digest") != task_digest or noise_payload.get("population_manifest_digest") != population_digest):
