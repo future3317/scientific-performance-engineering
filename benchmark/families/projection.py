@@ -167,7 +167,7 @@ def audit_population(tasks_root: str | Path, *, seed: int = 0, device: str = "cp
     root = Path(tasks_root)
     manifest_path = root.parent / "pilot_population.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    active_ids = [str(task_id) for task_id in manifest["active_task_ids"]]
+    active_ids = [str(task_id) for task_id in manifest["task_ids"]]
     tasks = [root / task_id for task_id in active_ids]
     missing_packages = [task_id for task_id, path in zip(active_ids, tasks) if not (path / "task.yaml").is_file()]
     if missing_packages:
