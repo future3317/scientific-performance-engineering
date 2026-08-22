@@ -31,15 +31,23 @@ def materialize_frozen_slots(preregistered: dict[str, Any], sealed_root: str | P
         item = dict(slot)
         package_dir = root / str(item["slot_id"])
         task_dir = item.get("source_task_dir")
-        if task_dir:
-            source = Path(str(task_dir)).resolve()
-            if not source.is_dir():
-                raise FileNotFoundError(source)
-            if package_dir.exists():
-                shutil.rmtree(package_dir)
-            shutil.copytree(source, package_dir, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-            item["task_id"] = str(item.get("task_id") or package_dir.name)
-            item["package_digest"] = task_package_digest(package_dir)
+        if not task_dir:
+            raise ValueError(f"slot {item.get('slot_id')} has no materialized task package source")
+        source = Path(str(task_dir)).resolve()
+        if not source.is_dir():
+            raise FileNotFoundError(source)
+        source_metadata = source / "metadata.json"
+        if not source_metadata.is_file():
+            raise ValueError(f"materialization source {item['slot_id']} lacks metadata.json")
+        source_split = json.loads(source_metadata.read_text(encoding="utf-8")).get("split_group")
+        if not isinstance(source_split, dict) or not source_split:
+            raise ValueError(f"materialization source {item['slot_id']} lacks split_group metadata")
+        if package_dir.exists():
+            shutil.rmtree(package_dir)
+        shutil.copytree(source, package_dir, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        item["task_id"] = str(item.get("task_id") or package_dir.name)
+        item["package_digest"] = task_package_digest(package_dir)
+        item["split"] = source_split
         item["materialization"] = "materialized"
         materialized.append(item)
     return {
@@ -50,6 +58,8 @@ def materialize_frozen_slots(preregistered: dict[str, Any], sealed_root: str | P
         "sealed_root": str(root),
         "slots": materialized,
         "slot_count": len(materialized),
+        "public_dev_total": sum(item.get("visibility") == "public_dev" for item in materialized),
+        "sealed_total": sum(item.get("visibility") == "sealed" for item in materialized),
     }
 
 
@@ -62,6 +72,10 @@ def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | 
     slots = manifest.get("slots")
     if not isinstance(slots, list) or len(slots) != 50:
         errors.append("materialized formal manifest must contain 50 slots")
+    if sum(isinstance(slot, dict) and slot.get("visibility") == "public_dev" for slot in slots or []) != 15:
+        errors.append("materialized formal manifest must contain 15 public_dev slots")
+    if sum(isinstance(slot, dict) and slot.get("visibility") == "sealed" for slot in slots or []) != 35:
+        errors.append("materialized formal manifest must contain 35 sealed slots")
     seen: set[str] = set()
     for slot in slots or []:
         if not isinstance(slot, dict):
