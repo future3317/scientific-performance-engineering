@@ -103,6 +103,12 @@ def _resource_blocked_result(
     return serialize_cell_state(result)
 
 
+def _preflight_blocks(preflight: dict[str, Any], *, allow_shared_gpu: bool) -> bool:
+    """Keep query failures blocking while allowing explicitly shared GPUs."""
+    status = preflight.get("status")
+    return status != "clean" and not (allow_shared_gpu and status == "busy")
+
+
 def _write_resource_blocked_cell(
     *, out: Path, task_id: str, outer_id: str, task_spec: dict[str, Any],
     task_digest: str, population_digest: str, revision: str,
@@ -341,12 +347,15 @@ def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str
     anti_findings = [finding for item in results for finding in (item.get("anticheat", {}).get("findings", []) if isinstance(item.get("anticheat"), dict) else [])]
     anti = {"hard_fail": any(bool(item.get("anticheat", {}).get("hard_fail")) for item in results), "tripwired": any(bool(item.get("anticheat", {}).get("tripwired")) for item in results), "findings": anti_findings}
     calibration_status = "eligible" if all(derive_cell_state(item) == "eligible" for item in results) else "blocked"
+    resource_modes = {str(item.get("resource_mode", "exclusive")) for item in results}
+    resource_mode = resource_modes.pop() if len(resource_modes) == 1 else "mixed"
     return {
         "task_id": task_id,
         "task_digest": digest,
         "revision": revision,
         "calibration_protocol_digest": protocol_digest,
         "population_manifest_digest": population_manifest_digest,
+        "resource_mode": resource_mode,
         "environment": first.get("fingerprint") or capture_fingerprint(),
         "outer_trials": results,
         "evidence_envelopes": list(envelopes or []),
@@ -407,6 +416,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
             f"atomic calibration requires --outer-trials={protocol['atomic_outer_trials']} "
             f"from the frozen protocol, got {args.outer_trials}"
         )
+    allow_shared_gpu = bool(args.allow_shared_gpu)
     empirical: list[dict[str, Any]] = []
     timing_rows: list[dict[str, Any]] = []
     campaign_started_monotonic = time.perf_counter()
@@ -430,8 +440,10 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
             }
             print(json.dumps({"event": "start_outer_trial", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
             preflight = selected_gpu_preflight() if fingerprint.get("cuda_available") else {"status": "clean", "foreign_pids": []}
-            foreign_pids = list(preflight.get("foreign_pids", []))
-            if preflight.get("status") != "clean":
+            resource_mode = "shared_gpu" if preflight.get("status") == "busy" else "exclusive"
+            timing["resource_preflight"] = preflight
+            timing["resource_mode"] = resource_mode
+            if _preflight_blocks(preflight, allow_shared_gpu=allow_shared_gpu):
                 result, noise, envelope = _write_resource_blocked_cell(
                     out=out, task_id=task_id, outer_id=outer_id, task_spec=spec,
                     task_digest=task_digest, population_digest=population_digest,
@@ -636,6 +648,8 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     result["validity"] = "invalid"
                     result["execution_validity"] = "invalid"
                     result.setdefault("errors", []).append("post-run validate-task failed")
+                result["resource_mode"] = resource_mode
+                result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), **preflight}
                 result = serialize_cell_state(result)
                 result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
                 envelope = calibration_envelope(

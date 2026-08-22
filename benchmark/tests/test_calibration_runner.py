@@ -384,6 +384,15 @@ def test_gpu_preflight_query_failure_is_not_clean(monkeypatch):
     assert "nvidia-smi" in result["reason"]
 
 
+def test_shared_gpu_mode_only_allows_reported_busy_preflight():
+    from benchmark.calibration.campaign import _preflight_blocks
+
+    assert _preflight_blocks({"status": "clean"}, allow_shared_gpu=False) is False
+    assert _preflight_blocks({"status": "busy"}, allow_shared_gpu=False) is True
+    assert _preflight_blocks({"status": "busy"}, allow_shared_gpu=True) is False
+    assert _preflight_blocks({"status": "unavailable"}, allow_shared_gpu=True) is True
+
+
 def test_subprocess_applies_declared_thread_topology_before_fingerprint():
     from benchmark.harness.runner import run_python_subprocess
 
