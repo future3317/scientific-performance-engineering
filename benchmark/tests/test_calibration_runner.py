@@ -25,6 +25,7 @@ from benchmark.harness import stats
         "SCIML-CRYSTAL-DIFFUSION-07R2",  # replacement package with guidance scale
         "SCIML-EQUIV-RECOMPUTE-06",  # a/workspace/solution.py
         "CORE-KERNEL-FUSION-09",  # solution.py
+        "CORE-KERNEL-FUSION-09R2",  # R2 compile workspace
     ],
 )
 def test_copy_oracle_applies_mixed_reference_patch_headers(task_id, tmp_path):
