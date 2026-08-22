@@ -73,7 +73,7 @@
  
      return {
          "score": score,
-@@ -86,39 +76,32 @@
+@@ -86,41 +76,34 @@
          "alphas": alphas,
          "alpha_bars": alpha_bars,
          "num_steps": num_steps,
@@ -110,6 +110,8 @@
  
      with torch.no_grad():
          eps_frac, eps_lengths = sampler["score"](frac, lengths, t_emb)
+         eps_frac = sampler["guidance_scale"] * eps_frac
+         eps_lengths = sampler["guidance_scale"] * eps_lengths
  
 -    # DDPM posterior mean (deterministic sigma = 0 for reproducibility).
 -    coef = beta_t / math.sqrt(1.0 - alpha_bar_t)
