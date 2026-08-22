@@ -1,5 +1,12 @@
 from __future__ import annotations
+import hashlib
 import torch
+
+
+def checksum_tensor(tensor: torch.Tensor) -> str:
+    """SHA-256 of a tensor's bytes (anti-caching evidence)."""
+    arr = tensor.detach().cpu().contiguous()
+    return hashlib.sha256(arr.numpy().tobytes()).hexdigest()
 
 def _arch_ok(model, init_state):
     state=model.state_dict()
