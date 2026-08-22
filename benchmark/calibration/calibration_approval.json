@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
   "approved": false,
-  "status": "blocked",
+  "status": "historical_blocked_example",
+  "authority": "non_authoritative_historical_snapshot",
   "population_report_digest": "8b2740322b163c332a5fb2939d15a499096da1268ed5d34543f8b3c3da0849fc",
   "pilot_calibration_digest": "0e890ce046494749881bb99ff0e31055a9c757b2fd3c00986abb0288f44fb4b2",
-  "validator_revision": "strict-formal-v1",
+  "validator_revision": "historical_snapshot_only",
   "review_policy": "sealed-35-primary-public-dev-secondary",
   "approved_task_ids": [],
   "blocked_task_ids": ["CORE-H2D-OVERFANOUT-23", "CORE-REPEATED-BACKBONE-02", "CORE-SCALAR-SYNC-01"],

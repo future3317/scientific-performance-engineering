@@ -270,12 +270,18 @@ def _empirical_flags(
     tasks_root = Path(specs[0]["_task_dir"]).parent if specs and "_task_dir" in specs[0] else None
     protocol, protocol_digest = _calibration_protocol(tasks_root) if tasks_root else (None, None)
     seen: set[str] = set()
+    duplicate_task_ids: set[str] = set()
+    unknown_task_ids: set[str] = set()
     records_by_task: dict[str, dict[str, Any]] = {}
     for record in records:
         if not isinstance(record, dict):
             continue
         task_id = str(record.get("task_id", ""))
         if task_id not in specs_by_id:
+            unknown_task_ids.add(task_id)
+            continue
+        if task_id in records_by_task:
+            duplicate_task_ids.add(task_id)
             continue
         seen.add(task_id)
         records_by_task[task_id] = dict(record)
@@ -391,8 +397,16 @@ def _empirical_flags(
         flags[name] = sorted(set(flags[name]))
     hard_flags = [name for name, task_ids in flags.items() if task_ids]
     missing = sorted(set(specs_by_id) - seen)
+    if len(records) != len(specs_by_id):
+        flags["protocol_invalid"].append("__record_cardinality__")
+    if unknown_task_ids:
+        flags["protocol_invalid"].append("unknown:" + ",".join(sorted(unknown_task_ids)))
+    if duplicate_task_ids:
+        flags["protocol_invalid"].append("duplicate:" + ",".join(sorted(duplicate_task_ids)))
     if missing:
         hard_flags.append("missing_empirical_task_records")
+    if len(records) != len(specs_by_id) or unknown_task_ids or duplicate_task_ids:
+        hard_flags.append("empirical_record_cardinality_invalid")
     return flags, {
         "status": "observed",
         "source": str(empirical_path),

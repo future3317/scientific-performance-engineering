@@ -99,6 +99,7 @@ def build_release_manifest(*, repo_root: str | Path, population: dict[str, Any],
         "claims_digest": hashlib.sha256(claims_path.read_bytes()).hexdigest(),
         "statistical_protocol_digest": hashlib.sha256(protocol_path.read_bytes()).hexdigest(),
         "campaign_config_digest": hashlib.sha256(campaign_config.read_bytes()).hexdigest(),
+        "agent_policy_digest": hashlib.sha256((root / "benchmark" / "formal" / "agent_backbones.yaml").read_bytes()).hexdigest(),
         "executor_image": executor_image,
     }
     manifest["release_digest"] = digest_json({k: v for k, v in manifest.items() if k != "release_digest"})
@@ -140,6 +141,7 @@ def validate_formal_release(
         "claims_digest": hashlib.sha256(claims_path.read_bytes()).hexdigest() if claims_path.is_file() else None,
         "statistical_protocol_digest": hashlib.sha256(protocol_path.read_bytes()).hexdigest() if protocol_path.is_file() else None,
         "campaign_config_digest": hashlib.sha256(campaign_config.read_bytes()).hexdigest() if campaign_config.is_file() else None,
+        "agent_policy_digest": hashlib.sha256((root / "benchmark" / "formal" / "agent_backbones.yaml").read_bytes()).hexdigest() if (root / "benchmark" / "formal" / "agent_backbones.yaml").is_file() else None,
     }
     for key, value in bindings.items():
         if value is None or manifest.get(key) != value:
