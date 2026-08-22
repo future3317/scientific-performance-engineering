@@ -18,6 +18,11 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--outer-trials", type=int, default=3)
     parser.add_argument("--task-id", default=None)
+    parser.add_argument(
+        "--allow-shared-gpu",
+        action="store_true",
+        help="run when the selected GPU has other compute processes; records shared resource provenance",
+    )
     return run_calibration_campaign(parser.parse_args())
 
 
