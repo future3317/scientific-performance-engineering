@@ -79,6 +79,7 @@
          "num_steps": num_steps,
 -        "time_emb_dim": int(config["time_emb_dim"]),
 +        "time_emb": _build_time_embedding_vectorized(num_steps, int(config["time_emb_dim"]), device),
+         "guidance_scale": float(config["guidance_scale"]),
          "device": device,
      }
  
