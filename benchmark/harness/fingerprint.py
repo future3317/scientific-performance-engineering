@@ -95,6 +95,7 @@ def _psutil_extras() -> dict[str, Any]:
         return {
             "total_memory_mb": round(memory.total / (1024 * 1024), 1),
             "cpu_freq_mhz": (psutil.cpu_freq().current if psutil.cpu_freq() else None),
+            "load_average": list(psutil.getloadavg()),
         }
     except Exception:
         return {}
