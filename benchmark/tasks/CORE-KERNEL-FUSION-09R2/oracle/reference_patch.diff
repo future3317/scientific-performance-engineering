@@ -1,5 +1,24 @@
 --- solution.py
 +++ solution.py
-@@ -18,1 +18,1 @@
+@@ -3,0 +4,16 @@
+redacted@example.invalid
++def _fused_chain(
++    x: torch.Tensor,
++    residual: torch.Tensor,
++    a1: float,
++    b1: float,
++    a2: float,
++    b2: float,
++    clamp_min: float,
++    clamp_max: float,
++) -> torch.Tensor:
++    z = x * a1 + b1
++    h = z * torch.sigmoid(z)
++    y = torch.clamp(h + residual, clamp_min, clamp_max)
++    return y * a2 + b2
++
+@@ -18,1 +18,0 @@
 -    context["compiled"] = torch.compile(_graph, backend=profile["baseline_backend"], mode=profile["mode"], dynamic=profile["dynamic"])
-+    context["compiled"] = torch.compile(_graph, backend=profile["backend"], mode=profile["mode"], dynamic=profile["dynamic"])
+@@ -22,1 +22,1 @@
+-    return context["compiled"](x, residual, context)
++    return _fused_chain(x, residual, context["a1"], context["b1"], context["a2"], context["b2"], context["clamp_min"], context["clamp_max"])
