@@ -15,6 +15,7 @@ from benchmark.harness import miniyaml
 from benchmark.families import resolve_family_id, family_instance_digest
 from benchmark.families.catalog import FAMILY_SPECS
 from benchmark.families import family_instances
+from benchmark.families.projection import audit_task
 
 
 NEW_TASKS: tuple[dict[str, Any], ...] = (
@@ -166,7 +167,31 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
             package_metadata["family_id"] = spec["family_id"]
         if spec.get("anchor_instance_id"):
             package_metadata["anchor_instance_id"] = spec["anchor_instance_id"]
-        metadata_path.write_text(json.dumps(package_metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    metadata_path.write_text(json.dumps(package_metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def assert_executable_projection(task_dir: Path) -> dict[str, Any]:
+    """Require a newly materialized package to round-trip its FamilySpec."""
+    report = audit_task(Path(task_dir), seed=0, device="cpu")
+    if report.get("status") != "pass":
+        raise ValueError(
+            f"executable projection failed for {report.get('task_id', Path(task_dir).name)}: "
+            f"missing={report.get('missing', [])}, mismatches={report.get('mismatches', {})}"
+        )
+    return report
+
+
+def assert_same_family_source(source_dir: Path, target_family_id: str) -> str:
+    """Reject prototype copying across canonical workload families."""
+    source_spec = miniyaml.load(str(Path(source_dir) / "task.yaml"))
+    source_value = source_spec.get("family_id", source_spec.get("family"))
+    source_family = resolve_family_id(str(source_value))
+    target_family = resolve_family_id(str(target_family_id))
+    if source_family != target_family:
+        raise ValueError(
+            f"cross-family prototype copy is forbidden: {source_family} -> {target_family}"
+        )
+    return source_family
     oracle = task_dir / "oracle"
     oracle.mkdir(exist_ok=True)
     (oracle / "tempting_wrong_patch.md").write_text(
@@ -196,6 +221,7 @@ def generate(root: str | Path) -> list[str]:
         target = tasks_root / metadata["task_id"]
         if not target.exists():
             source = tasks_root / metadata["base"]
+            assert_same_family_source(source, metadata["generator"])
             shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "episode_result.json", "store"))
             metadata["new"] = True
             if metadata["track"] == "evolution":
@@ -205,6 +231,8 @@ def generate(root: str | Path) -> list[str]:
                 benchmark_py = target / "benchmark.py"
                 benchmark_py.write_text(benchmark_py.read_text(encoding="utf-8").replace("poison_episode.yaml", "compiler_drift_episode.yaml"), encoding="utf-8")
         _annotate_task(target, metadata)
+        if metadata.get("new"):
+            assert_executable_projection(target)
     existing = []
     for task_dir in sorted(tasks_root.iterdir()):
         if not task_dir.is_dir() or not (task_dir / "task.yaml").is_file():

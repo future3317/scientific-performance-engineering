@@ -1,0 +1,5 @@
+{
+  "mechanism": "graph_rebuild",
+  "location": "workspace/solution.py: sample_step()",
+  "why": "The sampler rebuilds the radius neighbor graph every step. Because atom positions change every step, this rebuild is necessary for correct forces/energy. Caching the neighbor list would avoid the rebuild cost but would use stale edges, so the correct optimization is to abstain (do not apply)."
+}

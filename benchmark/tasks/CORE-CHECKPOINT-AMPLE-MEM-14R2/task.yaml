@@ -1,0 +1,57 @@
+schema_version: 1
+task_id: CORE-CHECKPOINT-AMPLE-MEM-14R2
+track: spe_core
+family: memory
+mechanism: checkpoint_ample_memory
+kind: counterexample
+lineage:
+  source: synthetic
+  mutation_template_id: MT-CHECKPOINT-AMPLE-MEM-V1
+  mutation_seed: 3585060473
+title: "Checkpoint recomputation with ample activation memory"
+requires_cuda: false
+time_budget_s: 300
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 8
+  measured_iterations: 50
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: 1e-05
+scientific_gates: [finite_loss]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, compile_recompile, memory_pressure, launch_fragmentation]
+oracle:
+  expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-MEMORY-CHECKPOINT
+oracle_fix_pattern_id: FIX-CHECKPOINT-SELECTIVE
+scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
+difficulty_tier: medium
+workspace_ast_skeleton_hash: "60601889412c8de61b538438a3d537b3c0486ff6d80768f63c34e870b126f83c"
+family_id: checkpoint
+anchor_instance_id: CORE-CHECKPOINT-AMPLE-MEM-14R2
+family_parameters:
+  memory_pressure: 0.4
+  segment_count: 3
+  recompute_ratio: 0.2
+family_instance_digest: "0ba85d210b77632f6fc3e19f841a325819d9820c9c71e30301045e6f9e782b20"
+public_context:
+  workload:
+    memory_pressure: 0.4
+    segment_count: 3
+    recompute_ratio: 0.2
+ast_skeleton_version: 2
+
+

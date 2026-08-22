@@ -1,0 +1,58 @@
+--- workspace/solution.py
++++ oracle/solution_tempting.py
+@@ -1,10 +1,11 @@
+ #!/usr/bin/env python3
+-"""Baseline solution for CORE-REPEATED-BACKBONE-02.
++"""Tempting but incorrect solution for CORE-REPEATED-BACKBONE-02.
+ 
+-A multi-head regression model with a shared backbone. The injected bottleneck
+-is repeated computation: the baseline recomputes the embedding projection of a
+-fixed input batch for every head and recomputes the backbone output separately
+-for every head each step.
++Unconditionally caches the fixed-input embedding projection after the first
++call and detaches it from the computation graph so training does not fail with
++a "backward through the graph a second time" error. The cache is faster than
++the oracle in the fixed regime but returns stale context vectors in the
++changing regime, causing a correctness mismatch.
+ """
+ 
+ from __future__ import annotations
+@@ -31,9 +32,18 @@
+         self.heads = nn.ModuleList([nn.Linear(hidden_dim, 1) for _ in range(num_heads)])
+ 
+     def project_fixed(self, fixed_input: torch.Tensor) -> torch.Tensor:
+-        """Project a fixed batch to a single context vector."""
+-        e = self.embed(fixed_input)  # [B_fixed, emb_dim]
+-        return e.mean(dim=0)  # [emb_dim]
++        """Project a fixed batch to a single context vector.
++
++        Tempting optimization: cache the first computed context forever and
++        detach it so the tensor can be reused across training steps without
++        triggering "backward through the graph a second time". This is correct
++        only if fixed_input never changes; in the changing regime it returns a
++        stale context and fails correctness.
++        """
++        if not hasattr(self, "_cached_fixed_value"):
++            e = self.embed(fixed_input)  # [B_fixed, emb_dim]
++            self._cached_fixed_value = e.mean(dim=0).detach()  # [emb_dim]
++        return self._cached_fixed_value
+ 
+     def forward_head(self, step_input: torch.Tensor, context: torch.Tensor, head_idx: int) -> torch.Tensor:
+         ctx = context.unsqueeze(0).expand(step_input.size(0), -1)
+@@ -58,10 +68,14 @@
+     fixed_input = batch["fixed"]
+     targets = batch["targets"]
+ 
++    context = model.project_fixed(fixed_input)
++    ctx = context.unsqueeze(0).expand(step_input.size(0), -1)
++    x = torch.cat([step_input, ctx], dim=-1)
++    shared = model.backbone(x)
++
+     total_loss = torch.zeros(1, device=step_input.device)
+     for head_idx in range(model.num_heads):
+-        context = model.project_fixed(fixed_input)
+-        pred = model.forward_head(step_input, context, head_idx)
++        pred = model.heads[head_idx](shared)
+         total_loss += nn.functional.mse_loss(pred, targets[head_idx])
+ 
+     optimizer.zero_grad()

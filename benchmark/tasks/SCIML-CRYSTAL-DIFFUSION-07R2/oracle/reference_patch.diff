@@ -1,0 +1,159 @@
+--- a/solution.py
++++ b/solution.py
+@@ -1,16 +1,11 @@
+-"""Baseline DDPM-style crystal sampler (sampler_v1 API).
++"""Optimized DDPM-style crystal sampler (sampler_v1 API).
+ 
+-Correct but inefficient.  The sampler denoises fractional coordinates and
+-orthorhombic lattice lengths for tiny synthetic crystals.  The baseline
+-injections are:
+-
+-* per-step scalar synchronization (schedule scalars read with `.item()`),
+-* launch fragmentation (time embedding rebuilt from many tiny ops each step),
+-* one-crystal-at-a-time Python loop over the evaluation batch.
+-
+-The oracle fix keeps the same score network and update equations but
+-pre-computes the schedule on device, vectorises the time embedding, and batches
+-the sampling loop.
++This is the reference-class fix for SCIML-CRYSTAL-DIFFUSION-07R2.  It keeps the
++same score network and update equations as the baseline but:
++
++* pre-computes the noise schedule on device,
++* vectorises/fuses the sinusoidal time embedding,
++* batches the sampling loop across crystals.
+ """
+ 
+ from __future__ import annotations
+@@ -42,19 +37,17 @@
+         return noise_frac, noise_lengths
+ 
+ 
+-def _build_time_embedding_baseline(t: int, dim: int, device: torch.device | str) -> torch.Tensor:
+-    """Sinusoidal time embedding rebuilt with many tiny ops every step."""
+-    # Baseline: build each frequency component separately and concatenate.
+-    components: list[torch.Tensor] = []
++def _build_time_embedding_vectorized(max_t: int, dim: int, device: torch.device | str) -> torch.Tensor:
++    """Pre-compute the sinusoidal time embedding for all timesteps."""
+     half = dim // 2
+-    for i in range(half):
+-        freq = 1.0 / (10000.0 ** (i / half))
+-        t_tensor = torch.tensor(t, dtype=torch.float32, device=device)
+-        components.append(torch.sin(t_tensor * freq))
+-        components.append(torch.cos(t_tensor * freq))
++    t_vals = torch.arange(max_t + 1, dtype=torch.float32, device=device).unsqueeze(1)
++    freqs = torch.tensor([1.0 / (10000.0 ** (i / half)) for i in range(half)], device=device).unsqueeze(0)
++    angles = t_vals * freqs
++    emb = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1).reshape(max_t + 1, 2 * half)
+     if dim % 2:
+-        components.append(torch.sin(torch.tensor(t, dtype=torch.float32, device=device)))
+-    return torch.stack(components, dim=0)
++        extra = torch.sin(torch.arange(max_t + 1, dtype=torch.float32, device=device))
++        emb = torch.cat([emb, extra.unsqueeze(1)], dim=1)
++    return emb
+ 
+ 
+ def build_sampler(fixtures: dict[str, Any]) -> dict[str, Any]:
+@@ -71,14 +64,11 @@
+     score.to(device)
+     score.eval()
+ 
+-    # Noise schedule as plain Python lists (baseline keeps scalars on CPU).
+-    betas = [config["beta_start"] + (config["beta_end"] - config["beta_start"]) * t / num_steps for t in range(num_steps + 1)]
+-    alphas = [1.0 - b for b in betas]
+-    alpha_bars = []
+-    prod = 1.0
+-    for a in alphas:
+-        prod *= a
+-        alpha_bars.append(prod)
++    # Pre-compute the whole schedule as device tensors.
++    steps = torch.arange(num_steps + 1, dtype=torch.float32, device=device)
++    betas = config["beta_start"] + (config["beta_end"] - config["beta_start"]) * steps / num_steps
++    alphas = 1.0 - betas
++    alpha_bars = torch.cumprod(alphas, dim=0)
+ 
+     return {
+         "score": score,
+@@ -86,38 +76,31 @@
+         "alphas": alphas,
+         "alpha_bars": alpha_bars,
+         "num_steps": num_steps,
+-        "time_emb_dim": int(config["time_emb_dim"]),
++        "time_emb": _build_time_embedding_vectorized(num_steps, int(config["time_emb_dim"]), device),
+         "device": device,
+     }
+ 
+ 
+ def sample_step(sampler: dict[str, Any], state: dict[str, torch.Tensor], step_index: int) -> dict[str, torch.Tensor]:
+-    """One DDPM denoising step.  `step_index` is the current timestep t (1..T)."""
++    """One batched DDPM denoising step."""
+     t = step_index
+-    # Scalar sync: pull schedule values back to host as Python floats.
+-    beta_t = sampler["betas"][t].item() if isinstance(sampler["betas"][t], torch.Tensor) else sampler["betas"][t]
+-    alpha_t = sampler["alphas"][t].item() if isinstance(sampler["alphas"][t], torch.Tensor) else sampler["alphas"][t]
+-    alpha_bar_t = sampler["alpha_bars"][t].item() if isinstance(sampler["alpha_bars"][t], torch.Tensor) else sampler["alpha_bars"][t]
++    beta_t = sampler["betas"][t]
++    alpha_t = sampler["alphas"][t]
++    alpha_bar_t = sampler["alpha_bars"][t]
+ 
+     frac = state["frac"]
+     lengths = state["lengths"]
+-    device = frac.device
+ 
+-    # Launch fragmentation: rebuild the time embedding from many tiny ops.
+-    t_emb = _build_time_embedding_baseline(t, sampler["time_emb_dim"], device)
+-    # t_emb is [dim]; score expects [B, dim].
+-    batch_size = frac.shape[0]
+-    t_emb = t_emb.unsqueeze(0).expand(batch_size, -1)
++    # Fused/vectorised time embedding: one indexed lookup, no tiny per-step ops.
++    t_emb = sampler["time_emb"][t].unsqueeze(0).expand(frac.shape[0], -1)
+ 
+     with torch.no_grad():
+         eps_frac, eps_lengths = sampler["score"](frac, lengths, t_emb)
+ 
+-    # DDPM posterior mean (deterministic sigma = 0 for reproducibility).
+-    coef = beta_t / math.sqrt(1.0 - alpha_bar_t)
+-    new_frac = (frac - coef * eps_frac) / math.sqrt(alpha_t)
+-    new_lengths = (lengths - coef * eps_lengths) / math.sqrt(alpha_t)
++    coef = beta_t / torch.sqrt(1.0 - alpha_bar_t)
++    new_frac = (frac - coef * eps_frac) / torch.sqrt(alpha_t)
++    new_lengths = (lengths - coef * eps_lengths) / torch.sqrt(alpha_t)
+ 
+-    # Wrap fractional coordinates into [0, 1).
+     new_frac = new_frac - new_frac.floor()
+     new_lengths = torch.clamp(new_lengths, min=0.1, max=20.0)
+ 
+@@ -125,29 +108,16 @@
+ 
+ 
+ def sample(sampler: dict[str, Any], fixtures: dict[str, Any], num_steps: int) -> torch.Tensor:
+-    """Sample crystals one-at-a-time (baseline inefficiency #3)."""
++    """Batched sampling across all crystals in one loop."""
+     state = {
+         "frac": fixtures["init_frac"].clone(),
+         "lengths": fixtures["init_lengths"].clone(),
+     }
+     batch_size = state["frac"].shape[0]
+ 
+-    # Baseline: loop over the batch dimension outside the step function.
+-    per_crystal_states: list[dict[str, torch.Tensor]] = []
+-    for i in range(batch_size):
+-        per_crystal_states.append({
+-            "frac": state["frac"][i : i + 1].clone(),
+-            "lengths": state["lengths"][i : i + 1].clone(),
+-        })
+-
+     for t in range(num_steps, 0, -1):
+-        next_states: list[dict[str, torch.Tensor]] = []
+-        for single in per_crystal_states:
+-            next_states.append(sample_step(sampler, single, t))
+-        per_crystal_states = next_states
+-
+-    frac_out = torch.cat([s["frac"] for s in per_crystal_states], dim=0)
+-    lengths_out = torch.cat([s["lengths"] for s in per_crystal_states], dim=0)
+-    # Return concatenated fractional coordinates and lattice lengths so the
+-    # reference and gates can reconstruct Cartesian coordinates.
++        state = sample_step(sampler, state, t)
++
++    frac_out = state["frac"]
++    lengths_out = state["lengths"]
+     return torch.cat([frac_out.reshape(batch_size, -1), lengths_out], dim=-1)

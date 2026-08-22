@@ -1,0 +1,5 @@
+{
+  "mechanism": "scalar_sync",
+  "location": "train_step: loss.item() and per-parameter-group grad-norm .item() calls every step",
+  "why": "Each .item() forces a cudaDeviceSynchronize on CUDA and many small Python float/list operations on CPU. Keeping accumulators on device and synchronizing once per N steps removes the per-step host-read tax while preserving the logged values."
+}

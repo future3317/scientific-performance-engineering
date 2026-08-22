@@ -10,6 +10,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from benchmark.harness import runner
 
 
+def test_task_module_imports_are_isolated() -> None:
+    root = Path("benchmark/tasks")
+    before = list(sys.path)
+    runner.import_module_by_path(root / "EVOL-COMPILER-DRIFT-20" / "benchmark.py")
+    runner.import_module_by_path(root / "EVOL-EPISODE-POISON-10" / "benchmark.py")
+    module = runner.import_module_by_path(root / "SCIML-GRAPH-REBUILD-08R2" / "benchmark.py")
+    assert module.__name__.startswith("spe_evo_benchmark_")
+    assert "SCIML-GRAPH-REBUILD-08R2" in module.__doc__
+    assert sys.path == before
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         task_dir = Path(tmp)

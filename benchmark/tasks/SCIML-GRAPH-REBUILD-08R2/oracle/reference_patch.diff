@@ -1,0 +1,7 @@
+--- a/solution.py
++++ b/solution.py
+@@ -98,1 +98,3 @@
+-    # Baseline: rebuild the neighbor graph every step (correct behavior).
++    # Abstention: keep rebuilding the graph every step.  Caching is unsafe here
++    # because positions change every step, so a cached neighbor list would be
++    # stale and produce incorrect forces.

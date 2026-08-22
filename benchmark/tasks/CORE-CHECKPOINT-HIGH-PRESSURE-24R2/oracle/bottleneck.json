@@ -1,0 +1,6 @@
+{
+  "mechanism": "activation_memory",
+  "injected_condition": "high memory pressure with fragmented logical batch",
+  "preferred_action": "checkpoint_recompute",
+  "action_under_test": "checkpoint_recompute"
+}

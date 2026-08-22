@@ -1,0 +1,6 @@
+{
+  "mechanism": "repeated_compute",
+  "injected_condition": "three identical invariant radial evaluations",
+  "preferred_action": "equivariant_recompute",
+  "action_under_test": "equivariant_recompute"
+}

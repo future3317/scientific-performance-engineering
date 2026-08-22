@@ -1,0 +1,25 @@
+--- a/solution.py
++++ b/solution.py
+@@ -95,15 +95,17 @@
+ def sample_step(sampler: dict[str, Any], state: dict[str, torch.Tensor], step_index: int) -> dict[str, torch.Tensor]:
+     """One deterministic Langevin-ish step.  Positions change every step."""
+     positions = state["positions"]
+-    # Baseline: rebuild the neighbor graph every step (correct behavior).
+-    _, forces = _energy_and_forces(sampler, positions, rebuild=True)
++    # Poisoned optimization: cache the neighbor list across steps.  This is
++    # scientifically invalid because positions change every step, but it is the
++    # tempting rule this task is designed to reject.
++    _, forces = _energy_and_forces(sampler, positions, rebuild=False)
+     noise = _step_noise(positions, step_index, sampler.get("noise_scale", 0.0))
+     new_positions = positions + sampler["dt"] * forces + noise
+     # Keep inside a cubic box with reflective-ish wrap (simple clamp for determinism).
+     new_positions = torch.clamp(new_positions, min=0.0, max=sampler["box"])
+-    # Cache a fresh graph for the new state so energy/force consistency checks
+-    # and the scientific gate see the graph that matches the current positions.
+-    _ = _energy_and_forces(sampler, new_positions, rebuild=True)
++    # Reuse the stale cached graph; this keeps the graph from step 0 and makes
++    # the cached optimization scientifically invalid.
++    _ = _energy_and_forces(sampler, new_positions, rebuild=False)
+     return {"positions": new_positions}
+ 
+ 

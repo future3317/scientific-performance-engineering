@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmark.calibration.report import EMPIRICAL_FLAGS, _empirical_flags, build_report
-from benchmark.harness import miniyaml
+from benchmark.harness import miniyaml, runner
 
 
 def main() -> None:
@@ -153,8 +153,6 @@ def test_compile_boundary_grammar_uses_public_workload_features() -> None:
 
 
 def test_episode_candidate_input_excludes_runtime_identity() -> None:
-    import importlib.util
-
     repo_root = Path(__file__).resolve().parents[2]
     task_ids = (
         "EVOL-EPISODE-POISON-10",
@@ -163,10 +161,7 @@ def test_episode_candidate_input_excludes_runtime_identity() -> None:
     )
     for index, task_id in enumerate(task_ids):
         task_dir = repo_root / "benchmark" / "tasks" / task_id
-        module_spec = importlib.util.spec_from_file_location(f"episode_contract_{index}", task_dir / "benchmark.py")
-        assert module_spec is not None and module_spec.loader is not None
-        module = importlib.util.module_from_spec(module_spec)
-        module_spec.loader.exec_module(module)
+        module = runner.import_module_by_path(task_dir / "benchmark.py")
         observed: dict[str, object] = {}
 
         class SpySolution:

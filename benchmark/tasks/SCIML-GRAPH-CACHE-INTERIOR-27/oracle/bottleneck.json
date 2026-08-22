@@ -1,0 +1,6 @@
+{
+  "mechanism": "static_graph_cache",
+  "injected_condition": "edge topology unchanged at displacement boundary",
+  "preferred_action": "reuse_graph_cache",
+  "action_under_test": "reuse_graph_cache"
+}

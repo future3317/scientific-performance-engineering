@@ -43,7 +43,7 @@ def make_fixtures(seed:int,device:str='cpu'):
     g=torch.Generator().manual_seed(seed); d=32; w=128; x=torch.randn(16,d,generator=g); x2=x+0.05*torch.randn(16,d,generator=g); y1=torch.randn(16,generator=g); y2=torch.randn(16,generator=g)
     probe=_load(_TASK_DIR/'workspace'/'solution.py','probe'); m=probe.Model(d,w)
     for p in m.parameters(): p.data.normal_(0,0.02,generator=g)
-    return {'device':device,'in_dim':d,'width':w,'batch':(x,x2,y1,y2),'logical_batch_size':16,'lr':0.005,'init_state':m.state_dict()}
+    return {'device':device,'in_dim':d,'width':w,'batch':(x,x2,y1,y2),'logical_batch_size':16,'repeat_count':2,'lr':0.005,'init_state':m.state_dict()}
 
 
 def run_correctness(solution,fixtures): return _CHECKS.check_pair(solution,fixtures)

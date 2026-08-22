@@ -1,0 +1,27 @@
+{
+  "task_id": "CORE-SCALAR-SYNC-01R2",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-SCALAR-SYNC-R2-V1",
+    "mutation_seed": 3929792783
+  },
+  "split": {
+    "group": "training_loop_overhead-scalar_sync-synthetic-MT-SCALAR-SYNC-R2-V1",
+    "phase": "acquisition"
+  },
+  "difficulty": "medium",
+  "authoring_note": "Prototype SPE-Core task. Baseline forces per-step .item() host reads on the loss and on every per-parameter-group grad norm, appending Python floats and recomputing running statistics. Oracle keeps accumulators on device and synchronizes once per N steps. Effect is visible on CPU (Python float/list overhead) and larger on CUDA (cudaDeviceSynchronize per .item()).",
+  "title": "Per-step scalar synchronization in a tiny MLP training loop",
+  "track": "spe_core",
+  "family": "training_loop_overhead",
+  "mechanism": "scalar_sync",
+  "kind": "positive",
+  "split_group": {
+    "family": "training_loop_overhead",
+    "mechanism": "scalar_sync",
+    "source": "synthetic",
+    "mutation_template_id": "MT-SCALAR-SYNC-R2-V1"
+  },
+  "family_id": "scalar_sync",
+  "anchor_instance_id": "CORE-SCALAR-SYNC-01R2"
+}

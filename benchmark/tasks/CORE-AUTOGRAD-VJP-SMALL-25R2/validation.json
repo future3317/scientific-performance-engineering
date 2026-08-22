@@ -1,0 +1,39 @@
+{
+  "baseline_validation": "passed_local_package_smoke",
+  "oracle_validation": "passed_local_package_smoke",
+  "anti_cheat": "architecture/work-unit/source-contrast checks included; formal repo anti-cheat not run",
+  "deterministic_fixture": true,
+  "formal_population_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "local_validation": {
+    "task_id": "CORE-AUTOGRAD-VJP-SMALL-25R2",
+    "kind": "counterexample",
+    "family_id": "autograd",
+    "reference_patch_equivalent": true,
+    "public_test_pass": "validated_in_batch",
+    "baseline_correctness": true,
+    "oracle_correctness": true,
+    "baseline_science": true,
+    "oracle_science": true,
+    "oracle_activation_matches_action": false,
+    "oracle_is_source_identical": true
+  },
+  "counterexample_probe": {
+    "probe": "is_grads_batched=True",
+    "correctness": true,
+    "science": true,
+    "speedups": [
+      1.074067949190425,
+      0.9517743631116161,
+      0.9958495734111594,
+      0.8800579410455583,
+      0.9723856416663184,
+      0.9486117825906943,
+      1.0318490543308911
+    ],
+    "median_speedup": 0.9723856416663184,
+    "clears_5_percent": false
+  }
+}
+
+

@@ -1,0 +1,2 @@
+Only two output channels require VJPs. Preserve the exact Jacobian-derived regularizer. Batched VJP is a tempting intervention, but this anchor is deliberately below the current applicability threshold; abstention is valid.
+

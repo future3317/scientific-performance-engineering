@@ -1,0 +1,5 @@
+{
+  "mechanism": "repeated_compute",
+  "location": "workspace/solution.py:eval_trajectory",
+  "why": "The baseline recomputes the edge vectors and rank-3 symmetric basis at every relaxation step. Because the positions change every step, caching the basis would be semantically invalid; the correct action is to abstain and document why."
+}

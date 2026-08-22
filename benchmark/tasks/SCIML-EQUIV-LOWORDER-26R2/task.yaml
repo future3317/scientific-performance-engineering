@@ -1,0 +1,59 @@
+schema_version: 1
+task_id: SCIML-EQUIV-LOWORDER-26R2
+track: sciml
+family: equivariant_head
+mechanism: repeated_compute
+kind: positive
+lineage:
+  source: fairchem-shaped
+  mutation_template_id: MT-EQUIV-LOWORDER-REUSE-V1
+  mutation_seed: 1097226425
+title: "Low-order equivariant vector head: reuse scalar radial path"
+requires_cuda: false
+time_budget_s: 180
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 3
+  measured_iterations: 20
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: "1e-05"
+scientific_gates: [equivariance_preserved]
+diagnosis:
+  enabled: true
+  choices: [scalar_sync, h2d_blocking, repeated_compute, launch_fragmentation, graph_rebuild, compile_dynamic_shapes, memory_pressure, autograd_overhead]
+oracle:
+  expected_speedup_range: [1.2, 3.5]
+generator_family_id: GEN-EQUIVARIANT_HEAD
+oracle_fix_pattern_id: FIX-EQUIV-REUSE-RADIAL-LOWORDER
+scientific_contract_id: CONTRACT-EQUIVARIANCE
+difficulty_tier: medium
+workspace_ast_skeleton_hash: b74f1f04e290abf57c1d826db076182e642aeb7d0a8158cd6d4bf24060a10662
+family_id: equivariant_head
+anchor_instance_id: SCIML-EQUIV-LOWORDER-26R2
+family_parameters:
+  irrep_order: 1
+  node_count: 64
+  recompute_rate: 0.75
+  fixture_index: 1
+  seed: 0
+family_instance_digest: "165d7b9c1137bb4876e4088d24f8266759231cd58aa7111b1dfefedaf02aeb17"
+public_context:
+  workload:
+    irrep_order: 1
+    node_count: 64
+    recompute_rate: 0.75
+    fixture_index: 1
+    seed: 0
+ast_skeleton_version: 2

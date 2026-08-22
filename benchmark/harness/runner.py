@@ -93,7 +93,7 @@ def hash_harness_files(harness_dir: str | Path | None = None) -> dict[str, str]:
 
 def import_module_by_path(path: str | Path, module_name: str | None = None):
     """Import a Python module from an explicit file path (benchmark.py, solutions)."""
-    path = Path(path)
+    path = Path(path).resolve()
     if not path.is_file():
         raise FileNotFoundError(str(path))
     name = module_name or f"spe_evo_{path.stem}_{hashlib.sha1(str(path).encode()).hexdigest()[:8]}"
@@ -122,24 +122,21 @@ def import_module_by_path(path: str | Path, module_name: str | None = None):
                 del sys.modules[key]
         except (OSError, ValueError):
             continue
-    added_paths: list[str] = []
+    original_sys_path = list(sys.path)
     root_text = str(repo_root)
     task_text = str(path.parent)
     if root_text not in sys.path:
         sys.path.insert(0, root_text)
-        added_paths.append(root_text)
     if task_text not in sys.path:
         sys.path.append(task_text)
-        added_paths.append(task_text)
     try:
-        sys.modules[module_name] = module
+        sys.modules[name] = module
         spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
     finally:
-        for entry in reversed(added_paths):
-            try:
-                sys.path.remove(entry)
-            except ValueError:
-                pass
+        sys.path[:] = original_sys_path
     return module
 
 

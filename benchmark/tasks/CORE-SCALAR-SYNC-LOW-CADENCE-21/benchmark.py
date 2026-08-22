@@ -44,7 +44,7 @@ def make_fixtures(seed:int, device:str="cpu"):
     x=torch.randn(64,in_dim,generator=g); y=torch.randn(64,generator=g)
     probe=_load(_TASK_DIR/'workspace'/'solution.py','probe'); m=probe.TinyRegressor(in_dim)
     for p in m.parameters(): p.data.normal_(0,0.03,generator=g)
-    return {'device':'cpu','requested_device':device,'in_dim':in_dim,'batch':(x,y),'logical_batch_size':64,'lr':0.01,'init_state':m.state_dict()}
+    return {'device':'cpu','requested_device':device,'in_dim':in_dim,'batch':(x,y),'logical_batch_size':64,'lr':0.01,'scalar_syncs_per_step':4,'metric_cadence':8,'init_state':m.state_dict()}
 
 
 def run_correctness(solution, fixtures): return _CHECKS.check_training(solution, fixtures)

@@ -1,0 +1,66 @@
+--- a/solution.py
++++ b/solution.py
+@@ -1,8 +1,7 @@
+-"""Baseline solution for CORE-H2D-PIPELINE-03R2 (train_loop_v1 API).
++"""Oracle (reference) solution for CORE-H2D-PIPELINE-03R2 (train_loop_v1 API).
+ 
+-This baseline is CORRECT but INEFFICIENT: it uses a DataLoader with no
+-pinning/prefetch and performs blocking host-to-device copies plus a per-step
+-CUDA synchronize inside the hot training step. See README.md for the task.
++Optimized pipeline: pinned-memory DataLoader with prefetch and non-blocking
++host-to-device copies; no per-step synchronization.
+ """
+ 
+ from __future__ import annotations
+@@ -25,32 +24,29 @@
+ 
+ 
+ def _make_dataloader(fixtures):
+-    """Build the training DataLoader used by run_training."""
++    """Build a pinned, prefetched DataLoader."""
+     cfg = fixtures["data_config"]
+     dataset = TensorDataset(fixtures["inputs"], fixtures["targets"])
+     return DataLoader(
+         dataset,
+         batch_size=cfg["batch_size"],
+         shuffle=False,
+-        num_workers=0,
+-        pin_memory=False,
++        num_workers=2,
++        pin_memory=True,
++        prefetch_factor=2,
++        persistent_workers=True,
+         drop_last=True,
+     )
+ 
+ 
+ def train_step(model, batch, optimizer):
+-    """One blocking train step (forward + backward + optimizer).
+-
+-    Returns {"loss": tensor, "work_units": {...}}.
+-    """
++    """One overlapped train step."""
+     device = next(model.parameters()).device
+     inputs, targets = batch
+ 
+-    # Inefficient baseline: blocking H2D copy + explicit per-step sync.
+-    inputs = inputs.to(device, non_blocking=False)
+-    targets = targets.to(device, non_blocking=False)
+-    if device.type == "cuda":
+-        torch.cuda.synchronize()
++    # Pinned source tensors allow non-blocking H2D copies.
++    inputs = inputs.to(device, non_blocking=True)
++    targets = targets.to(device, non_blocking=True)
+ 
+     optimizer.zero_grad()
+     preds = model(inputs).squeeze(-1)
+@@ -58,9 +54,6 @@
+     loss.backward()
+     optimizer.step()
+ 
+-    if device.type == "cuda":
+-        torch.cuda.synchronize()
+-
+     return {
+         "loss": loss.detach(),
+         "work_units": {"forward": 1, "backward": 1, "optimizer": 1},

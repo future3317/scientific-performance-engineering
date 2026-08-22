@@ -1,0 +1,59 @@
+schema_version: 1
+task_id: SCIML-EQUIV-RECOMPUTE-06R2
+track: sciml
+family: equivariant_head
+mechanism: repeated_compute
+kind: counterexample
+lineage:
+  source: fairchem-shaped
+  mutation_template_id: MT-REPEATED-BASIS-V1
+  mutation_seed: 4069147195
+title: "Misleading rank-3 equivariant-basis caching across a structure-relaxation trajectory"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: energy_force_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 5
+  measured_iterations: 25
+  repetitions: 4
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: 1e-05
+scientific_gates: [equivariance_rank3, translation_invariance]
+diagnosis:
+  enabled: true
+  choices: [repeated_compute, ragged_loops, autograd_overhead, graph_rebuild, scalar_sync, launch_fragmentation, h2d_blocking]
+oracle:
+  expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-EQUIVARIANT_HEAD
+oracle_fix_pattern_id: FIX-SCIML-EQUIV-RECOMPUTE-06R2
+scientific_contract_id: CONTRACT-EQUIVARIANCE
+difficulty_tier: medium
+workspace_ast_skeleton_hash: "60c19dfb6d0f993c453025f13ac007587381936b0b3e68f420cd5d4d2ecb7496"
+family_id: equivariant_head
+anchor_instance_id: SCIML-EQUIV-RECOMPUTE-06R2
+family_parameters:
+  irrep_order: 2
+  node_count: 64
+  recompute_rate: 0.5
+  fixture_index: 0
+  seed: 0
+family_instance_digest: "9ea2031abe0d0369a5954b25deeb013329a5e2928eb3fe37b37960969ab27771"
+public_context:
+  workload:
+    irrep_order: 2
+    node_count: 64
+    recompute_rate: 0.5
+    fixture_index: 0
+    seed: 0
+ast_skeleton_version: 2

@@ -1,0 +1,6 @@
+{
+  "mechanism": "graph_rebuild",
+  "injected_condition": "slow Python rebuild with stable topology",
+  "preferred_action": "graph_rebuild",
+  "action_under_test": "graph_rebuild"
+}

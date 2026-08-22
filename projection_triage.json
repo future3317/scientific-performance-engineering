@@ -1,0 +1,873 @@
+{
+  "schema_version": 1,
+  "audit_scope": {
+    "population_id": "SPE-EvoBench-v1.0-30-pilot",
+    "active_task_count": 30,
+    "seed": 0,
+    "device": "cpu",
+    "source": "scripts/audit_family_projection.py -> benchmark.families.projection.audit_population",
+    "read_only_production": true,
+    "rc3_started": false,
+    "production_files_modified_by_this_audit": []
+  },
+  "projection_summary": {
+    "raw_pass": 11,
+    "raw_drift": 19,
+    "raw_errors": 0,
+    "drift_class_counts": {
+      "NONE": 11,
+      "PARAMETER_PROJECTION_DRIFT": 7,
+      "WORKLOAD_CLONE_DRIFT": 8,
+      "EXTRACTOR_FALSE_POSITIVE": 2,
+      "FAMILY_CONTRACT_ERROR": 2
+    },
+    "note": "drift_class=NONE is used only for projection passes; named drift classes apply to drift records."
+  },
+  "tasks": [
+    {
+      "task_id": "CORE-SCALAR-SYNC-01R2",
+      "declared": {
+        "scalar_syncs_per_step": 12,
+        "metric_cadence": 4
+      },
+      "status": "pass",
+      "family": "scalar_sync",
+      "observed": {
+        "metric_cadence": 4,
+        "scalar_syncs_per_step": 12
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "CORE-H2D-PIPELINE-03",
+      "declared": {
+        "batch_size": 4096,
+        "worker_count": 2,
+        "prefetch_factor": 2,
+        "pin_memory": true
+      },
+      "status": "drift",
+      "family": "h2d_pipeline",
+      "observed": {
+        "batch_size": 4096,
+        "pin_memory": null,
+        "prefetch_factor": null,
+        "worker_count": null
+      },
+      "mismatch_fields": [
+        "pin_memory",
+        "prefetch_factor",
+        "worker_count"
+      ],
+      "drift_class": "PARAMETER_PROJECTION_DRIFT",
+      "classification_basis": "make_fixtures exposes only data_config.batch_size; declared worker_count/prefetch_factor/pin_memory are not executable fixture fields.",
+      "action": "BLOCK task for authoring reconciliation; do not change extractor or calibration gates."
+    },
+    {
+      "task_id": "CORE-COMPILE-DYNAMIC-11",
+      "declared": {
+        "logical_steps": 128,
+        "graph_size": 128,
+        "dynamic_shape_rate": 0.3
+      },
+      "status": "pass",
+      "family": "compile",
+      "observed": {
+        "dynamic_shape_rate": 0.3,
+        "graph_size": 128,
+        "logical_steps": 128
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "CORE-MEM-RETAINED-GRAPH-13",
+      "declared": {
+        "memory_pressure": 0.7,
+        "segment_count": 4,
+        "recompute_ratio": 0.2
+      },
+      "status": "drift",
+      "family": "checkpoint",
+      "observed": {
+        "logical_batch_size": null,
+        "memory_pressure": null,
+        "recompute_ratio": null,
+        "segment_count": null
+      },
+      "mismatch_fields": [
+        "memory_pressure",
+        "recompute_ratio",
+        "segment_count"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Exact checkpoint/train-loop prototype structure is shared with tasks 14, 15, and 16 despite different declared families.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "CORE-AUTOGRAD-BATCHED-VJP-15",
+      "declared": {
+        "output_count": 8,
+        "input_dim": 128,
+        "jacobian_density": 0.5
+      },
+      "status": "drift",
+      "family": "autograd",
+      "observed": {
+        "input_dim": 256,
+        "jacobian_density": null,
+        "output_count": null
+      },
+      "mismatch_fields": [
+        "input_dim",
+        "jacobian_density",
+        "output_count"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Exact checkpoint/train-loop prototype structure is shared with tasks 13, 14, and 16, not an autograd VJP workload.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+      "declared": {
+        "geometry_displacement": 0.03,
+        "skin": 0.4,
+        "graph_size": 96,
+        "dynamic_rate": 0.1
+      },
+      "status": "drift",
+      "family": "graph_cache",
+      "observed": {
+        "graph_count": 8,
+        "graph_node_counts": [
+          12,
+          14,
+          16,
+          18,
+          20,
+          13,
+          15,
+          17
+        ]
+      },
+      "mismatch_fields": [
+        "dynamic_rate",
+        "geometry_displacement",
+        "graph_size",
+        "skin"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Exact graph benchmark/hidden/oracle structure is shared with tasks 5, 18, and 19; observed fixtures are the same graph sequence.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+      "declared": {
+        "scalar_syncs_per_step": 4,
+        "metric_cadence": 8
+      },
+      "status": "drift",
+      "family": "scalar_sync",
+      "observed": {
+        "metric_cadence": null,
+        "scalar_syncs_per_step": null
+      },
+      "mismatch_fields": [
+        "metric_cadence",
+        "scalar_syncs_per_step"
+      ],
+      "drift_class": "EXTRACTOR_FALSE_POSITIVE",
+      "classification_basis": "Workspace train_step directly implements four scalar reads on metric_step % 8, matching the declaration although make_fixtures omits those metadata fields.",
+      "action": "Keep task semantics; record extractor coverage gap separately; no extractor edit in this triage."
+    },
+    {
+      "task_id": "CORE-H2D-OVERFANOUT-23R2",
+      "declared": {
+        "batch_size": 32,
+        "worker_count": 5,
+        "prefetch_factor": 4,
+        "pin_memory": true
+      },
+      "status": "drift",
+      "family": "h2d_pipeline",
+      "observed": {
+        "batch_size": 32,
+        "pin_memory": null,
+        "prefetch_factor": null,
+        "worker_count": null
+      },
+      "mismatch_fields": [
+        "pin_memory",
+        "prefetch_factor",
+        "worker_count"
+      ],
+      "drift_class": "FAMILY_CONTRACT_ERROR",
+      "classification_basis": "h2d_pipeline metadata maps to a plain linear train loop with no DataLoader, pinning, prefetch, or non-blocking copy.",
+      "action": "BLOCK task; reconcile family/benchmark contract before calibration."
+    },
+    {
+      "task_id": "CORE-REPEATED-BACKBONE-02R2",
+      "declared": {
+        "repeat_count": 4,
+        "backbone_width": 256,
+        "batch_size": 32
+      },
+      "status": "pass",
+      "family": "repeated_compute",
+      "observed": {
+        "backbone_width": 256,
+        "batch_size": 32,
+        "repeat_count": 4
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "CORE-COMPILE-RECOMPILE-04",
+      "declared": {
+        "logical_steps": 128,
+        "graph_size": 64,
+        "dynamic_shape_rate": 0.0
+      },
+      "status": "pass",
+      "family": "compile",
+      "observed": {
+        "dynamic_shape_rate": 0.0,
+        "graph_size": 64,
+        "logical_steps": 128
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "CORE-COMPILE-TINY-12",
+      "declared": {
+        "logical_steps": 8,
+        "graph_size": 64,
+        "dynamic_shape_rate": 0.8
+      },
+      "status": "pass",
+      "family": "compile",
+      "observed": {
+        "dynamic_shape_rate": 0.8,
+        "graph_size": 64,
+        "logical_steps": 8
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14",
+      "declared": {
+        "memory_pressure": 0.4,
+        "segment_count": 3,
+        "recompute_ratio": 0.2
+      },
+      "status": "drift",
+      "family": "checkpoint",
+      "observed": {
+        "logical_batch_size": null,
+        "memory_pressure": null,
+        "recompute_ratio": null,
+        "segment_count": null
+      },
+      "mismatch_fields": [
+        "memory_pressure",
+        "recompute_ratio",
+        "segment_count"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Exact checkpoint/train-loop prototype structure is shared with tasks 13, 15, and 16 despite counterexample metadata.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "SCIML-GNN-DYNAMIC-GRAPH-18",
+      "declared": {
+        "geometry_displacement": 0.08,
+        "skin": 0.6,
+        "graph_size": 96,
+        "dynamic_rate": 0.8
+      },
+      "status": "drift",
+      "family": "graph_cache",
+      "observed": {
+        "graph_count": 8,
+        "graph_node_counts": [
+          12,
+          14,
+          16,
+          18,
+          20,
+          13,
+          15,
+          17
+        ]
+      },
+      "mismatch_fields": [
+        "dynamic_rate",
+        "geometry_displacement",
+        "graph_size",
+        "skin"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Exact graph benchmark/hidden/oracle structure is shared with tasks 5, 17, and 19; observed fixtures are the same graph sequence.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
+      "declared": {
+        "repeat_count": 2,
+        "backbone_width": 128,
+        "batch_size": 16
+      },
+      "status": "drift",
+      "family": "repeated_compute",
+      "observed": {
+        "backbone_width": 128,
+        "batch_size": 16,
+        "repeat_count": null
+      },
+      "mismatch_fields": [
+        "repeat_count"
+      ],
+      "drift_class": "EXTRACTOR_FALSE_POSITIVE",
+      "classification_basis": "Workspace Model.forward_pair has exactly two heads; extractor does not map this executable two-head structure to repeat_count, while width and batch size are observed.",
+      "action": "Keep task semantics; record extractor coverage gap separately; no extractor edit in this triage."
+    },
+    {
+      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
+      "declared": {
+        "memory_pressure": 0.8,
+        "segment_count": 4,
+        "recompute_ratio": 0.5
+      },
+      "status": "pass",
+      "family": "checkpoint",
+      "observed": {
+        "logical_batch_size": 32,
+        "memory_pressure": 0.8,
+        "recompute_ratio": 0.5,
+        "segment_count": 4
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25",
+      "declared": {
+        "output_count": 2,
+        "input_dim": 64,
+        "jacobian_density": 0.5
+      },
+      "status": "drift",
+      "family": "autograd",
+      "observed": {
+        "input_dim": 64,
+        "jacobian_density": null,
+        "output_count": 2
+      },
+      "mismatch_fields": [
+        "jacobian_density"
+      ],
+      "drift_class": "PARAMETER_PROJECTION_DRIFT",
+      "classification_basis": "input_dim/output_count match, but jacobian_density has no fixture or implementation counterpart; code computes a full Jacobian path.",
+      "action": "BLOCK task for parameter-contract reconciliation before calibration."
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-DIFFUSION-07",
+      "declared": {
+        "atom_count": 32,
+        "diffusion_steps": 100,
+        "guidance_scale": 2.0
+      },
+      "status": "drift",
+      "family": "crystal_generation",
+      "observed": {
+        "atom_count": 8,
+        "diffusion_steps": 20,
+        "guidance_scale": null
+      },
+      "mismatch_fields": [
+        "atom_count",
+        "diffusion_steps",
+        "guidance_scale"
+      ],
+      "drift_class": "PARAMETER_PROJECTION_DRIFT",
+      "classification_basis": "Executable CONFIG is num_atoms=8 and num_steps=20 with no guidance_scale, versus declared 32/100/2.0.",
+      "action": "BLOCK task for workload materialization reconciliation before calibration."
+    },
+    {
+      "task_id": "CORE-KERNEL-FUSION-09",
+      "declared": {
+        "logical_steps": 192,
+        "graph_size": 320,
+        "dynamic_shape_rate": 0.2
+      },
+      "status": "drift",
+      "family": "compile",
+      "observed": {},
+      "mismatch_fields": [
+        "dynamic_shape_rate",
+        "graph_size",
+        "logical_steps"
+      ],
+      "drift_class": "FAMILY_CONTRACT_ERROR",
+      "classification_basis": "Declared compile axes are absent; benchmark.make_fixtures exposes shape and affine/clamp scalars under kernel_module_v1 with no compile_profile.",
+      "action": "BLOCK task; reconcile compile family contract with executable API before calibration."
+    },
+    {
+      "task_id": "CORE-DATALOADER-FANOUT-16",
+      "declared": {
+        "batch_size": 64,
+        "worker_count": 3,
+        "prefetch_factor": 4,
+        "pin_memory": true
+      },
+      "status": "drift",
+      "family": "h2d_pipeline",
+      "observed": {
+        "batch_size": null,
+        "pin_memory": null,
+        "prefetch_factor": null,
+        "worker_count": null
+      },
+      "mismatch_fields": [
+        "batch_size",
+        "pin_memory",
+        "prefetch_factor",
+        "worker_count"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Workspace/oracle/hidden structure is exact with the checkpoint/train-loop prototype cluster while metadata declares h2d fanout.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "SCIML-FORCE-AUTOGRAD-19",
+      "declared": {
+        "geometry_displacement": 0.02,
+        "skin": 0.8,
+        "graph_size": 128,
+        "dynamic_rate": 0.3
+      },
+      "status": "drift",
+      "family": "graph_cache",
+      "observed": {
+        "graph_count": 8,
+        "graph_node_counts": [
+          12,
+          14,
+          16,
+          18,
+          20,
+          13,
+          15,
+          17
+        ]
+      },
+      "mismatch_fields": [
+        "dynamic_rate",
+        "geometry_displacement",
+        "graph_size",
+        "skin"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Exact graph benchmark/hidden/oracle structure is shared with tasks 5, 17, and 18; observed fixtures are the same graph sequence.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "SCIML-EQUIV-LOWORDER-26",
+      "declared": {
+        "irrep_order": 1,
+        "node_count": 64,
+        "recompute_rate": 0.75
+      },
+      "status": "drift",
+      "family": "equivariant_head",
+      "observed": {
+        "irrep_order": null,
+        "node_count": 64,
+        "recompute_rate": null
+      },
+      "mismatch_fields": [
+        "irrep_order",
+        "recompute_rate"
+      ],
+      "drift_class": "PARAMETER_PROJECTION_DRIFT",
+      "classification_basis": "node_count=64 matches, but fixture/workspace expose no irrep_order or recompute_rate; model is a simple vector head.",
+      "action": "BLOCK task for parameter-contract reconciliation before calibration."
+    },
+    {
+      "task_id": "SCIML-GRAPH-CACHE-INTERIOR-27",
+      "declared": {
+        "geometry_displacement": 0.03,
+        "skin": 0.4,
+        "graph_size": 128,
+        "dynamic_rate": 0.2
+      },
+      "status": "pass",
+      "family": "graph_cache",
+      "observed": {
+        "dynamic_rate": 0.2,
+        "geometry_displacement": 0.03,
+        "graph_size": 128,
+        "skin": 0.4
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
+      "declared": {
+        "atom_count": 32,
+        "diffusion_steps": 100,
+        "guidance_scale": 4.0
+      },
+      "status": "pass",
+      "family": "crystal_generation",
+      "observed": {
+        "atom_count": 32,
+        "diffusion_steps": 100,
+        "guidance_scale": 4.0
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+      "declared": {
+        "neighbor_count": 8,
+        "sample_count": 32,
+        "geometry_variation": 0.2
+      },
+      "status": "drift",
+      "family": "crystal_sampling",
+      "observed": {
+        "geometry_variation": null,
+        "neighbor_count": null,
+        "sample_count": 32
+      },
+      "mismatch_fields": [
+        "geometry_variation",
+        "neighbor_count"
+      ],
+      "drift_class": "PARAMETER_PROJECTION_DRIFT",
+      "classification_basis": "sample_count=32 matches, but neighbor_count and geometry_variation are absent from fixture/workspace.",
+      "action": "BLOCK task for parameter-contract reconciliation before calibration."
+    },
+    {
+      "task_id": "EVOL-COMPILER-DRIFT-20",
+      "declared": {
+        "runtime_version": "B",
+        "context_width": 3,
+        "drift_rate": 0.25
+      },
+      "status": "pass",
+      "family": "episode",
+      "observed": {
+        "context_width": 3,
+        "drift_rate": 0.25,
+        "fixture_index": 1,
+        "runtime_version": "B"
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "EVOL-EQUIVARIANT-SPECIALIZE-30",
+      "declared": {
+        "runtime_version": "A",
+        "context_width": 4,
+        "drift_rate": 0.3
+      },
+      "status": "pass",
+      "family": "episode",
+      "observed": {
+        "context_width": 4,
+        "drift_rate": 0.3,
+        "fixture_index": 2,
+        "runtime_version": "A"
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "EVOL-EPISODE-POISON-10",
+      "declared": {
+        "runtime_version": "A",
+        "context_width": 2,
+        "drift_rate": 0.05
+      },
+      "status": "pass",
+      "family": "episode",
+      "observed": {
+        "context_width": 2,
+        "drift_rate": 0.05,
+        "fixture_index": 0,
+        "runtime_version": "A"
+      },
+      "mismatch_fields": [],
+      "drift_class": "NONE",
+      "classification_basis": "All declared projection fields match the executable fixture projection.",
+      "action": "NO_ACTION_PROJECTION_PASS"
+    },
+    {
+      "task_id": "SCIML-GRAPH-REBUILD-08",
+      "declared": {
+        "neighbor_count": 12,
+        "sample_count": 24,
+        "geometry_variation": 0.7
+      },
+      "status": "drift",
+      "family": "crystal_sampling",
+      "observed": {
+        "geometry_variation": null,
+        "neighbor_count": null,
+        "sample_count": null
+      },
+      "mismatch_fields": [
+        "geometry_variation",
+        "neighbor_count",
+        "sample_count"
+      ],
+      "drift_class": "PARAMETER_PROJECTION_DRIFT",
+      "classification_basis": "Fixture uses config.num_atoms=16 and num_steps=120 with changing positions; declared neighbor_count/sample_count/geometry_variation are absent.",
+      "action": "BLOCK task for parameter-contract reconciliation before calibration."
+    },
+    {
+      "task_id": "SCIML-GNN-RAGGED-05",
+      "declared": {
+        "geometry_displacement": 0.02,
+        "skin": 0.2,
+        "graph_size": 64,
+        "dynamic_rate": 0.0
+      },
+      "status": "drift",
+      "family": "graph_cache",
+      "observed": {
+        "graph_count": 8,
+        "graph_node_counts": [
+          12,
+          14,
+          16,
+          18,
+          20,
+          13,
+          15,
+          17
+        ]
+      },
+      "mismatch_fields": [
+        "dynamic_rate",
+        "geometry_displacement",
+        "graph_size",
+        "skin"
+      ],
+      "drift_class": "WORKLOAD_CLONE_DRIFT",
+      "classification_basis": "Exact graph benchmark/hidden/oracle structure is shared with tasks 17, 18, and 19; observed fixtures are the same graph sequence.",
+      "action": "BLOCK task; replace cloned workload package before calibration."
+    },
+    {
+      "task_id": "SCIML-EQUIV-RECOMPUTE-06",
+      "declared": {
+        "irrep_order": 2,
+        "node_count": 64,
+        "recompute_rate": 0.5
+      },
+      "status": "drift",
+      "family": "equivariant_head",
+      "observed": {
+        "irrep_order": null,
+        "node_count": null,
+        "recompute_rate": null
+      },
+      "mismatch_fields": [
+        "irrep_order",
+        "node_count",
+        "recompute_rate"
+      ],
+      "drift_class": "PARAMETER_PROJECTION_DRIFT",
+      "classification_basis": "Executable trajectory has 14 atoms and changing positions; declared node_count=64, irrep_order=2, and recompute_rate=0.5 are absent.",
+      "action": "BLOCK task for parameter-contract reconciliation before calibration."
+    }
+  ],
+  "clone_audit": {
+    "method": {
+      "package_digest": "benchmark.calibration.identity.task_package_digest",
+      "workspace_ast": "benchmark.taskgen.generate.ast_skeleton_hash plus stored-hash recomputation",
+      "benchmark_workspace_hidden_ast": "normalized AST structure signatures ignoring literal values",
+      "oracle_patch_structure": "reference/tempting patch hunk add-delete-context shape digest"
+    },
+    "digest_checks": {
+      "package_digest_unique_count": 30,
+      "active_task_count": 30,
+      "stored_workspace_ast_matches_recomputed_count": 30,
+      "package_digest_collisions": []
+    },
+    "prototype_clusters": [
+      {
+        "cluster_id": "PROTO-CHECKPOINT-TRAINLOOP",
+        "tasks": [
+          "CORE-MEM-RETAINED-GRAPH-13",
+          "CORE-AUTOGRAD-BATCHED-VJP-15",
+          "CORE-CHECKPOINT-AMPLE-MEM-14",
+          "CORE-DATALOADER-FANOUT-16"
+        ],
+        "confirmation": "confirmed_cross_family_clone",
+        "evidence": {
+          "benchmark_ast_exact_tasks": [
+            "CORE-MEM-RETAINED-GRAPH-13",
+            "CORE-AUTOGRAD-BATCHED-VJP-15",
+            "CORE-CHECKPOINT-AMPLE-MEM-14"
+          ],
+          "workspace_ast_exact_tasks": [
+            "CORE-MEM-RETAINED-GRAPH-13",
+            "CORE-AUTOGRAD-BATCHED-VJP-15",
+            "CORE-CHECKPOINT-AMPLE-MEM-14",
+            "CORE-DATALOADER-FANOUT-16"
+          ],
+          "hidden_verifier_ast_exact_tasks": [
+            "CORE-MEM-RETAINED-GRAPH-13",
+            "CORE-AUTOGRAD-BATCHED-VJP-15",
+            "CORE-CHECKPOINT-AMPLE-MEM-14",
+            "CORE-DATALOADER-FANOUT-16"
+          ],
+          "oracle_patch_structure_exact_tasks": [
+            "CORE-MEM-RETAINED-GRAPH-13",
+            "CORE-AUTOGRAD-BATCHED-VJP-15",
+            "CORE-CHECKPOINT-AMPLE-MEM-14",
+            "CORE-DATALOADER-FANOUT-16"
+          ],
+          "benchmark_ast": "dbfbdab2fe04e5700fc015224bfbb189ca8b240b5916ad99ed7cd693ead8e210",
+          "workspace_ast": "b3d22a7312a7456d9f85401c169e11d9f503069f8f2f4308fb8f185b262660a3",
+          "hidden_verifier_ast": "83596ec4e6bf6eadad4227ff71bc1d7b8f6f8c78b697ad5a1d4e8ae1f2032e3a",
+          "oracle_patch_structure_digest": "3c565fb30c446303ad14abe6673078ae329965ac732d4ad5946026215433972d"
+        },
+        "package_digest_collision": false
+      },
+      {
+        "cluster_id": "PROTO-GRAPH-ENERGY-FORCE",
+        "tasks": [
+          "SCIML-GNN-RAGGED-05",
+          "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+          "SCIML-GNN-DYNAMIC-GRAPH-18",
+          "SCIML-FORCE-AUTOGRAD-19"
+        ],
+        "confirmation": "confirmed_cross_family_clone",
+        "evidence": {
+          "benchmark_ast_exact_tasks": [
+            "SCIML-GNN-RAGGED-05",
+            "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+            "SCIML-GNN-DYNAMIC-GRAPH-18",
+            "SCIML-FORCE-AUTOGRAD-19"
+          ],
+          "workspace_ast_exact_tasks": [
+            "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+            "SCIML-GNN-DYNAMIC-GRAPH-18",
+            "SCIML-FORCE-AUTOGRAD-19"
+          ],
+          "hidden_verifier_ast_exact_tasks": [
+            "SCIML-GNN-RAGGED-05",
+            "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+            "SCIML-GNN-DYNAMIC-GRAPH-18",
+            "SCIML-FORCE-AUTOGRAD-19"
+          ],
+          "oracle_patch_structure_exact_tasks": [
+            "SCIML-GNN-RAGGED-05",
+            "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+            "SCIML-GNN-DYNAMIC-GRAPH-18",
+            "SCIML-FORCE-AUTOGRAD-19"
+          ],
+          "benchmark_ast": "a5f90a8b3ec7e201a17a774001167d959b5a50a016beaaaf19c73fa7cc93aeb7",
+          "hidden_verifier_ast": "7395c98c8cbbab418bf499a2751f93950f5cf5af91a6ce707de7375972dc2527",
+          "oracle_patch_structure_digest": "968f4bedc0a341c72298444ec796525bdc3c07c306843d69506bb7601b136dcb"
+        },
+        "package_digest_collision": false
+      },
+      {
+        "cluster_id": "PROTO-COMPILE-HIDDEN-TEMPLATE",
+        "tasks": [
+          "CORE-COMPILE-DYNAMIC-11",
+          "CORE-COMPILE-RECOMPILE-04",
+          "CORE-COMPILE-TINY-12"
+        ],
+        "confirmation": "partial_shared_verifier_structure_only",
+        "evidence": {
+          "hidden_verifier_ast_exact_tasks": [
+            "CORE-COMPILE-DYNAMIC-11",
+            "CORE-COMPILE-RECOMPILE-04",
+            "CORE-COMPILE-TINY-12"
+          ],
+          "hidden_verifier_ast": "bf264c8f0be50c25b5a8c4e3def50fefaf4f63a45fd2af5c1a835fac5a5770e5",
+          "benchmark_ast_exact": false,
+          "workspace_ast_exact": false,
+          "oracle_patch_structure_exact": false
+        },
+        "package_digest_collision": false
+      },
+      {
+        "cluster_id": "PROTO-EPISODE-HIDDEN-PATCH",
+        "tasks": [
+          "EVOL-EPISODE-POISON-10",
+          "EVOL-COMPILER-DRIFT-20"
+        ],
+        "confirmation": "partial_shared_verifier_and_patch_structure",
+        "evidence": {
+          "hidden_verifier_ast_exact_tasks": [
+            "EVOL-EPISODE-POISON-10",
+            "EVOL-COMPILER-DRIFT-20"
+          ],
+          "oracle_patch_structure_exact_tasks": [
+            "EVOL-EPISODE-POISON-10",
+            "EVOL-COMPILER-DRIFT-20"
+          ],
+          "hidden_verifier_ast": "7ef648fbe17cac6fd40319376789866faf3146f8907770593b78568fe6ba69aa",
+          "oracle_patch_structure_digest": "a5f7cb86a92d335136dc8a9138e804e59cd0b7d70e6c5f8c2b9b6e8ebfe14c39",
+          "benchmark_ast_exact": false,
+          "workspace_ast_exact": false
+        },
+        "package_digest_collision": false
+      }
+    ],
+    "unconfirmed": [
+      {
+        "candidate": [
+          "CORE-H2D-OVERFANOUT-23R2",
+          "SCIML-CRYSTAL-HIGH-GUIDANCE-28"
+        ],
+        "reason": "Both have empty oracle patch hunk structures; empty shape is non-discriminating and no exact multi-surface AST cluster was confirmed."
+      },
+      {
+        "candidate": [
+          "CORE-KERNEL-FUSION-09"
+        ],
+        "reason": "Executable fixture/API is incompatible with canonical compile projection, but no second active task shares enough benchmark/workspace/oracle/hidden structure to prove a clone."
+      }
+    ],
+    "canonical_family_consistency": {
+      "ok": true,
+      "error_count": 0,
+      "errors": []
+    }
+  }
+}
