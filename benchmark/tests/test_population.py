@@ -125,6 +125,16 @@ def test_h2d_task_exposes_fixture_clone_contract() -> None:
     assert callable(getattr(module, "clone_fixtures", None))
 
 
+def test_small_vjp_benchmark_performance_emits_checksum() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    task_dir = repo_root / "benchmark" / "tasks" / "CORE-AUTOGRAD-VJP-SMALL-25R2"
+    module = runner.import_module_by_path(task_dir / "benchmark.py")
+    fixtures = module.make_fixtures(0, device="cpu")
+    solution = module.load_solution(task_dir / "workspace", device="cpu")
+    result = module.run_performance(solution, fixtures, warmup=0, iterations=1, device="cpu")
+    assert result["output_checksums"]["loss"]
+
+
 def test_evolution_regression_cases_use_regression_namespace() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     episode = repo_root / "benchmark" / "tasks" / "EVOL-EQUIVARIANT-SPECIALIZE-30" / "episodes" / "equivariant_specialization_episode.yaml"
