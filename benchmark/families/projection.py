@@ -16,6 +16,12 @@ from typing import Any, Mapping
 from benchmark.harness import miniyaml
 
 
+# These identify a frozen fixture instance but are not workload axes. The
+# executable check receives the seed directly and selects the fixture variant
+# through the task implementation; neither field is a runtime workload value.
+_IDENTITY_FIELDS = {"seed", "fixture_index"}
+
+
 _WORKER = r'''
 import json
 import sys
@@ -135,7 +141,11 @@ def _compare(expected: Mapping[str, Any], actual: Mapping[str, Any]) -> dict[str
 
 def audit_task(task_dir: Path, *, seed: int = 0, device: str = "cpu", timeout_s: float = 120.0) -> dict[str, Any]:
     spec = miniyaml.load(str(task_dir / "task.yaml"))
-    expected = dict(spec.get("family_parameters") or {})
+    expected = {
+        key: value
+        for key, value in dict(spec.get("family_parameters") or {}).items()
+        if key not in _IDENTITY_FIELDS
+    }
     family_id = str(spec.get("family_id", spec.get("family")))
     try:
         completed = subprocess.run(
@@ -155,7 +165,13 @@ def audit_task(task_dir: Path, *, seed: int = 0, device: str = "cpu", timeout_s:
 
 def audit_population(tasks_root: str | Path, *, seed: int = 0, device: str = "cpu") -> dict[str, Any]:
     root = Path(tasks_root)
-    tasks = [path for path in sorted(root.iterdir()) if path.is_dir() and (path / "task.yaml").is_file()]
+    manifest_path = root.parent / "pilot_population.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    active_ids = [str(task_id) for task_id in manifest["active_task_ids"]]
+    tasks = [root / task_id for task_id in active_ids]
+    missing_packages = [task_id for task_id, path in zip(active_ids, tasks) if not (path / "task.yaml").is_file()]
+    if missing_packages:
+        raise ValueError(f"active manifest packages missing: {missing_packages}")
     records = [audit_task(path, seed=seed, device=device) for path in tasks]
     return {
         "schema_version": 1,
@@ -165,5 +181,6 @@ def audit_population(tasks_root: str | Path, *, seed: int = 0, device: str = "cp
         "num_pass": sum(record.get("status") == "pass" for record in records),
         "num_drift": sum(record.get("status") == "drift" for record in records),
         "num_errors": sum(record.get("status") in {"fixture_error", "fixture_timeout"} for record in records),
+        "active_task_ids": active_ids,
         "tasks": records,
     }
