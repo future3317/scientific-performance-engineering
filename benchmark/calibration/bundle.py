@@ -67,6 +67,6 @@ def classify_result(raw: dict[str, Any]) -> str:
         return "rerun"
     if state == "invalid":
         return "blocked_requires_revision"
-    if state == "eligible":
+    if state == "eligible" or (state == "ineligible" and "calibration_status" in raw):
         return "reusable"
     return "rerun"
