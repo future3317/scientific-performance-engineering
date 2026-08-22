@@ -73,7 +73,7 @@
  
      return {
          "score": score,
-@@ -86,38 +76,31 @@
+@@ -86,39 +76,32 @@
          "alphas": alphas,
          "alpha_bars": alpha_bars,
          "num_steps": num_steps,
