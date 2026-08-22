@@ -22,6 +22,7 @@ from benchmark.harness import stats
     "task_id",
     [
         "SCIML-CRYSTAL-DIFFUSION-07",  # a/solution.py
+        "SCIML-CRYSTAL-DIFFUSION-07R2",  # replacement package with guidance scale
         "SCIML-EQUIV-RECOMPUTE-06",  # a/workspace/solution.py
         "CORE-KERNEL-FUSION-09",  # solution.py
     ],
