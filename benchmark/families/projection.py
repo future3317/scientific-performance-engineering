@@ -96,6 +96,13 @@ def project_fixture(family_id: str, fixtures: Mapping[str, Any]) -> dict[str, An
     if family_id == "graph_cache":
         return _graph_signature(fixtures)
     if family_id == "crystal_generation":
+        config = fixtures.get("config")
+        if isinstance(config, Mapping):
+            return {
+                "atom_count": config.get("num_atoms"),
+                "diffusion_steps": config.get("num_steps"),
+                "guidance_scale": fixtures.get("guidance_scale"),
+            }
         target_shape = _shape(fixtures.get("target"))
         return {
             "atom_count": target_shape[0] if target_shape else None,
