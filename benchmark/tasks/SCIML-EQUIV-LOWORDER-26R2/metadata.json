@@ -1,0 +1,30 @@
+{
+  "task_id": "SCIML-EQUIV-LOWORDER-26R2",
+  "title": "Low-order equivariant vector head: reuse scalar radial path",
+  "track": "sciml",
+  "family": "equivariant_head",
+  "mechanism": "repeated_compute",
+  "kind": "positive",
+  "lineage": {
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-EQUIV-LOWORDER-REUSE-V1",
+    "mutation_seed": 1097226425
+  },
+  "split_group": {
+    "family": "equivariant_head",
+    "mechanism": "repeated_compute",
+    "source": "fairchem-shaped",
+    "mutation_template_id": "MT-EQUIV-LOWORDER-REUSE-V1"
+  },
+  "episode_phase": 0,
+  "hidden": false,
+  "difficulty": "medium",
+  "authoring_note": "Positive counterpart to the existing higher-order equivariance counterexample. The scalar radial path is invariant and may be reused across vector components without changing SO(3) behavior.",
+  "author": "candidate authoring bundle",
+  "created_utc": "2026-08-19",
+  "family_id": "equivariant_head",
+  "anchor_instance_id": "SCIML-EQUIV-LOWORDER-26R2",
+  "candidate_status": "canonical_pilot_calibration_pending",
+  "base_revision": "abd36b96d0d2c9f79a3966ae45a680ef16afdd93",
+  "action_id": "equivariant_recompute"
+}

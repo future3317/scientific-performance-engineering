@@ -1,0 +1,5 @@
+{
+  "mechanism": ["ragged_loops", "autograd_overhead"],
+  "location": "workspace/solution.py:eval_batch",
+  "why": "The baseline loops over individual graphs in Python and calls torch.autograd.grad once per graph. Concatenating the ragged batch into a single batched graph and performing one batched forward/backward removes both the per-graph Python loop and the repeated autograd overhead."
+}

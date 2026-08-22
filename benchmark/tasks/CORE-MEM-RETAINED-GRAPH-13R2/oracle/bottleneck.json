@@ -1,0 +1,7 @@
+{
+  "mechanism": "compile_recompile",
+  "location": "solution.py:train_step — the .item()-dependent Python branch forces a dynamo graph break, and build_model compiles without dynamic-shape support",
+  "why": "The .item() call reads a scalar to CPU, synchronizing the host and preventing dynamo from compiling a single graph. Combined with 8 different batch sizes in the measurement loop, this causes repeated recompilation of the compiled model, wasting the compile budget on every new shape."
+}
+
+

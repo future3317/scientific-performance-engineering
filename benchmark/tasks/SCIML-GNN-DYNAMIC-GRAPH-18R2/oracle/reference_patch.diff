@@ -1,0 +1,83 @@
+--- a/workspace/solution.py	2026-08-15 07:00:32.720333800 +0800
++++ b/workspace/solution.py	2026-08-15 07:00:32.735741100 +0800
+@@ -58,6 +58,21 @@
+         h = self.propagate(self.node_features(x0), dist, row, col)
+         return self.out(h).sum()
+ 
++    def batched_graph_energy(self, positions, x0, edge_index, cell_offsets, cell_a, batch, num_graphs):
++        """Energy of a concatenated, batched graph. Differentiable w.r.t. positions."""
++        row, col = edge_index[0], edge_index[1]
++        # Per-graph cubic lattice constants: cell_a[g] for each graph.
++        scale = cell_a[batch[col]].to(positions.dtype)
++        vec = positions[col] - positions[row] + cell_offsets.to(positions.dtype) * scale.unsqueeze(-1)
++        dist = torch.linalg.vector_norm(vec, dim=-1)
++        h = self.propagate(self.node_features(x0), dist, row, col)
++        atom_energies = self.out(h)  # [N_total, 1]
++        graph_energies = torch.zeros(
++            num_graphs, 1, dtype=positions.dtype, device=positions.device
++        )
++        graph_energies.index_add_(0, batch, atom_energies)
++        return graph_energies.sum(dim=-1)  # [num_graphs]
++
+ 
+ def build_model(fixtures):
+     """build_model(fixtures) -> torch.nn.Module (energy_force_v1)."""
+@@ -81,30 +96,45 @@
+ 
+ 
+ def forces_fn(model, positions, **graph):
+-    """forces_fn(model, positions, **graph) -> forces equal to -dE/dx."""
++    """forces_fn(model, positions, **graph) -> forces tensor equal to -dE/dx."""
+     pos = positions.detach().clone().requires_grad_(True)
+     energy = energy_fn(model, pos, **graph)
+     return -torch.autograd.grad(energy, pos)[0]
+ 
+ 
+ def eval_batch(model, graphs):
+-    """Evaluate energies and forces for a list of graphs.
++    """Evaluate energies and forces for a list of graphs in one batched pass.
+ 
+     Returns (energies [G], forces [N_total, 3], work_units dict).
+     """
+-    energies = []
+-    forces = []
+     atoms = 0
+     edges = 0
++    positions_list = []
++    x0_list = []
++    edge_index_list = []
++    offset_list = []
++    cell_a_list = []
++    batch_list = []
+     for graph in graphs:
+-        pos = graph["positions"].detach().clone().requires_grad_(True)
+-        energy = model.graph_energy(
+-            pos, graph["x0"], graph["edge_index"], graph["cell_offsets"], graph["cell_a"]
+-        )
+-        force = -torch.autograd.grad(energy, pos)[0]
+-        energies.append(energy.detach())
+-        forces.append(force)
+-        atoms += pos.shape[0]
++        n = graph["positions"].shape[0]
++        positions_list.append(graph["positions"])
++        x0_list.append(graph["x0"])
++        edge_index_list.append(graph["edge_index"] + atoms)
++        offset_list.append(graph["cell_offsets"])
++        cell_a_list.append(graph["cell_a"])
++        batch_list.append(torch.full((n,), len(batch_list), dtype=torch.long, device=graph["positions"].device))
++        atoms += n
+         edges += graph["edge_index"].shape[1]
++    positions = torch.cat(positions_list, dim=0).detach().clone().requires_grad_(True)
++    x0 = torch.cat(x0_list, dim=0)
++    edge_index = torch.cat(edge_index_list, dim=1)
++    cell_offsets = torch.cat(offset_list, dim=0)
++    cell_a = torch.tensor(cell_a_list, dtype=positions.dtype, device=positions.device)
++    batch = torch.cat(batch_list, dim=0)
++    energies = model.batched_graph_energy(
++        positions, x0, edge_index, cell_offsets, cell_a, batch, len(graphs)
++    )
++    total_energy = energies.sum()
++    forces = -torch.autograd.grad(total_energy, positions)[0]
+     work_units = {"graphs": len(graphs), "atoms": atoms, "edges": edges}
+-    return torch.stack(energies), torch.cat(forces, dim=0), work_units
++    return energies.detach(), forces.detach(), work_units

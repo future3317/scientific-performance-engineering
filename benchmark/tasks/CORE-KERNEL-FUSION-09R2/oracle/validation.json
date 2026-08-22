@@ -1,0 +1,17 @@
+{
+  "baseline_validation": {
+    "entrypoint": "benchmark.py::run_correctness",
+    "fresh_inputs": 3
+  },
+  "oracle_validation": {
+    "artifact": "oracle/reference_patch.diff",
+    "scientific_gates": [
+      "finite_output",
+      "output_moment_match"
+    ]
+  },
+  "anti_cheat": "harness S1 canary/static scan",
+  "deterministic_fixture": "benchmark.py::make_fixtures(seed=0)"
+}
+
+

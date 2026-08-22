@@ -1,0 +1,59 @@
+schema_version: 1
+task_id: CORE-REPEATED-BACKBONE-02R2
+track: spe_core
+family: repeated_compute
+mechanism: repeated_compute
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-REPEATED-BACKBONE-R2-V1
+  mutation_seed: 2510685673
+title: "Repeated backbone + fixed-embedding projection in a multi-head regression loop"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 20
+  measured_iterations: 100
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.01
+    atol: 0.001
+scientific_gates: [changing_regime_prediction_close, fixed_regime_prediction_close]
+diagnosis:
+  enabled: true
+  choices: [repeated_compute, scalar_sync, h2d_blocking, compile_recompile]
+oracle:
+  expected_speedup_range: [1.8, 2.5]
+generator_family_id: GEN-REPEATED_COMPUTE
+oracle_fix_pattern_id: FIX-CORE-REPEATED-BACKBONE-02
+scientific_contract_id: CONTRACT-REPEATED-COMPUTE
+difficulty_tier: medium
+workspace_ast_skeleton_hash: "0aa28077e1daf43705f1528e38b3de600e6c16b999102aaf1c83d57340d09516"
+family_id: repeated_compute
+anchor_instance_id: CORE-REPEATED-BACKBONE-02R2
+family_parameters:
+  repeat_count: 4
+  backbone_width: 256
+  batch_size: 32
+  fixture_index: 0
+  seed: 0
+family_instance_digest: "0b7abf18758cfb6f370b7e9b6ab25301ba0adb387455680362e94ef7ea9f4a18"
+public_context:
+  workload:
+    repeat_count: 4
+    backbone_width: 256
+    batch_size: 32
+    fixture_index: 0
+    seed: 0
+ast_skeleton_version: 2

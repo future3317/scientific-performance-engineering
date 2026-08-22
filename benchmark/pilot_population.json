@@ -3,42 +3,147 @@
   "population_id": "SPE-EvoBench-v1.0-30-pilot",
   "status": "active_manifest",
   "task_ids": [
-    "CORE-SCALAR-SYNC-01",
-    "CORE-H2D-PIPELINE-03",
+    "CORE-SCALAR-SYNC-01R2",
+    "CORE-H2D-PIPELINE-03R2",
     "CORE-COMPILE-DYNAMIC-11",
-    "CORE-MEM-RETAINED-GRAPH-13",
-    "CORE-AUTOGRAD-BATCHED-VJP-15",
-    "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+    "CORE-MEM-RETAINED-GRAPH-13R2",
+    "CORE-AUTOGRAD-BATCHED-VJP-15R2",
+    "SCIML-GNN-STATIC-GRAPH-CACHE-17R2",
     "CORE-SCALAR-SYNC-LOW-CADENCE-21",
-    "CORE-H2D-OVERFANOUT-23R2",
-    "CORE-REPEATED-BACKBONE-02",
+    "CORE-H2D-OVERFANOUT-23R3",
+    "CORE-REPEATED-BACKBONE-02R2",
     "CORE-COMPILE-RECOMPILE-04",
     "CORE-COMPILE-TINY-12",
-    "CORE-CHECKPOINT-AMPLE-MEM-14",
-    "SCIML-GNN-DYNAMIC-GRAPH-18",
+    "CORE-CHECKPOINT-AMPLE-MEM-14R2",
+    "SCIML-GNN-DYNAMIC-GRAPH-18R2",
     "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
-    "CORE-CHECKPOINT-HIGH-PRESSURE-24",
-    "CORE-AUTOGRAD-VJP-SMALL-25",
-    "SCIML-CRYSTAL-DIFFUSION-07",
-    "CORE-KERNEL-FUSION-09",
-    "CORE-DATALOADER-FANOUT-16",
-    "SCIML-FORCE-AUTOGRAD-19",
-    "SCIML-EQUIV-LOWORDER-26",
-    "SCIML-GRAPH-CACHE-BOUNDARY-27",
+    "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
+    "CORE-AUTOGRAD-VJP-SMALL-25R2",
+    "SCIML-CRYSTAL-DIFFUSION-07R2",
+    "CORE-KERNEL-FUSION-09R2",
+    "CORE-DATALOADER-FANOUT-16R2",
+    "SCIML-FORCE-AUTOGRAD-19R2",
+    "SCIML-EQUIV-LOWORDER-26R2",
+    "SCIML-GRAPH-CACHE-INTERIOR-27",
     "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
-    "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+    "SCIML-CRYSTAL-STATIC-SAMPLING-29R2",
     "EVOL-COMPILER-DRIFT-20",
     "EVOL-EQUIVARIANT-SPECIALIZE-30",
     "EVOL-EPISODE-POISON-10",
-    "SCIML-GRAPH-REBUILD-08",
-    "SCIML-GNN-RAGGED-05",
-    "SCIML-EQUIV-RECOMPUTE-06"
+    "SCIML-GRAPH-REBUILD-08R2",
+    "SCIML-GNN-RAGGED-05R2",
+    "SCIML-EQUIV-RECOMPUTE-06R2"
   ],
   "retired_history": [
     {
       "task_id": "CORE-H2D-OVERFANOUT-23",
       "replacement_task_id": "CORE-H2D-OVERFANOUT-23R2",
       "reason": "historical high-noise calibration anchor; excluded from active population"
+    },
+    {
+      "task_id": "CORE-SCALAR-SYNC-01",
+      "replacement_task_id": "CORE-SCALAR-SYNC-01R2",
+      "reason": "declared sync and metric cadence were not executable"
+    },
+    {
+      "task_id": "CORE-REPEATED-BACKBONE-02",
+      "replacement_task_id": "CORE-REPEATED-BACKBONE-02R2",
+      "reason": "declared backbone width and batch size were not executable"
+    },
+    {
+      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+      "replacement_task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
+      "reason": "high-pressure contract lacked executable memory/recompute configuration"
+    },
+    {
+      "task_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
+      "replacement_task_id": "SCIML-GRAPH-CACHE-INTERIOR-27",
+      "reason": "boundary anchor replaced by an interior positive anchor"
+    },
+    {
+      "task_id": "CORE-H2D-PIPELINE-03",
+      "replacement_task_id": "CORE-H2D-PIPELINE-03R2",
+      "reason": "declared loader topology was not executable"
+    },
+    {
+      "task_id": "CORE-DATALOADER-FANOUT-16",
+      "replacement_task_id": "CORE-DATALOADER-FANOUT-16R2",
+      "reason": "declared H2D fanout metadata wrapped a compile prototype"
+    },
+    {
+      "task_id": "CORE-H2D-OVERFANOUT-23R2",
+      "replacement_task_id": "CORE-H2D-OVERFANOUT-23R3",
+      "reason": "declared overfanout topology was not executable"
+    },
+    {
+      "task_id": "CORE-MEM-RETAINED-GRAPH-13",
+      "replacement_task_id": "CORE-MEM-RETAINED-GRAPH-13R2",
+      "reason": "declared memory/recompute workload was not executable"
+    },
+    {
+      "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14",
+      "replacement_task_id": "CORE-CHECKPOINT-AMPLE-MEM-14R2",
+      "reason": "declared counterexample checkpoint workload was not executable"
+    },
+    {
+      "task_id": "CORE-AUTOGRAD-BATCHED-VJP-15",
+      "replacement_task_id": "CORE-AUTOGRAD-BATCHED-VJP-15R2",
+      "reason": "package was a compile/train-loop clone, not a VJP workload"
+    },
+    {
+      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25",
+      "replacement_task_id": "CORE-AUTOGRAD-VJP-SMALL-25R2",
+      "reason": "declared Jacobian density was not executable"
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-DIFFUSION-07",
+      "replacement_task_id": "SCIML-CRYSTAL-DIFFUSION-07R2",
+      "reason": "declared atom count and diffusion horizon were not executable"
+    },
+    {
+      "task_id": "CORE-KERNEL-FUSION-09",
+      "replacement_task_id": "CORE-KERNEL-FUSION-09R2",
+      "reason": "declared compile axes were absent from the executable fixture"
+    },
+    {
+      "task_id": "SCIML-GNN-RAGGED-05",
+      "replacement_task_id": "SCIML-GNN-RAGGED-05R2",
+      "reason": "graph family parameters were not executable"
+    },
+    {
+      "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+      "replacement_task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17R2",
+      "reason": "static graph cache package was a shared graph prototype"
+    },
+    {
+      "task_id": "SCIML-GNN-DYNAMIC-GRAPH-18",
+      "replacement_task_id": "SCIML-GNN-DYNAMIC-GRAPH-18R2",
+      "reason": "dynamic graph schedule was not executable"
+    },
+    {
+      "task_id": "SCIML-FORCE-AUTOGRAD-19",
+      "replacement_task_id": "SCIML-FORCE-AUTOGRAD-19R2",
+      "reason": "force/autograd package was a shared graph prototype"
+    },
+    {
+      "task_id": "SCIML-EQUIV-RECOMPUTE-06",
+      "replacement_task_id": "SCIML-EQUIV-RECOMPUTE-06R2",
+      "reason": "equivariant recompute axes were not executable"
+    },
+    {
+      "task_id": "SCIML-EQUIV-LOWORDER-26",
+      "replacement_task_id": "SCIML-EQUIV-LOWORDER-26R2",
+      "reason": "equivariant low-order axes were not executable"
+    },
+    {
+      "task_id": "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+      "replacement_task_id": "SCIML-CRYSTAL-STATIC-SAMPLING-29R2",
+      "reason": "neighbor and geometry sampling axes were not executable"
+    },
+    {
+      "task_id": "SCIML-GRAPH-REBUILD-08",
+      "replacement_task_id": "SCIML-GRAPH-REBUILD-08R2",
+      "reason": "graph-rebuild sampling axes were not executable"
     }
   ]
 }

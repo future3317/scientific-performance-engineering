@@ -62,6 +62,50 @@ def test_projection_reads_fixture_values_not_declared_metadata() -> None:
     assert project_fixture("repeated_compute", fixture) == {
         "repeat_count": 4, "backbone_width": 256, "batch_size": 32,
     }
+    assert project_fixture(
+        "repeated_compute",
+        {"repeat_count": 2, "width": 128, "logical_batch_size": 16},
+    ) == {"repeat_count": 2, "backbone_width": 128, "batch_size": 16}
+    assert project_fixture(
+        "checkpoint",
+        {"checkpoint_config": {"segment_count": 3, "memory_pressure": 0.4, "recompute_ratio": 0.2}},
+    ) == {"segment_count": 3, "logical_batch_size": None, "memory_pressure": 0.4, "recompute_ratio": 0.2}
+    import torch
+    assert project_fixture(
+        "crystal_sampling",
+        {"initial": torch.zeros(24, 3), "neighbor_count": 12, "geometry_variation": 0.7},
+    ) == {"sample_count": 24, "neighbor_count": 12, "geometry_variation": 0.7}
+    assert project_fixture(
+        "compile",
+        {"logical_steps": 192, "graph_size": 320, "dynamic_shape_rate": 0.2},
+    ) == {"logical_steps": 192, "graph_size": 320, "dynamic_shape_rate": 0.2}
+
+
+def test_new_materialized_task_requires_executable_projection(monkeypatch, tmp_path) -> None:
+    from benchmark.taskgen import generate
+
+    monkeypatch.setattr(
+        generate,
+        "audit_task",
+        lambda task_dir, **_kwargs: {
+            "task_id": task_dir.name,
+            "status": "drift",
+            "missing": ["worker_count"],
+            "mismatches": {},
+        },
+    )
+    with __import__("pytest").raises(ValueError, match="executable projection"):
+        generate.assert_executable_projection(tmp_path / "TASK")
+
+
+def test_materializer_rejects_cross_family_prototype(tmp_path) -> None:
+    from benchmark.taskgen import generate
+
+    source = tmp_path / "prototype"
+    source.mkdir()
+    (source / "task.yaml").write_text("family_id: checkpoint\n", encoding="utf-8")
+    with __import__("pytest").raises(ValueError, match="cross-family"):
+        generate.assert_same_family_source(source, "h2d_pipeline")
 
 
 if __name__ == "__main__":

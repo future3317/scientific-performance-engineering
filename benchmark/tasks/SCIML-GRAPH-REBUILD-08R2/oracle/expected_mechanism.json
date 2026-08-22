@@ -1,0 +1,5 @@
+{
+  "mechanism": "graph_rebuild",
+  "do_not_apply": true,
+  "justification": "Atom positions change every Langevin step, so a cached neighbor list becomes stale and produces incorrect forces/energy. The correct action is abstention."
+}

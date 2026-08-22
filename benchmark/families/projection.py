@@ -62,7 +62,9 @@ def project_fixture(family_id: str, fixtures: Mapping[str, Any]) -> dict[str, An
     """Extract only workload values observable in the executable fixture."""
     if family_id == "compile" and isinstance(fixtures.get("compile_profile"), Mapping):
         profile = fixtures["compile_profile"]
-        return {key: profile.get(key) for key in ("logical_steps", "graph_size", "dynamic_shape_rate")}
+        return {key: profile.get(key, fixtures.get(key)) for key in ("logical_steps", "graph_size", "dynamic_shape_rate")}
+    if family_id == "compile":
+        return {key: fixtures.get(key) for key in ("logical_steps", "graph_size", "dynamic_shape_rate")}
     if family_id == "h2d_pipeline":
         config = fixtures.get("data_config")
         return {
@@ -72,19 +74,23 @@ def project_fixture(family_id: str, fixtures: Mapping[str, Any]) -> dict[str, An
             "pin_memory": fixtures.get("pin_memory"),
         }
     if family_id == "scalar_sync":
-        return {}
+        return {
+            "scalar_syncs_per_step": fixtures.get("scalar_syncs_per_step"),
+            "metric_cadence": fixtures.get("metric_cadence"),
+        }
     if family_id == "repeated_compute":
         return {
-            "repeat_count": fixtures.get("num_heads"),
+            "repeat_count": fixtures.get("repeat_count", fixtures.get("num_heads", len(fixtures.get("targets", ())) if isinstance(fixtures.get("targets"), (list, tuple)) else None)),
             "backbone_width": fixtures.get("hidden_dim", fixtures.get("width")),
             "batch_size": fixtures.get("batch_size", fixtures.get("logical_batch_size")),
         }
     if family_id == "checkpoint":
+        config = fixtures.get("checkpoint_config")
         return {
-            "segment_count": fixtures.get("blocks"),
+            "segment_count": config.get("segment_count") if isinstance(config, Mapping) else fixtures.get("blocks", fixtures.get("segment_count")),
             "logical_batch_size": fixtures.get("logical_batch_size"),
-            "memory_pressure": fixtures.get("memory_pressure"),
-            "recompute_ratio": fixtures.get("recompute_ratio"),
+            "memory_pressure": config.get("memory_pressure") if isinstance(config, Mapping) else fixtures.get("memory_pressure"),
+            "recompute_ratio": config.get("recompute_ratio") if isinstance(config, Mapping) else fixtures.get("recompute_ratio"),
         }
     if family_id == "autograd":
         data = fixtures.get("data_config")
@@ -94,6 +100,9 @@ def project_fixture(family_id: str, fixtures: Mapping[str, Any]) -> dict[str, An
             "jacobian_density": fixtures.get("jacobian_density"),
         }
     if family_id == "graph_cache":
+        config = fixtures.get("graph_cache_config")
+        if isinstance(config, Mapping):
+            return {key: config.get(key) for key in ("geometry_displacement", "skin", "graph_size", "dynamic_rate")}
         return _graph_signature(fixtures)
     if family_id == "crystal_generation":
         config = fixtures.get("config")
@@ -113,8 +122,8 @@ def project_fixture(family_id: str, fixtures: Mapping[str, Any]) -> dict[str, An
         initial_shape = _shape(fixtures.get("initial"))
         return {
             "sample_count": initial_shape[0] if initial_shape else None,
-            "neighbor_count": None,
-            "geometry_variation": None,
+            "neighbor_count": fixtures.get("neighbor_count"),
+            "geometry_variation": fixtures.get("geometry_variation"),
         }
     if family_id == "equivariant_head":
         batch = fixtures.get("batch")

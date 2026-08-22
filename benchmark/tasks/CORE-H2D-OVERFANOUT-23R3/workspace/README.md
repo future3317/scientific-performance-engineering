@@ -1,0 +1,1 @@
+CUDA task. The batch is deliberately tiny and the public context is outside the current H2D applicability region. Do not add per-step pinning/prefetch unless matched measurements justify it. Preserve batch order and values.

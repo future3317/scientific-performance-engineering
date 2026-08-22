@@ -1,0 +1,1 @@
+Tempting wrong patch: enable checkpointing but keep MICROBATCH=4. That pays recomputation without exploiting the memory headroom; the intended reference realization pairs checkpointing with a larger microbatch while preserving the logical batch and gradient.

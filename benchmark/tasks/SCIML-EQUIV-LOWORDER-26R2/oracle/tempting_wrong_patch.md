@@ -1,0 +1,1 @@
+Tempting wrong patch: cache or detach the final vector output instead of only the invariant scalar radial path. That can break rotation covariance. The reference patch reuses only the scalar radial feature.

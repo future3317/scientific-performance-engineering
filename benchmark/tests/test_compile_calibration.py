@@ -204,7 +204,7 @@ def test_compile_deployable_actions_have_explicit_contract_and_anchor_routing():
     dynamic = family.reconstruct_anchor("CORE-COMPILE-DYNAMIC-11").parameters
     recompile = family.reconstruct_anchor("CORE-COMPILE-RECOMPILE-04").parameters
     tiny = family.reconstruct_anchor("CORE-COMPILE-TINY-12").parameters
-    fusion = family.reconstruct_anchor("CORE-KERNEL-FUSION-09").parameters
+    fusion = family.reconstruct_anchor("CORE-KERNEL-FUSION-09R2").parameters
     assert environment.oracle(dynamic).oracle_bundle == ("stabilize_dynamic_guards",)
     assert environment.oracle(recompile).oracle_bundle == ()
     assert environment.oracle(tiny).oracle_bundle == ()

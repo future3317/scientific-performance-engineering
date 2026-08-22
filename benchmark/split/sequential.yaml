@@ -2,19 +2,19 @@ split_id: sequential-v1
 phases:
   - index: 1
     name: acquisition
-    tasks: ["CORE-SCALAR-SYNC-01", "CORE-H2D-PIPELINE-03", "CORE-COMPILE-DYNAMIC-11", "CORE-MEM-RETAINED-GRAPH-13", "CORE-AUTOGRAD-BATCHED-VJP-15", "SCIML-GNN-STATIC-GRAPH-CACHE-17", "CORE-SCALAR-SYNC-LOW-CADENCE-21", "CORE-H2D-OVERFANOUT-23R2"]
+    tasks: ["CORE-SCALAR-SYNC-01R2", "CORE-H2D-PIPELINE-03R2", "CORE-COMPILE-DYNAMIC-11", "CORE-MEM-RETAINED-GRAPH-13R2", "CORE-AUTOGRAD-BATCHED-VJP-15R2", "SCIML-GNN-STATIC-GRAPH-CACHE-17R2", "CORE-SCALAR-SYNC-LOW-CADENCE-21", "CORE-H2D-OVERFANOUT-23R3"]
     lineage_keys:
       - ["training_loop_overhead", "scalar_sync", "synthetic", "MT-SCALAR-SYNC-V1"]
       - ["data_pipeline", "h2d_blocking", "synthetic", "MT-H2D-BLOCKING-V1"]
   - index: 2
     name: same_family_transfer
-    tasks: ["CORE-REPEATED-BACKBONE-02", "CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-TINY-12", "CORE-CHECKPOINT-AMPLE-MEM-14", "SCIML-GNN-DYNAMIC-GRAPH-18", "CORE-REPEATED-BACKBONE-LOW-REUSE-22", "CORE-CHECKPOINT-HIGH-PRESSURE-24", "CORE-AUTOGRAD-VJP-SMALL-25"]
+    tasks: ["CORE-REPEATED-BACKBONE-02R2", "CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-TINY-12", "CORE-CHECKPOINT-AMPLE-MEM-14R2", "SCIML-GNN-DYNAMIC-GRAPH-18R2", "CORE-REPEATED-BACKBONE-LOW-REUSE-22", "CORE-CHECKPOINT-HIGH-PRESSURE-24R2", "CORE-AUTOGRAD-VJP-SMALL-25R2"]
     lineage_keys:
       - ["repeated_compute", "repeated_compute", "synthetic", "MT-REPEATED-BACKBONE-V1"]
       - ["compiler", "compile_graph_break", "synthetic", "MT-COMPILE-RECOMPILE-V1"]
   - index: 3
     name: cross_family_transfer
-    tasks: ["SCIML-CRYSTAL-DIFFUSION-07", "CORE-KERNEL-FUSION-09", "CORE-DATALOADER-FANOUT-16", "SCIML-FORCE-AUTOGRAD-19", "SCIML-EQUIV-LOWORDER-26", "SCIML-GRAPH-CACHE-BOUNDARY-27", "SCIML-CRYSTAL-HIGH-GUIDANCE-28", "SCIML-CRYSTAL-STATIC-SAMPLING-29"]
+    tasks: ["SCIML-CRYSTAL-DIFFUSION-07R2", "CORE-KERNEL-FUSION-09R2", "CORE-DATALOADER-FANOUT-16R2", "SCIML-FORCE-AUTOGRAD-19R2", "SCIML-EQUIV-LOWORDER-26R2", "SCIML-GRAPH-CACHE-INTERIOR-27", "SCIML-CRYSTAL-HIGH-GUIDANCE-28", "SCIML-CRYSTAL-STATIC-SAMPLING-29R2"]
     lineage_keys:
       - ["crystal_generation", "scalar_sync+launch_fragmentation", "cdvae-shaped", "MT-SCALAR-SYNC-LAUNCH-FRAG-V1"]
       - ["compiler", "launch_fragmentation", "kernelbench-shaped", "MT-LAUNCH-FRAGMENTATION-V1"]
@@ -24,12 +24,12 @@ phases:
     lineage_keys:
   - index: 5
     name: poisoned_experience
-    tasks: ["EVOL-EPISODE-POISON-10", "SCIML-GRAPH-REBUILD-08"]
+    tasks: ["EVOL-EPISODE-POISON-10", "SCIML-GRAPH-REBUILD-08R2"]
     lineage_keys:
       - ["crystal_sampling", "graph_rebuild", "fairchem-shaped", "MT-GRAPH-REBUILD-DO-NOT-APPLY-V1"]
   - index: 6
     name: recovery
-    tasks: ["SCIML-GNN-RAGGED-05", "SCIML-EQUIV-RECOMPUTE-06"]
+    tasks: ["SCIML-GNN-RAGGED-05R2", "SCIML-EQUIV-RECOMPUTE-06R2"]
     lineage_keys:
       - ["graph_energy_force", "ragged_loops+autograd_overhead", "fairchem-shaped", "MT-RAGGED-AUTOGRAD-V1"]
       - ["equivariant_head", "repeated_compute", "fairchem-shaped", "MT-REPEATED-BASIS-V1"]

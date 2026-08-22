@@ -1,0 +1,59 @@
+schema_version: 1
+task_id: SCIML-GRAPH-REBUILD-08R2
+track: sciml
+family: crystal_sampling
+mechanism: graph_rebuild
+kind: do_not_apply
+lineage:
+  source: fairchem-shaped
+  mutation_template_id: MT-GRAPH-REBUILD-DO-NOT-APPLY-V1
+  mutation_seed: 2170316235
+title: "Langevin sampler where positions change every step — graph rebuild is required"
+requires_cuda: false
+time_budget_s: 600
+workspace:
+  entrypoint: solution.py
+  api: sampler_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 3
+  measured_iterations: 20
+  repetitions: 4
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 1.0
+    atol: 3.0
+scientific_gates: [energy_force_consistency, neighbor_consistency, distribution_moment_check]
+diagnosis:
+  enabled: true
+  choices: [graph_rebuild, scalar_sync, launch_fragmentation, repeated_compute, h2d_blocking, compile_break, autograd_overhead, ragged_loops]
+oracle:
+  expected_speedup_range: [0.9, 1.1]
+generator_family_id: GEN-CRYSTAL_SAMPLING
+oracle_fix_pattern_id: FIX-SCIML-GRAPH-REBUILD-08R2
+scientific_contract_id: CONTRACT-CRYSTAL-VALIDITY
+difficulty_tier: medium
+workspace_ast_skeleton_hash: "c319b386fa205061b23cf539c18cb3014e51d112c3bd69190497f5cd5a7bd634"
+family_id: crystal_sampling
+anchor_instance_id: SCIML-GRAPH-REBUILD-08R2
+family_parameters:
+  neighbor_count: 12
+  sample_count: 24
+  geometry_variation: 0.7
+  fixture_index: 0
+  seed: 0
+family_instance_digest: f7962a124976bc2044d4f479cba46a8c98a6457f8feda351cf1db146c5a7a396
+public_context:
+  workload:
+    neighbor_count: 12
+    sample_count: 24
+    geometry_variation: 0.7
+    fixture_index: 0
+    seed: 0
+ast_skeleton_version: 2

@@ -1,0 +1,5 @@
+{
+  "mechanism": "repeated_compute",
+  "location": "train_step: project_fixed() and backbone() are called once per head instead of once per step",
+  "why": "The shared backbone and the fixed-input embedding projection are recomputed K times per step (once per head). The correct optimization computes the embedding projection once with a content-hash cache and the backbone once, then shares the backbone output across all heads. An unconditional cache must be rejected because it fails when the fixed input changes per step."
+}
