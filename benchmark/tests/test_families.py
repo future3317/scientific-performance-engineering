@@ -21,6 +21,7 @@ from benchmark.formal.aggregate import performance_profile
 from benchmark.harness.evolution import evolution_regret
 from benchmark.interaction.factorial_bench import generate_family_interaction_surface
 from benchmark.taskgen.generate import generate_family_slots
+from benchmark.families.projection import _compare, project_fixture
 
 
 def main() -> None:
@@ -46,6 +47,21 @@ def main() -> None:
     assert len(anchors) == 30 and all(item.anchor_task_id == item.instance_id for item in anchors)
     assert validate_cross_view_consistency(surface_count=12)["ok"]
     print("test_families: OK")
+
+
+def test_projection_compare_is_fail_closed() -> None:
+    assert _compare({"x": 1}, {"x": 1})["status"] == "pass"
+    drift = _compare({"x": 1, "y": 2}, {"x": 3, "y": None})
+    assert drift["status"] == "drift"
+    assert drift["mismatches"] == {"x": {"declared": 1, "actual": 3}}
+    assert drift["missing"] == ["y"]
+
+
+def test_projection_reads_fixture_values_not_declared_metadata() -> None:
+    fixture = {"num_heads": 4, "hidden_dim": 256, "batch_size": 32}
+    assert project_fixture("repeated_compute", fixture) == {
+        "repeat_count": 4, "backbone_width": 256, "batch_size": 32,
+    }
 
 
 if __name__ == "__main__":
