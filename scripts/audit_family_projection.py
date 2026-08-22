@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from benchmark.families.projection import audit_population
 
@@ -23,7 +28,7 @@ def main() -> int:
         args.out.write_text(payload, encoding="utf-8")
     else:
         print(payload, end="")
-    return 0 if report["num_errors"] == 0 else 1
+    return 0 if report["num_errors"] == 0 and report["num_drift"] == 0 else 1
 
 
 if __name__ == "__main__":
