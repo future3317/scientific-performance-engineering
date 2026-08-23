@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -104,3 +106,31 @@ def test_rc7_oracle_materialization_matches_task_contract(task_id: str, tmp_path
     fixtures = benchmark.make_fixtures(0, device="cpu")
     result = benchmark.run_correctness(solution, fixtures)
     assert result["passed"], result
+
+
+def test_equivariance_tempting_cache_patch_is_executable_and_rejected(tmp_path: Path) -> None:
+    task_dir = ROOT / "benchmark" / "tasks" / "SCIML-EQUIV-RECOMPUTE-06R2"
+    solution_dir = tmp_path / "solution"
+    shutil.copytree(task_dir / "workspace", solution_dir)
+    patch = task_dir / "oracle" / "tempting_patch.diff"
+    # Apply the package patch to an isolated task-shaped copy.
+    isolated_task = tmp_path / "task"
+    shutil.copytree(task_dir, isolated_task)
+    shutil.copytree(solution_dir, isolated_task / "workspace", dirs_exist_ok=True)
+    applied = subprocess.run(
+        ["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(patch)],
+        cwd=isolated_task,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert applied.returncode == 0, applied.stderr or applied.stdout
+    benchmark = _load_benchmark(task_dir)
+    solution = benchmark.load_solution(isolated_task / "workspace" / "solution.py", device="cpu")
+    fixtures = benchmark.make_fixtures(0, device="cpu")
+    correctness = benchmark.run_correctness(solution, fixtures)
+    gates = benchmark.run_scientific_gates(solution, fixtures)
+    assert not correctness["passed"] or not all(
+        bool(value[0] if isinstance(value, tuple) else value)
+        for value in gates.values()
+    ), (correctness, gates)
