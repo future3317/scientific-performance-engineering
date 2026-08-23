@@ -1,0 +1,19 @@
+--- a/solution.py
++++ b/solution.py
+@@ -28,11 +28,12 @@
+     def forward(self, x):
++        self.retained_history.clear()
+         h = torch.relu(self.input(x))
+         for index, segment in enumerate(self.segments):
+             out = checkpoint(segment, h, use_reentrant=False) if index < self.checkpointed_segments else segment(h)
+             h = h + out
+-            self.retained_history.append(h)
++            self.retained_history.append(h.detach())
+         return self.output(h)
+@@ -49,7 +50,7 @@
+     x, target = batch[0].to(device), batch[1].to(device)
+     optimizer.zero_grad()
+     loss = torch.nn.functional.mse_loss(model(x).squeeze(-1), target)
+-    loss.backward(retain_graph=True)
++    loss.backward()
+     optimizer.step()
