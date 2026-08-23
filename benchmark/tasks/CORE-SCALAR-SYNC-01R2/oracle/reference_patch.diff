@@ -1,9 +1,9 @@
---- benchmark/tasks/CORE-SCALAR-SYNC-01/workspace/solution.py	2026-08-15 07:17:05.234786500 +0800
-+++ benchmark/tasks/CORE-SCALAR-SYNC-01/oracle/solution_oracle.py	2026-08-15 07:17:22.421183900 +0800
+--- benchmark/tasks/CORE-SCALAR-SYNC-01R2/workspace/solution.py	2026-08-15 07:17:05.234786500 +0800
++++ benchmark/tasks/CORE-SCALAR-SYNC-01R2/oracle/solution_oracle.py	2026-08-15 07:17:22.421183900 +0800
 @@ -1,11 +1,10 @@
  #!/usr/bin/env python3
--"""Baseline solution for CORE-SCALAR-SYNC-01.
-+"""Oracle solution for CORE-SCALAR-SYNC-01.
+-"""Baseline solution for CORE-SCALAR-SYNC-01R2.
++"""Oracle solution for CORE-SCALAR-SYNC-01R2.
  
 -A tiny MLP regression loop. The injected bottleneck is per-step scalar
 -synchronization: every train_step calls .item() on the loss AND on every
