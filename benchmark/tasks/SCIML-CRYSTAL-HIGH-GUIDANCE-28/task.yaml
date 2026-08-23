@@ -4,6 +4,7 @@ track: sciml
 family: crystal_generation
 mechanism: launch_fragmentation
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: cdvae-shaped
   mutation_template_id: MT-CRYSTAL-HIGH-GUIDANCE-V1

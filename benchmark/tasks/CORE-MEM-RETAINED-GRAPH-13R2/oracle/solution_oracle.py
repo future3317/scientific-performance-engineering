@@ -31,7 +31,7 @@ class SegmentedResMLP(nn.Module):
         for index, segment in enumerate(self.segments):
             out = checkpoint(segment, h, use_reentrant=False) if index < self.checkpointed_segments else segment(h)
             h = h + out
-            self.retained_history.append(h.square().mean().detach())
+            self.retained_history.append(h.detach())
         return self.output(h)
 
 

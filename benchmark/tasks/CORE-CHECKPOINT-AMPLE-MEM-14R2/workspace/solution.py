@@ -13,7 +13,7 @@ class SegmentedResMLP(nn.Module):
         self.output = nn.Linear(hidden_dim, 1)
         self.segment_count = segment_count
         self.checkpointed_segments = checkpointed_segments
-        self.checkpoint_policy = "checkpoint"
+        self.checkpoint_policy = "no_checkpoint"
 
     def forward(self, x):
         h = torch.relu(self.input(x))

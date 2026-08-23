@@ -57,10 +57,10 @@ def make_fixtures(seed, device="cpu"):
     for parameter in model.parameters():
         parameter.data.normal_(0.0, 0.02, generator=generator)
     return {
-        "device": device, "model_config": {"in_dim": 16, "hidden_dim": hidden_dim, "segment_count": segment_count, "checkpointed_segments": max(1, round(segment_count * recompute_ratio))},
+        "device": device, "model_config": {"in_dim": 16, "hidden_dim": hidden_dim, "segment_count": segment_count, "checkpointed_segments": 0},
         "optimizer_config": {"lr": 0.001}, "memory_pressure": memory_pressure,
         "segment_count": segment_count, "recompute_ratio": recompute_ratio,
-        "checkpointed_segments": max(1, round(segment_count * recompute_ratio)),
+        "checkpointed_segments": 0,
         "batch_sizes": [16, 24, 32, 40],
         "inputs": torch.randn(512, 16, generator=generator),
         "targets": torch.randn(512, generator=generator), "init_state": model.state_dict(),

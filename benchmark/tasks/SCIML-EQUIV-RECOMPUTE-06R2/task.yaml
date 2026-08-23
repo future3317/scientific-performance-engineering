@@ -4,6 +4,7 @@ track: sciml
 family: equivariant_head
 mechanism: repeated_compute
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: fairchem-shaped
   mutation_template_id: MT-REPEATED-BASIS-V1
