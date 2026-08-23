@@ -20,6 +20,7 @@ def _load(name, path):
 def main():
     root = Path(__file__).resolve().parent
     repo_root = root.parents[2]
+    sys.path[:] = [entry for entry in sys.path if Path(entry or ".").resolve() != root]
     sys.path.insert(0, str(repo_root))
     benchmark = _load("benchmark_13r3_smoke", root / "benchmark.py")
     solution = _load("solution_13r3_smoke", root / "workspace" / "solution.py")
