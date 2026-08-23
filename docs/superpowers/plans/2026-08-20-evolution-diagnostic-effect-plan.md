@@ -164,7 +164,7 @@ Commit as `fix: target declared family boundary thresholds`.
 ### Task 5: Verification and evidence update
 
 **Files:**
-- Modify only if required by measured results: `benchmark/calibration/staged-probes/2026-08-20/summary.json`, `benchmark/population_report.json`
+- Modify only if required by measured results: `benchmark/calibration/history/pre-3b92ca6/staged-probes/2026-08-20/summary.json`, `benchmark/population_report.json`
 
 - [x] **Step 1: Run focused and full tests**
 
