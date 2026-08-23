@@ -336,7 +336,7 @@ def _empirical_flags(
                     flags["resource_blocked"].append(task_id)
                 elif any(bool(trial.get("protocol_failure")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
                     flags["protocol_invalid"].append(task_id)
-                elif evolution_record and task_id not in flags["episode_delta_out_of_range"]:
+                elif task_id not in flags["episode_delta_out_of_range"]:
                     flags["calibration_blocked"].append(task_id)
         if "_task_dir" in spec:
             task_dir = Path(spec.get("_task_dir", ""))
@@ -620,10 +620,12 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
         empirical = report.get("empirical_calibration", {}).get("records_by_task", {}).get(task_id, {})
         # Metadata is descriptive only.  Eligibility comes from a complete,
         # digest-attested empirical record for the active task.
-        status = "eligible" if isinstance(empirical, dict) and empirical and not any(
+        status = "eligible" if isinstance(empirical, dict) and empirical and empirical.get("calibration_status") == "eligible" and not any(
             task_id in ids for ids in report.get("empirical_rejection_flags", {}).values()
         ) and report.get("empirical_calibration", {}).get("status") == "observed" else "pending"
         if metadata.get("retired_for_formal"):
+            status = "blocked"
+        if isinstance(empirical, dict) and empirical.get("calibration_status") == "blocked":
             status = "blocked"
         if task_id in set(report.get("empirical_calibration", {}).get("missing_task_ids", [])):
             status = "pending"
