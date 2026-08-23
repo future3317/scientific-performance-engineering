@@ -21,13 +21,6 @@ from benchmark.families.projection import audit_task
 NEW_TASKS: tuple[dict[str, Any], ...] = (
     {"task_id": "CORE-COMPILE-DYNAMIC-11", "track": "spe_core", "family": "compiler", "mechanism": "compile_dynamic_shapes", "kind": "positive", "source": "synthetic", "template": "MT-COMPILE-DYNAMIC-V2", "generator": "GEN-COMPILER-DYNAMIC", "fix": "FIX-COMPILE-DYNAMIC-SPECIALIZE", "contract": "CONTRACT-COMPILER-CACHE", "difficulty": "medium", "base": "CORE-COMPILE-RECOMPILE-04"},
     {"task_id": "CORE-COMPILE-TINY-12", "track": "spe_core", "family": "compiler", "mechanism": "compile_tiny_graphs", "kind": "counterexample", "source": "synthetic", "template": "MT-COMPILE-TINY-V2", "generator": "GEN-COMPILER-TINY", "fix": "FIX-COMPILE-TINY-ABSTAIN", "contract": "CONTRACT-COMPILER-CACHE", "difficulty": "hard", "base": "CORE-COMPILE-RECOMPILE-04"},
-    {"task_id": "CORE-MEM-RETAINED-GRAPH-13", "track": "spe_core", "family": "memory", "mechanism": "retained_graph", "kind": "positive", "source": "synthetic", "template": "MT-MEM-RETAINED-GRAPH-V1", "generator": "GEN-MEMORY-RETAINED", "fix": "FIX-MEM-RETAINED-DETACH", "contract": "CONTRACT-AUTOGRAD-GRAPH", "difficulty": "hard", "base": "CORE-COMPILE-RECOMPILE-04"},
-    {"task_id": "CORE-CHECKPOINT-AMPLE-MEM-14", "track": "spe_core", "family": "memory", "mechanism": "checkpoint_ample_memory", "kind": "counterexample", "source": "synthetic", "template": "MT-CHECKPOINT-AMPLE-MEM-V1", "generator": "GEN-MEMORY-CHECKPOINT", "fix": "FIX-CHECKPOINT-SELECTIVE", "contract": "CONTRACT-AUTOGRAD-GRAPH", "difficulty": "medium", "base": "CORE-COMPILE-RECOMPILE-04"},
-    {"task_id": "CORE-AUTOGRAD-BATCHED-VJP-15", "track": "spe_core", "family": "autograd", "mechanism": "batched_vjp", "kind": "positive", "source": "synthetic", "template": "MT-AUTOGRAD-BATCHED-VJP-V1", "generator": "GEN-AUTOGRAD-VJP", "fix": "FIX-AUTOGRAD-BATCHED-VJP", "contract": "CONTRACT-AUTOGRAD-GRAPH", "difficulty": "hard", "base": "CORE-COMPILE-RECOMPILE-04"},
-    {"task_id": "CORE-DATALOADER-FANOUT-16", "track": "spe_core", "family": "data_pipeline", "mechanism": "dataloader_worker_fanout", "kind": "positive", "source": "synthetic", "template": "MT-DATALOADER-FANOUT-V1", "generator": "GEN-DATA-FANOUT", "fix": "FIX-DATALOADER-TOPOLOGY", "contract": "CONTRACT-DATA-ORDER", "difficulty": "medium", "base": "CORE-COMPILE-RECOMPILE-04"},
-    {"task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17", "track": "sciml", "family": "graph_energy_force", "mechanism": "static_graph_cache", "kind": "positive", "source": "fairchem-shaped", "template": "MT-GNN-STATIC-CACHE-V1", "generator": "GEN-GNN-STATIC", "fix": "FIX-GNN-STATIC-CACHE", "contract": "CONTRACT-ENERGY-FORCE", "difficulty": "medium", "base": "SCIML-GNN-RAGGED-05"},
-    {"task_id": "SCIML-GNN-DYNAMIC-GRAPH-18", "track": "sciml", "family": "graph_energy_force", "mechanism": "dynamic_graph_rebuild", "kind": "counterexample", "source": "fairchem-shaped", "template": "MT-GNN-DYNAMIC-GRAPH-V1", "generator": "GEN-GNN-DYNAMIC", "fix": "FIX-GNN-DYNAMIC-REBUILD", "contract": "CONTRACT-ENERGY-FORCE", "difficulty": "hard", "base": "SCIML-GNN-RAGGED-05"},
-    {"task_id": "SCIML-FORCE-AUTOGRAD-19", "track": "sciml", "family": "graph_energy_force", "mechanism": "force_autograd", "kind": "positive", "source": "fairchem-shaped", "template": "MT-FORCE-AUTOGRAD-V1", "generator": "GEN-GNN-FORCE", "fix": "FIX-FORCE-BATCHED-VJP", "contract": "CONTRACT-ENERGY-FORCE", "difficulty": "hard", "base": "SCIML-GNN-RAGGED-05"},
     {"task_id": "EVOL-COMPILER-DRIFT-20", "track": "evolution", "family": "episode", "mechanism": ["compile_dynamic_shapes", "runtime_drift"], "kind": "positive", "source": "synthetic", "template": "MT-EPISODE-COMPILER-DRIFT-V1", "generator": "GEN-EVOLUTION-DRIFT", "fix": "FIX-EVOLUTION-DRIFT-REVALIDATE", "contract": "CONTRACT-EVOLUTION-GOVERNANCE", "difficulty": "hard", "base": "EVOL-EPISODE-POISON-10"},
 )
 
@@ -172,7 +165,12 @@ def _annotate_task(task_dir: Path, metadata: dict[str, Any]) -> None:
 
 def assert_executable_projection(task_dir: Path) -> dict[str, Any]:
     """Require a newly materialized package to round-trip its FamilySpec."""
-    report = audit_task(Path(task_dir), seed=0, device="cpu")
+    report = audit_task(
+        Path(task_dir),
+        seed=0,
+        device="cpu",
+        repo_root=Path(__file__).resolve().parents[2],
+    )
     if report.get("status") != "pass":
         raise ValueError(
             f"executable projection failed for {report.get('task_id', Path(task_dir).name)}: "

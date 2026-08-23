@@ -482,13 +482,13 @@
       "track": "sciml",
       "family_id": "graph_cache",
       "mechanism": "dynamic_graph_rebuild",
-      "polarity": "counterexample",
+      "polarity": "positive",
       "difficulty": "hard",
       "lineage_class": "sealed-independent-lineage",
       "generator_version": "SPE-EvoBench-generator-v1",
       "seed": 100031,
       "scientific_contract": "CONTRACT-ENERGY-FORCE",
-      "replacement_class": "same-family-mechanism-polarity-difficulty",
+      "replacement_class": "current-active-canonical",
       "materialization": "withheld"
     },
     {
@@ -653,13 +653,13 @@
       "track": "sciml",
       "family_id": "graph_cache",
       "mechanism": "dynamic_graph_rebuild",
-      "polarity": "counterexample",
+      "polarity": "positive",
       "difficulty": "hard",
       "lineage_class": "sealed-independent-lineage",
       "generator_version": "SPE-EvoBench-generator-v1",
       "seed": 100042,
       "scientific_contract": "CONTRACT-ENERGY-FORCE",
-      "replacement_class": "same-family-mechanism-polarity-difficulty",
+      "replacement_class": "current-active-canonical",
       "materialization": "withheld"
     },
     {

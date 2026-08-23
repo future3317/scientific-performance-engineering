@@ -205,7 +205,7 @@ Rules:
 
 ```yaml
 schema_version: 1
-task_id: CORE-SCALAR-SYNC-01        # ^[A-Z0-9-]+$ ; unique
+task_id: CORE-SCALAR-SYNC-01R2        # ^[A-Z0-9-]+$ ; unique
 track: spe_core                     # spe_core | sciml | evolution
 family: training_loop_overhead      # workload family (split key)
 mechanism: scalar_sync              # bottleneck mechanism id (§5, split key)
@@ -580,25 +580,25 @@ runnable with zero external downloads; CPU-capable unless noted:
 
 | # | task_id | track | family | mechanism | kind |
 |---|---|---|---|---|---|
-| 1 | CORE-SCALAR-SYNC-01 | spe_core | training_loop_overhead | scalar_sync | positive |
-| 2 | CORE-REPEATED-BACKBONE-02 | spe_core | repeated_compute | repeated_compute | positive (+ semantic-trap counterexample variant in-task) |
-| 3 | CORE-H2D-PIPELINE-03 | spe_core | data_pipeline | h2d_blocking | positive; requires_cuda (degrades to inconclusive on CPU) |
+| 1 | CORE-SCALAR-SYNC-01R2 | spe_core | training_loop_overhead | scalar_sync | positive |
+| 2 | CORE-REPEATED-BACKBONE-02R2 | spe_core | repeated_compute | repeated_compute | positive (+ semantic-trap counterexample variant in-task) |
+| 3 | CORE-H2D-PIPELINE-03R2 | spe_core | data_pipeline | h2d_blocking | positive; requires_cuda (degrades to inconclusive on CPU) |
 | 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | counterexample; cold calibration found no positive CI through 1024 steps |
-| 5 | SCIML-GNN-RAGGED-05 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive |
-| 6 | SCIML-EQUIV-RECOMPUTE-06 | sciml | equivariant_head | repeated_compute | counterexample (caching-equivariant-basis vs changing positions) |
-| 7 | SCIML-CRYSTAL-DIFFUSION-07 | sciml | crystal_generation | scalar_sync + launch_fragmentation | positive, time-to-quality |
-| 8 | SCIML-GRAPH-REBUILD-08 | sciml | crystal_sampling | graph_rebuild | do_not_apply (positions change every step — caching is wrong) |
-| 9 | CORE-KERNEL-FUSION-09 | spe_core | compiler | launch_fragmentation | positive (KernelBench-style verified fusion; CPU-capable) |
+| 5 | SCIML-GNN-RAGGED-05R2 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive |
+| 6 | SCIML-EQUIV-RECOMPUTE-06R2 | sciml | equivariant_head | repeated_compute | counterexample (caching-equivariant-basis vs changing positions) |
+| 7 | SCIML-CRYSTAL-DIFFUSION-07R2 | sciml | crystal_generation | scalar_sync + launch_fragmentation | positive, time-to-quality |
+| 8 | SCIML-GRAPH-REBUILD-08R2 | sciml | crystal_sampling | graph_rebuild | do_not_apply (positions change every step — caching is wrong) |
+| 9 | CORE-KERNEL-FUSION-09R2 | spe_core | compiler | launch_fragmentation | positive (KernelBench-style verified fusion; CPU-capable) |
 | 10 | EVOL-EPISODE-POISON-10 | evolution | episode | (all above) | 6-phase episode over held-out variants + poisoned experience |
 | 11 | CORE-COMPILE-DYNAMIC-11 | spe_core | compiler | compile_dynamic_shapes | positive |
 | 12 | CORE-COMPILE-TINY-12 | spe_core | compiler | compile_tiny_graphs | counterexample |
-| 13 | CORE-MEM-RETAINED-GRAPH-13 | spe_core | memory | retained_graph | positive |
-| 14 | CORE-CHECKPOINT-AMPLE-MEM-14 | spe_core | memory | checkpoint_ample_memory | counterexample |
-| 15 | CORE-AUTOGRAD-BATCHED-VJP-15 | spe_core | autograd | batched_vjp | positive |
-| 16 | CORE-DATALOADER-FANOUT-16 | spe_core | data_pipeline | dataloader_worker_fanout | positive |
-| 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive |
-| 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample |
-| 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive |
+| 13 | CORE-MEM-RETAINED-GRAPH-13R3 | spe_core | memory | retained_graph | positive |
+| 14 | CORE-CHECKPOINT-AMPLE-MEM-14R2 | spe_core | memory | checkpoint_ample_memory | counterexample |
+| 15 | CORE-AUTOGRAD-BATCHED-VJP-15R2 | spe_core | autograd | batched_vjp | positive |
+| 16 | CORE-DATALOADER-FANOUT-16R2 | spe_core | data_pipeline | dataloader_worker_fanout | positive |
+| 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17R2 | sciml | graph_energy_force | static_graph_cache | positive |
+| 18 | SCIML-GNN-DYNAMIC-GRAPH-18R2 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample |
+| 19 | SCIML-FORCE-AUTOGRAD-19R2 | sciml | graph_energy_force | force_autograd | positive |
 | 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_dynamic_shapes + runtime_drift | positive |
 
 Each atomic task ships with baseline/oracle validation metadata, fresh-input

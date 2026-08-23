@@ -5,7 +5,7 @@ Exposes the five functions the harness verifier/runner expect:
   load_solution, make_fixtures, run_correctness,
   run_scientific_gates, run_performance.
 
-See the CORE-KERNEL-FUSION-09 benchmark.py for the in-task workaround that
+See the CORE-KERNEL-FUSION-09R2 benchmark.py for the in-task workaround that
 prevents the task-directory ``benchmark.py`` from shadowing the top-level
 ``benchmark`` package.
 """

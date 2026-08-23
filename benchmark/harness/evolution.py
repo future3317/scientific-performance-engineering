@@ -19,7 +19,7 @@ Episode YAML format (miniyaml subset)::
     phases:
       - index: 1
         name: acquisition
-        tasks: [CORE-SCALAR-SYNC-01]
+        tasks: [CORE-SCALAR-SYNC-01R2]
         inject_experiences: []          # records dropped into experience/inbox (C) or evolution/candidates (D)
         inject_poisons: []              # misleading records; poisoning_survival_rate tracks their fate
         results: []                     # optional task records; utilities are always computed by FamilyEnvironment

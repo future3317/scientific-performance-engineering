@@ -21,10 +21,10 @@ initial canonical families and their retained anchor packages are:
 | Family | Parameter axes | Anchor instances |
 |---|---|---|
 | `compile` | logical steps, graph size, dynamic-shape rate | CORE-COMPILE-RECOMPILE-04, CORE-COMPILE-DYNAMIC-11, CORE-COMPILE-TINY-12 |
-| `graph_cache` | geometry displacement, skin, graph size, dynamic rate | SCIML-GNN-STATIC-GRAPH-CACHE-17, SCIML-GNN-DYNAMIC-GRAPH-18, SCIML-GRAPH-CACHE-BOUNDARY-27 |
-| `h2d_pipeline` | batch size, workers, prefetch, pinning | CORE-H2D-PIPELINE-03, CORE-DATALOADER-FANOUT-16, CORE-H2D-OVERFANOUT-23 |
-| `checkpoint` | memory pressure, segments, recompute ratio | CORE-CHECKPOINT-AMPLE-MEM-14, CORE-CHECKPOINT-HIGH-PRESSURE-24 |
-| `scalar_sync` | scalar synchronizations, metric cadence | CORE-SCALAR-SYNC-01, CORE-SCALAR-SYNC-LOW-CADENCE-21 |
+| `graph_cache` | geometry displacement, skin, graph size, dynamic rate | SCIML-GNN-STATIC-GRAPH-CACHE-17R2, SCIML-GNN-DYNAMIC-GRAPH-18R2, SCIML-GRAPH-CACHE-INTERIOR-27 |
+| `h2d_pipeline` | batch size, workers, prefetch, pinning | CORE-H2D-PIPELINE-03R2, CORE-DATALOADER-FANOUT-16R2, CORE-H2D-OVERFANOUT-23R3 |
+| `checkpoint` | memory pressure, segments, recompute ratio | CORE-CHECKPOINT-AMPLE-MEM-14R2, CORE-CHECKPOINT-HIGH-PRESSURE-24R2 |
+| `scalar_sync` | scalar synchronizations, metric cadence | CORE-SCALAR-SYNC-01R2, CORE-SCALAR-SYNC-LOW-CADENCE-21 |
 
 The remaining pilot packages retain their existing task family metadata and
 remain public anchors; they are not duplicated into a second workload source.
@@ -45,15 +45,15 @@ remain public anchors; they are not duplicated into a second workload source.
 
 | # | Task ID | Track | Family | Mechanism(s) | Kind | Source | Verified oracle speedup | Status |
 |---|---------|-------|--------|--------------|------|--------|------------------------|--------|
-| 1 | CORE-SCALAR-SYNC-01 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **1.51×** | pilot (scientific gates added; calibration pending) |
-| 2 | CORE-REPEATED-BACKBONE-02 | spe_core | repeated_compute | repeated_compute | positive | synthetic | **2.38×** | pilot (scientific gates added; calibration pending) |
-| 3 | CORE-H2D-PIPELINE-03 | spe_core | data_pipeline | h2d_blocking | positive | synthetic | **4.77×** (CUDA) | ✅ |
+| 1 | CORE-SCALAR-SYNC-01R2 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **1.51×** | pilot (scientific gates added; calibration pending) |
+| 2 | CORE-REPEATED-BACKBONE-02R2 | spe_core | repeated_compute | repeated_compute | positive | synthetic | **2.38×** | pilot (scientific gates added; calibration pending) |
+| 3 | CORE-H2D-PIPELINE-03R2 | spe_core | data_pipeline | h2d_blocking | positive | synthetic | **4.77×** (CUDA) | ✅ |
 | 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | counterexample | synthetic | no positive CI through 1024 steps | pilot |
-| 5 | SCIML-GNN-RAGGED-05 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive | fairchem-shaped | **6.23×** | ✅ |
-| 6 | SCIML-EQUIV-RECOMPUTE-06 | sciml | equivariant_head | repeated_compute | counterexample | fairchem-shaped | abstain (≈1.0×); tempting fails equivariance gate | ✅ |
-| 7 | SCIML-CRYSTAL-DIFFUSION-07 | sciml | crystal_generation | scalar_sync + launch_fragmentation | positive | cdvae-shaped | **21.3×** time-to-quality | ✅ |
-| 8 | SCIML-GRAPH-REBUILD-08 | sciml | crystal_sampling | graph_rebuild | do_not_apply | fairchem-shaped | abstain (≈1.0×); tempting fails scientific gate | ✅ |
-| 9 | CORE-KERNEL-FUSION-09 | spe_core | compiler | launch_fragmentation | positive | kernelbench-shaped | **3.42×** | ✅ |
+| 5 | SCIML-GNN-RAGGED-05R2 | sciml | graph_energy_force | ragged_loops + autograd_overhead | positive | fairchem-shaped | **6.23×** | ✅ |
+| 6 | SCIML-EQUIV-RECOMPUTE-06R2 | sciml | equivariant_head | repeated_compute | counterexample | fairchem-shaped | abstain (≈1.0×); tempting fails equivariance gate | ✅ |
+| 7 | SCIML-CRYSTAL-DIFFUSION-07R2 | sciml | crystal_generation | scalar_sync + launch_fragmentation | positive | cdvae-shaped | **21.3×** time-to-quality | ✅ |
+| 8 | SCIML-GRAPH-REBUILD-08R2 | sciml | crystal_sampling | graph_rebuild | do_not_apply | fairchem-shaped | abstain (≈1.0×); tempting fails scientific gate | ✅ |
+| 9 | CORE-KERNEL-FUSION-09R2 | spe_core | compiler | launch_fragmentation | positive | kernelbench-shaped | **3.42×** | ✅ |
 | 10 | EVOL-EPISODE-POISON-10 | evolution | episode | all above | positive | synthetic | **2.0×** episode score (C vs D) | ✅ |
 
 Verification meaning: “✅” = `validate-task` passes, baseline is
@@ -62,23 +62,23 @@ measured speedup, and counterexample/do_not_apply tempting patches are rejected.
 
 | 11 | CORE-COMPILE-DYNAMIC-11 | spe_core | compiler | compile_dynamic_shapes | positive | synthetic | calibrated positive anchor; population calibration pending | pilot |
 | 12 | CORE-COMPILE-TINY-12 | spe_core | compiler | compile_tiny_graphs | counterexample | synthetic | population-validity pending | pilot |
-| 13 | CORE-MEM-RETAINED-GRAPH-13 | spe_core | memory | retained_graph | positive | synthetic | population-validity pending | pilot |
-| 14 | CORE-CHECKPOINT-AMPLE-MEM-14 | spe_core | memory | checkpoint_ample_memory | counterexample | synthetic | population-validity pending | pilot |
-| 15 | CORE-AUTOGRAD-BATCHED-VJP-15 | spe_core | autograd | batched_vjp | positive | synthetic | population-validity pending | pilot |
-| 16 | CORE-DATALOADER-FANOUT-16 | spe_core | data_pipeline | dataloader_worker_fanout | positive | synthetic | population-validity pending | pilot |
-| 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17 | sciml | graph_energy_force | static_graph_cache | positive | fairchem-shaped | population-validity pending | pilot |
-| 18 | SCIML-GNN-DYNAMIC-GRAPH-18 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample | fairchem-shaped | population-validity pending | pilot |
-| 19 | SCIML-FORCE-AUTOGRAD-19 | sciml | graph_energy_force | force_autograd | positive | fairchem-shaped | population-validity pending | pilot |
+| 13 | CORE-MEM-RETAINED-GRAPH-13R3 | spe_core | memory | retained_graph | positive | synthetic | population-validity pending | pilot |
+| 14 | CORE-CHECKPOINT-AMPLE-MEM-14R2 | spe_core | memory | checkpoint_ample_memory | counterexample | synthetic | population-validity pending | pilot |
+| 15 | CORE-AUTOGRAD-BATCHED-VJP-15R2 | spe_core | autograd | batched_vjp | positive | synthetic | population-validity pending | pilot |
+| 16 | CORE-DATALOADER-FANOUT-16R2 | spe_core | data_pipeline | dataloader_worker_fanout | positive | synthetic | population-validity pending | pilot |
+| 17 | SCIML-GNN-STATIC-GRAPH-CACHE-17R2 | sciml | graph_energy_force | static_graph_cache | positive | fairchem-shaped | population-validity pending | pilot |
+| 18 | SCIML-GNN-DYNAMIC-GRAPH-18R2 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample | fairchem-shaped | population-validity pending | pilot |
+| 19 | SCIML-FORCE-AUTOGRAD-19R2 | sciml | graph_energy_force | force_autograd | positive | fairchem-shaped | population-validity pending | pilot |
 | 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_dynamic_shapes + runtime_drift | positive | synthetic | population-validity pending | pilot |
 | 21 | CORE-SCALAR-SYNC-LOW-CADENCE-21 | spe_core | training_loop_overhead | scalar_sync | counterexample | synthetic | calibration pending; low-cadence boundary | pilot |
 | 22 | CORE-REPEATED-BACKBONE-LOW-REUSE-22 | spe_core | repeated_compute | repeated_compute | counterexample | synthetic | calibration pending; correctness boundary | pilot |
-| 23 | CORE-H2D-OVERFANOUT-23 | spe_core | data_pipeline | h2d_blocking | counterexample | synthetic | CUDA execution completed; calibration blocked by 9.55--32.42% observed noise | retired for formal; replacement CORE-H2D-PIPELINE-03 |
-| 24 | CORE-CHECKPOINT-HIGH-PRESSURE-24 | spe_core | memory | activation_memory | positive | synthetic | authoring CPU smoke only; calibration pending | pilot |
-| 25 | CORE-AUTOGRAD-VJP-SMALL-25 | spe_core | autograd | batched_vjp | counterexample | synthetic | calibration pending; small-VJP boundary | pilot |
-| 26 | SCIML-EQUIV-LOWORDER-26 | sciml | equivariant_head | repeated_compute | positive | fairchem-shaped | authoring CPU smoke only; calibration pending | pilot |
-| 27 | SCIML-GRAPH-CACHE-BOUNDARY-27 | sciml | graph_energy_force | static_graph_cache | positive | fairchem-shaped | boundary anchor; calibration pending | pilot |
+| 23 | CORE-H2D-OVERFANOUT-23R3 | spe_core | data_pipeline | h2d_blocking | counterexample | synthetic | CUDA execution completed; calibration blocked by 9.55--32.42% observed noise | current replacement package; calibration pending |
+| 24 | CORE-CHECKPOINT-HIGH-PRESSURE-24R2 | spe_core | memory | activation_memory | positive | synthetic | authoring CPU smoke only; calibration pending | pilot |
+| 25 | CORE-AUTOGRAD-VJP-SMALL-25R2 | spe_core | autograd | batched_vjp | counterexample | synthetic | calibration pending; small-VJP boundary | pilot |
+| 26 | SCIML-EQUIV-LOWORDER-26R2 | sciml | equivariant_head | repeated_compute | positive | fairchem-shaped | authoring CPU smoke only; calibration pending | pilot |
+| 27 | SCIML-GRAPH-CACHE-INTERIOR-27 | sciml | graph_energy_force | static_graph_cache | positive | fairchem-shaped | boundary anchor; calibration pending | pilot |
 | 28 | SCIML-CRYSTAL-HIGH-GUIDANCE-28 | sciml | crystal_generation | launch_fragmentation | counterexample | cdvae-shaped | structure-validity counterexample; calibration pending | pilot |
-| 29 | SCIML-CRYSTAL-STATIC-SAMPLING-29 | sciml | crystal_sampling | graph_rebuild | positive | fairchem-shaped | authoring CPU smoke only; calibration pending | pilot |
+| 29 | SCIML-CRYSTAL-STATIC-SAMPLING-29R2 | sciml | crystal_sampling | graph_rebuild | positive | fairchem-shaped | authoring CPU smoke only; calibration pending | pilot |
 | 30 | EVOL-EQUIVARIANT-SPECIALIZE-30 | evolution | episode | repeated_compute + scientific_regime_drift | positive | synthetic | full C/D evolution harness: C 0 promotions; D 1 validated promotion | pilot (observed) |
 
 ## Sequential split (pilot)

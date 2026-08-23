@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.formal.release_manifest import materialize_frozen_slots, validate_materialized_manifest
 
@@ -14,9 +17,10 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--sealed-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--tasks-root", type=Path, default=Path(__file__).resolve().parents[1] / "benchmark" / "tasks")
     args = parser.parse_args()
     preregistered = json.loads(args.manifest.read_text(encoding="utf-8"))
-    materialized = materialize_frozen_slots(preregistered, args.sealed_root)
+    materialized = materialize_frozen_slots(preregistered, args.sealed_root, tasks_root=args.tasks_root)
     errors = validate_materialized_manifest(materialized, args.sealed_root)
     if errors:
         args.out.write_text(json.dumps({"status": "BLOCKED", "errors": errors}, indent=2) + "\n", encoding="utf-8")

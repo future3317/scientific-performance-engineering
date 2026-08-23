@@ -3,19 +3,19 @@ seed: 0
 phases:
   - index: 1
     name: acquisition
-    tasks: [CORE-SCALAR-SYNC-01, CORE-H2D-PIPELINE-03]
+    tasks: [CORE-SCALAR-SYNC-01R2, CORE-H2D-PIPELINE-03R2]
     inject_experiences: []
     inject_poisons: []
     results: []
   - index: 2
     name: same_family_transfer
-    tasks: [CORE-REPEATED-BACKBONE-02]
+    tasks: [CORE-REPEATED-BACKBONE-02R2]
     inject_experiences: []
     inject_poisons: []
     results: []
   - index: 3
     name: cross_family_transfer
-    tasks: [SCIML-CRYSTAL-DIFFUSION-07]
+    tasks: [SCIML-CRYSTAL-DIFFUSION-07R2]
     inject_experiences: []
     inject_poisons: []
     results: []
@@ -105,7 +105,7 @@ phases:
           excludes: []
         collector_confidence: medium
         artifacts: {}
-    tasks: [SCIML-GRAPH-REBUILD-08]
+    tasks: [SCIML-GRAPH-REBUILD-08R2]
     poisoned: true
   - index: 6
     name: recovery
