@@ -118,7 +118,7 @@ def _select_formal_source(slot: dict[str, Any], candidates: list[dict[str, Any]]
     return matches[int(slot["seed"]) % len(matches)]
 
 
-def _inject_projection_metadata(package_dir: Path, source: dict[str, Any]) -> None:
+def _inject_projection_metadata(package_dir: Path, source: dict[str, Any], formal_seed: int) -> None:
     family_id = str(source["family_id"])
     parameters = dict(source["instance"].parameters)
     extras: dict[str, Any] = {}
@@ -159,8 +159,6 @@ def _inject_projection_metadata(package_dir: Path, source: dict[str, Any]) -> No
             "num_steps": parameters.get("diffusion_steps"),
         }
         extras["guidance_scale"] = parameters.get("guidance_scale")
-    if not extras:
-        return
     benchmark_path = package_dir / "benchmark.py"
     text = benchmark_path.read_text(encoding="utf-8")
     marker = "# FORMAL_SLOT_PROJECTION_METADATA"
@@ -170,8 +168,20 @@ def _inject_projection_metadata(package_dir: Path, source: dict[str, Any]) -> No
     wrapper = (
         f"\n\n{marker}\n"
         "_FORMAL_ORIGINAL_MAKE_FIXTURES = make_fixtures\n"
+        f"_FORMAL_VARIANT_SEED = {int(formal_seed)}\n"
+        f"_FORMAL_VARIANT_PARAMETERS = {parameters!r}\n"
+        f"_FORMAL_FAMILY_ID = {family_id!r}\n"
         "def make_fixtures(seed=0, device='cpu'):\n"
-        "    fixtures = _FORMAL_ORIGINAL_MAKE_FIXTURES(seed, device)\n"
+        "    fixtures = _FORMAL_ORIGINAL_MAKE_FIXTURES(int(seed) + _FORMAL_VARIANT_SEED, device)\n"
+        "    if isinstance(fixtures, dict):\n"
+        "        fixtures['formal_variant_seed'] = _FORMAL_VARIANT_SEED\n"
+        "        fixtures['formal_variant_parameters'] = dict(_FORMAL_VARIANT_PARAMETERS)\n"
+        "        if _FORMAL_FAMILY_ID == 'episode':\n"
+        "            public_context = fixtures.get('public_context')\n"
+        "            workload = public_context.get('workload') if isinstance(public_context, dict) else None\n"
+        "            if isinstance(workload, dict):\n"
+        "                workload['formal_variant_seed'] = _FORMAL_VARIANT_SEED\n"
+        "                workload['formal_variant_parameters'] = dict(_FORMAL_VARIANT_PARAMETERS)\n"
         f"{assignments}\n"
         "    return fixtures\n"
     )
@@ -181,7 +191,8 @@ def _inject_projection_metadata(package_dir: Path, source: dict[str, Any]) -> No
 def _rewrite_formal_identity(package_dir: Path, slot: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     slot_id = str(slot["slot_id"])
     source_id = str(source["task_id"])
-    _inject_projection_metadata(package_dir, source)
+    formal_seed = int(slot["seed"])
+    _inject_projection_metadata(package_dir, source, formal_seed)
     solution = package_dir / "workspace" / "solution.py"
     if solution.is_file():
         text = solution.read_text(encoding="utf-8")
@@ -199,11 +210,14 @@ def _rewrite_formal_identity(package_dir: Path, slot: dict[str, Any], source: di
         "family_id": source["family_id"],
         "family_parameters": dict(instance.parameters),
         "family_instance_digest": family_instance_digest(source["family_id"], instance.parameters),
+        "formal_variant_seed": formal_seed,
+        "formal_variant_parameters": dict(instance.parameters),
         "public_context": {"workload": dict(instance.parameters)},
         "lineage": {
             "source": "sealed_generator",
             "mutation_template_id": f"FORMAL-{slot_id}",
             "mutation_seed": int(slot["seed"]),
+            "formal_variant_seed": formal_seed,
             "source_task_id": source_id,
         },
         "oracle_fix_pattern_id": f"FORMAL-{slot_id}-INTERVENTION",
@@ -217,6 +231,8 @@ def _rewrite_formal_identity(package_dir: Path, slot: dict[str, Any], source: di
         "task_id": slot_id,
         "family_id": source["family_id"],
         "anchor_instance_id": slot_id,
+        "formal_variant_seed": formal_seed,
+        "formal_variant_parameters": dict(instance.parameters),
         "lineage": dict(spec["lineage"]),
         "split_group": {
             "family": source["family_id"],
@@ -233,7 +249,7 @@ def _rewrite_formal_identity(package_dir: Path, slot: dict[str, Any], source: di
             parameters=dict(instance.parameters),
             polarity=str(slot["polarity"]),
             difficulty_tier=str(slot["difficulty"]),
-            lineage={"seed": int(slot["seed"]), "source_task_id": source_id},
+            lineage={"seed": formal_seed, "formal_variant_seed": formal_seed, "source_task_id": source_id},
             applicable=instance.applicable,
             scientific_truth=dict(instance.scientific_truth or {}),
         ).to_dict(),
@@ -272,6 +288,8 @@ def materialize_frozen_slots(
         item["task_id"] = str(package_dir.name)
         item["source_task_id"] = source_record["task_id"]
         item["source_task_dir"] = str(source)
+        item["formal_variant_seed"] = int(item["seed"])
+        item["formal_variant_parameters"] = dict(source_record["instance"].parameters)
         item["package_digest"] = task_package_digest(package_dir)
         item["family_instance"] = identity["family_instance"]
         item["projection"] = {"status": projection["status"], "matches": projection.get("matches", [])}
@@ -313,6 +331,8 @@ def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | 
         for key in ("slot_id", "task_id", "package_digest", "visibility", "track", "split", "source_task_id", "family_instance", "projection"):
             if not slot.get(key):
                 errors.append(f"slot missing {key}")
+        if not isinstance(slot.get("formal_variant_seed"), int):
+            errors.append(f"slot missing formal_variant_seed: {slot.get('slot_id')}")
         slot_id = str(slot.get("slot_id"))
         if slot_id in seen:
             errors.append(f"duplicate slot_id: {slot_id}")

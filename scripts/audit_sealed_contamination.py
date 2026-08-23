@@ -10,8 +10,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark.harness import miniyaml
+from benchmark.harness.runner import call_benchmark_fn, fixture_hash, import_module_by_path
 from benchmark.taskgen.generate import ast_skeleton_hash
 from benchmark.formal.attest import task_package_digest
+
+
+def _fixture_digest(task_dir: Path) -> str:
+    module = import_module_by_path(task_dir / "benchmark.py")
+    fixtures = call_benchmark_fn(module.make_fixtures, seed=0, device="cpu")
+    return fixture_hash(fixtures)
 
 
 def audit(
@@ -30,7 +37,13 @@ def audit(
             continue
         try:
             public_spec = miniyaml.load(str(public_dir / "task.yaml"))
-            public_records.append({"task_id": public_dir.name, "spec": public_spec, "package_digest": task_package_digest(public_dir), "ast": ast_skeleton_hash(public_dir)})
+            public_records.append({
+                "task_id": public_dir.name,
+                "spec": public_spec,
+                "package_digest": task_package_digest(public_dir),
+                "fixture_digest": _fixture_digest(public_dir),
+                "ast": ast_skeleton_hash(public_dir),
+            })
         except (OSError, ValueError):
             continue
     results = []
@@ -51,10 +64,13 @@ def audit(
         metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.is_file() else {}
         lineage = spec.get("lineage", {}) if isinstance(spec, dict) else {}
         sealed_ast = ast_skeleton_hash(task_dir)
+        fixture_digest = _fixture_digest(task_dir)
         checks = {
             "source_lineage": bool(lineage.get("source") and lineage.get("mutation_template_id")),
             "oracle_fix_pattern": bool(spec.get("oracle_fix_pattern_id")),
             "ast_fingerprint": spec.get("workspace_ast_skeleton_hash") == sealed_ast,
+            "formal_variant_seed": isinstance(spec.get("formal_variant_seed"), int),
+            "fixture_fingerprint": bool(fixture_digest),
             "family_parameter_overlap": True,
             "near_duplicate": False,
         }
@@ -65,7 +81,11 @@ def audit(
             public_spec = public["spec"]
             if package_digest == public["package_digest"]:
                 checks["near_duplicate"] = True
-            if public["ast"] == sealed_ast and str(public_spec.get("family_id")) == str(spec.get("family_id")):
+            if (
+                public.get("fixture_digest")
+                and public["fixture_digest"] == fixture_digest
+                and str(public_spec.get("family_id")) == str(spec.get("family_id"))
+            ):
                 checks["near_duplicate"] = True
             if str(public_spec.get("oracle_fix_pattern_id")) == str(spec.get("oracle_fix_pattern_id")):
                 checks["near_duplicate"] = True
@@ -78,25 +98,57 @@ def audit(
             "family_id": spec.get("family_id"), "family_parameters": spec.get("family_parameters", {}),
             "oracle_fix_pattern_id": spec.get("oracle_fix_pattern_id"),
             "workspace_ast_skeleton_hash": spec.get("workspace_ast_skeleton_hash"),
+            "formal_variant_seed": spec.get("formal_variant_seed"),
+            "fixture_digest": fixture_digest,
             "checks": checks,
             "task_digest": package_digest,
             "metadata_digest": hashlib.sha256(metadata_path.read_bytes()).hexdigest() if metadata_path.is_file() else None,
         }
         results.append(entry)
         materialized.append(entry)
-    # Exact task/family parameter reuse is a contamination finding unless it
-    # is the same slot identity; sealed slots must have fresh lineage.
-    seen: dict[tuple[str, str], str] = {}
+    # Exact task/family parameter reuse is acceptable only with an independent
+    # formal fixture seed.
+    seen: dict[tuple[str, str, str], str] = {}
+    seen_packages: dict[str, str] = {}
+    seen_fixtures: dict[tuple[str, str], str] = {}
+    seen_seeds: dict[int, str] = {}
     for entry in materialized:
-        key = (str(entry.get("family_id")), json.dumps(entry.get("family_parameters", {}), sort_keys=True, separators=(",", ":")))
+        task_id = str(entry.get("task_id"))
+        family = str(entry.get("family_id"))
+        parameters = json.dumps(entry.get("family_parameters", {}), sort_keys=True, separators=(",", ":"))
+        formal_seed = entry.get("formal_variant_seed")
+        key = (family, parameters, str(formal_seed))
         previous = seen.get(key)
-        if previous and previous != entry.get("task_id"):
+        if previous and previous != task_id:
             entry["checks"]["family_parameter_overlap"] = False
             entry["checks"]["near_duplicate"] = False
             entry["status"] = "blocked"
             entry["contamination_with"] = previous
         else:
-            seen[key] = str(entry.get("task_id"))
+            seen[key] = task_id
+        package_digest = str(entry.get("task_digest"))
+        previous = seen_packages.get(package_digest)
+        if previous and previous != task_id:
+            entry["checks"]["near_duplicate"] = True
+            entry["status"] = "blocked"
+            entry["contamination_with"] = previous
+        else:
+            seen_packages[package_digest] = task_id
+        fixture_key = (family, str(entry.get("fixture_digest")))
+        previous = seen_fixtures.get(fixture_key)
+        if previous and previous != task_id:
+            entry["checks"]["near_duplicate"] = True
+            entry["status"] = "blocked"
+            entry["contamination_with"] = previous
+        else:
+            seen_fixtures[fixture_key] = task_id
+        previous = seen_seeds.get(formal_seed)
+        if formal_seed is not None and previous and previous != task_id:
+            entry["checks"]["near_duplicate"] = True
+            entry["status"] = "blocked"
+            entry["contamination_with"] = previous
+        elif formal_seed is not None:
+            seen_seeds[formal_seed] = task_id
     payload = {"schema_version": 1, "population_id": manifest.get("population_id"), "status": "PASS" if results and all(item["status"] == "audited" for item in results) else "BLOCKED", "results": results}
     payload["artifact_digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return payload
