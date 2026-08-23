@@ -1,0 +1,18 @@
+--- a/workspace/solution.py
++++ b/workspace/solution.py
+@@ -17,3 +17,12 @@
+-    x = x.detach().requires_grad_(True); y = model(x); rows = []
+-    for index in torch.nonzero(model.jacobian_output_mask, as_tuple=False).flatten().tolist(): rows.append(torch.autograd.grad(y[:, index].mean(), x, retain_graph=True, create_graph=True)[0])
+-    return torch.stack(rows)
++    x = x.detach().requires_grad_(True)
++    indices = torch.nonzero(model.jacobian_output_mask, as_tuple=False).flatten()
++    selected = model(x)[:, indices].transpose(0, 1)
++    grad_outputs = torch.eye(indices.numel(), device=x.device, dtype=selected.dtype)
++    grad_outputs = grad_outputs.unsqueeze(-1).expand(-1, -1, selected.shape[1]) / selected.shape[1]
++    return torch.autograd.grad(
++        selected,
++        x,
++        grad_outputs=grad_outputs,
++        is_grads_batched=True,
++        create_graph=True,
++    )[0]

@@ -10,7 +10,7 @@ class TinyRegressor(nn.Module):
     def forward(self,x): return self.net(x).squeeze(-1)
 
 def build_model(fixtures):
-    m=TinyRegressor(fixtures['in_dim']); m.load_state_dict(fixtures['init_state']); m.metric_step=0; return m.to(fixtures['device'])
+    m=TinyRegressor(fixtures['in_dim']); m.load_state_dict(fixtures['init_state']); m.metric_step=0; m.metric_cadence=int(fixtures['metric_cadence']); return m.to(fixtures['device'])
 
 def train_step(model,batch,optimizer):
     x,y=batch; pred=model(x.to(fixtures_device:=next(model.parameters()).device)); loss=F.mse_loss(pred,y.to(fixtures_device))
@@ -18,7 +18,7 @@ def train_step(model,batch,optimizer):
     # Four scalar reads only on the declared metric cadence. The average hot-loop
     # cost is intentionally below the applicability boundary.
     values=[]
-    if model.metric_step % 8 == 0:
+    if model.metric_step % model.metric_cadence == 0:
         metrics=torch.stack([loss.detach().cpu(), pred.detach().cpu().mean(), pred.detach().cpu().abs().mean(), pred.detach().cpu().square().mean()])
         values=[metrics[i].item() for i in range(4)]
     model.metric_step += 1

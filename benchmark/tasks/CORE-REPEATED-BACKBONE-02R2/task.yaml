@@ -18,7 +18,7 @@ measurement:
   primary_metric: step_ms_p50
   higher_is_better: false
   warmup_iterations: 40
-  measured_iterations: 400
+  measured_iterations: 800
   repetitions: 5
   min_improvement_percent: 5.0
   noise_floor_percent: 2.0
