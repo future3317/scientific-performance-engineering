@@ -15,7 +15,7 @@ def main() -> None:
         """
         # comment line
         schema_version: 1
-        task_id: CORE-SCALAR-SYNC-01
+        task_id: CORE-SCALAR-SYNC-01R2
         requires_cuda: false
         time_budget_s: 600
         ratio: 1.0e-5
@@ -31,7 +31,7 @@ def main() -> None:
         """
     )
     assert doc["schema_version"] == 1
-    assert doc["task_id"] == "CORE-SCALAR-SYNC-01"
+    assert doc["task_id"] == "CORE-SCALAR-SYNC-01R2"
     assert doc["requires_cuda"] is False
     assert doc["time_budget_s"] == 600
     assert abs(doc["ratio"] - 1.0e-5) < 1e-12
@@ -94,7 +94,7 @@ def main() -> None:
     spec = miniyaml.parse(
         """
         schema_version: 1
-        task_id: CORE-SCALAR-SYNC-01
+        task_id: CORE-SCALAR-SYNC-01R2
         track: spe_core
         family: training_loop_overhead
         mechanism: scalar_sync

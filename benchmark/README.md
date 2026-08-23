@@ -65,7 +65,7 @@ executable task source. The tasks remain calibration candidates and do not
 produce efficacy claims or sealed formal-50 content.
 
 The current H2D counterexample candidate is
-`CORE-H2D-OVERFANOUT-23R2`, an independent replacement that requires fresh
+`CORE-H2D-OVERFANOUT-23R3`, an independent replacement that requires fresh
 target-runtime calibration; it remains a pilot candidate and does not confer
 formal eligibility. The evolution episode `EVOL-EQUIVARIANT-SPECIALIZE-30` completed the full C/D
 harness: C produced no canonical promotion, while D produced one validated

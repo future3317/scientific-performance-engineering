@@ -8,46 +8,274 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from benchmark.families import FAMILY_SPECS, FamilyInstance, family_instance_digest, resolve_family_id
+from benchmark.harness import miniyaml
 from benchmark.formal.attest import task_package_digest
+from benchmark.taskgen.generate import ast_skeleton_hash, assert_executable_projection
 
 
 def digest_json(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def materialize_frozen_slots(preregistered: dict[str, Any], sealed_root: str | Path) -> dict[str, Any]:
-    """Create the executable slot index under a private sealed root.
+def _mechanism_key(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
-    The package contents are supplied by the caller; the public repository only
-    receives this opaque index and never receives sealed task files.
+
+def _formal_source_candidates(tasks_root: Path, slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    active_manifest = tasks_root.parent / "pilot_population.json"
+    if not active_manifest.is_file():
+        raise ValueError(f"active population manifest missing: {active_manifest}")
+    active_ids = set(json.loads(active_manifest.read_text(encoding="utf-8")).get("task_ids", []))
+    if not active_ids:
+        raise ValueError(f"active population manifest has no task_ids: {active_manifest}")
+    requested = {
+        (
+            str(slot.get("family_id")),
+            _mechanism_key(slot.get("mechanism")),
+            str(slot.get("polarity")),
+            str(slot.get("difficulty")),
+        )
+        for slot in slots
+    }
+    candidates: list[dict[str, Any]] = []
+    for task_dir in sorted(tasks_root.iterdir()):
+        task_path = task_dir / "task.yaml"
+        metadata_path = task_dir / "metadata.json"
+        if task_dir.name not in active_ids:
+            continue
+        if not task_dir.is_dir() or not task_path.is_file() or not metadata_path.is_file():
+            continue
+        spec = miniyaml.load(str(task_path))
+        try:
+            family_id = resolve_family_id(str(spec.get("family_id", spec.get("family", ""))))
+        except (KeyError, TypeError, ValueError):
+            continue
+        candidate_key = (
+            family_id,
+            _mechanism_key(spec.get("mechanism")),
+            str(spec.get("kind")),
+            str(spec.get("difficulty_tier")),
+        )
+        if candidate_key not in requested:
+            continue
+        declared_parameters = {
+            key: value
+            for key, value in dict(spec.get("family_parameters") or {}).items()
+            if key not in {"seed", "fixture_index"}
+        }
+        if not declared_parameters:
+            continue
+        try:
+            truth = dict(FAMILY_SPECS[family_id].scientific_truth(declared_parameters) or {})
+        except (KeyError, TypeError, ValueError):
+            continue
+        instance = FamilyInstance(
+            family_id=family_id,
+            instance_id=str(spec["task_id"]),
+            parameters=dict(declared_parameters),
+            polarity=str(spec.get("kind", "positive")),
+            difficulty_tier=str(spec.get("difficulty_tier", "medium")),
+            anchor_task_id=None,
+            lineage={"source": "executable_projection", "task_id": str(spec["task_id"])},
+            applicable=bool(truth.get("applicable", spec.get("kind") == "positive")),
+            scientific_truth=truth,
+        )
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        split_group = metadata.get("split_group")
+        if not isinstance(split_group, dict) or not split_group:
+            continue
+        candidates.append({
+            "task_id": str(spec["task_id"]),
+            "path": task_dir,
+            "family_id": family_id,
+            "mechanism": spec.get("mechanism"),
+            "kind": str(spec.get("kind")),
+            "difficulty": str(spec.get("difficulty_tier")),
+            "instance": instance,
+            "projection_status": "declared_template",
+        })
+    return candidates
+
+
+def _select_formal_source(slot: dict[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    family_id = resolve_family_id(str(slot.get("family_id", "")))
+    mechanism = _mechanism_key(slot.get("mechanism"))
+    polarity = str(slot.get("polarity"))
+    matches = [
+        candidate for candidate in candidates
+        if candidate["family_id"] == family_id
+        and _mechanism_key(candidate["mechanism"]) == mechanism
+        and candidate["kind"] == polarity
+        and candidate["difficulty"] == str(slot.get("difficulty"))
+    ]
+    if not matches:
+        raise ValueError(
+            f"no executable source package for {slot.get('slot_id')}: "
+            f"family={family_id}, mechanism={slot.get('mechanism')}, polarity={slot.get('polarity')}, "
+            f"difficulty={slot.get('difficulty')}"
+        )
+    return matches[int(slot["seed"]) % len(matches)]
+
+
+def _inject_projection_metadata(package_dir: Path, source: dict[str, Any]) -> None:
+    family_id = str(source["family_id"])
+    parameters = dict(source["instance"].parameters)
+    extras: dict[str, Any] = {}
+    if family_id == "autograd" and "jacobian_density" in parameters:
+        extras["jacobian_density"] = parameters["jacobian_density"]
+    elif family_id == "graph_cache":
+        extras["graph_cache_config"] = {
+            key: parameters[key]
+            for key in ("geometry_displacement", "skin", "graph_size", "dynamic_rate")
+            if key in parameters
+        }
+    elif family_id == "checkpoint":
+        extras["checkpoint_config"] = {
+            key: parameters[key]
+            for key in ("memory_pressure", "recompute_ratio", "segment_count")
+            if key in parameters
+        }
+        if "logical_batch_size" in parameters:
+            extras["logical_batch_size"] = parameters["logical_batch_size"]
+    elif family_id == "h2d_pipeline":
+        extras["data_config"] = {"batch_size": parameters.get("batch_size")}
+        extras["worker_count"] = parameters.get("worker_count")
+        extras["prefetch_factor"] = parameters.get("prefetch_factor")
+        extras["pin_memory"] = parameters.get("pin_memory")
+    elif family_id == "scalar_sync":
+        extras["scalar_syncs_per_step"] = parameters.get("scalar_syncs_per_step")
+        extras["metric_cadence"] = parameters.get("metric_cadence")
+    elif family_id == "equivariant_head":
+        extras["node_count"] = parameters.get("node_count")
+        extras["irrep_order"] = parameters.get("irrep_order")
+        extras["recompute_rate"] = parameters.get("recompute_rate")
+    elif family_id == "crystal_sampling":
+        extras["neighbor_count"] = parameters.get("neighbor_count")
+        extras["geometry_variation"] = parameters.get("geometry_variation")
+    elif family_id == "crystal_generation":
+        extras["config"] = {
+            "num_atoms": parameters.get("atom_count"),
+            "num_steps": parameters.get("diffusion_steps"),
+        }
+        extras["guidance_scale"] = parameters.get("guidance_scale")
+    if not extras:
+        return
+    benchmark_path = package_dir / "benchmark.py"
+    text = benchmark_path.read_text(encoding="utf-8")
+    marker = "# FORMAL_SLOT_PROJECTION_METADATA"
+    if marker in text:
+        return
+    assignments = "\n".join(f"    fixtures[{key!r}] = {value!r}" for key, value in extras.items())
+    wrapper = (
+        f"\n\n{marker}\n"
+        "_FORMAL_ORIGINAL_MAKE_FIXTURES = make_fixtures\n"
+        "def make_fixtures(seed=0, device='cpu'):\n"
+        "    fixtures = _FORMAL_ORIGINAL_MAKE_FIXTURES(seed, device)\n"
+        f"{assignments}\n"
+        "    return fixtures\n"
+    )
+    benchmark_path.write_text(text + wrapper, encoding="utf-8")
+
+
+def _rewrite_formal_identity(package_dir: Path, slot: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    slot_id = str(slot["slot_id"])
+    source_id = str(source["task_id"])
+    _inject_projection_metadata(package_dir, source)
+    solution = package_dir / "workspace" / "solution.py"
+    if solution.is_file():
+        text = solution.read_text(encoding="utf-8")
+        marker = f'FORMAL_SLOT_VARIANT = "{slot_id}"\n'
+        if "FORMAL_SLOT_VARIANT = " not in text:
+            future = "from __future__ import annotations\n"
+            text = text.replace(future, future + "\n" + marker, 1) if future in text else marker + text
+            solution.write_text(text, encoding="utf-8")
+    spec_path = package_dir / "task.yaml"
+    spec = miniyaml.load(str(spec_path))
+    instance = source["instance"]
+    spec.update({
+        "task_id": slot_id,
+        "anchor_instance_id": slot_id,
+        "family_id": source["family_id"],
+        "family_parameters": dict(instance.parameters),
+        "family_instance_digest": family_instance_digest(source["family_id"], instance.parameters),
+        "public_context": {"workload": dict(instance.parameters)},
+        "lineage": {
+            "source": "sealed_generator",
+            "mutation_template_id": f"FORMAL-{slot_id}",
+            "mutation_seed": int(slot["seed"]),
+            "source_task_id": source_id,
+        },
+        "oracle_fix_pattern_id": f"FORMAL-{slot_id}-INTERVENTION",
+        "workspace_ast_skeleton_hash": ast_skeleton_hash(package_dir),
+        "ast_skeleton_version": 2,
+    })
+    miniyaml.save(spec, str(spec_path))
+    metadata_path = package_dir / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.update({
+        "task_id": slot_id,
+        "family_id": source["family_id"],
+        "anchor_instance_id": slot_id,
+        "lineage": dict(spec["lineage"]),
+        "split_group": {
+            "family": source["family_id"],
+            "mechanism": slot.get("mechanism"),
+            "source": f"sealed-seed-{slot['seed']}",
+            "mutation_template_id": f"FORMAL-{slot_id}",
+        },
+    })
+    metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return {
+        "family_instance": FamilyInstance(
+            family_id=source["family_id"],
+            instance_id=slot_id,
+            parameters=dict(instance.parameters),
+            polarity=str(slot["polarity"]),
+            difficulty_tier=str(slot["difficulty"]),
+            lineage={"seed": int(slot["seed"]), "source_task_id": source_id},
+            applicable=instance.applicable,
+            scientific_truth=dict(instance.scientific_truth or {}),
+        ).to_dict(),
+        "split": metadata["split_group"],
+    }
+
+
+def materialize_frozen_slots(
+    preregistered: dict[str, Any], sealed_root: str | Path, *, tasks_root: str | Path
+) -> dict[str, Any]:
+    """Materialize frozen slots into executable private packages.
+
+    Each slot selects a same-family canonical executable package using its
+    frozen seed, rewrites only package identity/lineage metadata, and proves
+    the resulting package still projects to its declared FamilyInstance.
     """
     slots = list(preregistered.get("slots", []))
     if preregistered.get("status") not in {"preregistered_content_withheld", "materialized_frozen"}:
         raise ValueError("population manifest is not in a materializable state")
     root = Path(sealed_root).resolve()
     root.mkdir(parents=True, exist_ok=True)
+    candidates = _formal_source_candidates(Path(tasks_root).resolve(), slots)
     materialized: list[dict[str, Any]] = []
     for slot in slots:
         item = dict(slot)
         package_dir = root / str(item["slot_id"])
-        task_dir = item.get("source_task_dir")
-        if not task_dir:
-            raise ValueError(f"slot {item.get('slot_id')} has no materialized task package source")
-        source = Path(str(task_dir)).resolve()
+        source_record = _select_formal_source(item, candidates)
+        source = Path(source_record["path"]).resolve()
         if not source.is_dir():
             raise FileNotFoundError(source)
-        source_metadata = source / "metadata.json"
-        if not source_metadata.is_file():
-            raise ValueError(f"materialization source {item['slot_id']} lacks metadata.json")
-        source_split = json.loads(source_metadata.read_text(encoding="utf-8")).get("split_group")
-        if not isinstance(source_split, dict) or not source_split:
-            raise ValueError(f"materialization source {item['slot_id']} lacks split_group metadata")
         if package_dir.exists():
             shutil.rmtree(package_dir)
         shutil.copytree(source, package_dir, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        item["task_id"] = str(item.get("task_id") or package_dir.name)
+        identity = _rewrite_formal_identity(package_dir, item, source_record)
+        projection = assert_executable_projection(package_dir)
+        item["task_id"] = str(package_dir.name)
+        item["source_task_id"] = source_record["task_id"]
+        item["source_task_dir"] = str(source)
         item["package_digest"] = task_package_digest(package_dir)
-        item["split"] = source_split
+        item["family_instance"] = identity["family_instance"]
+        item["projection"] = {"status": projection["status"], "matches": projection.get("matches", [])}
+        item["split"] = identity["split"]
         item["materialization"] = "materialized"
         materialized.append(item)
     return {
@@ -77,11 +305,12 @@ def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | 
     if sum(isinstance(slot, dict) and slot.get("visibility") == "sealed" for slot in slots or []) != 35:
         errors.append("materialized formal manifest must contain 35 sealed slots")
     seen: set[str] = set()
+    seen_splits: set[str] = set()
     for slot in slots or []:
         if not isinstance(slot, dict):
             errors.append("slot must be an object")
             continue
-        for key in ("slot_id", "task_id", "package_digest", "visibility", "track", "split"):
+        for key in ("slot_id", "task_id", "package_digest", "visibility", "track", "split", "source_task_id", "family_instance", "projection"):
             if not slot.get(key):
                 errors.append(f"slot missing {key}")
         slot_id = str(slot.get("slot_id"))
@@ -90,6 +319,14 @@ def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | 
         seen.add(slot_id)
         if slot.get("visibility") not in {"sealed", "public_dev"}:
             errors.append(f"invalid visibility for {slot_id}")
+        split_key = json.dumps(slot.get("split"), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        if split_key in seen_splits:
+            errors.append(f"duplicate split group: {slot_id}")
+        seen_splits.add(split_key)
+        if not isinstance(slot.get("family_instance"), dict) or slot["family_instance"].get("instance_id") != slot_id:
+            errors.append(f"family instance identity mismatch: {slot_id}")
+        if not isinstance(slot.get("projection"), dict) or slot["projection"].get("status") != "pass":
+            errors.append(f"executable projection failed: {slot_id}")
         if sealed_root and slot.get("visibility") == "sealed":
             package = Path(sealed_root) / slot_id
             if not package.is_dir():

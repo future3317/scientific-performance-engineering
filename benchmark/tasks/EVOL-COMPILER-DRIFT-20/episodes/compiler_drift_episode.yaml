@@ -76,7 +76,7 @@ phases:
     inject_poisons: []
   - index: 3
     name: cross_family_transfer
-    tasks: [CORE-KERNEL-FUSION-09]
+    tasks: [CORE-KERNEL-FUSION-09R2]
     inject_experiences: []
     inject_poisons: []
   - index: 4

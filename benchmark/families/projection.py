@@ -155,7 +155,14 @@ def _compare(expected: Mapping[str, Any], actual: Mapping[str, Any]) -> dict[str
     return {"status": "pass" if not missing and not mismatches else "drift", "matches": matches, "missing": missing, "mismatches": mismatches}
 
 
-def audit_task(task_dir: Path, *, seed: int = 0, device: str = "cpu", timeout_s: float = 120.0) -> dict[str, Any]:
+def audit_task(
+    task_dir: Path,
+    *,
+    seed: int = 0,
+    device: str = "cpu",
+    timeout_s: float = 120.0,
+    repo_root: str | Path | None = None,
+) -> dict[str, Any]:
     spec = miniyaml.load(str(task_dir / "task.yaml"))
     expected = {
         key: value
@@ -166,7 +173,8 @@ def audit_task(task_dir: Path, *, seed: int = 0, device: str = "cpu", timeout_s:
     try:
         completed = subprocess.run(
             [sys.executable, "-c", _WORKER, str(task_dir), str(seed), device],
-            cwd=str(task_dir.parents[2]), text=True, capture_output=True, timeout=timeout_s, check=False,
+            cwd=str(Path(repo_root).resolve() if repo_root else task_dir.parents[2]),
+            text=True, capture_output=True, timeout=timeout_s, check=False,
         )
     except subprocess.TimeoutExpired:
         return {"task_id": spec.get("task_id", task_dir.name), "family_id": family_id, "status": "fixture_timeout"}

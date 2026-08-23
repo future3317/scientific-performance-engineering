@@ -1,1 +1,0 @@
-The geometry moves exactly to the current cache-validity boundary. Reuse only topology that is provably unchanged; positions must remain differentiable because forces are -dE/dx.

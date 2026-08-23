@@ -14,9 +14,14 @@ from benchmark.taskgen.generate import ast_skeleton_hash
 from benchmark.formal.attest import task_package_digest
 
 
-def audit(repo_root: str | Path, sealed_root: str | Path | None = None) -> dict:
+def audit(
+    repo_root: str | Path,
+    sealed_root: str | Path | None = None,
+    manifest_path: str | Path | None = None,
+) -> dict:
     root = Path(repo_root)
-    manifest = json.loads((root / "benchmark" / "manifests" / "v1.0-50-slots.json").read_text(encoding="utf-8"))
+    manifest_file = Path(manifest_path) if manifest_path is not None else root / "benchmark" / "manifests" / "v1.0-50-slots.json"
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
     tasks_root = Path(sealed_root).resolve() if sealed_root else root / "benchmark" / "tasks"
     public_root = root / "benchmark" / "tasks"
     public_records: list[dict] = []
@@ -103,8 +108,9 @@ def main() -> int:
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--sealed-tasks-root", type=Path, default=None)
+    parser.add_argument("--manifest", type=Path, default=None)
     args = parser.parse_args()
-    result = audit(args.repo_root, args.sealed_tasks_root)
+    result = audit(args.repo_root, args.sealed_tasks_root, args.manifest)
     args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return 0 if result["status"] == "PASS" else 1
 
