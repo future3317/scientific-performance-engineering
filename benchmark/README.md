@@ -10,9 +10,9 @@ integration-requirements note is archived; its resolved boundaries and remaining
 optional integrations are summarized below.
 
 Formal readiness is fail-closed: the checked-in 30-task population remains a
-pilot until `population_report.json`, `calibration/pilot_calibration.json`, and
-`calibration/calibration_approval.json` are reviewed and
-`validate_population --strict-formal` passes. The v1.0-50 file is a content-free
+pilot until current-revision `population_report.json`,
+`calibration/pilot_calibration.json`, and `calibration/calibration_approval.json`
+are produced, reviewed, and accepted by `validate_population --strict-formal`. The v1.0-50 file is a content-free
 50-slot preregistration; confirmatory headline D−B uses sealed-35 only. Public
 dev slots are calibration/debugging and secondary reporting. Claims and
 statistics are frozen in the repository-root `CLAIMS.yaml` and

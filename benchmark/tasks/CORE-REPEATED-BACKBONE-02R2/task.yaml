@@ -36,7 +36,7 @@ diagnosis:
 oracle:
   expected_speedup_range: [1.8, 2.5]
 generator_family_id: GEN-REPEATED_COMPUTE
-oracle_fix_pattern_id: FIX-CORE-REPEATED-BACKBONE-02
+oracle_fix_pattern_id: FIX-CORE-REPEATED-BACKBONE-02R2
 scientific_contract_id: CONTRACT-REPEATED-COMPUTE
 difficulty_tier: medium
 workspace_ast_skeleton_hash: "0aa28077e1daf43705f1528e38b3de600e6c16b999102aaf1c83d57340d09516"
