@@ -3,36 +3,36 @@
   "population_id": "SPE-EvoBench-v1.0-30-pilot",
   "active_manifest": "benchmark/pilot_population.json",
   "active_task_ids": [
-    "CORE-SCALAR-SYNC-01",
-    "CORE-H2D-PIPELINE-03",
+    "CORE-SCALAR-SYNC-01R2",
+    "CORE-H2D-PIPELINE-03R2",
     "CORE-COMPILE-DYNAMIC-11",
-    "CORE-MEM-RETAINED-GRAPH-13",
-    "CORE-AUTOGRAD-BATCHED-VJP-15",
-    "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+    "CORE-MEM-RETAINED-GRAPH-13R3",
+    "CORE-AUTOGRAD-BATCHED-VJP-15R2",
+    "SCIML-GNN-STATIC-GRAPH-CACHE-17R2",
     "CORE-SCALAR-SYNC-LOW-CADENCE-21",
-    "CORE-H2D-OVERFANOUT-23R2",
-    "CORE-REPEATED-BACKBONE-02",
+    "CORE-H2D-OVERFANOUT-23R3",
+    "CORE-REPEATED-BACKBONE-02R2",
     "CORE-COMPILE-RECOMPILE-04",
     "CORE-COMPILE-TINY-12",
-    "CORE-CHECKPOINT-AMPLE-MEM-14",
-    "SCIML-GNN-DYNAMIC-GRAPH-18",
+    "CORE-CHECKPOINT-AMPLE-MEM-14R2",
+    "SCIML-GNN-DYNAMIC-GRAPH-18R2",
     "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
-    "CORE-CHECKPOINT-HIGH-PRESSURE-24",
-    "CORE-AUTOGRAD-VJP-SMALL-25",
-    "SCIML-CRYSTAL-DIFFUSION-07",
-    "CORE-KERNEL-FUSION-09",
-    "CORE-DATALOADER-FANOUT-16",
-    "SCIML-FORCE-AUTOGRAD-19",
-    "SCIML-EQUIV-LOWORDER-26",
-    "SCIML-GRAPH-CACHE-BOUNDARY-27",
+    "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
+    "CORE-AUTOGRAD-VJP-SMALL-25R2",
+    "SCIML-CRYSTAL-DIFFUSION-07R2",
+    "CORE-KERNEL-FUSION-09R2",
+    "CORE-DATALOADER-FANOUT-16R2",
+    "SCIML-FORCE-AUTOGRAD-19R2",
+    "SCIML-EQUIV-LOWORDER-26R2",
+    "SCIML-GRAPH-CACHE-INTERIOR-27",
     "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
-    "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+    "SCIML-CRYSTAL-STATIC-SAMPLING-29R2",
     "EVOL-COMPILER-DRIFT-20",
     "EVOL-EQUIVARIANT-SPECIALIZE-30",
     "EVOL-EPISODE-POISON-10",
-    "SCIML-GRAPH-REBUILD-08",
-    "SCIML-GNN-RAGGED-05",
-    "SCIML-EQUIV-RECOMPUTE-06"
+    "SCIML-GRAPH-REBUILD-08R2",
+    "SCIML-GNN-RAGGED-05R2",
+    "SCIML-EQUIV-RECOMPUTE-06R2"
   ],
   "num_tasks": 30,
   "track_counts": {
@@ -91,51 +91,51 @@
   },
   "anchor_projection": {
     "scalar_sync": [
-      "CORE-SCALAR-SYNC-01",
+      "CORE-SCALAR-SYNC-01R2",
       "CORE-SCALAR-SYNC-LOW-CADENCE-21"
     ],
     "h2d_pipeline": [
-      "CORE-DATALOADER-FANOUT-16",
-      "CORE-H2D-OVERFANOUT-23R2",
-      "CORE-H2D-PIPELINE-03"
+      "CORE-DATALOADER-FANOUT-16R2",
+      "CORE-H2D-OVERFANOUT-23R3",
+      "CORE-H2D-PIPELINE-03R2"
     ],
     "compile": [
       "CORE-COMPILE-DYNAMIC-11",
       "CORE-COMPILE-RECOMPILE-04",
       "CORE-COMPILE-TINY-12",
-      "CORE-KERNEL-FUSION-09"
+      "CORE-KERNEL-FUSION-09R2"
     ],
     "checkpoint": [
-      "CORE-CHECKPOINT-AMPLE-MEM-14",
-      "CORE-CHECKPOINT-HIGH-PRESSURE-24",
-      "CORE-MEM-RETAINED-GRAPH-13"
+      "CORE-CHECKPOINT-AMPLE-MEM-14R2",
+      "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
+      "CORE-MEM-RETAINED-GRAPH-13R3"
     ],
     "autograd": [
-      "CORE-AUTOGRAD-BATCHED-VJP-15",
-      "CORE-AUTOGRAD-VJP-SMALL-25"
+      "CORE-AUTOGRAD-BATCHED-VJP-15R2",
+      "CORE-AUTOGRAD-VJP-SMALL-25R2"
     ],
     "graph_cache": [
-      "SCIML-FORCE-AUTOGRAD-19",
-      "SCIML-GNN-DYNAMIC-GRAPH-18",
-      "SCIML-GNN-RAGGED-05",
-      "SCIML-GNN-STATIC-GRAPH-CACHE-17",
-      "SCIML-GRAPH-CACHE-BOUNDARY-27"
+      "SCIML-FORCE-AUTOGRAD-19R2",
+      "SCIML-GNN-DYNAMIC-GRAPH-18R2",
+      "SCIML-GNN-RAGGED-05R2",
+      "SCIML-GNN-STATIC-GRAPH-CACHE-17R2",
+      "SCIML-GRAPH-CACHE-INTERIOR-27"
     ],
     "repeated_compute": [
-      "CORE-REPEATED-BACKBONE-02",
+      "CORE-REPEATED-BACKBONE-02R2",
       "CORE-REPEATED-BACKBONE-LOW-REUSE-22"
     ],
     "crystal_generation": [
-      "SCIML-CRYSTAL-DIFFUSION-07",
+      "SCIML-CRYSTAL-DIFFUSION-07R2",
       "SCIML-CRYSTAL-HIGH-GUIDANCE-28"
     ],
     "equivariant_head": [
-      "SCIML-EQUIV-LOWORDER-26",
-      "SCIML-EQUIV-RECOMPUTE-06"
+      "SCIML-EQUIV-LOWORDER-26R2",
+      "SCIML-EQUIV-RECOMPUTE-06R2"
     ],
     "crystal_sampling": [
-      "SCIML-CRYSTAL-STATIC-SAMPLING-29",
-      "SCIML-GRAPH-REBUILD-08"
+      "SCIML-CRYSTAL-STATIC-SAMPLING-29R2",
+      "SCIML-GRAPH-REBUILD-08R2"
     ],
     "episode": [
       "EVOL-COMPILER-DRIFT-20",
@@ -144,8 +144,8 @@
     ]
   },
   "polarity_distribution": {
-    "positive": 19,
-    "counterexample": 10,
+    "positive": 20,
+    "counterexample": 9,
     "do_not_apply": 1
   },
   "difficulty_distribution": {
@@ -203,8 +203,8 @@
       1.1
     ],
     [
-      0.9,
-      1.1
+      2.0,
+      10.0
     ],
     [
       0.9,
@@ -309,37 +309,37 @@
   ],
   "runtime_cost_distribution": [
     {
-      "task_id": "CORE-SCALAR-SYNC-01",
+      "task_id": "CORE-SCALAR-SYNC-01R2",
       "time_budget_s": 600,
       "measured_iterations": 100,
       "repetitions": 5
     },
     {
-      "task_id": "CORE-H2D-PIPELINE-03",
+      "task_id": "CORE-H2D-PIPELINE-03R2",
       "time_budget_s": 300,
       "measured_iterations": 15,
       "repetitions": 6
     },
     {
       "task_id": "CORE-COMPILE-DYNAMIC-11",
-      "time_budget_s": 300,
-      "measured_iterations": 256,
+      "time_budget_s": 600,
+      "measured_iterations": 128,
       "repetitions": 5
     },
     {
-      "task_id": "CORE-MEM-RETAINED-GRAPH-13",
+      "task_id": "CORE-MEM-RETAINED-GRAPH-13R3",
       "time_budget_s": 300,
-      "measured_iterations": 50,
-      "repetitions": 12
+      "measured_iterations": 240,
+      "repetitions": 5
     },
     {
-      "task_id": "CORE-AUTOGRAD-BATCHED-VJP-15",
+      "task_id": "CORE-AUTOGRAD-BATCHED-VJP-15R2",
       "time_budget_s": 300,
       "measured_iterations": 50,
-      "repetitions": 12
+      "repetitions": 5
     },
     {
-      "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17",
+      "task_id": "SCIML-GNN-STATIC-GRAPH-CACHE-17R2",
       "time_budget_s": 600,
       "measured_iterations": 25,
       "repetitions": 4
@@ -351,15 +351,15 @@
       "repetitions": 5
     },
     {
-      "task_id": "CORE-H2D-OVERFANOUT-23R2",
+      "task_id": "CORE-H2D-OVERFANOUT-23R3",
       "time_budget_s": 180,
       "measured_iterations": 30,
       "repetitions": 5
     },
     {
-      "task_id": "CORE-REPEATED-BACKBONE-02",
+      "task_id": "CORE-REPEATED-BACKBONE-02R2",
       "time_budget_s": 600,
-      "measured_iterations": 100,
+      "measured_iterations": 800,
       "repetitions": 5
     },
     {
@@ -375,13 +375,13 @@
       "repetitions": 3
     },
     {
-      "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14",
+      "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14R2",
       "time_budget_s": 300,
       "measured_iterations": 50,
-      "repetitions": 12
+      "repetitions": 5
     },
     {
-      "task_id": "SCIML-GNN-DYNAMIC-GRAPH-18",
+      "task_id": "SCIML-GNN-DYNAMIC-GRAPH-18R2",
       "time_budget_s": 600,
       "measured_iterations": 25,
       "repetitions": 4
@@ -393,49 +393,49 @@
       "repetitions": 5
     },
     {
-      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24",
+      "task_id": "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
       "time_budget_s": 240,
-      "measured_iterations": 15,
+      "measured_iterations": 240,
       "repetitions": 5
     },
     {
-      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25",
+      "task_id": "CORE-AUTOGRAD-VJP-SMALL-25R2",
       "time_budget_s": 180,
       "measured_iterations": 12,
       "repetitions": 5
     },
     {
-      "task_id": "SCIML-CRYSTAL-DIFFUSION-07",
+      "task_id": "SCIML-CRYSTAL-DIFFUSION-07R2",
       "time_budget_s": 600,
       "measured_iterations": 10,
       "repetitions": 4
     },
     {
-      "task_id": "CORE-KERNEL-FUSION-09",
+      "task_id": "CORE-KERNEL-FUSION-09R2",
       "time_budget_s": 600,
       "measured_iterations": 25,
       "repetitions": 4
     },
     {
-      "task_id": "CORE-DATALOADER-FANOUT-16",
+      "task_id": "CORE-DATALOADER-FANOUT-16R2",
       "time_budget_s": 300,
       "measured_iterations": 50,
-      "repetitions": 12
+      "repetitions": 5
     },
     {
-      "task_id": "SCIML-FORCE-AUTOGRAD-19",
+      "task_id": "SCIML-FORCE-AUTOGRAD-19R2",
       "time_budget_s": 600,
       "measured_iterations": 25,
       "repetitions": 4
     },
     {
-      "task_id": "SCIML-EQUIV-LOWORDER-26",
+      "task_id": "SCIML-EQUIV-LOWORDER-26R2",
       "time_budget_s": 180,
       "measured_iterations": 20,
       "repetitions": 5
     },
     {
-      "task_id": "SCIML-GRAPH-CACHE-BOUNDARY-27",
+      "task_id": "SCIML-GRAPH-CACHE-INTERIOR-27",
       "time_budget_s": 180,
       "measured_iterations": 12,
       "repetitions": 5
@@ -447,7 +447,7 @@
       "repetitions": 5
     },
     {
-      "task_id": "SCIML-CRYSTAL-STATIC-SAMPLING-29",
+      "task_id": "SCIML-CRYSTAL-STATIC-SAMPLING-29R2",
       "time_budget_s": 180,
       "measured_iterations": 12,
       "repetitions": 5
@@ -471,19 +471,19 @@
       "repetitions": 3
     },
     {
-      "task_id": "SCIML-GRAPH-REBUILD-08",
+      "task_id": "SCIML-GRAPH-REBUILD-08R2",
       "time_budget_s": 600,
       "measured_iterations": 20,
       "repetitions": 4
     },
     {
-      "task_id": "SCIML-GNN-RAGGED-05",
+      "task_id": "SCIML-GNN-RAGGED-05R2",
       "time_budget_s": 600,
       "measured_iterations": 25,
       "repetitions": 4
     },
     {
-      "task_id": "SCIML-EQUIV-RECOMPUTE-06",
+      "task_id": "SCIML-EQUIV-RECOMPUTE-06R2",
       "time_budget_s": 600,
       "measured_iterations": 25,
       "repetitions": 4
@@ -491,8 +491,8 @@
   ],
   "semantic_gate_failures": [],
   "positive_counterexample_balance": {
-    "positive": 16,
-    "counterexample_or_do_not_apply": 11
+    "positive": 17,
+    "counterexample_or_do_not_apply": 10
   },
   "lineage_leakage_checked": true,
   "empirical_calibration": {
@@ -501,9 +501,12 @@
     "hard_flags": [],
     "calibration_gate": "blocked"
   },
+  "calibration_protocol_digest": null,
   "task_calibration": {
     "CORE-COMPILE-DYNAMIC-11": {
-      "status": "eligible",
+      "status": "historical_calibration",
+      "stale_for_current_task_digest": true,
+      "superseded_by": "current-revision active30 calibration",
       "revision": "abd36b9",
       "artifact": "benchmark/calibration/dynamic-calibration-v3-summary.json",
       "runs": 3,
@@ -524,13 +527,13 @@
   },
   "retired_for_formal": [],
   "public_context": {
-    "CORE-SCALAR-SYNC-01": {
+    "CORE-SCALAR-SYNC-01R2": {
       "workload": {
         "scalar_syncs_per_step": 12,
         "metric_cadence": 4
       }
     },
-    "CORE-H2D-PIPELINE-03": {
+    "CORE-H2D-PIPELINE-03R2": {
       "workload": {
         "batch_size": 4096,
         "worker_count": 2,
@@ -540,19 +543,19 @@
     },
     "CORE-COMPILE-DYNAMIC-11": {
       "workload": {
-        "logical_steps": 256,
+        "logical_steps": 128,
         "graph_size": 128,
         "dynamic_shape_rate": 0.3
       }
     },
-    "CORE-MEM-RETAINED-GRAPH-13": {
+    "CORE-MEM-RETAINED-GRAPH-13R3": {
       "workload": {
-        "memory_pressure": 0.7,
-        "segment_count": 4,
-        "recompute_ratio": 0.2
+        "memory_pressure": 0.82,
+        "segment_count": 12,
+        "recompute_ratio": 0.5
       }
     },
-    "CORE-AUTOGRAD-BATCHED-VJP-15": {
+    "CORE-AUTOGRAD-BATCHED-VJP-15R2": {
       "workload": {
         "output_count": 8,
         "input_dim": 128,
@@ -561,7 +564,7 @@
         "seed": 0
       }
     },
-    "SCIML-GNN-STATIC-GRAPH-CACHE-17": {
+    "SCIML-GNN-STATIC-GRAPH-CACHE-17R2": {
       "workload": {
         "geometry_displacement": 0.03,
         "skin": 0.4,
@@ -575,7 +578,7 @@
         "metric_cadence": 8
       }
     },
-    "CORE-H2D-OVERFANOUT-23R2": {
+    "CORE-H2D-OVERFANOUT-23R3": {
       "workload": {
         "batch_size": 32,
         "worker_count": 5,
@@ -583,7 +586,7 @@
         "pin_memory": true
       }
     },
-    "CORE-REPEATED-BACKBONE-02": {
+    "CORE-REPEATED-BACKBONE-02R2": {
       "workload": {
         "repeat_count": 4,
         "backbone_width": 256,
@@ -606,14 +609,14 @@
         "dynamic_shape_rate": 0.8
       }
     },
-    "CORE-CHECKPOINT-AMPLE-MEM-14": {
+    "CORE-CHECKPOINT-AMPLE-MEM-14R2": {
       "workload": {
         "memory_pressure": 0.4,
         "segment_count": 3,
         "recompute_ratio": 0.2
       }
     },
-    "SCIML-GNN-DYNAMIC-GRAPH-18": {
+    "SCIML-GNN-DYNAMIC-GRAPH-18R2": {
       "workload": {
         "geometry_displacement": 0.08,
         "skin": 0.6,
@@ -630,14 +633,14 @@
         "seed": 0
       }
     },
-    "CORE-CHECKPOINT-HIGH-PRESSURE-24": {
+    "CORE-CHECKPOINT-HIGH-PRESSURE-24R2": {
       "workload": {
         "memory_pressure": 0.8,
         "segment_count": 4,
         "recompute_ratio": 0.5
       }
     },
-    "CORE-AUTOGRAD-VJP-SMALL-25": {
+    "CORE-AUTOGRAD-VJP-SMALL-25R2": {
       "workload": {
         "output_count": 2,
         "input_dim": 64,
@@ -646,7 +649,7 @@
         "seed": 0
       }
     },
-    "SCIML-CRYSTAL-DIFFUSION-07": {
+    "SCIML-CRYSTAL-DIFFUSION-07R2": {
       "workload": {
         "atom_count": 32,
         "diffusion_steps": 100,
@@ -655,14 +658,14 @@
         "seed": 0
       }
     },
-    "CORE-KERNEL-FUSION-09": {
+    "CORE-KERNEL-FUSION-09R2": {
       "workload": {
         "logical_steps": 192,
         "graph_size": 320,
         "dynamic_shape_rate": 0.2
       }
     },
-    "CORE-DATALOADER-FANOUT-16": {
+    "CORE-DATALOADER-FANOUT-16R2": {
       "workload": {
         "batch_size": 64,
         "worker_count": 3,
@@ -670,7 +673,7 @@
         "pin_memory": true
       }
     },
-    "SCIML-FORCE-AUTOGRAD-19": {
+    "SCIML-FORCE-AUTOGRAD-19R2": {
       "workload": {
         "geometry_displacement": 0.02,
         "skin": 0.8,
@@ -678,7 +681,7 @@
         "dynamic_rate": 0.3
       }
     },
-    "SCIML-EQUIV-LOWORDER-26": {
+    "SCIML-EQUIV-LOWORDER-26R2": {
       "workload": {
         "irrep_order": 1,
         "node_count": 64,
@@ -687,9 +690,9 @@
         "seed": 0
       }
     },
-    "SCIML-GRAPH-CACHE-BOUNDARY-27": {
+    "SCIML-GRAPH-CACHE-INTERIOR-27": {
       "workload": {
-        "geometry_displacement": 0.05,
+        "geometry_displacement": 0.03,
         "skin": 0.4,
         "graph_size": 128,
         "dynamic_rate": 0.2
@@ -704,7 +707,7 @@
         "seed": 0
       }
     },
-    "SCIML-CRYSTAL-STATIC-SAMPLING-29": {
+    "SCIML-CRYSTAL-STATIC-SAMPLING-29R2": {
       "workload": {
         "neighbor_count": 8,
         "sample_count": 32,
@@ -740,7 +743,7 @@
         "seed": 0
       }
     },
-    "SCIML-GRAPH-REBUILD-08": {
+    "SCIML-GRAPH-REBUILD-08R2": {
       "workload": {
         "neighbor_count": 12,
         "sample_count": 24,
@@ -749,7 +752,7 @@
         "seed": 0
       }
     },
-    "SCIML-GNN-RAGGED-05": {
+    "SCIML-GNN-RAGGED-05R2": {
       "workload": {
         "geometry_displacement": 0.02,
         "skin": 0.2,
@@ -757,7 +760,7 @@
         "dynamic_rate": 0.0
       }
     },
-    "SCIML-EQUIV-RECOMPUTE-06": {
+    "SCIML-EQUIV-RECOMPUTE-06R2": {
       "workload": {
         "irrep_order": 2,
         "node_count": 64,
@@ -778,7 +781,15 @@
     "difficulty_floor": [],
     "platform_direction_flip": [],
     "agent_shortcut_detected": [],
-    "evolution_delta_out_of_range": []
+    "evolution_delta_out_of_range": [],
+    "protocol_invalid": [],
+    "resource_blocked": [],
+    "scientific_gate_failed": [],
+    "effect_too_small": [],
+    "effect_unstable": [],
+    "episode_delta_out_of_range": [],
+    "anti_cheat_blocked": [],
+    "calibration_blocked": []
   },
   "formal_50_task_results": "not_claimed",
   "split_leakage_findings": []

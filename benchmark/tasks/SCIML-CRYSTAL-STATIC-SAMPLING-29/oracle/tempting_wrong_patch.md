@@ -1,1 +1,0 @@
-Tempting wrong patch: stop rebuilding entirely and freeze the initial edge list. The current fixture is stable, but the registered action is graph_rebuild; the reference implementation instead vectorizes an exact rebuild so the same strategy transfers to moving geometries.

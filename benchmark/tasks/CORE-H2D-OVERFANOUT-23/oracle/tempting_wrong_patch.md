@@ -1,1 +1,0 @@
-Tempting wrong patch: call x.pin_memory() inside train_step and use non_blocking=True on every tiny transfer, or increase prefetch/worker fanout. This is intentionally outside the calibrated applicability region.

@@ -117,8 +117,8 @@ def test_h2d_task_exposes_fixture_clone_contract() -> None:
     import importlib.util
 
     repo_root = Path(__file__).resolve().parents[2]
-    task_dir = repo_root / "benchmark" / "tasks" / "CORE-H2D-OVERFANOUT-23"
-    spec = importlib.util.spec_from_file_location("h2d_overfanout_23", task_dir / "benchmark.py")
+    task_dir = repo_root / "benchmark" / "tasks" / "CORE-H2D-OVERFANOUT-23R3"
+    spec = importlib.util.spec_from_file_location("h2d_overfanout_23r3", task_dir / "benchmark.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -1,1 +1,0 @@
-Optimize repeated scalar radial feature computation while preserving vector equivariance. The hidden gate rotates the geometry and requires the output to rotate identically. Do not cache orientation-dependent tensors.

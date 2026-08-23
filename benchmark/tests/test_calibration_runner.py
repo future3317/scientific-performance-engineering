@@ -21,10 +21,7 @@ from benchmark.harness import stats
 @pytest.mark.parametrize(
     "task_id",
     [
-        "SCIML-CRYSTAL-DIFFUSION-07",  # a/solution.py
         "SCIML-CRYSTAL-DIFFUSION-07R2",  # replacement package with guidance scale
-        "SCIML-EQUIV-RECOMPUTE-06",  # a/workspace/solution.py
-        "CORE-KERNEL-FUSION-09",  # solution.py
         "CORE-KERNEL-FUSION-09R2",  # R2 compile workspace
     ],
 )
@@ -39,7 +36,7 @@ def test_copy_oracle_applies_mixed_reference_patch_headers(task_id, tmp_path):
 
 
 def test_resource_preflight_writes_a_complete_reusable_cell(tmp_path):
-    task_id = "CORE-SCALAR-SYNC-01"
+    task_id = "CORE-SCALAR-SYNC-01R2"
     task_spec = {
         "workspace": {"api": "train_loop_v1"},
         "measurement": {"primary_metric": "step_ms_p50", "higher_is_better": False, "noise_floor_percent": 2.0},
@@ -86,8 +83,8 @@ def test_harness_hash_ignores_derived_bytecode(tmp_path):
 
 
 def test_dataloader_h2d_fixture_clone_is_mutation_isolated():
-    task_dir = Path(__file__).parents[1] / "tasks" / "CORE-DATALOADER-FANOUT-16"
-    spec = importlib.util.spec_from_file_location("dataloader_fanout_16", task_dir / "benchmark.py")
+    task_dir = Path(__file__).parents[1] / "tasks" / "CORE-DATALOADER-FANOUT-16R2"
+    spec = importlib.util.spec_from_file_location("dataloader_fanout_16r2", task_dir / "benchmark.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -120,7 +117,7 @@ def test_dataloader_h2d_fixture_clone_is_mutation_isolated():
 
 
 def test_copy_oracle_patch_failure_leaves_no_partial_solution(tmp_path):
-    source = Path(__file__).parents[1] / "tasks" / "SCIML-EQUIV-RECOMPUTE-06"
+    source = Path(__file__).parents[1] / "tasks" / "SCIML-EQUIV-RECOMPUTE-06R2"
     task = tmp_path / source.name
     shutil.copytree(source, task)
     (task / "oracle" / "reference_patch.diff").write_text("not a patch\n", encoding="utf-8")

@@ -3,7 +3,7 @@ seed: 0
 phases:
   - index: 1
     name: acquisition
-    tasks: [SCIML-EQUIV-LOWORDER-26]
+    tasks: [SCIML-EQUIV-LOWORDER-26R2]
     inject_experiences:
       - id: equiv-loworder-reuse-rule
         rule_id: equiv-loworder-reuse-rule
@@ -28,9 +28,9 @@ phases:
         expected_mechanism: repeated_compute
         requires_evidence: [equivariance_replay]
         scientific_invariants: [equivariance_preserved]
-        source_cases: [SCIML-EQUIV-LOWORDER-26]
-        admission_cases: [REG-EQUIV-LOWORDER-26]
-        regression_cases: [REG-SCIML-EQUIV-RECOMPUTE-06]
+        source_cases: [SCIML-EQUIV-LOWORDER-26R2]
+        admission_cases: [REG-EQUIV-LOWORDER-26R2]
+        regression_cases: [REG-SCIML-EQUIV-RECOMPUTE-06R2]
         collector_confidence: high
         confidence: {method: beta-binomial-mixture-e-process, prior_alpha: 1, prior_beta: 1, successes: 0, failures: 0, p_min: 0.5, delta: 0.05, posterior_probability: 0.0, effective_samples: 0, promotion_probability_lower_bound: 0.0}
         promotion: {replay_status: pending, human_review: false}
@@ -46,12 +46,12 @@ phases:
     name: same_family_transfer
     # The low-order anchor exercises reuse; the rank-2 task remains a
     # same-family counterexample that must be rejected by the predicate.
-    tasks: [SCIML-EQUIV-LOWORDER-26, SCIML-EQUIV-RECOMPUTE-06]
+    tasks: [SCIML-EQUIV-LOWORDER-26R2, SCIML-EQUIV-RECOMPUTE-06R2]
     inject_experiences: []
     inject_poisons: []
   - index: 3
     name: cross_family_transfer
-    tasks: [SCIML-GNN-STATIC-GRAPH-CACHE-17]
+    tasks: [SCIML-GNN-STATIC-GRAPH-CACHE-17R2]
     inject_experiences: []
     inject_poisons: []
   - index: 4
@@ -98,6 +98,6 @@ phases:
     poisoned: true
   - index: 6
     name: recovery
-    tasks: [SCIML-EQUIV-LOWORDER-26, SCIML-EQUIV-RECOMPUTE-06]
+    tasks: [SCIML-EQUIV-LOWORDER-26R2, SCIML-EQUIV-RECOMPUTE-06R2]
     inject_experiences: []
     inject_poisons: []

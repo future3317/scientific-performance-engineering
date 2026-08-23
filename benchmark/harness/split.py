@@ -15,7 +15,7 @@ Split manifest format (miniyaml subset)::
     phases:
       - index: 1
         name: acquisition
-        tasks: [CORE-SCALAR-SYNC-01, ...]
+        tasks: [CORE-SCALAR-SYNC-01R2, ...]
       - index: 2
         name: same_family_transfer
         tasks: [...]
