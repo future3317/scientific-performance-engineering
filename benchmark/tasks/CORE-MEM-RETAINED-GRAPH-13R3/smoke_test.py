@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import sys
 
 import torch
 
@@ -18,6 +19,8 @@ def _load(name, path):
 
 def main():
     root = Path(__file__).resolve().parent
+    repo_root = root.parents[3]
+    sys.path.insert(0, str(repo_root))
     benchmark = _load("benchmark_13r3_smoke", root / "benchmark.py")
     solution = _load("solution_13r3_smoke", root / "workspace" / "solution.py")
     fixtures = benchmark.make_fixtures(1234)
