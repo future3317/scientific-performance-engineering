@@ -52,6 +52,36 @@ def test_blocked_empirical_record_cannot_project_to_eligible() -> None:
     assert projected["eligibility"] is False
 
 
+def test_counterexample_noise_floor_does_not_apply_positive_effect_cap() -> None:
+    from benchmark.harness.verifier import noise_floor_blocks_calibration
+
+    assert noise_floor_blocks_calibration({"kind": "positive", "oracle": {"expected_speedup_range": [0.9, 1.1]}}, 30.0)
+    assert not noise_floor_blocks_calibration({"kind": "counterexample", "oracle": {"expected_speedup_range": [0.9, 1.1]}}, 30.0)
+
+
+def test_crystal_oracle_uses_fp64_score_path(tmp_path: Path) -> None:
+    import torch
+
+    from benchmark.calibration.campaign import _copy_oracle
+
+    task_dir = ROOT / "benchmark" / "tasks" / "SCIML-CRYSTAL-DIFFUSION-07R2"
+    solution_dir = tmp_path / "crystal"
+    _copy_oracle(task_dir, solution_dir)
+    benchmark = _load_benchmark(task_dir)
+    solution = benchmark.load_solution(solution_dir / "solution.py", device="cpu")
+    sampler = solution.build_sampler(benchmark.make_fixtures(0, device="cpu"))
+    assert next(sampler["score"].parameters()).dtype == torch.float64
+
+
+@pytest.mark.parametrize("task_id", [
+    "CORE-MEM-RETAINED-GRAPH-13R2",
+    "CORE-REPEATED-BACKBONE-02R2",
+])
+def test_positive_tasks_expose_contrastive_activation_evidence(task_id: str) -> None:
+    benchmark = _load_benchmark(ROOT / "benchmark" / "tasks" / task_id)
+    assert callable(getattr(benchmark, "run_activation_evidence", None))
+
+
 @pytest.mark.parametrize(
     "task_id",
     [

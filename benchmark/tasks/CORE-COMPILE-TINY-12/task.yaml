@@ -4,6 +4,7 @@ track: spe_core
 family: compiler
 mechanism: compile_tiny_graphs
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: synthetic
   mutation_template_id: MT-COMPILE-TINY-V2

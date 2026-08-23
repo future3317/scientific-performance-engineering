@@ -467,7 +467,9 @@ def _compile_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _graph_applicability(parameters: Mapping[str, Any]) -> bool:
-    return float(parameters["geometry_displacement"]) <= 0.05
+    # Batching the current ragged graph is valid through the dynamic anchor;
+    # only cross-step graph reuse is outside this contract.
+    return float(parameters["geometry_displacement"]) <= 0.08
 
 
 def _graph_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -500,7 +502,7 @@ def _scalar_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
 
 _SPECS: tuple[FamilySpec, ...] = (
     FamilySpec("compile", "GEN-COMPILER", "spe_core", "CONTRACT-COMPILER-CACHE", ("logical_steps", "graph_size", "dynamic_shape_rate"), ("compile", "checkpoint"), ("software", "hardware", "scale", "model"), _compile, ("CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-DYNAMIC-11", "CORE-COMPILE-TINY-12", "CORE-KERNEL-FUSION-09R2"), _compile_applicability, _compile_truth, {"CORE-COMPILE-RECOMPILE-04": False, "CORE-COMPILE-DYNAMIC-11": True, "CORE-COMPILE-TINY-12": False, "CORE-KERNEL-FUSION-09R2": True}),
-    FamilySpec("graph_cache", "GEN-GRAPH-CACHE", "sciml", "CONTRACT-ENERGY-FORCE", ("geometry_displacement", "skin", "graph_size", "dynamic_rate"), ("graph_cache", "geometry_motion"), ("software", "scale", "scientific_regime"), _graph_cache, ("SCIML-GNN-RAGGED-05R2", "SCIML-GNN-STATIC-GRAPH-CACHE-17R2", "SCIML-GNN-DYNAMIC-GRAPH-18R2", "SCIML-FORCE-AUTOGRAD-19R2", "SCIML-GRAPH-CACHE-INTERIOR-27"), _graph_applicability, _graph_truth, {"SCIML-GNN-RAGGED-05R2": True, "SCIML-GNN-STATIC-GRAPH-CACHE-17R2": True, "SCIML-GNN-DYNAMIC-GRAPH-18R2": False, "SCIML-FORCE-AUTOGRAD-19R2": True, "SCIML-GRAPH-CACHE-INTERIOR-27": True}),
+    FamilySpec("graph_cache", "GEN-GRAPH-CACHE", "sciml", "CONTRACT-ENERGY-FORCE", ("geometry_displacement", "skin", "graph_size", "dynamic_rate"), ("graph_cache", "geometry_motion"), ("software", "scale", "scientific_regime"), _graph_cache, ("SCIML-GNN-RAGGED-05R2", "SCIML-GNN-STATIC-GRAPH-CACHE-17R2", "SCIML-GNN-DYNAMIC-GRAPH-18R2", "SCIML-FORCE-AUTOGRAD-19R2", "SCIML-GRAPH-CACHE-INTERIOR-27"), _graph_applicability, _graph_truth, {"SCIML-GNN-RAGGED-05R2": True, "SCIML-GNN-STATIC-GRAPH-CACHE-17R2": True, "SCIML-GNN-DYNAMIC-GRAPH-18R2": True, "SCIML-FORCE-AUTOGRAD-19R2": True, "SCIML-GRAPH-CACHE-INTERIOR-27": True}),
     FamilySpec("h2d_pipeline", "GEN-H2D-PIPELINE", "spe_core", "CONTRACT-DATA-PIPELINE", ("batch_size", "worker_count", "prefetch_factor", "pin_memory"), ("pin_memory", "non_blocking", "prefetch"), ("hardware", "scale", "harness"), _h2d, ("CORE-H2D-PIPELINE-03R2", "CORE-DATALOADER-FANOUT-16R2", "CORE-H2D-OVERFANOUT-23R3"), _h2d_applicability, _h2d_truth, {"CORE-H2D-PIPELINE-03R2": True, "CORE-DATALOADER-FANOUT-16R2": True, "CORE-H2D-OVERFANOUT-23R3": False}),
     FamilySpec("checkpoint", "GEN-CHECKPOINT", "spe_core", "CONTRACT-AUTOGRAD-GRAPH", ("memory_pressure", "segment_count", "recompute_ratio"), ("checkpoint", "gradient_accumulation"), ("scale", "hardware", "scientific_regime"), _checkpoint, ("CORE-MEM-RETAINED-GRAPH-13R2", "CORE-CHECKPOINT-AMPLE-MEM-14R2", "CORE-CHECKPOINT-HIGH-PRESSURE-24R2"), _checkpoint_applicability, _checkpoint_truth, {"CORE-MEM-RETAINED-GRAPH-13R2": True, "CORE-CHECKPOINT-AMPLE-MEM-14R2": False, "CORE-CHECKPOINT-HIGH-PRESSURE-24R2": True}),
     FamilySpec("scalar_sync", "GEN-SCALAR-SYNC", "spe_core", "CONTRACT-TRAINING-LOOP", ("scalar_syncs_per_step", "metric_cadence"), ("metric_aggregation", "device_sync"), ("scale", "harness"), _scalar_sync, ("CORE-SCALAR-SYNC-01R2", "CORE-SCALAR-SYNC-LOW-CADENCE-21"), _scalar_applicability, _scalar_truth, {"CORE-SCALAR-SYNC-01R2": True, "CORE-SCALAR-SYNC-LOW-CADENCE-21": False}),

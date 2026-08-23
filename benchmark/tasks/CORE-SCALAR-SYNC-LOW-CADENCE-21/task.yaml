@@ -4,6 +4,7 @@ track: spe_core
 family: training_loop_overhead
 mechanism: scalar_sync
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: synthetic
   mutation_template_id: MT-SCALAR-SYNC-LOW-CADENCE-V1

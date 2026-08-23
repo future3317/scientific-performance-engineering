@@ -20,7 +20,7 @@ class SegmentedResMLP(nn.Module):
         for index, segment in enumerate(self.segments):
             out = checkpoint(segment, h, use_reentrant=False) if index < self.checkpointed_segments else segment(h)
             h = h + out
-            self.retained_history.append(h.square().mean())
+            self.retained_history.append(h)
         return self.output(h)
 
 def build_model(fixtures):

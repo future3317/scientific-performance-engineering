@@ -4,6 +4,7 @@ track: spe_core
 family: compiler
 mechanism: compile_graph_break
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: synthetic
   mutation_template_id: MT-COMPILE-RECOMPILE-V1

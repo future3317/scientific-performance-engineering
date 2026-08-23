@@ -1,14 +1,11 @@
-# CORE-CHECKPOINT-AMPLE-MEM-14R2 — torch.compile graph break + dynamic-shape recompilation
+# CORE-CHECKPOINT-AMPLE-MEM-14R2 — checkpoint abstention with ample activation memory
 
 ## Goal
 
-`solution.py` implements a tiny training loop wrapped in `torch.compile`. The
-baseline contains a Python control-flow graph break (an `.item()`-dependent
-branch) and the measurement loop cycles through 8 different batch sizes. Each
-new shape triggers a dynamo recompilation, and the `.item()` call synchronizes
-the host. Make the hot `train_step` measurably faster while keeping the trained
-model numerically equivalent to the baseline (verified against an fp64 reference
-on fresh inputs you do not see).
+`solution.py` is the safe no-checkpoint baseline for a workload with ample
+activation memory. The oracle is an explicit abstention (source-equivalent to
+the baseline). The tempting intervention is checkpoint recomputation; it is
+not applicable below the family memory-pressure boundary and must be rejected.
 
 ## API (fixed — `train_loop_v1`)
 
