@@ -20,22 +20,27 @@ def checksum_tensor(tensor: torch.Tensor) -> str:
 
 
 class _ReferenceResMLP(nn.Module):
-    """Reference architecture matching the workspace TinyResMLP (no graph break)."""
+    """Reference architecture matching the segmented workspace model."""
 
     def __init__(self, in_dim: int, hidden_dim: int, num_blocks: int = 4, dtype=torch.float32):
         super().__init__()
-        self.fc1 = nn.Linear(in_dim, hidden_dim, dtype=dtype)
-        self.blocks = nn.ModuleList(
-            nn.Linear(hidden_dim, hidden_dim, dtype=dtype) for _ in range(num_blocks)
+        self.input = nn.Linear(in_dim, hidden_dim, dtype=dtype)
+        self.segments = nn.ModuleList(
+            nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim, dtype=dtype),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim, dtype=dtype),
+                nn.ReLU(),
+            )
+            for _ in range(num_blocks)
         )
-        self.fc2 = nn.Linear(hidden_dim, 1, dtype=dtype)
+        self.output = nn.Linear(hidden_dim, 1, dtype=dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = F.relu(self.fc1(x))
-        for lin in self.blocks:
-            out = F.relu(lin(h))
-            h = h + out
-        return self.fc2(h)
+        h = F.relu(self.input(x))
+        for segment in self.segments:
+            h = h + segment(h)
+        return self.output(h)
 
 
 def _make_fp64_model(fixtures: dict[str, Any]) -> torch.nn.Module:
