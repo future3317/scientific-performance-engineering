@@ -1,9 +1,9 @@
---- benchmark/tasks/CORE-REPEATED-BACKBONE-02/workspace/solution.py	2026-08-15 07:25:47.820638500 +0800
-+++ benchmark/tasks/CORE-REPEATED-BACKBONE-02/oracle/solution_oracle.py	2026-08-15 07:35:27.085495700 +0800
+--- benchmark/tasks/CORE-REPEATED-BACKBONE-02R2/workspace/solution.py	2026-08-15 07:25:47.820638500 +0800
++++ benchmark/tasks/CORE-REPEATED-BACKBONE-02R2/oracle/solution_oracle.py	2026-08-15 07:35:27.085495700 +0800
 @@ -1,14 +1,16 @@
  #!/usr/bin/env python3
--"""Baseline solution for CORE-REPEATED-BACKBONE-02.
-+"""Oracle solution for CORE-REPEATED-BACKBONE-02.
+-"""Baseline solution for CORE-REPEATED-BACKBONE-02R2.
++"""Oracle solution for CORE-REPEATED-BACKBONE-02R2.
  
 -A multi-head regression model with a shared backbone. The injected bottleneck
 -is repeated computation: the baseline recomputes the embedding projection of a

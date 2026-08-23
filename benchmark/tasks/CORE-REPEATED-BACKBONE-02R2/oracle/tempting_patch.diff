@@ -2,8 +2,8 @@
 +++ oracle/solution_tempting.py
 @@ -1,10 +1,11 @@
  #!/usr/bin/env python3
--"""Baseline solution for CORE-REPEATED-BACKBONE-02.
-+"""Tempting but incorrect solution for CORE-REPEATED-BACKBONE-02.
+-"""Baseline solution for CORE-REPEATED-BACKBONE-02R2.
++"""Tempting but incorrect solution for CORE-REPEATED-BACKBONE-02R2.
  
 -A multi-head regression model with a shared backbone. The injected bottleneck
 -is repeated computation: the baseline recomputes the embedding projection of a
