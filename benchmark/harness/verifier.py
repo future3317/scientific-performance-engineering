@@ -66,6 +66,18 @@ BENCHMARK_FUNCTIONS = (
 )
 
 
+def noise_floor_blocks_calibration(spec: Mapping[str, Any], effective_floor: float) -> bool:
+    """Apply the effect-cap noise gate only to positive speedup claims."""
+    if str(spec.get("kind")) != "positive":
+        return False
+    expected_range = spec.get("oracle", {}).get("expected_speedup_range")
+    return (
+        isinstance(expected_range, (list, tuple))
+        and len(expected_range) == 2
+        and 1.0 + float(effective_floor) / 100.0 >= float(expected_range[1])
+    )
+
+
 # ---------------------------------------------------------------------------
 # task.yaml loading / structural validation
 # ---------------------------------------------------------------------------
@@ -459,17 +471,14 @@ def verify_task(
                 raise ValueError("noise control artifact is required")
             noise_control = stats.read_noise_control(noise_control_path, expected)
             result["noise_control_digest"] = noise_control["artifact_digest"]
-            expected_range = spec.get("oracle", {}).get("expected_speedup_range")
             effective_floor = float(noise_control["effective_noise_floor_percent"])
-            if isinstance(expected_range, (list, tuple)) and len(expected_range) == 2:
-                oracle_upper = float(expected_range[1])
-                if 1.0 + effective_floor / 100.0 >= oracle_upper:
-                    result["calibration_status"] = "blocked"
-                    result["calibration_block_reason"] = (
-                        "effective noise floor reaches or exceeds oracle speedup cap"
-                    )
-                else:
-                    result["calibration_status"] = "eligible"
+            if noise_floor_blocks_calibration(spec, effective_floor):
+                result["calibration_status"] = "blocked"
+                result["calibration_block_reason"] = (
+                    "effective noise floor reaches or exceeds oracle speedup cap"
+                )
+            else:
+                result["calibration_status"] = "eligible"
         except (OSError, ValueError, TypeError, KeyError) as exc:
             result.update({
                 "verdict": "inconclusive",

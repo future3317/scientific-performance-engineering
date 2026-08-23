@@ -1,3 +1,5 @@
 # Tempting but wrong patch
 
-Do not apply an unconditional `FIX-GNN-DYNAMIC-REBUILD` rewrite: it changes the scientific or workload contract outside the measured trigger.
+Do not cache a graph across changing geometry. The registered oracle only
+batches the current ragged graph and keeps graph construction inside each
+evaluation.

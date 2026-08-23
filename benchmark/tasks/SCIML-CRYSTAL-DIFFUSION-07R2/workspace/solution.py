@@ -49,11 +49,11 @@ def _build_time_embedding_baseline(t: int, dim: int, device: torch.device | str)
     half = dim // 2
     for i in range(half):
         freq = 1.0 / (10000.0 ** (i / half))
-        t_tensor = torch.tensor(t, dtype=torch.float32, device=device)
+        t_tensor = torch.tensor(t, dtype=torch.float64, device=device)
         components.append(torch.sin(t_tensor * freq))
         components.append(torch.cos(t_tensor * freq))
     if dim % 2:
-        components.append(torch.sin(torch.tensor(t, dtype=torch.float32, device=device)))
+        components.append(torch.sin(torch.tensor(t, dtype=torch.float64, device=device)))
     return torch.stack(components, dim=0)
 
 
@@ -68,6 +68,7 @@ def build_sampler(fixtures: dict[str, Any]) -> dict[str, Any]:
         hidden=int(config["hidden"]),
     )
     score.load_state_dict(fixtures["score_state"])
+    score = score.double()
     score.to(device)
     score.eval()
 
@@ -130,8 +131,8 @@ def sample_step(sampler: dict[str, Any], state: dict[str, torch.Tensor], step_in
 def sample(sampler: dict[str, Any], fixtures: dict[str, Any], num_steps: int) -> torch.Tensor:
     """Sample crystals one-at-a-time (baseline inefficiency #3)."""
     state = {
-        "frac": fixtures["init_frac"].clone(),
-        "lengths": fixtures["init_lengths"].clone(),
+        "frac": fixtures["init_frac"].double().clone(),
+        "lengths": fixtures["init_lengths"].double().clone(),
     }
     batch_size = state["frac"].shape[0]
 

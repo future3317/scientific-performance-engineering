@@ -4,6 +4,7 @@ track: spe_core
 family: autograd
 mechanism: batched_vjp
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: synthetic
   mutation_template_id: MT-AUTOGRAD-VJP-SMALL-V1

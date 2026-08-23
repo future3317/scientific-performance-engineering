@@ -19,7 +19,7 @@
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "medium",
-  "authoring_note": "Baseline wraps a tiny MLP in torch.compile and injects an .item()-dependent graph break; the measurement loop cycles 8 batch sizes, causing repeated recompilation. Oracle removes the graph break and compiles with dynamic=True. Scope is intentionally small so warmup fits the time budget on CPU-only CI.",
+  "authoring_note": "Negative anchor with ample activation memory: the safe baseline and oracle both abstain from checkpointing. The executable tempting intervention enables checkpoint recomputation; its contract is to reject that intervention when memory pressure is below the registered boundary.",
   "author": "batch-C prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "checkpoint",

@@ -442,6 +442,8 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         spec["_task_dir"] = task_dir
         specs.append(spec)
         errors.extend(metadata_findings(task_dir, spec))
+        if spec.get("kind") in {"counterexample", "do_not_apply"} and spec.get("negative_contract") != "abstention":
+            errors.append(f"{task_id}: counterexample tasks must declare negative_contract: abstention")
         errors.extend(_compile_projection_findings(task_dir, spec))
         public_context = spec.get("public_context")
         if not isinstance(public_context, dict) or not isinstance(public_context.get("workload"), dict) or not public_context.get("workload"):

@@ -4,6 +4,7 @@ track: spe_core
 family: data_pipeline
 mechanism: h2d_blocking
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: synthetic
   mutation_template_id: MT-H2D-OVERFANOUT-R2-V1

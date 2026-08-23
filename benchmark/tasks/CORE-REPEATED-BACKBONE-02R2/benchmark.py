@@ -244,6 +244,36 @@ def run_scientific_gates(solution, fixtures: dict) -> dict:
     }
 
 
+def _backbone_call_count(solution, fixtures):
+    model = solution.build_model(fixtures)
+    calls = {"count": 0}
+    original = model.backbone.forward
+
+    def counted(*args, **kwargs):
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    model.backbone.forward = counted
+    optimizer = torch.optim.SGD(model.parameters(), lr=fixtures["lr"])
+    batch_size = fixtures["batch_size"]
+    batch = {
+        "step": fixtures["step_data"][:batch_size],
+        "fixed": fixtures["fixed_data"],
+        "targets": [target[:batch_size] for target in fixtures["targets"]],
+    }
+    solution.train_step(model, batch, optimizer)
+    return calls["count"]
+
+
+def run_activation_evidence(solution, baseline_solution, fixtures):
+    candidate_calls = _backbone_call_count(solution, fixtures)
+    baseline_calls = _backbone_call_count(baseline_solution, fixtures)
+    return {
+        "candidate_metrics": {"backbone_reused": candidate_calls == 1},
+        "baseline_metrics": {"backbone_reused": baseline_calls == 1},
+    }
+
+
 def run_performance(solution, fixtures: dict, warmup: int, iterations: int, device: str = "cpu") -> dict:
     torch.manual_seed(fixtures["seed"])
     model = solution.build_model(fixtures).to(device)

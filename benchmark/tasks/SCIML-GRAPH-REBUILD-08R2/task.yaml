@@ -4,6 +4,7 @@ track: sciml
 family: crystal_sampling
 mechanism: graph_rebuild
 kind: do_not_apply
+negative_contract: abstention
 lineage:
   source: fairchem-shaped
   mutation_template_id: MT-GRAPH-REBUILD-DO-NOT-APPLY-V1

@@ -4,6 +4,7 @@ track: spe_core
 family: memory
 mechanism: checkpoint_ample_memory
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: synthetic
   mutation_template_id: MT-CHECKPOINT-AMPLE-MEM-V1

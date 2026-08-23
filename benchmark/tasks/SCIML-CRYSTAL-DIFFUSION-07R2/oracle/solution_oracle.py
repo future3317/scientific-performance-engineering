@@ -27,11 +27,11 @@ def _build_time_embedding(t: int, dim: int, device: torch.device | str) -> torch
     components = []
     for i in range(half):
         freq = 1.0 / (10000.0 ** (i / half))
-        t_tensor = torch.tensor(t, dtype=torch.float32, device=device)
+        t_tensor = torch.tensor(t, dtype=torch.float64, device=device)
         components.append(torch.sin(t_tensor * freq))
         components.append(torch.cos(t_tensor * freq))
     if dim % 2:
-        components.append(torch.sin(torch.tensor(t, dtype=torch.float32, device=device)))
+        components.append(torch.sin(torch.tensor(t, dtype=torch.float64, device=device)))
     return torch.stack(components, dim=0)
 
 
@@ -41,6 +41,7 @@ def build_sampler(fixtures: dict[str, Any]) -> dict[str, Any]:
     num_steps = int(config["num_steps"])
     score = _ScoreNet(int(config["num_atoms"]), int(config["time_emb_dim"]), int(config["hidden"]))
     score.load_state_dict(fixtures["score_state"])
+    score = score.double()
     score.to(device)
     score.eval()
 
@@ -87,7 +88,7 @@ def sample_step(sampler: dict[str, Any], state: dict[str, torch.Tensor], step_in
 
 
 def sample(sampler: dict[str, Any], fixtures: dict[str, Any], num_steps: int) -> torch.Tensor:
-    state = {"frac": fixtures["init_frac"].clone(), "lengths": fixtures["init_lengths"].clone()}
+    state = {"frac": fixtures["init_frac"].double().clone(), "lengths": fixtures["init_lengths"].double().clone()}
     for step_index in range(num_steps, 0, -1):
         state = sample_step(sampler, state, step_index)
     return torch.cat([state["frac"].reshape(state["frac"].shape[0], -1), state["lengths"]], dim=-1)

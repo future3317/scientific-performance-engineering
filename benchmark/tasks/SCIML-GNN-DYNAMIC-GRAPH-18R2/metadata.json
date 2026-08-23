@@ -4,7 +4,7 @@
   "track": "sciml",
   "family": "graph_energy_force",
   "mechanism": "dynamic_graph_rebuild",
-  "kind": "counterexample",
+  "kind": "positive",
   "lineage": {
     "source": "fairchem-shaped",
     "mutation_template_id": "MT-GNN-DYNAMIC-GRAPH-V1",
@@ -19,7 +19,7 @@
   "episode_phase": 1,
   "hidden": false,
   "difficulty": "hard",
-  "authoring_note": "SciML graph/materials task shaped after FAIRChem radius-graph + PBC energy/force evaluation. Baseline loops over graphs and calls backward once per graph; the reference fix concatenates the ragged batch into a single batched graph and performs one batched backward. Plain torch only (no PyG). Calibrated on the authoring host; range is updated to measured reality.",
+  "authoring_note": "SciML graph/materials positive anchor shaped after FAIRChem radius-graph + PBC energy/force evaluation. Baseline loops over graphs and calls backward once per graph; the reference fix concatenates the current ragged batch into a single batched graph and performs one batched backward. It does not reuse a graph across changing geometry. Plain torch only (no PyG); range reflects the measured 6.8x authoring effect.",
   "author": "batch-SciML-A prototype agent",
   "created_utc": "2026-08-14",
   "family_id": "graph_cache",

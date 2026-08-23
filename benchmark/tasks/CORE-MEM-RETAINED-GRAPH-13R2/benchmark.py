@@ -52,7 +52,7 @@ def load_solution(path, device=None):
 def make_fixtures(seed, device="cpu"):
     generator = torch.Generator().manual_seed(seed)
     memory_pressure, segment_count, recompute_ratio = 0.7, 4, 0.2
-    hidden_dim = 64 + int(128 * memory_pressure)
+    hidden_dim = 128 + int(512 * memory_pressure)
     model = _FixtureModel(16, hidden_dim, segment_count)
     for parameter in model.parameters():
         parameter.data.normal_(0.0, 0.02, generator=generator)
@@ -74,6 +74,20 @@ def run_correctness(solution, fixtures):
 
 def run_scientific_gates(solution, fixtures):
     return {"finite_loss": _science.finite_loss_gate(solution, fixtures)}
+
+
+def _retained_graph_trace(solution, fixtures):
+    model = solution.build_model(fixtures)
+    optimizer = torch.optim.SGD(model.parameters(), lr=fixtures["optimizer_config"]["lr"])
+    solution.train_step(model, (fixtures["inputs"][:16], fixtures["targets"][:16]), optimizer)
+    return sum(value.grad_fn is not None for value in getattr(model, "retained_history", []))
+
+
+def run_activation_evidence(solution, baseline_solution, fixtures):
+    return {
+        "candidate_metrics": {"retained_graph_edges": _retained_graph_trace(solution, fixtures)},
+        "baseline_metrics": {"retained_graph_edges": _retained_graph_trace(baseline_solution, fixtures)},
+    }
 
 
 def run_performance(solution, fixtures, warmup=5, iterations=24, device="cpu"):

@@ -4,6 +4,7 @@ track: spe_core
 family: repeated_compute
 mechanism: repeated_compute
 kind: counterexample
+negative_contract: abstention
 lineage:
   source: synthetic
   mutation_template_id: MT-REPEATED-BACKBONE-LOW-REUSE-V1
