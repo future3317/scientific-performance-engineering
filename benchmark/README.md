@@ -30,13 +30,15 @@ statistics are frozen in the repository-root `CLAIMS.yaml` and
 
 ## Execution environment
 
-All benchmark, calibration, qualification, and GPU evidence runs are
-server-only. Use `ssh dbcloud`, enter
+The server is the only supported runtime for every benchmark, calibration,
+qualification, test, validator, timing probe, and GPU evidence run. Use
+`ssh dbcloud`, enter
 `/home/workspace/lrh/CODE/scientific-performance-engineering`, and invoke
-`/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python`. Local Windows
-Python/Conda runs are diagnostic only and must not be mixed into calibration
-evidence. Official qualification and calibration must not use
-`--allow-shared-gpu`.
+`/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python`. Do not run
+project commands from the local Windows checkout, local Python, or any local
+Conda environment. Local access is limited to reading, editing, and static
+inspection; local output is not runtime evidence. Do not use Conda `base`.
+Official qualification and calibration must not use `--allow-shared-gpu`.
 
 ## Status and calibration scope
 
@@ -110,13 +112,13 @@ family generator instead of maintaining separate synthetic workloads.
 Each `FamilySpec` owns the applicability predicate and scientific truth used by
 all views. The 30 materialized tasks are reconstructable anchor instances via
 `reconstruct_anchor_instance`; their task metadata is only a projection. Run
-`python -m benchmark.families.consistency --surface-count 100` to check every
+`/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.families.consistency --surface-count 100` to check every
 family anchor,
 BoundaryBench, InteractionBench, and evolution lineage agreement. The pilot
 surface runner expands the canonical families to 100--500 hidden contexts:
 
 ```bash
-python scripts/run_pilot_surface_experiments.py --surface-count 100 \
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/run_pilot_surface_experiments.py --surface-count 100 \
   --out benchmark/pilot_surface_report.json
 ```
 
@@ -274,25 +276,28 @@ benchmark/
 
 ## Quickstart
 
-Run everything from the repository root (the directory containing `benchmark/`):
+Run everything on the server from the repository root (the directory
+containing `benchmark/`):
 
 ```bash
+ssh dbcloud
+cd /home/workspace/lrh/CODE/scientific-performance-engineering
 # tests (single repository authority)
-python benchmark/tests/run_all.py
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python benchmark/tests/run_all.py
 # equivalent direct entrypoint (task-package smoke fixtures are excluded by pytest.ini)
-python -m pytest -q
-python -m benchmark.taskgen.validate_population \
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m pytest -q
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.taskgen.validate_population \
     --tasks-root benchmark/tasks --out benchmark/population_report.json
 
 # CLI examples (run from the repo root)
-python -m benchmark.harness.cli validate-task benchmark/tasks/<task_id>
-python -m benchmark.harness.cli run-task benchmark/tasks/<task_id> --solution DIR --out result.json \
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.harness.cli validate-task benchmark/tasks/<task_id>
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.harness.cli run-task benchmark/tasks/<task_id> --solution DIR --out result.json \
     [--predict-mechanism scalar_sync,h2d_blocking] [--seed 0]
-python scripts/render_skill_view.py SKILL_ROOT SKILL_VIEW_DIR
-python -m benchmark.harness.cli materialize-condition {A,A_CTX,B,C,C_STRESS,D} --snapshot SKILL_VIEW_DIR --out DIR --context-mode reset
-python -m benchmark.harness.cli run-episode benchmark/tasks/EVOL-EPISODE-POISON-10/episodes/<id>.yaml --condition {C,C_STRESS,D} --out DIR --context-mode reset
-python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml [--tasks-root DIR]
-python -m benchmark.harness.cli score-run RUN_DIR --out scores.json
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/render_skill_view.py SKILL_ROOT SKILL_VIEW_DIR
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.harness.cli materialize-condition {A,A_CTX,B,C,C_STRESS,D} --snapshot SKILL_VIEW_DIR --out DIR --context-mode reset
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.harness.cli run-episode benchmark/tasks/EVOL-EPISODE-POISON-10/episodes/<id>.yaml --condition {C,C_STRESS,D} --out DIR --context-mode reset
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml [--tasks-root DIR]
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.harness.cli score-run RUN_DIR --out scores.json
 ```
 
 Exit codes: `validate-task`/`check-leakage` return 0 when clean, 1 on findings;
@@ -300,7 +305,7 @@ Exit codes: `validate-task`/`check-leakage` return 0 when clean, 1 on findings;
 
 ## Dependencies
 
-Python ≥ 3.10 stdlib + torch. PyG is optional (SciML tasks ship fallback scatter).
+Python ≥ 3.10 stdlib + torch in the server `equivcompiler` environment. PyG is optional (SciML tasks ship fallback scatter).
 YAML files are restricted to the subset documented in `harness/miniyaml.py`;
 `validate-task` enforces it. The standalone benchmark suite uses only the
 standard library; the repository-level pytest suite is optional. Campaign

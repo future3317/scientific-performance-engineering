@@ -46,14 +46,15 @@ independent calibration approval, and a valid external-executor receipt exist.
 
 ## Execution environment
 
-All benchmark, calibration, qualification, GPU, and evidence-producing runs
-are server-only. Use `ssh dbcloud`, enter
-`/home/workspace/lrh/CODE/scientific-performance-engineering`, and run the
-project interpreter at
-`/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python`. Local Windows
-Python/Conda output is not runtime evidence and must not be mixed into server
-results. Do not use Conda `base`; qualification and official calibration must
-not use `--allow-shared-gpu`.
+The server is the only supported runtime. Run every project test, validator,
+CLI command, benchmark, calibration, qualification, timing probe, GPU job,
+and evidence-producing command through `ssh dbcloud`, from
+`/home/workspace/lrh/CODE/scientific-performance-engineering`, with
+`/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python`. Do not run
+project commands from the local Windows checkout, local Python, or any local
+Conda environment. Local access is for editing, reading, and static inspection
+only; local output is not runtime evidence. Do not use Conda `base`.
+Qualification and official calibration must not use `--allow-shared-gpu`.
 
 ## Quickstart
 
@@ -72,22 +73,26 @@ cd /home/workspace/lrh/CODE/scientific-performance-engineering
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m pytest -q
 ```
 
-For a release/readiness check, also run the schema, experience, benchmark, and
-leakage validators:
+For a release/readiness check on the server, also run the schema, experience,
+benchmark, and leakage validators:
 
-```powershell
-python scripts/generate_rule_schemas.py
-python scripts/validate_benchmark.py assets/benchmark_record.json
-python scripts/evolution_utility_tests.py
-python assets/materials_gnn_checks.py --self-test
-python scripts/compare_benchmarks.py --self-test
-python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml
+```bash
+ssh dbcloud
+cd /home/workspace/lrh/CODE/scientific-performance-engineering
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/generate_rule_schemas.py
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/validate_benchmark.py assets/benchmark_record.json
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/evolution_utility_tests.py
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python assets/materials_gnn_checks.py --self-test
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/compare_benchmarks.py --self-test
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.harness.cli check-leakage benchmark/split/sequential.yaml
 ```
 
 For a selected GPU workload:
 
-```powershell
-python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- python train.py
+```bash
+ssh dbcloud
+cd /home/workspace/lrh/CODE/scientific-performance-engineering
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/run_with_gpu_monitor.py --output monitor.json --gpu 0 -- /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python train.py
 ```
 
 The benchmark entry points and exit codes are documented in

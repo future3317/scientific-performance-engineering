@@ -1,0 +1,5 @@
+--- a/workspace/solution.py
++++ b/workspace/solution.py
+@@ -21,1 +21,1 @@
+-            out = checkpoint(segment, h, use_reentrant=False) if index < self.checkpointed_segments else segment(h)
++            out = checkpoint(segment, h, use_reentrant=False)

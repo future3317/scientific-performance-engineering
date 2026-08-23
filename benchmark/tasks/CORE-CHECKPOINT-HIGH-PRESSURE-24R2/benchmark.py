@@ -52,10 +52,31 @@ def run_correctness(solution,fixtures): return _CHECKS.check_gradient_step(solut
 def run_scientific_gates(solution,fixtures): return {'gradient_equivalence':_SCIENCE.gradient_equivalence(solution,fixtures)}
 
 
-def _trace(module,fixtures):
-    m=module.build_model(fixtures); o=torch.optim.SGD(m.parameters(),lr=fixtures['lr']); module.train_step(m,fixtures['batch'],o); return int(getattr(m,'checkpoint_calls',0))
+def _checkpoint_call_count(module, fixtures):
+    checkpoint_fn = getattr(module, "checkpoint", None)
+    if checkpoint_fn is None:
+        return 0
+    calls = {"count": 0}
+
+    def counted_checkpoint(*args, **kwargs):
+        calls["count"] += 1
+        return checkpoint_fn(*args, **kwargs)
+
+    module.checkpoint = counted_checkpoint
+    try:
+        model = module.build_model(fixtures)
+        optimizer = torch.optim.SGD(model.parameters(), lr=fixtures["lr"])
+        module.train_step(model, fixtures["batch"], optimizer)
+    finally:
+        module.checkpoint = checkpoint_fn
+    return calls["count"]
+
+
 def run_activation_evidence(solution,baseline_solution,fixtures):
-    return {'candidate_metrics':{'checkpoint_recompute_calls':_trace(solution,fixtures)},'baseline_metrics':{'checkpoint_recompute_calls':_trace(baseline_solution,fixtures)}}
+    return {
+        "candidate_metrics": {"checkpoint_recompute_calls": _checkpoint_call_count(solution, fixtures)},
+        "baseline_metrics": {"checkpoint_recompute_calls": _checkpoint_call_count(baseline_solution, fixtures)},
+    }
 
 
 def run_performance(solution: Any, fixtures: dict[str, Any], warmup: int = 3, iterations: int = 20, device: str = "cpu") -> dict[str, Any]:

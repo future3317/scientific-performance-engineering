@@ -1,0 +1,5 @@
+--- a/workspace/solution.py
++++ b/workspace/solution.py
+@@ -11,1 +11,1 @@
+-    for i in range(num_steps): state=sample_step(sampler,state,i)
++    for i in range(0, num_steps, 2): state=sample_step(sampler,state,i)

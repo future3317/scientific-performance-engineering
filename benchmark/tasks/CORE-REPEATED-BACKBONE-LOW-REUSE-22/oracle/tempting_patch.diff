@@ -1,0 +1,7 @@
+--- a/workspace/solution.py
++++ b/workspace/solution.py
+@@ -9,1 +9,3 @@
+-    def forward_pair(self,x1,x2): return self.h1(self.backbone(x1)).squeeze(-1), self.h2(self.backbone(x2)).squeeze(-1)
++    def forward_pair(self,x1,x2):
++        hidden = self.backbone(x1)
++        return self.h1(hidden).squeeze(-1), self.h2(hidden).squeeze(-1)

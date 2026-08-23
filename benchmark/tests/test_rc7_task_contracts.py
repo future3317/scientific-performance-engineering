@@ -7,9 +7,21 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 
 
 ROOT = Path(__file__).parents[2]
+
+
+NEGATIVE_ANCHORS = (
+    "CORE-AUTOGRAD-VJP-SMALL-25R2",
+    "CORE-CHECKPOINT-AMPLE-MEM-14R2",
+    "CORE-REPEATED-BACKBONE-LOW-REUSE-22",
+    "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+    "SCIML-CRYSTAL-HIGH-GUIDANCE-28",
+    "SCIML-GRAPH-REBUILD-08R2",
+    "SCIML-EQUIV-RECOMPUTE-06R2",
+)
 
 
 def _load_benchmark(task_dir: Path):
@@ -77,11 +89,57 @@ def test_crystal_oracle_uses_fp64_score_path(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("task_id", [
     "CORE-MEM-RETAINED-GRAPH-13R3",
+    "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
     "CORE-REPEATED-BACKBONE-02R2",
 ])
 def test_positive_tasks_expose_contrastive_activation_evidence(task_id: str) -> None:
     benchmark = _load_benchmark(ROOT / "benchmark" / "tasks" / task_id)
     assert callable(getattr(benchmark, "run_activation_evidence", None))
+
+
+@pytest.mark.parametrize(
+    ("task_id", "measured_iterations", "noise_floor_percent"),
+    [
+        ("CORE-CHECKPOINT-HIGH-PRESSURE-24R2", 240, 3.0),
+        ("CORE-REPEATED-BACKBONE-02R2", 800, 2.0),
+    ],
+)
+def test_positive_task_measurement_contract_preserves_gate_and_horizon(
+    task_id: str, measured_iterations: int, noise_floor_percent: float
+) -> None:
+    from benchmark.harness.miniyaml import load
+
+    spec = load(str(ROOT / "benchmark" / "tasks" / task_id / "task.yaml"))
+    measurement = spec["measurement"]
+    assert measurement["repetitions"] == 5
+    assert measurement["min_improvement_percent"] == 5.0
+    assert measurement["noise_floor_percent"] == noise_floor_percent
+    assert measurement["measured_iterations"] == measured_iterations
+
+
+@pytest.mark.parametrize(
+    "task_id",
+    [
+        "CORE-CHECKPOINT-HIGH-PRESSURE-24R2",
+        "CORE-REPEATED-BACKBONE-02R2",
+    ],
+)
+def test_positive_task_activation_evidence_is_contrastive(task_id: str) -> None:
+    task_dir = ROOT / "benchmark" / "tasks" / task_id
+    benchmark = _load_benchmark(task_dir)
+    baseline = benchmark.load_solution(task_dir / "workspace" / "solution.py")
+    oracle = benchmark.load_solution(task_dir / "oracle" / "solution_oracle.py")
+    evidence = benchmark.run_activation_evidence(oracle, baseline, benchmark.make_fixtures(0))
+
+    assert set(evidence) == {"candidate_metrics", "baseline_metrics"}
+    if task_id == "CORE-CHECKPOINT-HIGH-PRESSURE-24R2":
+        assert evidence["candidate_metrics"]["checkpoint_recompute_calls"] > 0
+        assert evidence["baseline_metrics"]["checkpoint_recompute_calls"] == 0
+    else:
+        assert evidence["candidate_metrics"]["backbone_calls"] == 1
+        assert evidence["baseline_metrics"]["backbone_calls"] == 4
+        assert evidence["candidate_metrics"]["fixed_projection_calls"] == 1
+        assert evidence["baseline_metrics"]["fixed_projection_calls"] == 4
 
 
 @pytest.mark.parametrize(
@@ -134,3 +192,64 @@ def test_equivariance_tempting_cache_patch_is_executable_and_rejected(tmp_path: 
         bool(value[0] if isinstance(value, tuple) else value)
         for value in gates.values()
     ), (correctness, gates)
+
+
+@pytest.mark.parametrize("task_id", NEGATIVE_ANCHORS)
+def test_negative_anchor_tempting_intervention_applies_cleanly(tmp_path: Path, task_id: str) -> None:
+    task_dir = ROOT / "benchmark" / "tasks" / task_id
+    patch = task_dir / "oracle" / "tempting_patch.diff"
+    assert patch.is_file(), f"{task_id} must ship an executable tempting intervention"
+
+    isolated_task = tmp_path / task_id
+    shutil.copytree(task_dir, isolated_task)
+    original = isolated_task / "workspace" / "solution.py"
+    before = original.read_text(encoding="utf-8")
+    patch_text = patch.read_text(encoding="utf-8")
+    patch_root = isolated_task if "a/workspace/" in patch_text else isolated_task / "workspace"
+    applied = subprocess.run(
+        ["patch", "--batch", "--forward", "--fuzz=0", "-p1", "-i", str(patch)],
+        cwd=patch_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert applied.returncode == 0, applied.stderr or applied.stdout
+    assert original.read_text(encoding="utf-8") != before
+
+
+def test_scalar_sync_abstention_keeps_baseline_and_oracle_identical() -> None:
+    task_dir = ROOT / "benchmark" / "tasks" / "CORE-SCALAR-SYNC-LOW-CADENCE-21"
+    baseline = (task_dir / "workspace" / "solution.py").read_text(encoding="utf-8")
+    oracle = (task_dir / "oracle" / "solution_oracle.py").read_text(encoding="utf-8")
+    assert baseline == oracle
+    assert "no source mutation" in (task_dir / "oracle" / "reference_patch.diff").read_text(encoding="utf-8")
+
+
+def test_ample_checkpoint_abstention_keeps_checkpointing_disabled() -> None:
+    task_dir = ROOT / "benchmark" / "tasks" / "CORE-CHECKPOINT-AMPLE-MEM-14R2"
+    benchmark = _load_benchmark(task_dir)
+    baseline = benchmark.load_solution(task_dir / "workspace" / "solution.py")
+    oracle = benchmark.load_solution(task_dir / "oracle" / "solution_oracle.py")
+    fixtures = benchmark.make_fixtures(0)
+
+    def checkpoint_calls(solution):
+        checkpoint_fn = getattr(solution, "checkpoint", None)
+        if checkpoint_fn is None:
+            return 0
+        calls = {"count": 0}
+
+        def counted_checkpoint(*args, **kwargs):
+            calls["count"] += 1
+            return checkpoint_fn(*args, **kwargs)
+
+        solution.checkpoint = counted_checkpoint
+        try:
+            model = solution.build_model(fixtures)
+            optimizer = torch.optim.SGD(model.parameters(), lr=fixtures["optimizer_config"]["lr"])
+            solution.train_step(model, (fixtures["inputs"][:16], fixtures["targets"][:16]), optimizer)
+        finally:
+            solution.checkpoint = checkpoint_fn
+        return calls["count"]
+
+    assert checkpoint_calls(baseline) == 0
+    assert checkpoint_calls(oracle) == 0

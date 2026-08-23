@@ -1,0 +1,5 @@
+--- a/workspace/solution.py
++++ b/workspace/solution.py
+@@ -22,1 +22,1 @@
+-        values=[metrics[i].item() for i in range(4)]
++        values=metrics.tolist()

@@ -244,33 +244,55 @@ def run_scientific_gates(solution, fixtures: dict) -> dict:
     }
 
 
-def _backbone_call_count(solution, fixtures):
+def _mechanism_call_counts(solution, fixtures):
     model = solution.build_model(fixtures)
-    calls = {"count": 0}
-    original = model.backbone.forward
+    backbone_calls = {"count": 0}
+    projection_calls = {"count": 0}
+    original_backbone = model.backbone.forward
+    original_projection = model.project_fixed
 
-    def counted(*args, **kwargs):
-        calls["count"] += 1
-        return original(*args, **kwargs)
+    def counted_backbone(*args, **kwargs):
+        backbone_calls["count"] += 1
+        return original_backbone(*args, **kwargs)
 
-    model.backbone.forward = counted
-    optimizer = torch.optim.SGD(model.parameters(), lr=fixtures["lr"])
-    batch_size = fixtures["batch_size"]
-    batch = {
-        "step": fixtures["step_data"][:batch_size],
-        "fixed": fixtures["fixed_data"],
-        "targets": [target[:batch_size] for target in fixtures["targets"]],
+    def counted_projection(*args, **kwargs):
+        projection_calls["count"] += 1
+        return original_projection(*args, **kwargs)
+
+    model.backbone.forward = counted_backbone
+    model.project_fixed = counted_projection
+    try:
+        optimizer = torch.optim.SGD(model.parameters(), lr=fixtures["lr"])
+        batch_size = fixtures["batch_size"]
+        batch = {
+            "step": fixtures["step_data"][:batch_size],
+            "fixed": fixtures["fixed_data"],
+            "targets": [target[:batch_size] for target in fixtures["targets"]],
+        }
+        solution.train_step(model, batch, optimizer)
+    finally:
+        model.backbone.forward = original_backbone
+        model.project_fixed = original_projection
+    return {
+        "backbone_calls": backbone_calls["count"],
+        "fixed_projection_calls": projection_calls["count"],
     }
-    solution.train_step(model, batch, optimizer)
-    return calls["count"]
 
 
 def run_activation_evidence(solution, baseline_solution, fixtures):
-    candidate_calls = _backbone_call_count(solution, fixtures)
-    baseline_calls = _backbone_call_count(baseline_solution, fixtures)
+    candidate_calls = _mechanism_call_counts(solution, fixtures)
+    baseline_calls = _mechanism_call_counts(baseline_solution, fixtures)
     return {
-        "candidate_metrics": {"backbone_reused": candidate_calls == 1},
-        "baseline_metrics": {"backbone_reused": baseline_calls == 1},
+        "candidate_metrics": {
+            **candidate_calls,
+            "backbone_reused": candidate_calls["backbone_calls"] == 1,
+            "fixed_projection_reused": candidate_calls["fixed_projection_calls"] == 1,
+        },
+        "baseline_metrics": {
+            **baseline_calls,
+            "backbone_reused": baseline_calls["backbone_calls"] == 1,
+            "fixed_projection_reused": baseline_calls["fixed_projection_calls"] == 1,
+        },
     }
 
 
