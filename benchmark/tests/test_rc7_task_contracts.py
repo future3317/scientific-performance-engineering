@@ -76,7 +76,7 @@ def test_crystal_oracle_uses_fp64_score_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("task_id", [
-    "CORE-MEM-RETAINED-GRAPH-13R2",
+    "CORE-MEM-RETAINED-GRAPH-13R3",
     "CORE-REPEATED-BACKBONE-02R2",
 ])
 def test_positive_tasks_expose_contrastive_activation_evidence(task_id: str) -> None:
@@ -87,7 +87,7 @@ def test_positive_tasks_expose_contrastive_activation_evidence(task_id: str) -> 
 @pytest.mark.parametrize(
     "task_id",
     [
-        "CORE-MEM-RETAINED-GRAPH-13R2",
+        "CORE-MEM-RETAINED-GRAPH-13R3",
         "CORE-AUTOGRAD-BATCHED-VJP-15R2",
         "CORE-CHECKPOINT-AMPLE-MEM-14R2",
         "CORE-AUTOGRAD-VJP-SMALL-25R2",

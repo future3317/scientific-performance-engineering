@@ -1,0 +1,5 @@
+{
+  "mechanism": "memory_pressure",
+  "location": "workspace/solution.py: retained_history plus redundant loss.backward(retain_graph=True) keep live autograd graphs across the measured horizon",
+  "why": "The baseline keeps each segment output and explicitly retains its backward graph after optimizer.step(), so graph state grows with steps. The oracle clears the history and uses ordinary backward while keeping detached diagnostics and the same segmented checkpointed training work."
+}

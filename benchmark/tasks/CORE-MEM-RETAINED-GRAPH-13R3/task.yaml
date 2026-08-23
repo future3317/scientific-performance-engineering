@@ -1,0 +1,55 @@
+schema_version: 1
+task_id: CORE-MEM-RETAINED-GRAPH-13R3
+track: spe_core
+family: memory
+mechanism: retained_graph
+kind: positive
+lineage:
+  source: synthetic
+  mutation_template_id: MT-MEM-RETAINED-GRAPH-R3-V1
+  mutation_seed: 4103340191
+title: "Long-horizon retained autograd history across checkpointed residual steps"
+requires_cuda: false
+time_budget_s: 300
+workspace:
+  entrypoint: solution.py
+  api: train_loop_v1
+measurement:
+  primary_metric: step_ms_p50
+  higher_is_better: false
+  warmup_iterations: 8
+  measured_iterations: 240
+  repetitions: 5
+  min_improvement_percent: 5.0
+  noise_floor_percent: 2.0
+  speedup_tripwire: 20.0
+correctness:
+  num_fresh_inputs: 3
+  reference: fp64_recompute
+  tolerance:
+    rtol: 0.0001
+    atol: 1e-05
+scientific_gates: [finite_loss]
+diagnosis:
+  enabled: true
+  choices: [memory_pressure, autograd_overhead, launch_fragmentation]
+oracle:
+  expected_speedup_range: [1.15, 1.5]
+generator_family_id: GEN-MEMORY-RETAINED
+oracle_fix_pattern_id: FIX-MEM-RETAINED-LONG-HORIZON
+scientific_contract_id: CONTRACT-AUTOGRAD-GRAPH
+difficulty_tier: hard
+workspace_ast_skeleton_hash: fc942ef07d638fbad9ba5a5f37e34f326093102e164ebfee612f831aecabdd4b
+family_id: checkpoint
+anchor_instance_id: CORE-MEM-RETAINED-GRAPH-13R3
+family_parameters:
+  memory_pressure: 0.82
+  segment_count: 12
+  recompute_ratio: 0.5
+family_instance_digest: bbe7eea37979490882e7bdbc6a43fecab51758b813765e40dc3f1664cf2d7394
+public_context:
+  workload:
+    memory_pressure: 0.82
+    segment_count: 12
+    recompute_ratio: 0.5
+ast_skeleton_version: 2

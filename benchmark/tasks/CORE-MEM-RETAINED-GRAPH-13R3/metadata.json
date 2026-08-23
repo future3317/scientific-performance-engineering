@@ -1,0 +1,27 @@
+{
+  "task_id": "CORE-MEM-RETAINED-GRAPH-13R3",
+  "title": "Retained autograd history across segmented checkpointed residual steps",
+  "track": "spe_core",
+  "family": "memory",
+  "mechanism": "retained_graph",
+  "kind": "positive",
+  "lineage": {
+    "source": "synthetic",
+    "mutation_template_id": "MT-MEM-RETAINED-GRAPH-R3-V1",
+    "mutation_seed": 4103340191
+  },
+  "split_group": {
+    "family": "memory",
+    "mechanism": "retained_graph",
+    "source": "synthetic",
+    "mutation_template_id": "MT-MEM-RETAINED-GRAPH-R3-V1"
+  },
+  "episode_phase": 1,
+  "hidden": false,
+  "difficulty": "hard",
+  "authoring_note": "Baseline retains every segmented activation with its autograd history across training steps. The oracle clears the history each step and keeps detached activation diagnostics, preserving the same forward, backward, and optimizer work while removing cross-step graph retention. The 12-segment, 0.82-pressure fixture provides a long-horizon memory regime.",
+  "author": "batch-C prototype agent",
+  "created_utc": "2026-08-14",
+  "family_id": "checkpoint",
+  "anchor_instance_id": "CORE-MEM-RETAINED-GRAPH-13R3"
+}

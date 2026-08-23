@@ -1,0 +1,5 @@
+{
+  "mechanism": "memory_pressure",
+  "location": "workspace/solution.py: retained_history and redundant retain_graph=True",
+  "why": "Live autograd history and the backward graph are retained across steps in the baseline; the oracle clears history and uses ordinary backward while storing detached diagnostics only."
+}

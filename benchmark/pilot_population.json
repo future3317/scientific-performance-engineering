@@ -6,7 +6,7 @@
     "CORE-SCALAR-SYNC-01R2",
     "CORE-H2D-PIPELINE-03R2",
     "CORE-COMPILE-DYNAMIC-11",
-    "CORE-MEM-RETAINED-GRAPH-13R2",
+    "CORE-MEM-RETAINED-GRAPH-13R3",
     "CORE-AUTOGRAD-BATCHED-VJP-15R2",
     "SCIML-GNN-STATIC-GRAPH-CACHE-17R2",
     "CORE-SCALAR-SYNC-LOW-CADENCE-21",
@@ -79,6 +79,11 @@
       "task_id": "CORE-MEM-RETAINED-GRAPH-13",
       "replacement_task_id": "CORE-MEM-RETAINED-GRAPH-13R2",
       "reason": "declared memory/recompute workload was not executable"
+    },
+    {
+      "task_id": "CORE-MEM-RETAINED-GRAPH-13R2",
+      "replacement_task_id": "CORE-MEM-RETAINED-GRAPH-13R3",
+      "reason": "compile prototype did not match the retained-graph task contract"
     },
     {
       "task_id": "CORE-CHECKPOINT-AMPLE-MEM-14",

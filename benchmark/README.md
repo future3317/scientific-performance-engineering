@@ -28,6 +28,16 @@ statistics are frozen in the repository-root `CLAIMS.yaml` and
 - [Integration boundary](#integration-boundary)
 - [Dependencies](#dependencies)
 
+## Execution environment
+
+All benchmark, calibration, qualification, and GPU evidence runs are
+server-only. Use `ssh dbcloud`, enter
+`/home/workspace/lrh/CODE/scientific-performance-engineering`, and invoke
+`/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python`. Local Windows
+Python/Conda runs are diagnostic only and must not be mixed into calibration
+evidence. Official qualification and calibration must not use
+`--allow-shared-gpu`.
+
 ## Status and calibration scope
 
 **Status:** the v1.0-30 population-validity pilot contains 27 atomic tasks plus
