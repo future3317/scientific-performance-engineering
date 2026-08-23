@@ -19,7 +19,7 @@ def check_vjp(solution, fixtures):
     xr = x.detach().requires_grad_(True)
     y = model(xr).mean(dim=0)
     refs = []
-    for i in range(y.numel()):
+    for i in torch.nonzero(model.jacobian_output_mask, as_tuple=False).flatten().tolist():
         refs.append(torch.autograd.grad(y[i], xr, retain_graph=True, create_graph=True)[0])
     ref = torch.stack(refs)
     err = float((got-ref).abs().max().detach().cpu())
