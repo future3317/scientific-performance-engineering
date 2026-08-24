@@ -1,0 +1,4 @@
+{
+  "mechanism": "scalar_sync",
+  "expected_action": "aggregate_scalars"
+}

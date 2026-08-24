@@ -33,7 +33,7 @@
     "task_id": {
       "type": "string",
       "pattern": "^[A-Z0-9-]+$",
-      "description": "Unique task identifier, e.g. CORE-SCALAR-SYNC-01R2."
+      "description": "Unique task identifier, e.g. CORE-SCALAR-SYNC-TELEMETRY-31."
     },
     "track": {"type": "string", "enum": ["spe_core", "sciml", "evolution"]},
     "family": {

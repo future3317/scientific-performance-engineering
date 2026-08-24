@@ -36,7 +36,7 @@ def test_copy_oracle_applies_mixed_reference_patch_headers(task_id, tmp_path):
 
 
 def test_resource_preflight_writes_a_complete_reusable_cell(tmp_path):
-    task_id = "CORE-SCALAR-SYNC-01R2"
+    task_id = "CORE-SCALAR-SYNC-TELEMETRY-31"
     task_spec = {
         "workspace": {"api": "train_loop_v1"},
         "measurement": {"primary_metric": "step_ms_p50", "higher_is_better": False, "noise_floor_percent": 2.0},

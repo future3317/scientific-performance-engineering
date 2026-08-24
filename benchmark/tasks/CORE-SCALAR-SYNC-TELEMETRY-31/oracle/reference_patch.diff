@@ -1,0 +1,5 @@
+--- a/workspace/solution.py
++++ b/oracle/solution_oracle.py
+@@
+-    telemetry = [value.item() for value in metrics]
++    telemetry = metrics.detach().cpu().tolist()

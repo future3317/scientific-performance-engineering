@@ -3,7 +3,7 @@
   "population_id": "SPE-EvoBench-v1.0-30-pilot",
   "active_manifest": "benchmark/pilot_population.json",
   "active_task_ids": [
-    "CORE-SCALAR-SYNC-01R2",
+    "CORE-SCALAR-SYNC-TELEMETRY-31",
     "CORE-H2D-PIPELINE-03R2",
     "CORE-COMPILE-DYNAMIC-11",
     "CORE-MEM-RETAINED-GRAPH-13R3",
@@ -91,8 +91,8 @@
   },
   "anchor_projection": {
     "scalar_sync": [
-      "CORE-SCALAR-SYNC-01R2",
-      "CORE-SCALAR-SYNC-LOW-CADENCE-21"
+      "CORE-SCALAR-SYNC-LOW-CADENCE-21",
+      "CORE-SCALAR-SYNC-TELEMETRY-31"
     ],
     "h2d_pipeline": [
       "CORE-DATALOADER-FANOUT-16R2",
@@ -309,7 +309,7 @@
   ],
   "runtime_cost_distribution": [
     {
-      "task_id": "CORE-SCALAR-SYNC-01R2",
+      "task_id": "CORE-SCALAR-SYNC-TELEMETRY-31",
       "time_budget_s": 600,
       "measured_iterations": 100,
       "repetitions": 5
@@ -527,10 +527,10 @@
   },
   "retired_for_formal": [],
   "public_context": {
-    "CORE-SCALAR-SYNC-01R2": {
+    "CORE-SCALAR-SYNC-TELEMETRY-31": {
       "workload": {
-        "scalar_syncs_per_step": 12,
-        "metric_cadence": 4
+        "scalar_syncs_per_step": 16,
+        "metric_cadence": 1
       }
     },
     "CORE-H2D-PIPELINE-03R2": {

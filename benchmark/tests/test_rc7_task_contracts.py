@@ -225,6 +225,33 @@ def test_scalar_sync_abstention_keeps_baseline_and_oracle_identical() -> None:
     assert "no source mutation" in (task_dir / "oracle" / "reference_patch.diff").read_text(encoding="utf-8")
 
 
+def test_scalar_sync_telemetry_anchor_preserves_vector_and_removes_host_reads() -> None:
+    task_dir = ROOT / "benchmark" / "tasks" / "CORE-SCALAR-SYNC-TELEMETRY-31"
+    benchmark = _load_benchmark(task_dir)
+    fixtures = benchmark.make_fixtures(0, device="cpu")
+    baseline = benchmark.load_solution(task_dir / "workspace" / "solution.py", device="cpu")
+    oracle = benchmark.load_solution(task_dir / "oracle" / "solution_oracle.py", device="cpu")
+
+    correctness = benchmark.run_correctness(oracle, fixtures)
+    assert correctness["passed"], correctness
+    evidence = benchmark.run_activation_evidence(oracle, baseline, fixtures)
+    assert evidence["baseline_metrics"]["aggregated_scalar_syncs"] >= 16
+    assert evidence["candidate_metrics"]["aggregated_scalar_syncs"] < evidence["baseline_metrics"]["aggregated_scalar_syncs"]
+    assert evidence["baseline_metrics"]["telemetry_vector_width"] == 16
+    assert evidence["candidate_metrics"]["telemetry_vector_width"] == 16
+    from benchmark.families import FAMILY_SPECS
+    from benchmark.families.activation import classify_activation
+
+    activation = classify_activation(
+        "scalar_sync",
+        FAMILY_SPECS["scalar_sync"].action_specs,
+        evidence["candidate_metrics"],
+        evidence["baseline_metrics"],
+    )
+    assert activation["status"] == "passed"
+    assert activation["action_id"] == "aggregate_scalars"
+
+
 def test_ample_checkpoint_abstention_keeps_checkpointing_disabled() -> None:
     task_dir = ROOT / "benchmark" / "tasks" / "CORE-CHECKPOINT-AMPLE-MEM-14R2"
     benchmark = _load_benchmark(task_dir)
