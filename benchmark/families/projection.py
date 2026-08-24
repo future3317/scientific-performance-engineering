@@ -75,7 +75,7 @@ def project_fixture(family_id: str, fixtures: Mapping[str, Any]) -> dict[str, An
         }
     if family_id == "scalar_sync":
         return {
-            "scalar_syncs_per_step": fixtures.get("scalar_syncs_per_step"),
+            "scalar_syncs_per_step": fixtures.get("scalar_syncs_per_step", fixtures.get("telemetry_width")),
             "metric_cadence": fixtures.get("metric_cadence"),
         }
     if family_id == "repeated_compute":

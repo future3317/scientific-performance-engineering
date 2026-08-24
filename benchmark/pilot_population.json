@@ -3,7 +3,7 @@
   "population_id": "SPE-EvoBench-v1.0-30-pilot",
   "status": "active_manifest",
   "task_ids": [
-    "CORE-SCALAR-SYNC-01R2",
+    "CORE-SCALAR-SYNC-TELEMETRY-31",
     "CORE-H2D-PIPELINE-03R2",
     "CORE-COMPILE-DYNAMIC-11",
     "CORE-MEM-RETAINED-GRAPH-13R3",
@@ -44,6 +44,11 @@
       "task_id": "CORE-SCALAR-SYNC-01",
       "replacement_task_id": "CORE-SCALAR-SYNC-01R2",
       "reason": "declared sync and metric cadence were not executable"
+    },
+    {
+      "task_id": "CORE-SCALAR-SYNC-01R2",
+      "replacement_task_id": "CORE-SCALAR-SYNC-TELEMETRY-31",
+      "reason": "baseline and oracle did not preserve executable telemetry cadence; effective speedup stayed below the preregistered positive range"
     },
     {
       "task_id": "CORE-REPEATED-BACKBONE-02",
