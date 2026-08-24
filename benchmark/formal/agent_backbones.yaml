@@ -1,5 +1,38 @@
 schema_version: 1
-status: planned
-primary_backbone: exact_model_snapshot_required
+status: frozen
+primary_backbone:
+  provider: deepseek
+  api_base: https://api.deepseek.com
+  model_id: deepseek-v4-flash
+  provider_model_version: DeepSeek-V4-Flash
+  snapshot_type: provider_managed_release
+  immutable_snapshot_available: false
+  decoding:
+    thinking: enabled
+    reasoning_effort: high
+    temperature: 0
+    top_p: 1
+  prompt_contract:
+    fixed_prefix_order:
+      - system_prompt
+      - tool_definitions
+      - spe_agent_policy
+      - benchmark_interaction_rules
+      - output_schema
+    condition_specific_context_after_prefix: true
+    byte_identical_across_conditions: true
+  campaign_attestation:
+    required_before_formal_campaign: true
+    required_fields:
+      - provider_model_list_response_digest
+      - agent_code_commit
+      - system_prompt_digest
+      - tool_schema_digest
+      - tool_allowlist
+      - retry_policy
+      - max_output_tokens
+      - container_digest
+      - pricing_revision
+    backend_weight_immutability_claim: false
 secondary_backbone: representative_sealed_subset
 claim_policy: if_secondary_backbone_absent_limit_claim_to_primary_model
