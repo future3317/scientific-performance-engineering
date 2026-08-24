@@ -24,7 +24,7 @@ initial canonical families and their retained anchor packages are:
 | `graph_cache` | geometry displacement, skin, graph size, dynamic rate | SCIML-GNN-STATIC-GRAPH-CACHE-17R2, SCIML-GNN-DYNAMIC-GRAPH-18R2, SCIML-GRAPH-CACHE-INTERIOR-27 |
 | `h2d_pipeline` | batch size, workers, prefetch, pinning | CORE-H2D-PIPELINE-03R2, CORE-DATALOADER-FANOUT-16R2, CORE-H2D-OVERFANOUT-23R3 |
 | `checkpoint` | memory pressure, segments, recompute ratio | CORE-CHECKPOINT-AMPLE-MEM-14R2, CORE-CHECKPOINT-HIGH-PRESSURE-24R2 |
-| `scalar_sync` | scalar synchronizations, metric cadence | CORE-SCALAR-SYNC-01R2, CORE-SCALAR-SYNC-LOW-CADENCE-21 |
+| `scalar_sync` | batched telemetry synchronizations, metric cadence | CORE-SCALAR-SYNC-TELEMETRY-31, CORE-SCALAR-SYNC-LOW-CADENCE-21 |
 
 The remaining pilot packages retain their existing task family metadata and
 remain public anchors; they are not duplicated into a second workload source.
@@ -45,7 +45,7 @@ remain public anchors; they are not duplicated into a second workload source.
 
 | # | Task ID | Track | Family | Mechanism(s) | Kind | Source | Verified oracle speedup | Status |
 |---|---------|-------|--------|--------------|------|--------|------------------------|--------|
-| 1 | CORE-SCALAR-SYNC-01R2 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **1.51×** | pilot (scientific gates added; calibration pending) |
+| 1 | CORE-SCALAR-SYNC-TELEMETRY-31 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **pending clean-GPU qualification** | replacement anchor; calibration pending |
 | 2 | CORE-REPEATED-BACKBONE-02R2 | spe_core | repeated_compute | repeated_compute | positive | synthetic | **2.38×** | pilot (scientific gates added; calibration pending) |
 | 3 | CORE-H2D-PIPELINE-03R2 | spe_core | data_pipeline | h2d_blocking | positive | synthetic | **4.77×** (CUDA) | ✅ |
 | 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | counterexample | synthetic | no positive CI through 1024 steps | pilot |
