@@ -79,6 +79,89 @@ def test_formal_manifest_requires_agent_provenance_fields():
     assert any("formal agent_config missing provider" in error for error in validate_experiment(manifest))
 
 
+def test_provider_managed_agent_config_requires_current_provenance_contract():
+    manifest = {
+        "schema_version": 1,
+        "population_id": "SPE-EvoBench-v1.0-50",
+        "experiment_id": "x",
+        "benchmark_revision": "a" * 40,
+        "skill_view_digest": "a" * 64,
+        "task_manifest_digest": "b" * 64,
+        "agent_model_id": "deepseek-v4-flash",
+        "agent_config": {
+            "provider": "deepseek",
+            "model_id": "deepseek-v4-flash",
+            "provider_model_version": "DeepSeek-V4-Flash",
+            "provider_model_list_response_digest": "f" * 64,
+            "temperature": 0,
+            "top_p": 1,
+            "max_output_tokens": 8192,
+            "system_prompt_digest": "c" * 64,
+            "agent_code_commit": "a" * 40,
+            "tool_versions": {},
+            "tool_schema_digest": "d" * 64,
+            "tool_allowlist": ["read_file", "write_file", "run_command"],
+            "retry_policy": {"max_attempts": 2},
+            "timeout_s": 900,
+            "container_digest": "e" * 64,
+            "pricing_revision": "deepseek-pricing-2026-08-24",
+            "backend_weight_immutability_claim": False,
+        },
+        "condition": "D",
+        "context_mode": "reset",
+        "task_order": ["T"],
+        "worker_isolation": {"mode": "external_namespace_executor", "network_mode": "none", "mount_allowlist": ["task"]},
+        "outer_trial_id": "outer-000",
+        "budgets": {"tokens": 1, "tool_calls": 1, "wall_time_s": 1},
+        "hardware_fingerprint": {},
+        "software_fingerprint": {},
+        "torch_version": None,
+        "cuda_version": None,
+        "slot_id": "SPE-v1.0-50-01",
+        "visibility": "public_dev",
+    }
+    errors = validate_experiment(manifest)
+    assert errors == []
+    assert not any("model_snapshot" in error for error in errors)
+
+
+def test_provider_managed_agent_config_rejects_missing_new_attestation_fields():
+    manifest = {
+        "schema_version": 1,
+        "population_id": "SPE-EvoBench-v1.0-50",
+        "experiment_id": "x",
+        "benchmark_revision": "a" * 40,
+        "skill_view_digest": "a" * 64,
+        "task_manifest_digest": "b" * 64,
+        "agent_model_id": "deepseek-v4-flash",
+        "agent_config": {"provider": "deepseek", "model_id": "deepseek-v4-flash"},
+        "condition": "D",
+        "context_mode": "reset",
+        "task_order": ["T"],
+        "worker_isolation": {"mode": "external_namespace_executor", "network_mode": "none", "mount_allowlist": ["task"]},
+        "outer_trial_id": "outer-000",
+        "budgets": {"tokens": 1, "tool_calls": 1, "wall_time_s": 1},
+        "hardware_fingerprint": {},
+        "software_fingerprint": {},
+        "torch_version": None,
+        "cuda_version": None,
+        "slot_id": "SPE-v1.0-50-01",
+        "visibility": "public_dev",
+    }
+    errors = validate_experiment(manifest)
+    assert any("provider_model_list_response_digest" in error for error in errors)
+    assert any("tool_schema_digest" in error for error in errors)
+
+
+def test_host_controller_exposes_stable_prefix_and_tool_schema():
+    from benchmark.formal import host_agent
+
+    assert host_agent.TOOL_NAMES == ("read_file", "write_file", "run_command")
+    assert host_agent.fixed_prefix_digest() == host_agent.fixed_prefix_digest()
+    assert "task_id" not in host_agent.FIXED_PREFIX_TEXT
+    assert "trial" not in host_agent.FIXED_PREFIX_TEXT.lower()
+
+
 def test_campaign_config_accepts_repo_relative_and_absolute_same_manifest(tmp_path: Path):
     config = ROOT / "benchmark" / "formal" / "campaign_config.yaml"
     manifest = (ROOT / "benchmark" / "manifests" / "v1.0-50-slots.json").resolve()

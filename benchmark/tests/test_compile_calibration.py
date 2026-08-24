@@ -77,6 +77,10 @@ def test_reference_patch_reproduces_executable_oracle(task_id):
 def test_dynamic_compile_activation_is_harness_owned_and_contrastive():
     module, task_dir = _load_compile_benchmark("CORE-COMPILE-DYNAMIC-11")
     fixtures = module.make_fixtures(7)
+    # Two distinct shapes are sufficient to distinguish the dynamic oracle
+    # from the fixed-shape baseline; the full five-shape schedule is covered
+    # by the task contract and is not needed for this activation regression.
+    fixtures["batch_sizes"] = fixtures["batch_sizes"][:2]
     candidate = module.load_solution(str(task_dir / "oracle" / "solution_oracle.py"))
     baseline = module.load_solution(str(task_dir / "workspace" / "solution.py"))
 

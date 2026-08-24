@@ -156,18 +156,20 @@ as an invalid trial; worker-authored usage is not authoritative. After verificat
 maintenance, and store-attestation transition; C remains raw-experience-only,
 while D is the only condition allowed to promote governed rules.
 
-Formal worker treatment is namespace-based: an agent run must supply an external
-container or namespace executor with `--executor-command` and an allowlisted
-`--executor-digest`. B/C/D receive the same
-read-only rendered skill view; A receives no skill. The executor mounts only the
-materialized public task, solution workspace, public tests, optional skill view,
-and pre-task `retrieved_context.json`; the benchmark root, verifier, hidden task
-package, and condition store remain outside the worker namespace. Retrieval and
-routing use only the task's explicit public context. `reset` is the default
-context mode and starts each task without prior trajectory context. The formal
-interaction report uses `wrong_relation_rate_among_resolved`, `unresolved_rate`,
-and `total_identification_failure_rate`; unresolved decisions are not counted as
-wrong relations.
+Formal worker treatment has two layers. A trusted host controller performs the
+hosted-provider API calls and receives only the public task, rendered skill view,
+retrieved context, and sandbox tool outputs. It never receives oracle,
+hidden-verifier, sealed-schedule, or repository-root paths. Each read, edit, and
+command request is executed by the namespace sandbox with `network_mode=none`;
+the sandbox mounts only the materialized public task, solution workspace, public
+tests, optional skill view, and pre-task `retrieved_context.json`. B/C/D receive
+the same read-only skill view; A receives no skill. The host controller is passed
+with `--agent-command` and the sandbox digest with `--executor-digest`.
+Retrieval and routing use only the task's explicit public context. `reset` is the
+default context mode and starts each task without prior trajectory context. The
+formal interaction report uses `wrong_relation_rate_among_resolved`,
+`unresolved_rate`, and `total_identification_failure_rate`; unresolved decisions
+are not counted as wrong relations.
 
 Formal result claims require a separate `calibration_approval.json` beside the
 population report. The approval records digests of the population and empirical
