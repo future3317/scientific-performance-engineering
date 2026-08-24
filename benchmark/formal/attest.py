@@ -60,18 +60,25 @@ def validate_experiment(manifest: dict[str, Any]) -> list[str]:
             errors.append("formal manifest requires explicit visibility")
         config = manifest.get("agent_config")
         required_config = (
-            "provider", "model_snapshot", "temperature", "top_p", "max_output_tokens",
-            "system_prompt_digest", "agent_code_commit", "tool_versions", "tool_allowlist",
-            "retry_policy", "timeout_s", "container_digest", "pricing_revision",
+            "provider", "model_id", "provider_model_version",
+            "provider_model_list_response_digest", "temperature", "top_p",
+            "max_output_tokens", "system_prompt_digest", "agent_code_commit",
+            "tool_versions", "tool_schema_digest", "tool_allowlist", "retry_policy",
+            "timeout_s", "container_digest", "pricing_revision",
+            "backend_weight_immutability_claim",
         )
         if not isinstance(config, dict):
             errors.append("formal agent_config must be an object")
         else:
             errors.extend(f"formal agent_config missing {key}" for key in required_config if key not in config)
-            for key in ("provider", "model_snapshot", "system_prompt_digest", "agent_code_commit", "container_digest", "pricing_revision"):
+            for key in (
+                "provider", "model_id", "provider_model_version",
+                "provider_model_list_response_digest", "system_prompt_digest",
+                "agent_code_commit", "container_digest", "pricing_revision",
+            ):
                 if key in config and (not isinstance(config[key], str) or not config[key].strip() or config[key] in {"unknown", "unidentified-agent", "pending"}):
                     errors.append(f"formal agent_config {key} must be a non-placeholder string")
-            for key in ("system_prompt_digest", "container_digest"):
+            for key in ("system_prompt_digest", "tool_schema_digest", "container_digest", "provider_model_list_response_digest"):
                 if key in config and isinstance(config[key], str) and not re.fullmatch(r"[a-f0-9]{64}", config[key]):
                     errors.append(f"formal agent_config {key} must be a 64-hex digest")
             if "agent_code_commit" in config and isinstance(config["agent_code_commit"], str) and not re.fullmatch(r"[0-9a-f]{7,64}", config["agent_code_commit"]):
@@ -81,6 +88,10 @@ def validate_experiment(manifest: dict[str, Any]) -> list[str]:
                     errors.append(f"formal agent_config {key} must be an object")
             if "tool_allowlist" in config and (not isinstance(config["tool_allowlist"], list) or not config["tool_allowlist"]):
                 errors.append("formal agent_config tool_allowlist must be a non-empty array")
+            if config.get("backend_weight_immutability_claim") is not False:
+                errors.append("formal agent_config backend_weight_immutability_claim must be false")
+            if "max_output_tokens" in config and (isinstance(config["max_output_tokens"], bool) or not isinstance(config["max_output_tokens"], int) or config["max_output_tokens"] < 1):
+                errors.append("formal agent_config max_output_tokens must be a positive integer")
     isolation = manifest.get("worker_isolation")
     if not isinstance(isolation, dict):
         errors.append("worker_isolation must be an object")

@@ -937,32 +937,27 @@ def _run_agent(command_template: str, env: dict[str, str], cwd: Path, timeout: f
     }
 
 
-def _run_isolated_agent(
+def _run_host_agent_controller(
     command_template: str,
-    executor_command: str,
     env: dict[str, str],
     worker_root: Path,
     timeout: float,
 ) -> dict[str, Any]:
-    """Run through an externally supplied namespace/container executor.
+    """Run a trusted host controller whose tool server remains network-free.
 
-    The executor owns the filesystem boundary.  The campaign never exposes the
-    condition store, verifier, or benchmark root as worker paths.
+    The controller receives only the public worker root and provider credentials.
+    It is responsible for API calls; its tool requests are executed by the
+    controller's sandbox executor, never by the hosted worker directly.
     """
-    executor = executor_command.format(
-        agent_command=shlex.quote(command_template),
-        worker_root=shlex.quote(str(worker_root)),
-        task_dir=shlex.quote(env["SPE_TASK_DIR"]),
-        solution_dir=shlex.quote(env["SPE_SOLUTION_DIR"]),
-        retrieved_context=shlex.quote(env["SPE_RETRIEVED_CONTEXT"]),
-        skill_view=shlex.quote(env.get("SPE_SKILL_VIEW_DIR", "")),
-        executor_receipt=shlex.quote(env["SPE_EXECUTOR_RECEIPT_PATH"]),
-    )
-    # The namespace launcher is a host-side harness command.  Run it from the
-    # repository root so a module-based ReferenceExecutor adapter resolves
-    # without exposing that root to the worker namespace; all worker paths are
-    # still passed explicitly and mounted by the executor.
-    return _run_agent(executor, env, Path(__file__).resolve().parents[2], timeout)
+    host_env = {
+        **env,
+        "SPE_WORKER_ROOT": str(worker_root),
+        "SPE_HOST_TASK_DIR": str(worker_root / "task"),
+        "SPE_HOST_SOLUTION_DIR": str(worker_root / "solution"),
+        "SPE_HOST_RETRIEVED_CONTEXT": str(worker_root / "retrieved_context"),
+        "SPE_HOST_SKILL_VIEW_DIR": str(worker_root / "skill_view"),
+    }
+    return _run_agent(command_template, host_env, Path(__file__).resolve().parents[2], timeout)
 
 
 def _prepare_worker_root(
@@ -2002,18 +1997,22 @@ def _experiment_manifest(
         "agent_config": {
             **agent_config,
             "provider": agent_config.get("provider", "unknown"),
-            "model_snapshot": agent_config.get("model_snapshot", model_id),
+            "model_id": agent_config.get("model_id", model_id),
+            "provider_model_version": agent_config.get("provider_model_version"),
+            "provider_model_list_response_digest": agent_config.get("provider_model_list_response_digest"),
             "temperature": agent_config.get("temperature"),
             "top_p": agent_config.get("top_p"),
             "max_output_tokens": agent_config.get("max_output_tokens"),
             "system_prompt_digest": agent_config.get("system_prompt_digest"),
             "agent_code_commit": agent_config.get("agent_code_commit", attest.benchmark_revision(repo_root)),
             "tool_versions": agent_config.get("tool_versions", {}),
+            "tool_schema_digest": agent_config.get("tool_schema_digest"),
             "tool_allowlist": agent_config.get("tool_allowlist", []),
             "retry_policy": agent_config.get("retry_policy", {}),
             "timeout_s": agent_config.get("timeout_s", budgets.wall_time_s),
             "container_digest": agent_config.get("container_digest"),
             "pricing_revision": agent_config.get("pricing_revision"),
+            "backend_weight_immutability_claim": agent_config.get("backend_weight_immutability_claim"),
         },
         "condition": item["condition"],
         "context_mode": item["context_mode"],
@@ -2500,12 +2499,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "SPE_SKILL_VIEW_DIR": "/worker/skill_view" if item["condition"] in {"B", "C", "D", "C_STRESS"} else "",
             "SPE_BUDGET_JSON": json.dumps(budgets.as_dict(), sort_keys=True),
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
+            "SPE_CONDITION": str(item["condition"]),
             "SPE_CONTEXT_STATE_PATH": "/worker/context_state/context_state.json",
         }
-        if not getattr(args, "executor_command", None):
-            raise ValueError("formal agent runs require --executor-command with a namespace/container executor")
         try:
-            agent = _run_isolated_agent(args.agent_command, args.executor_command, env, worker_root, budgets.wall_time_s)
+            agent = _run_host_agent_controller(args.agent_command, env, worker_root, budgets.wall_time_s)
         except (OSError, ValueError, TypeError, RuntimeError) as exc:
             record = _trial_failure_record(manifest, task_spec, item, str(exc), source="executor")
             (trial_dir / "trial.json").write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -3176,12 +3174,7 @@ def main() -> int:
     parser.add_argument("--model-id", default="unidentified-agent")
     parser.add_argument("--agent-config", default="{}")
     parser.add_argument("--budgets", default=None, help='JSON, e.g. {"tokens":12000,"tool_calls":80,"wall_time_s":900}')
-    parser.add_argument("--agent-command", default=None, help="shell template; receives SPE_* environment variables")
-    parser.add_argument(
-        "--executor-command",
-        default=None,
-        help="namespace/container executor template; receives {agent_command}, {worker_root}, {task_dir}, {solution_dir}, {retrieved_context}, {skill_view}, {executor_receipt}",
-    )
+    parser.add_argument("--agent-command", default=None, help="trusted host controller command; its tool requests run in the network-none sandbox")
     parser.add_argument("--executor-digest", default=None, help="allowlisted external executor/image digest")
     parser.add_argument(
         "--experiment-executor-command",
