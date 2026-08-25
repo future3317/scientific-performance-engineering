@@ -22,9 +22,9 @@ initial canonical families and their retained anchor packages are:
 |---|---|---|
 | `compile` | logical steps, graph size, dynamic-shape rate | CORE-COMPILE-RECOMPILE-04, CORE-COMPILE-DYNAMIC-11, CORE-COMPILE-TINY-12 |
 | `graph_cache` | geometry displacement, skin, graph size, dynamic rate | SCIML-GNN-STATIC-GRAPH-CACHE-17R2, SCIML-GNN-DYNAMIC-GRAPH-18R2, SCIML-GRAPH-CACHE-INTERIOR-27 |
-| `h2d_pipeline` | batch size, workers, prefetch, pinning | CORE-H2D-PIPELINE-03R2, CORE-DATALOADER-FANOUT-16R2, CORE-H2D-OVERFANOUT-23R3 |
+| `h2d_pipeline` | batch size, workers, prefetch, pinning | CORE-H2D-PIPELINE-03R2, CORE-DATALOADER-FANOUT-16R2, CORE-H2D-PIPELINE-INTERIOR-32, CORE-H2D-OVERFANOUT-23R3 |
 | `checkpoint` | memory pressure, segments, recompute ratio | CORE-CHECKPOINT-AMPLE-MEM-14R2, CORE-CHECKPOINT-HIGH-PRESSURE-24R2 |
-| `scalar_sync` | batched telemetry synchronizations, metric cadence | CORE-SCALAR-SYNC-TELEMETRY-31, CORE-SCALAR-SYNC-LOW-CADENCE-21 |
+| `scalar_sync` | batched telemetry synchronizations, metric cadence | CORE-SCALAR-SYNC-LOW-CADENCE-21 (negative applicability anchor only) |
 
 The remaining pilot packages retain their existing task family metadata and
 remain public anchors; they are not duplicated into a second workload source.
@@ -45,7 +45,7 @@ remain public anchors; they are not duplicated into a second workload source.
 
 | # | Task ID | Track | Family | Mechanism(s) | Kind | Source | Verified oracle speedup | Status |
 |---|---------|-------|--------|--------------|------|--------|------------------------|--------|
-| 1 | CORE-SCALAR-SYNC-TELEMETRY-31 | spe_core | training_loop_overhead | scalar_sync | positive | synthetic | **pending clean-GPU qualification** | replacement anchor; calibration pending |
+| 1 | CORE-H2D-PIPELINE-INTERIOR-32 | spe_core | data_pipeline | h2d_blocking | positive | synthetic | **authoring qualification pending** | calibration-driven replacement for retired scalar-sync positive |
 | 2 | CORE-REPEATED-BACKBONE-02R2 | spe_core | repeated_compute | repeated_compute | positive | synthetic | **2.38×** | pilot (scientific gates added; calibration pending) |
 | 3 | CORE-H2D-PIPELINE-03R2 | spe_core | data_pipeline | h2d_blocking | positive | synthetic | **4.77×** (CUDA) | ✅ |
 | 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | counterexample | synthetic | no positive CI through 1024 steps | pilot |
@@ -70,7 +70,7 @@ measured speedup, and counterexample/do_not_apply tempting patches are rejected.
 | 18 | SCIML-GNN-DYNAMIC-GRAPH-18R2 | sciml | graph_energy_force | dynamic_graph_rebuild | counterexample | fairchem-shaped | population-validity pending | pilot |
 | 19 | SCIML-FORCE-AUTOGRAD-19R2 | sciml | graph_energy_force | force_autograd | positive | fairchem-shaped | population-validity pending | pilot |
 | 20 | EVOL-COMPILER-DRIFT-20 | evolution | episode | compile_dynamic_shapes + runtime_drift | positive | synthetic | population-validity pending | pilot |
-| 21 | CORE-SCALAR-SYNC-LOW-CADENCE-21 | spe_core | training_loop_overhead | scalar_sync | counterexample | synthetic | calibration pending; low-cadence boundary | pilot |
+| 21 | CORE-SCALAR-SYNC-LOW-CADENCE-21 | spe_core | training_loop_overhead | scalar_sync | counterexample | synthetic | calibration pending; retained negative applicability boundary | pilot |
 | 22 | CORE-REPEATED-BACKBONE-LOW-REUSE-22 | spe_core | repeated_compute | repeated_compute | counterexample | synthetic | calibration pending; correctness boundary | pilot |
 | 23 | CORE-H2D-OVERFANOUT-23R3 | spe_core | data_pipeline | h2d_blocking | counterexample | synthetic | CUDA execution completed; calibration blocked by 9.55--32.42% observed noise | current replacement package; calibration pending |
 | 24 | CORE-CHECKPOINT-HIGH-PRESSURE-24R2 | spe_core | memory | activation_memory | positive | synthetic | authoring CPU smoke only; calibration pending | pilot |
@@ -87,7 +87,7 @@ See `benchmark/split/sequential.yaml`.
 
 | Phase | Name | Tasks | Purpose |
 |-------|------|-------|---------|
-| 1 | acquisition | 01, 03 | Skill learns scalar-sync and H2D rules from visible examples. |
+| 1 | acquisition | 01, 03 | Skill learns H2D rules from visible positive examples; scalar-sync remains represented by its negative applicability anchor. |
 | 2 | same-family transfer | 02, 04 | Held-out tasks in related families (repeated compute, compiler). |
 | 3 | cross-family transfer | 07, 09 | Material generation and kernel tasks test generalization. |
 | 4 | drift | *(experience only)* | Injected experience: H2D async rule specialized to CPU-only regime. |

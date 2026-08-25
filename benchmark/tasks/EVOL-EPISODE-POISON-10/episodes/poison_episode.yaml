@@ -3,7 +3,7 @@ seed: 0
 phases:
   - index: 1
     name: acquisition
-    tasks: [CORE-SCALAR-SYNC-TELEMETRY-31, CORE-H2D-PIPELINE-03R2]
+    tasks: [CORE-H2D-PIPELINE-INTERIOR-32, CORE-H2D-PIPELINE-03R2]
     inject_experiences: []
     inject_poisons: []
     results: []

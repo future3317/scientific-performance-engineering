@@ -1,5 +1,0 @@
-{
-  "mechanism": "scalar_sync",
-  "activation": "16 host scalar reads per logging event are replaced by one device-vector transfer",
-  "invariant": "the 16 metric definitions and one-event-per-step cadence are identical"
-}

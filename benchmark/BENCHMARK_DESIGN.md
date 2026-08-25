@@ -205,7 +205,7 @@ Rules:
 
 ```yaml
 schema_version: 1
-task_id: CORE-SCALAR-SYNC-TELEMETRY-31 # ^[A-Z0-9-]+$ ; unique
+task_id: CORE-H2D-PIPELINE-INTERIOR-32 # ^[A-Z0-9-]+$ ; unique
 track: spe_core                     # spe_core | sciml | evolution
 family: training_loop_overhead      # workload family (split key)
 mechanism: scalar_sync              # bottleneck mechanism id (§5, split key)
@@ -580,7 +580,7 @@ runnable with zero external downloads; CPU-capable unless noted:
 
 | # | task_id | track | family | mechanism | kind |
 |---|---|---|---|---|---|
-| 1 | CORE-SCALAR-SYNC-TELEMETRY-31 | spe_core | training_loop_overhead | scalar_sync | positive |
+| 1 | CORE-H2D-PIPELINE-INTERIOR-32 | spe_core | data_pipeline | h2d_blocking | positive |
 | 2 | CORE-REPEATED-BACKBONE-02R2 | spe_core | repeated_compute | repeated_compute | positive (+ semantic-trap counterexample variant in-task) |
 | 3 | CORE-H2D-PIPELINE-03R2 | spe_core | data_pipeline | h2d_blocking | positive; requires_cuda (degrades to inconclusive on CPU) |
 | 4 | CORE-COMPILE-RECOMPILE-04 | spe_core | compiler | compile_graph_break | counterexample; cold calibration found no positive CI through 1024 steps |
