@@ -44,6 +44,16 @@ structural/calibration pilot, not a formal A/B/C/D efficacy result. Formal-50
 and efficacy claims remain fail-closed until a preregistered population,
 independent calibration approval, and a valid external-executor receipt exist.
 
+Performance-efficacy analysis uses a separate frozen, agent-blind eligibility
+manifest. It binds benchmark revision, population/protocol digests, task-package
+digests, runtime contract, paired measurement-session IDs, and baseline-only
+typical null noise before any A/B/C/D outcome is observed. The full pilot remains
+available for attrition, abstention, negative-transfer, poison, drift, and
+diagnostic evidence; only the pre-frozen measurement-eligible subset contributes
+to confirmatory performance estimands. The primary contrast is D-B, with D-C and
+B-A as secondary contrasts. Raw speedup is one performance coordinate, not the
+sole self-evolution endpoint.
+
 ## Execution environment
 
 The server is the only supported runtime. Run every project test, validator,

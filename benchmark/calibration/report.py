@@ -643,6 +643,7 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
             "environment": empirical.get("environment", {}) if isinstance(empirical, dict) else {},
             "outer_trials": empirical.get("outer_trials", []) if isinstance(empirical, dict) else [],
             "noise_control": empirical.get("noise_control", {}) if isinstance(empirical, dict) else {},
+            "baseline_stability": empirical.get("baseline_stability") if isinstance(empirical, dict) else None,
             "oracle_ci": empirical.get("oracle_ci", {}) if isinstance(empirical, dict) else {},
             "semantic_gates": empirical.get("semantic_gates", {"declared": list(spec.get("scientific_gates", [])), "failures": []}) if isinstance(empirical, dict) else {"declared": list(spec.get("scientific_gates", [])), "failures": []},
             "anti_cheat": empirical.get("anti_cheat", {}) if isinstance(empirical, dict) else {},

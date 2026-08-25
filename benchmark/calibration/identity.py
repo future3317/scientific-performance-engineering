@@ -58,3 +58,20 @@ def canonical_cell_identity(
         "task_package_digest": str(task_package_digest),
         "population_manifest_digest": str(population_manifest_digest),
     }
+
+
+def measurement_session_id(
+    *, task_id: str, outer_trial_id: str, task_package_digest: str,
+    population_manifest_digest: str, benchmark_revision: str,
+    calibration_protocol_digest: str,
+) -> str:
+    """Identify the paired baseline/candidate measurement session for one cell."""
+    return json_digest({
+        "schema_version": 1,
+        "task_id": str(task_id),
+        "outer_trial_id": str(outer_trial_id),
+        "task_package_digest": str(task_package_digest),
+        "population_manifest_digest": str(population_manifest_digest),
+        "benchmark_revision": str(benchmark_revision),
+        "calibration_protocol_digest": str(calibration_protocol_digest),
+    })
