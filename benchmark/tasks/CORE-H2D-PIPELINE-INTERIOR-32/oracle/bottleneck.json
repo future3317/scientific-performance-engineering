@@ -1,0 +1,5 @@
+{
+  "mechanism": "h2d_blocking",
+  "location": "solution.py:train_step — the blocking .to(device) copies and torch.cuda.synchronize() calls around every batch",
+  "why": "The baseline performs a synchronous host-to-device transfer inside the hot training step and waits for the GPU after forward/backward. This serializes data movement with compute and adds launch/sync overhead on every step."
+}
