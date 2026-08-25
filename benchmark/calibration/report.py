@@ -652,10 +652,21 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
             "status": status,
             "block_reason": flags or ([] if status == "eligible" else ["calibration_pending"]),
         })
+    empirical_records = report.get("empirical_calibration", {}).get("records_by_task", {}).values()
+    revisions = {
+        str(record.get("revision")) for record in empirical_records
+        if isinstance(record, dict) and record.get("revision") not in {None, "", "unknown", "pending"}
+    }
+    populations = {
+        str(record.get("population_manifest_digest")) for record in report.get("empirical_calibration", {}).get("records_by_task", {}).values()
+        if isinstance(record, dict) and record.get("population_manifest_digest")
+    }
     artifact = {
         "schema_version": 1,
         "population_id": report.get("population_id"),
         "active_task_ids": task_ids,
+        "benchmark_revision": next(iter(revisions)) if len(revisions) == 1 else None,
+        "population_manifest_digest": next(iter(populations)) if len(populations) == 1 else None,
         "population_report_digest": json_digest(report),
         "empirical_digest": report.get("empirical_calibration", {}).get("empirical_digest"),
         "calibration_protocol_digest": report.get("calibration_protocol_digest"),
@@ -665,6 +676,97 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
     }
     artifact["artifact_digest"] = json_digest(artifact)
     return artifact
+
+
+def build_efficacy_eligibility_input(pilot_calibration: dict[str, Any]) -> dict[str, Any]:
+    """Project a pilot report into the strict, agent-blind eligibility input."""
+    if not isinstance(pilot_calibration, dict):
+        raise ValueError("pilot calibration must be an object")
+    active_task_ids = pilot_calibration.get("active_task_ids")
+    source_tasks = pilot_calibration.get("tasks")
+    if not isinstance(active_task_ids, list) or not isinstance(source_tasks, list):
+        raise ValueError("pilot calibration must contain active_task_ids and tasks")
+    by_id = {
+        str(item.get("task_id")): item
+        for item in source_tasks
+        if isinstance(item, dict) and item.get("task_id") is not None
+    }
+    task_ids = [str(item) for item in active_task_ids]
+    if not task_ids or set(task_ids) != set(by_id) or len(by_id) != len(source_tasks):
+        raise ValueError("pilot calibration must cover exactly its active task IDs")
+    benchmark_revision = pilot_calibration.get("benchmark_revision")
+    population_digest = pilot_calibration.get("population_manifest_digest")
+    protocol_digest = pilot_calibration.get("calibration_protocol_digest")
+    if not all(isinstance(value, str) and value for value in (benchmark_revision, population_digest, protocol_digest)):
+        raise ValueError("pilot calibration is missing revision, population, or protocol identity")
+    projected_tasks: list[dict[str, Any]] = []
+    for task_id in task_ids:
+        source = by_id[task_id]
+        required = ("task_digest", "revision", "environment", "outer_trials", "noise_control")
+        missing = [key for key in required if key not in source]
+        if missing:
+            raise ValueError(f"{task_id}: pilot calibration missing {', '.join(missing)}")
+        artifacts = source.get("noise_control", {}).get("artifacts") if isinstance(source.get("noise_control"), dict) else None
+        if not isinstance(artifacts, list):
+            raise ValueError(f"{task_id}: baseline noise artifacts are missing")
+        projected_trials = []
+        for trial in source["outer_trials"]:
+            if not isinstance(trial, dict):
+                raise ValueError(f"{task_id}: outer trial is not an object")
+            projected_trials.append({
+                key: trial.get(key)
+                for key in (
+                    "task_id", "outer_trial_id", "measurement_session_id", "execution_validity",
+                    "protocol_failure", "timeout", "correctness_pass", "scientific_gates",
+                )
+            })
+        projected_artifacts = []
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                raise ValueError(f"{task_id}: baseline noise artifact is not an object")
+            identity = {
+                "task_id": task_id,
+                "outer_trial_id": artifact.get("outer_trial_id"),
+                "measurement_session_id": artifact.get("measurement_session_id"),
+                "benchmark_revision": benchmark_revision,
+                "task_package_digest": source["task_digest"],
+                "population_manifest_digest": population_digest,
+            }
+            for key, expected in identity.items():
+                if artifact.get(key) != expected:
+                    raise ValueError(f"{task_id}: baseline noise {key} mismatch")
+            artifact_digest = artifact.get("artifact_digest")
+            if not isinstance(artifact_digest, str) or artifact_digest != stats._noise_control_digest(artifact):
+                raise ValueError(f"{task_id}: baseline noise artifact digest mismatch")
+            projected_artifacts.append({
+                "task_id": task_id,
+                "outer_trial_id": artifact.get("outer_trial_id"),
+                "measurement_session_id": artifact.get("measurement_session_id"),
+                "benchmark_revision": benchmark_revision,
+                "task_package_digest": source["task_digest"],
+                "population_manifest_digest": population_digest,
+                "typical_noise_percent": artifact.get("typical_noise_percent"),
+                "observed_noise_floor_percent": artifact.get("observed_noise_floor_percent"),
+            })
+        projected_tasks.append({
+            "task_id": task_id,
+            "task_package_digest": source["task_digest"],
+            "revision": source["revision"],
+            "environment": source["environment"],
+            "outer_trials": projected_trials,
+            "noise_control": {"artifacts": projected_artifacts},
+            "baseline_stability": source.get("baseline_stability"),
+            "semantic_gates": source.get("semantic_gates"),
+            "anti_cheat": source.get("anti_cheat"),
+        })
+    return {
+        "schema_version": 1,
+        "benchmark_revision": benchmark_revision,
+        "population_manifest_digest": population_digest,
+        "calibration_protocol_digest": protocol_digest,
+        "active_task_ids": task_ids,
+        "tasks": projected_tasks,
+    }
 
 
 def rebuild_calibration_views(
