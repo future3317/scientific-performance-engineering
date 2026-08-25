@@ -55,6 +55,27 @@ def test_confirmatory_aggregate_withholds_incomplete_matrix():
     assert result["status"] == "withheld"
 
 
+def test_confirmatory_aggregate_uses_frozen_efficacy_subset_only():
+    records = []
+    for task_id in ("T1", "T2"):
+        for condition, score in (("B", 0.4), ("D", 0.8)):
+            records.append({
+                "task_id": task_id, "outer_trial_id": "outer-000", "context_mode": "reset",
+                "condition": condition, "visibility": "sealed", "track": "spe_core",
+                "efficacy_eligible": True, "execution_validity": "valid", "validity": "valid",
+                "score": {"task_score": score, "gates_passed": True},
+            })
+    required = [(task, "outer-000", "reset", condition) for task in ("T1", "T2") for condition in ("B", "D")]
+    result = aggregate.aggregate_confirmatory(
+        records, required_cells=required,
+        claims={"primary": {"id": "D-B", "tracks": ["spe_core"]}},
+        efficacy_task_ids={"T1"}, eligibility_manifest_digest="e" * 64,
+    )
+    assert result["status"] == "available"
+    assert result["primary_db_estimator"]["lineage_count"] == 1
+    assert result["eligibility_manifest_digest"] == "e" * 64
+
+
 def test_formal_manifest_requires_agent_provenance_fields():
     manifest = {
         "schema_version": 1,

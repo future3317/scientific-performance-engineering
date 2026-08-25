@@ -23,7 +23,7 @@ from benchmark.harness.api import execution_class_for_task
 from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_compatible, selected_gpu_preflight
 from benchmark.calibration.bundle import classify_result, calibration_envelope, validate_calibration_envelope
 from benchmark.calibration.execution import CellExecutor, executor_digest
-from benchmark.calibration.identity import canonical_cell_identity, task_package_digest, taskset_digest
+from benchmark.calibration.identity import canonical_cell_identity, measurement_session_id, task_package_digest, taskset_digest
 from benchmark.calibration.protocol import load_calibration_protocol, outer_trial_count
 from benchmark.calibration.report import rebuild_calibration_views
 from benchmark.provenance import benchmark_revision, digest_mapping, file_digest
@@ -113,7 +113,7 @@ def _write_resource_blocked_cell(
     *, out: Path, task_id: str, outer_id: str, task_spec: dict[str, Any],
     task_digest: str, population_digest: str, revision: str,
     harness_digest: str, runner_digest: str, protocol_digest: str,
-    fingerprint: dict[str, Any], task_manifest_digest: str, error: str,
+    fingerprint: dict[str, Any], task_manifest_digest: str, measurement_session: str | None = None, error: str = "",
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Persist a complete, reusable infrastructure-failure cell."""
     measurement_class = "evolution" if execution_class_for_task(task_spec) == "episode" else "atomic_performance"
@@ -126,10 +126,12 @@ def _write_resource_blocked_cell(
         measurement_class=measurement_class, timeout=False,
     )
     result["calibration_status"] = "blocked"
+    if measurement_session is not None:
+        result["measurement_session_id"] = measurement_session
     raw_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     measurement = task_spec.get("measurement", {})
-    noise = stats.write_noise_control(noise_path, {
+    noise_payload = {
         "schema_version": 1, "metric_class": "resource_blocked",
         "task_id": task_id, "outer_trial_id": outer_id,
         "benchmark_revision": revision, "task_manifest_digest": task_manifest_digest,
@@ -145,7 +147,10 @@ def _write_resource_blocked_cell(
         "expected_speedup_range": list(task_spec.get("oracle", {}).get("expected_speedup_range", [0.0, 1.0])),
         "execution_validity": "resource_blocked", "failure_stage": "resource_preflight",
         "error": error,
-    })
+    }
+    if measurement_session is not None:
+        noise_payload["measurement_session_id"] = measurement_session
+    noise = stats.write_noise_control(noise_path, noise_payload)
     envelope = calibration_envelope(
         producer_revision=revision, task_package_digest=task_digest,
         population_manifest_digest=population_digest, harness_digest_value=harness_digest,
@@ -362,6 +367,7 @@ def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str
         "artifact_paths": dict(artifact_paths or {}),
         "calibration_status": calibration_status,
         "noise_control": {"artifacts": noises, "effective_noise_floor_percent": max((float(item.get("effective_noise_floor_percent", 0.0)) for item in noises), default=0.0)},
+        "baseline_stability": True if noises and all(item.get("baseline_stability") is True for item in noises) else None,
         "control_noise_percent": [float(item.get("observed_noise_floor_percent")) for item in noises if isinstance(item.get("observed_noise_floor_percent"), (int, float))],
         "oracle_ci": verified,
         "oracle_ci_low_percent": _percent(verified.get("ci_low")),
@@ -433,6 +439,11 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
         measurement_phase = verifier.measurement_phase_for_task(spec)
         for outer in range(outer_trial_count(spec, protocol)):
             outer_id = f"outer-{outer:03d}"
+            session_id = measurement_session_id(
+                task_id=task_id, outer_trial_id=outer_id, task_package_digest=task_digest,
+                population_manifest_digest=population_digest, benchmark_revision=revision,
+                calibration_protocol_digest=protocol_digest,
+            )
             cell_started = time.perf_counter()
             timing = {
                 "task_id": task_id, "outer_trial_id": outer_id,
@@ -453,6 +464,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     revision=revision, harness_digest=harness_digest,
                     runner_digest=runner_digest, protocol_digest=protocol_digest,
                     fingerprint=fingerprint, task_manifest_digest=digest,
+                    measurement_session=session_id,
                     error=(
                         f"selected GPU {fingerprint.get('gpu_uuid')} preflight {preflight.get('status')}: "
                         f"{preflight.get('reason')}"
@@ -499,10 +511,14 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                 "fingerprint": fingerprint,
             }
             cell_compatible = _cell_envelope_compatible(envelope_path, static=static_envelope, noise_path=noise_path, result_path=result_path)
+            classification = "rerun"
             if cell_compatible:
                 noise = json.loads(noise_path.read_text(encoding="utf-8"))
                 result = json.loads(result_path.read_text(encoding="utf-8"))
-                classification = classify_result(result)
+                if noise.get("measurement_session_id") != session_id or result.get("measurement_session_id") != session_id:
+                    cell_compatible = False
+                else:
+                    classification = classify_result(result)
                 if classification == "blocked_requires_revision":
                     raise RuntimeError(f"calibration cell {task_id}/{outer_id} has a protocol failure and is blocked_requires_revision")
                 if classification != "reusable":
@@ -523,6 +539,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     noise = {
                         "schema_version": 1, "metric_class": "evolution",
                         "task_id": task_id, "outer_trial_id": outer_id,
+                        "measurement_session_id": session_id,
                         "benchmark_revision": revision, "task_package_digest": task_digest,
                         "population_manifest_digest": population_digest,
                         "fingerprint": fingerprint,
@@ -551,6 +568,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     )
                     timing["noise_control_s"] = round(time.perf_counter() - noise_started, 3)
                     if noise_timed_out:
+                        noise["measurement_session_id"] = session_id
                         cleanup = noise.get("executor_cleanup") if isinstance(noise, dict) else None
                         if isinstance(cleanup, dict):
                             timing["cleanup_status"] = "quiescent" if cleanup.get("quiescent") else "residual_process_group"
@@ -565,6 +583,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                             measurement_class="atomic_performance",
                             timeout=bool(noise.get("timeout", False)),
                         )
+                        result["measurement_session_id"] = session_id
                         result_path.write_text(
                             json.dumps(result, indent=2, ensure_ascii=False) + "\n",
                             encoding="utf-8",
@@ -600,6 +619,8 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                         "population_manifest_digest": population_digest,
                         "control_implementation": "baseline",
                     })
+                    noise["measurement_session_id"] = session_id
+                    noise = stats.write_noise_control(noise_path, noise)
                 print(json.dumps({"event": "start_verifier", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
                 verifier_started = time.perf_counter()
                 if execution_class_for_task(spec) == "episode":
@@ -656,6 +677,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     result["execution_validity"] = "invalid"
                     result.setdefault("errors", []).append("post-run validate-task failed")
                 result["resource_mode"] = resource_mode
+                result["measurement_session_id"] = session_id
                 result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), **preflight}
                 result = serialize_cell_state(result)
                 result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")

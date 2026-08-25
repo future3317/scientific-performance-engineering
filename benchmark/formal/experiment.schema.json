@@ -39,6 +39,8 @@
     "software_fingerprint": {"type": "object"},
     "torch_version": {"type": ["string", "null"]},
     "cuda_version": {"type": ["string", "null"]}
+    ,"efficacy_eligibility_manifest_digest": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+    ,"measurement_session_id": {"type": ["string", "null"], "minLength": 1}
     ,"schedule_digest": {"type": ["string", "null"]}
     ,"analysis_plan_digest": {"type": ["string", "null"]}
     ,"population_manifest_digest": {"type": ["string", "null"]}

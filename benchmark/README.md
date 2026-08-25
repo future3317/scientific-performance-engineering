@@ -18,6 +18,31 @@ dev slots are calibration/debugging and secondary reporting. Claims and
 statistics are frozen in the repository-root `CLAIMS.yaml` and
 `references/STATISTICAL_PROTOCOL.md`.
 
+Before any A/B/C/D run, a frozen agent-blind efficacy eligibility manifest must
+bind the benchmark revision, population/protocol digests, task packages, runtime
+contract, paired measurement-session IDs, and baseline-only typical null noise.
+It determines the confirmatory performance subset without reading agent outcomes.
+The complete pilot remains in the diagnostic record for attrition, abstention,
+negative transfer, poison, drift, and evolution evidence. Confirmatory contrasts
+are D−B (primary), D−C, and B−A; raw speedup is only one performance coordinate.
+
+After a calibration-only pilot and before any agent command, materialize the
+frozen subset on the server:
+
+```bash
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m benchmark.formal.eligibility \
+  --pilot-calibration RESULTS/pilot_calibration.json \
+  --tasks-root benchmark/tasks \
+  --benchmark-revision "$REVISION" \
+  --population-manifest-digest "$POPULATION_DIGEST" \
+  --calibration-protocol-digest "$PROTOCOL_DIGEST" \
+  --out RESULTS/efficacy_eligibility.json
+```
+
+Pass that artifact to the formal driver with `--efficacy-eligibility`. The
+driver refuses an agent campaign without it and records its digest and each
+paired measurement session in the experiment manifest.
+
 ## Contents
 
 - [Status and calibration scope](#status-and-calibration-scope)
