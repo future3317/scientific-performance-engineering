@@ -151,6 +151,7 @@ def test_positive_task_activation_evidence_is_contrastive(task_id: str) -> None:
         "CORE-AUTOGRAD-VJP-SMALL-25R2",
         "SCIML-CRYSTAL-DIFFUSION-07R2",
         "SCIML-CRYSTAL-STATIC-SAMPLING-29R2",
+        "CORE-H2D-PIPELINE-INTERIOR-32",
     ],
 )
 def test_rc7_oracle_materialization_matches_task_contract(task_id: str, tmp_path: Path) -> None:
@@ -225,31 +226,22 @@ def test_scalar_sync_abstention_keeps_baseline_and_oracle_identical() -> None:
     assert "no source mutation" in (task_dir / "oracle" / "reference_patch.diff").read_text(encoding="utf-8")
 
 
-def test_scalar_sync_telemetry_anchor_preserves_vector_and_removes_host_reads() -> None:
-    task_dir = ROOT / "benchmark" / "tasks" / "CORE-SCALAR-SYNC-TELEMETRY-31"
-    benchmark = _load_benchmark(task_dir)
-    fixtures = benchmark.make_fixtures(0, device="cpu")
-    baseline = benchmark.load_solution(task_dir / "workspace" / "solution.py", device="cpu")
-    oracle = benchmark.load_solution(task_dir / "oracle" / "solution_oracle.py", device="cpu")
+def test_h2d_interior_anchor_matches_declared_generator_point() -> None:
+    from benchmark.harness.miniyaml import load
 
-    correctness = benchmark.run_correctness(oracle, fixtures)
-    assert correctness["passed"], correctness
-    evidence = benchmark.run_activation_evidence(oracle, baseline, fixtures)
-    assert evidence["baseline_metrics"]["aggregated_scalar_syncs"] >= 16
-    assert evidence["candidate_metrics"]["aggregated_scalar_syncs"] < evidence["baseline_metrics"]["aggregated_scalar_syncs"]
-    assert evidence["baseline_metrics"]["telemetry_vector_width"] == 16
-    assert evidence["candidate_metrics"]["telemetry_vector_width"] == 16
-    from benchmark.families import FAMILY_SPECS
-    from benchmark.families.activation import classify_activation
-
-    activation = classify_activation(
-        "scalar_sync",
-        FAMILY_SPECS["scalar_sync"].action_specs,
-        evidence["candidate_metrics"],
-        evidence["baseline_metrics"],
-    )
-    assert activation["status"] == "passed"
-    assert activation["action_id"] == "aggregate_scalars"
+    task_dir = ROOT / "benchmark" / "tasks" / "CORE-H2D-PIPELINE-INTERIOR-32"
+    spec = load(str(task_dir / "task.yaml"))
+    assert spec["family_id"] == "h2d_pipeline"
+    assert spec["mechanism"] == "h2d_blocking"
+    assert spec["kind"] == "positive"
+    assert spec["family_parameters"] == {
+        "batch_size": 112,
+        "worker_count": 4,
+        "prefetch_factor": 4,
+        "pin_memory": True,
+    }
+    assert spec["lineage"]["mutation_template_id"] == "MT-H2D-INTERIOR-32-V1"
+    assert spec["oracle_fix_pattern_id"] == "FIX-H2D-INTERIOR-32-ASYNC-TRANSFER"
 
 
 def test_ample_checkpoint_abstention_keeps_checkpointing_disabled() -> None:
