@@ -341,6 +341,8 @@ def aggregate_confirmatory(
     *,
     required_cells: list[tuple[str, str, str, str]],
     claims: dict[str, Any],
+    efficacy_task_ids: set[str] | None = None,
+    eligibility_manifest_digest: str | None = None,
 ) -> dict[str, Any]:
     """Aggregate only a registered sealed primary claim.
 
@@ -358,12 +360,14 @@ def aggregate_confirmatory(
         tuple(str(value) for value in cell)
         for cell in required_cells
         if track_by_task.get(str(cell[0])) in primary_tracks
+        and (efficacy_task_ids is None or str(cell[0]) in efficacy_task_ids)
     }
     if not expected:
         return {"status": "withheld", "reason": "primary track has no expected cells"}
     sealed = [
         record for record in records
         if str(record.get("visibility")) == "sealed" and str(record.get("track")) in primary_tracks
+        and (efficacy_task_ids is None or str(record.get("task_id")) in efficacy_task_ids)
     ]
     observed_cells = [
         (str(item.get("task_id", "")), str(item.get("outer_trial_id", "")), str(item.get("context_mode", "reset")), str(item.get("condition", "")))
@@ -373,14 +377,19 @@ def aggregate_confirmatory(
     duplicates = sorted(cell for cell, count in observed_counts.items() if count != 1)
     observed = set(observed_cells)
     if observed != expected or duplicates or any(not bool(item.get("efficacy_eligible", False)) for item in sealed):
-        return {"status": "withheld", "reason": "sealed matrix incomplete, duplicated, or contains ineligible cells", "expected_cells": len(expected), "observed_cells": len(observed), "duplicate_cells": [list(item) for item in duplicates]}
-    result = aggregate_trials(sealed, required_cells=required_cells)
-    result["primary_db_estimator"] = primary_db_estimator(sealed, required_cells=required_cells)
+        return {"status": "withheld", "reason": "sealed matrix incomplete, duplicated, or contains ineligible cells", "expected_cells": len(expected), "observed_cells": len(observed), "duplicate_cells": [list(item) for item in duplicates], "eligibility_manifest_digest": eligibility_manifest_digest}
+    filtered_required_cells = [
+        cell for cell in required_cells
+        if efficacy_task_ids is None or str(cell[0]) in efficacy_task_ids
+    ]
+    result = aggregate_trials(sealed, required_cells=filtered_required_cells)
+    result["primary_db_estimator"] = primary_db_estimator(sealed, required_cells=filtered_required_cells)
     result["status"] = "available"
     result["claim_id"] = "D-B"
     result["visibility"] = "sealed"
     result["estimand"] = primary.get("estimand")
     result["weighting"] = primary.get("weighting")
+    result["eligibility_manifest_digest"] = eligibility_manifest_digest
     return result
 
 

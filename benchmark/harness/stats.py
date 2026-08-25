@@ -238,7 +238,7 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in payload[key]):
             raise ValueError(f"noise control {key} must contain positive finite measurements")
     expected = expected or {}
-    for key in ("task_id", "outer_trial_id", "benchmark_revision", "task_manifest_digest", "task_package_digest", "population_manifest_digest", "control_implementation", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better", "expected_speedup_range"):
+    for key in ("task_id", "outer_trial_id", "measurement_session_id", "benchmark_revision", "task_manifest_digest", "task_package_digest", "population_manifest_digest", "control_implementation", "compile_threads", "compiler_cache_policy", "primary_metric", "higher_is_better", "expected_speedup_range"):
         if key in expected and payload.get(key) != expected[key]:
             raise ValueError(f"noise control {key} mismatch")
     for key in ("hardware_fingerprint", "software_fingerprint"):

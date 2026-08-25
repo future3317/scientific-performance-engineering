@@ -31,6 +31,7 @@ from benchmark.calibration.execution import CellExecutor
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
 from benchmark.formal import aggregate, attest, budget, schedule
+from benchmark.formal import eligibility
 from benchmark.calibration.approval import validate_calibration_approval
 from benchmark.formal.release_manifest import validate_formal_release, validate_materialized_manifest
 from benchmark.formal.condition_adapter import FormalConditionAdapter
@@ -266,6 +267,7 @@ def _calibrate_noise_control_with_cache(
     task_manifest_digest: str,
     task_package_digest: str | None = None,
     population_manifest_digest: str | None = None,
+    measurement_session_id: str | None = None,
     timeout_s: float,
 ) -> dict[str, Any]:
     """Run one calibration subprocess under the normal cache/process boundary."""
@@ -290,6 +292,10 @@ def _calibrate_noise_control_with_cache(
             return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration timed out", "stdout": completed.get("stdout", ""), "stderr": completed.get("stderr", "")}
         if completed["exit_code"] != 0 or not out_path.is_file():
             return {"ok": False, "status": "resource_blocked", "error": "noise-control calibration failed", "stdout": completed.get("stdout", ""), "stderr": completed.get("stderr", "")}
+    if measurement_session_id is not None:
+        noise = json.loads(out_path.read_text(encoding="utf-8"))
+        noise["measurement_session_id"] = measurement_session_id
+        stats.write_noise_control(out_path, noise)
     return {"ok": True, "status": "calibrated", "path": str(out_path)}
 
 
@@ -1983,6 +1989,8 @@ def _experiment_manifest(
     fingerprint: dict[str, Any],
     trial_dir: Path,
     population_id: str = "SPE-EvoBench-v1.0-30-pilot",
+    efficacy_eligibility_manifest_digest: str | None = None,
+    measurement_session_id: str | None = None,
 ) -> dict[str, Any]:
     task_spec = miniyaml.load(str(tasks_root / item["task_id"] / "task.yaml"))
     lineage = task_spec.get("lineage", {}) if isinstance(task_spec, dict) else {}
@@ -2037,6 +2045,8 @@ def _experiment_manifest(
         },
         "torch_version": fingerprint.get("torch_version"),
         "cuda_version": fingerprint.get("cuda_version"),
+        "efficacy_eligibility_manifest_digest": efficacy_eligibility_manifest_digest,
+        "measurement_session_id": measurement_session_id,
         "compiler_cache": {
             "policy": "verifier-invocation-scoped",
             "root": str(trial_dir / "compiler-cache"),
@@ -2199,6 +2209,19 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     skill_digest = attest.skill_view_digest(skill_view)
     task_digest = attest.task_manifest_digest(tasks_root, task_ids)
     population_digest = hashlib.sha256(population_manifest.read_bytes()).hexdigest() if population_manifest.is_file() else "unknown"
+    eligibility_path = getattr(args, "efficacy_eligibility", None)
+    if getattr(args, "agent_command", None) and not eligibility_path:
+        raise ValueError("agent campaigns require a frozen --efficacy-eligibility manifest")
+    eligibility_manifest = eligibility.load_manifest(
+        Path(eligibility_path).resolve(),
+        benchmark_revision=attest.benchmark_revision(repo_root),
+        population_manifest_digest=population_digest,
+    ) if eligibility_path else None
+    if eligibility_manifest is not None:
+        missing_eligibility_tasks = [task_id for task_id in task_ids if eligibility.task_entry(eligibility_manifest, task_id) is None]
+        if missing_eligibility_tasks:
+            raise ValueError("efficacy eligibility manifest does not cover scheduled tasks: " + ", ".join(missing_eligibility_tasks))
+    efficacy_task_ids = set(eligibility_manifest.get("efficacy_task_ids", [])) if eligibility_manifest else set()
     conditions_list = tuple(item.strip().upper() for item in args.conditions.split(",") if item.strip())
     context_modes = tuple(item.strip() for item in args.context_modes.split(",") if item.strip())
     if getattr(args, "formal", False):
@@ -2224,6 +2247,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         getattr(args, "experiment_executor_command", None), out_dir,
     )
     fingerprint = capture_fingerprint()
+    if eligibility_manifest is not None:
+        runtime_errors = eligibility.validate_runtime_contract(eligibility_manifest, fingerprint)
+        if runtime_errors:
+            raise ValueError("efficacy eligibility runtime contract mismatch: " + "; ".join(runtime_errors))
     campaign = {
         "schema_version": 1,
         "population_id": population_id,
@@ -2246,6 +2273,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         "claims_path": str(claims_path),
         "analysis_plan_path": str(analysis_plan_path),
         "evolution_compute_budget": budget.EvolutionComputeBudget().as_dict(),
+        "efficacy_eligibility_manifest": str(Path(eligibility_path).resolve()) if eligibility_path else None,
+        "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
+        "efficacy_task_ids": sorted(efficacy_task_ids),
     }
     if existing_campaign is not None:
         immutable_keys = (
@@ -2253,6 +2283,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "conditions", "context_modes", "outer_trials", "task_order", "budgets",
             "agent_model_id", "agent_config", "schedule_size",
             "executor_digest",
+            "efficacy_eligibility_manifest_digest", "efficacy_task_ids",
         )
         mismatches = [key for key in immutable_keys if existing_campaign.get(key) != campaign.get(key)]
         if mismatches:
@@ -2274,6 +2305,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     for noise_task_id, noise_outer_trial_id in unique_noise_cells:
         artifact_path = noise_control_root / noise_outer_trial_id / f"{noise_task_id}.json"
         noise_spec = miniyaml.load(str(tasks_root / noise_task_id / "task.yaml"))
+        noise_entry = eligibility.task_entry(eligibility_manifest, noise_task_id) if eligibility_manifest else None
+        noise_session_id = (noise_entry or {}).get("measurement_sessions", {}).get(noise_outer_trial_id)
         expected_noise = {
             "task_id": noise_task_id,
             "outer_trial_id": noise_outer_trial_id,
@@ -2287,6 +2320,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "compiler_cache_policy": verifier.cache_policy_for_task(noise_spec),
             "expected_speedup_range": noise_spec.get("oracle", {}).get("expected_speedup_range"),
         }
+        if noise_session_id is not None:
+            expected_noise["measurement_session_id"] = noise_session_id
         if resume and artifact_path.is_file():
             try:
                 stats.read_noise_control(artifact_path, expected_noise)
@@ -2305,6 +2340,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             task_manifest_digest=task_digest,
             task_package_digest=expected_noise["task_package_digest"],
             population_manifest_digest=population_digest,
+            measurement_session_id=noise_session_id,
             timeout_s=float(min(300.0, budgets.wall_time_s)),
         )
         if calibration.get("ok"):
@@ -2368,6 +2404,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "compiler_cache_policy": verifier.cache_policy_for_task(task_spec),
             "expected_speedup_range": task_spec.get("oracle", {}).get("expected_speedup_range"),
         }
+        if eligibility_manifest is not None:
+            noise_expected["measurement_session_id"] = (eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"]))
         trial_dir = out_dir / "trials" / stream_id / task_id
         trial_dir.mkdir(parents=True, exist_ok=True)
         manifest = _experiment_manifest(
@@ -2383,6 +2421,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             fingerprint=fingerprint,
             trial_dir=trial_dir,
             population_id=population_id,
+            efficacy_eligibility_manifest_digest=eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
+            measurement_session_id=(eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
         )
         manifest["schedule_digest"] = hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         manifest["analysis_plan_digest"] = hashlib.sha256(analysis_plan_path.read_bytes()).hexdigest() if analysis_plan_path.is_file() else None
@@ -2405,6 +2445,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 "execution_validity": "resource_blocked",
                 "task_outcome": "error",
                 "efficacy_eligible": False,
+                "measurement_eligible": task_id in efficacy_task_ids,
+                "measurement_session_id": (eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
+                "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
                 "validity": "invalid",
                 "transition": {"status": "stream_blocked"},
                 "score": {"task_id": task_id, "verdict": "error", "gates_passed": False, "task_score": 0.0},
@@ -2998,6 +3041,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             # score-zero efficacy cell.  Only infrastructure/protocol errors
             # are excluded from the efficacy matrix.
             "efficacy_eligible": bool(execution_valid and attestation_ok),
+            "measurement_eligible": task_id in efficacy_task_ids,
+            "measurement_session_id": (eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
+            "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
             "validity": "valid" if execution_valid and attestation_ok else "invalid",
             "transition": transition,
             "score": scored,
@@ -3029,6 +3075,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             claims_value_for_aggregate = {}
         campaign["aggregate"] = aggregate.aggregate_confirmatory(
             records, required_cells=required_sealed_cells, claims=claims_value_for_aggregate,
+            efficacy_task_ids=efficacy_task_ids if eligibility_manifest else None,
+            eligibility_manifest_digest=eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
         )
     else:
         campaign["aggregate"] = aggregate.aggregate_trials(records, required_cells=required_cells)
@@ -3163,6 +3211,7 @@ def main() -> int:
     parser.add_argument("--skill-view", type=Path, default=None)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--population-manifest", type=Path, default=None)
+    parser.add_argument("--efficacy-eligibility", type=Path, default=None, help="frozen agent-blind measurement eligibility manifest")
     parser.add_argument("--campaign-config", type=Path, default=None)
     parser.add_argument("--claims", type=Path, default=None)
     parser.add_argument("--analysis-plan", type=Path, default=None)
