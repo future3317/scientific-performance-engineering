@@ -39,6 +39,14 @@ _MANIFEST_FIELDS = {
     "population_manifest_digest", "calibration_protocol_digest", "task_ids",
     "efficacy_task_ids", "diagnostic_task_ids", "tasks", "artifact_digest",
 }
+_ELIGIBILITY_INPUT_FIELDS = {
+    "schema_version", "benchmark_revision", "population_manifest_digest",
+    "calibration_protocol_digest", "active_task_ids", "tasks",
+}
+_ELIGIBILITY_INPUT_TASK_FIELDS = {
+    "task_id", "task_package_digest", "revision", "environment", "outer_trials",
+    "noise_control", "baseline_stability", "semantic_gates", "anti_cheat",
+}
 
 
 def _finite(value: Any) -> bool:
@@ -51,7 +59,11 @@ def _runtime_contract(fingerprint: Mapping[str, Any]) -> dict[str, Any]:
     return {field: fingerprint.get(field) for field in _RUNTIME_FIELDS}
 
 
-def _session_map(task: Mapping[str, Any], *, require_noise: bool) -> tuple[dict[str, str], list[str]]:
+def _session_map(
+    task: Mapping[str, Any], *, task_id: str, benchmark_revision: str,
+    population_manifest_digest: str, calibration_protocol_digest: str,
+    task_package_digest_value: str, require_noise: bool,
+) -> tuple[dict[str, str], list[str]]:
     reasons: list[str] = []
     trials = task.get("outer_trials")
     if not isinstance(trials, list) or not trials:
@@ -82,10 +94,22 @@ def _session_map(task: Mapping[str, Any], *, require_noise: bool) -> tuple[dict[
                 outer_id = str(artifact.get("outer_trial_id", ""))
                 if artifact.get("measurement_session_id") != sessions.get(outer_id):
                     reasons.append(f"baseline/cell session mismatch for {outer_id or 'unknown outer trial'}")
+                for key, expected in {
+                    "task_id": task_id,
+                    "benchmark_revision": benchmark_revision,
+                    "task_package_digest": task_package_digest_value,
+                    "population_manifest_digest": population_manifest_digest,
+                }.items():
+                    if artifact.get(key) != expected:
+                        reasons.append(f"baseline noise {key} mismatch")
     return sessions, reasons
 
 
-def _task_validity(task: Mapping[str, Any], *, require_noise: bool) -> tuple[bool, bool, bool, dict[str, str], list[str], list[float]]:
+def _task_validity(
+    task: Mapping[str, Any], *, task_id: str, benchmark_revision: str,
+    population_manifest_digest: str, calibration_protocol_digest: str,
+    task_package_digest_value: str, require_noise: bool,
+) -> tuple[bool, bool, bool, dict[str, str], list[str], list[float]]:
     reasons: list[str] = []
     protocol_valid = True
     correctness_scientific_valid = True
@@ -115,7 +139,13 @@ def _task_validity(task: Mapping[str, Any], *, require_noise: bool) -> tuple[boo
     if not isinstance(anti_cheat, Mapping) or anti_cheat.get("status") not in {"pass", "passed", "clean"}:
         correctness_scientific_valid = False
         reasons.append("anti-cheat contract failed")
-    sessions, session_reasons = _session_map(task, require_noise=require_noise)
+    sessions, session_reasons = _session_map(
+        task, task_id=task_id, benchmark_revision=benchmark_revision,
+        population_manifest_digest=population_manifest_digest,
+        calibration_protocol_digest=calibration_protocol_digest,
+        task_package_digest_value=task_package_digest_value,
+        require_noise=require_noise,
+    )
     if session_reasons:
         protocol_valid = False
         reasons.extend(session_reasons)
@@ -146,8 +176,22 @@ def build_manifest(
 ) -> dict[str, Any]:
     """Project calibration-only evidence into a frozen, agent-blind manifest."""
     root = Path(tasks_root)
+    if set(pilot_calibration) != _ELIGIBILITY_INPUT_FIELDS:
+        raise ValueError("eligibility input contains unsupported or missing fields")
     if _FORBIDDEN_TASK_FIELDS.intersection(pilot_calibration):
         raise ValueError("eligibility input contains agent/outcome fields")
+    for key, expected in {
+        "benchmark_revision": benchmark_revision,
+        "population_manifest_digest": population_manifest_digest,
+        "calibration_protocol_digest": calibration_protocol_digest,
+    }.items():
+        if pilot_calibration.get(key) != expected:
+            label = {
+                "benchmark_revision": "benchmark revision",
+                "population_manifest_digest": "population digest",
+                "calibration_protocol_digest": "protocol digest",
+            }[key]
+            raise ValueError(f"eligibility {label} mismatch")
     task_ids = [str(item) for item in pilot_calibration.get("active_task_ids", [])]
     by_id = {str(item.get("task_id")): item for item in pilot_calibration.get("tasks", []) if isinstance(item, Mapping)}
     if not task_ids or set(task_ids) != set(by_id):
@@ -163,16 +207,24 @@ def build_manifest(
         forbidden = _FORBIDDEN_TASK_FIELDS.intersection(pilot_task)
         if forbidden:
             raise ValueError(f"eligibility input contains agent/outcome fields for {task_id}: {sorted(forbidden)}")
-        task_digest = task_package_digest(task_dir)
-        if pilot_task.get("task_digest") != task_digest:
+        if set(pilot_task) != _ELIGIBILITY_INPUT_TASK_FIELDS:
+            raise ValueError(f"eligibility input contains unsupported or missing fields for {task_id}")
+        package_digest = pilot_task.get("task_package_digest")
+        if package_digest != task_package_digest(task_dir):
             raise ValueError(f"task package digest mismatch for {task_id}")
+        task_digest = str(package_digest)
         revision = pilot_task.get("revision")
         if revision != benchmark_revision:
             raise ValueError(f"benchmark revision mismatch for {task_id}")
         fingerprint = pilot_task.get("environment")
         contract = _runtime_contract(fingerprint)
         require_noise = spec.get("track") != "evolution"
-        valid, protocol_valid, scientific_valid, sessions, reasons, observed = _task_validity(pilot_task, require_noise=require_noise)
+        valid, protocol_valid, scientific_valid, sessions, reasons, observed = _task_validity(
+            pilot_task, task_id=task_id, benchmark_revision=benchmark_revision,
+            population_manifest_digest=population_manifest_digest,
+            calibration_protocol_digest=calibration_protocol_digest,
+            task_package_digest_value=task_digest, require_noise=require_noise,
+        )
         role = "efficacy" if valid and require_noise and str(spec.get("kind")) == "positive" else "diagnostic"
         declared = float((spec.get("measurement") or {}).get("noise_floor_percent", 2.0))
         effective = max([declared, *observed])
@@ -296,7 +348,11 @@ def main() -> int:
     parser.add_argument("--calibration-protocol-digest", required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    pilot = json.loads(args.pilot_calibration.read_text(encoding="utf-8"))
+    from benchmark.calibration.report import build_efficacy_eligibility_input
+
+    pilot = build_efficacy_eligibility_input(
+        json.loads(args.pilot_calibration.read_text(encoding="utf-8"))
+    )
     manifest = build_manifest(
         pilot_calibration=pilot, tasks_root=args.tasks_root,
         benchmark_revision=args.benchmark_revision,
