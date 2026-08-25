@@ -4,6 +4,15 @@
   "atomic_outer_trials": 3,
   "evolution_outer_trials": "declared_measurement_repetitions",
   "noise_control_repetitions_per_arm": 5,
+  "measurement_protocol_version": 2,
+  "measurement_protocol": {
+    "noise_estimator": "log_ratio_median_mad_v1",
+    "device_conditioning_prelude_ms": 250.0,
+    "phase_policy": {
+      "compiler": "cold_start_inclusive",
+      "default": "steady_state"
+    }
+  },
   "device_policy": "cuda_when_available",
   "thread_topology": {
     "omp_num_threads": 8,

@@ -29,7 +29,7 @@ from . import anticheat, miniyaml, runner, stats
 from benchmark.calibration.execution import CellExecutor
 from benchmark.calibration.state import serialize_cell_state
 from .api import execution_class_for_task, metric_type_for_task
-from .fingerprint import capture_fingerprint
+from .fingerprint import capture_fingerprint, capture_runtime_provenance
 
 TASK_YAML_REQUIRED = (
     "schema_version",
@@ -290,6 +290,12 @@ def cache_policy_for_task(spec: Mapping[str, Any]) -> str:
         return "arm-repetition-fresh"
     return "verifier-invocation-scoped"
 
+def measurement_phase_for_task(spec: Mapping[str, Any]) -> str:
+    """Classify the timing estimand without inspecting candidate outcomes."""
+    if str(spec.get("family", "")) == "compiler":
+        return "cold_start_inclusive"
+    return "steady_state"
+
 
 def calibrate_noise_control(
     task_dir: str | Path,
@@ -305,6 +311,8 @@ def calibrate_noise_control(
     hardware_fingerprint: dict[str, Any] | None = None,
     compiler_cache_policy: str | None = None,
     seed: int = 0,
+    measurement_phase: str | None = None,
+    device_conditioning_prelude_ms: float = 0.0,
 ) -> dict[str, Any]:
     """Run the one preregistered baseline-vs-baseline calibration.
 
@@ -339,6 +347,8 @@ def calibrate_noise_control(
         measurement_cfg=calibration_cfg,
         seed=seed,
         device=device,
+        measurement_phase=measurement_phase or measurement_phase_for_task(spec),
+        device_conditioning_prelude_ms=float(device_conditioning_prelude_ms),
         l2_thrash_between=is_kernel,
         reuse_fixture_per_repetition=str(spec.get("family_id", "")) == "h2d_pipeline",
     )
@@ -361,9 +371,13 @@ def calibrate_noise_control(
         "compile_threads": int(measurement_cfg.get("compile_threads", 0)),
         "compiler_cache_policy": compiler_cache_policy,
         "expected_speedup_range": spec.get("oracle", {}).get("expected_speedup_range"),
+        **floor,
         "primary_metric": measurement_cfg.get("primary_metric"),
         "higher_is_better": higher_is_better,
+        "measurement_phase": measurement_phase or measurement_phase_for_task(spec),
+        "device_conditioning_prelude_ms": float(device_conditioning_prelude_ms) if measurement_phase_for_task(spec) == "steady_state" else 0.0,
         "control_a_runs": control_a,
+        "measurement_provenance": capture_runtime_provenance(),
         "control_b_runs": control_b,
         "observed_noise_floor_percent": floor["noise_floor_percent_observed"],
         "declared_noise_floor_percent": float(measurement_cfg.get("noise_floor_percent", 2.0)),
@@ -381,6 +395,8 @@ def verify_task(
     condition: str = "standalone",
     context_mode: str = "reset",
     noise_control_path: str | Path | None = None,
+    measurement_phase: str | None = None,
+    device_conditioning_prelude_ms: float = 0.0,
     noise_control_required: bool = False,
     noise_control_expected: Mapping[str, Any] | None = None,
     outer_trial_id: str | None = None,
@@ -402,6 +418,7 @@ def verify_task(
     if not solution_dir.is_dir():
         raise FileNotFoundError(f"solution directory not found: {solution_dir}")
 
+    measurement_phase = measurement_phase or measurement_phase_for_task(spec)
     # Evolution episodes have a bounded-score contract, not an atomic
     # latency/speedup contract.  Keep them on their own verifier path so one
     # outer trial executes exactly one baseline and one candidate episode.
@@ -616,6 +633,8 @@ def verify_task(
             benchmark_module,
             baseline_path=baseline_path,
             candidate_path=candidate_path,
+            measurement_phase=measurement_phase,
+            device_conditioning_prelude_ms=float(device_conditioning_prelude_ms),
             measurement_cfg=measurement_cfg,
             seed=seed,
             device=device,

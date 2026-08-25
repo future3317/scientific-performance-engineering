@@ -383,6 +383,22 @@ def l2_thrash(device: str = "cuda", size_mb: int = _L2_THRASH_SIZE_MB) -> None:
     torch.cuda.synchronize()
 
 
+def condition_cuda_device(device: str, duration_ms: float) -> float:
+    """Condition GPU clocks with a fixed generic workload, outside task caches."""
+    if not device.startswith("cuda") or duration_ms <= 0:
+        return 0.0
+    import torch
+
+    if not torch.cuda.is_available():
+        return 0.0
+    tensor = torch.ones(4096, dtype=torch.float32, device=device)
+    started = time.perf_counter()
+    deadline = started + float(duration_ms) / 1000.0
+    while time.perf_counter() < deadline:
+        tensor.mul_(1.000001).add_(0.000001)
+    torch.cuda.synchronize()
+    return (time.perf_counter() - started) * 1000.0
+
 def timed_iteration(fn: Callable[[], Any], device: str = "cpu") -> dict[str, float]:
     """One bracketed iteration: CUDA events AND host wall clock, cross-checked.
 
@@ -526,6 +542,8 @@ def run_paired_measurement(
     device: str = "cpu",
     l2_thrash_between: bool = False,
     reuse_fixture_per_repetition: bool = False,
+    measurement_phase: str = "steady_state",
+    device_conditioning_prelude_ms: float = 0.0,
 ) -> dict[str, Any]:
     """Run the seeded, interleaved paired measurement.
 
@@ -539,6 +557,11 @@ def run_paired_measurement(
     """
     repetitions = int(measurement_cfg.get("repetitions", 5))
     warmup = int(measurement_cfg.get("warmup_iterations", 5))
+    if measurement_phase not in {"steady_state", "cold_start_inclusive"}:
+        raise ValueError(f"unknown measurement phase: {measurement_phase}")
+    conditioning_ms = float(device_conditioning_prelude_ms) if measurement_phase == "steady_state" else 0.0
+    if conditioning_ms < 0:
+        raise ValueError("device conditioning prelude must be non-negative")
     iterations = int(measurement_cfg.get("measured_iterations", 30))
     rng = random.Random(seed)
 
@@ -552,6 +575,8 @@ def run_paired_measurement(
         "timing": [],
         "fixture_build_time_s": 0.0,
         "fixture_hash_time_s": 0.0,
+        "measurement_phase": measurement_phase,
+        "device_conditioning_prelude_ms": conditioning_ms,
     }
     order_plan: list[tuple[str, int]] = []
     for rep in range(repetitions):
@@ -596,6 +621,7 @@ def run_paired_measurement(
         load_wall = time.perf_counter() - load_started
         if l2_thrash_between:
             l2_thrash(device)
+        condition_cuda_device(device, conditioning_ms)
         performance_started = time.perf_counter()
         result = call_benchmark_fn(
             benchmark_module.run_performance,
@@ -615,6 +641,8 @@ def run_paired_measurement(
             "arm": arm,
             "rep": rep,
             "repetition": rep,
+            "measurement_phase": measurement_phase,
+            "device_conditioning_prelude_ms": conditioning_ms,
             "arm_total_wall_s": time.perf_counter() - arm_started,
             "load_solution_wall_s": load_wall,
             "run_performance_wall_s": performance_wall,
