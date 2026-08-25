@@ -3,7 +3,7 @@
   "population_id": "SPE-EvoBench-v1.0-30-pilot",
   "active_manifest": "benchmark/pilot_population.json",
   "active_task_ids": [
-    "CORE-SCALAR-SYNC-TELEMETRY-31",
+    "CORE-H2D-PIPELINE-INTERIOR-32",
     "CORE-H2D-PIPELINE-03R2",
     "CORE-COMPILE-DYNAMIC-11",
     "CORE-MEM-RETAINED-GRAPH-13R3",
@@ -41,12 +41,12 @@
     "evolution": 3
   },
   "mechanism_distribution": {
-    "scalar_sync": 2,
-    "h2d_blocking": 2,
+    "h2d_blocking": 3,
     "compile_dynamic_shapes": 1,
     "retained_graph": 1,
     "batched_vjp": 2,
     "static_graph_cache": 2,
+    "scalar_sync": 1,
     "repeated_compute": 4,
     "compile_graph_break": 1,
     "compile_tiny_graphs": 1,
@@ -64,12 +64,12 @@
     "['ragged_loops', 'autograd_overhead']": 1
   },
   "family_distribution": {
-    "training_loop_overhead": 2,
-    "data_pipeline": 3,
+    "data_pipeline": 4,
     "compiler": 4,
     "memory": 3,
     "autograd": 2,
     "graph_energy_force": 5,
+    "training_loop_overhead": 1,
     "repeated_compute": 2,
     "crystal_generation": 2,
     "equivariant_head": 2,
@@ -77,12 +77,12 @@
     "episode": 3
   },
   "family_id_distribution": {
-    "scalar_sync": 2,
-    "h2d_pipeline": 3,
+    "h2d_pipeline": 4,
     "compile": 4,
     "checkpoint": 3,
     "autograd": 2,
     "graph_cache": 5,
+    "scalar_sync": 1,
     "repeated_compute": 2,
     "crystal_generation": 2,
     "equivariant_head": 2,
@@ -90,14 +90,11 @@
     "episode": 3
   },
   "anchor_projection": {
-    "scalar_sync": [
-      "CORE-SCALAR-SYNC-LOW-CADENCE-21",
-      "CORE-SCALAR-SYNC-TELEMETRY-31"
-    ],
     "h2d_pipeline": [
       "CORE-DATALOADER-FANOUT-16R2",
       "CORE-H2D-OVERFANOUT-23R3",
-      "CORE-H2D-PIPELINE-03R2"
+      "CORE-H2D-PIPELINE-03R2",
+      "CORE-H2D-PIPELINE-INTERIOR-32"
     ],
     "compile": [
       "CORE-COMPILE-DYNAMIC-11",
@@ -120,6 +117,9 @@
       "SCIML-GNN-RAGGED-05R2",
       "SCIML-GNN-STATIC-GRAPH-CACHE-17R2",
       "SCIML-GRAPH-CACHE-INTERIOR-27"
+    ],
+    "scalar_sync": [
+      "CORE-SCALAR-SYNC-LOW-CADENCE-21"
     ],
     "repeated_compute": [
       "CORE-REPEATED-BACKBONE-02R2",
@@ -155,8 +155,8 @@
   "duplicate_near_duplicate_findings": [],
   "oracle_effect_distribution": [
     [
-      1.2,
-      2.0
+      1.1,
+      1.5
     ],
     [
       1.1,
@@ -309,10 +309,10 @@
   ],
   "runtime_cost_distribution": [
     {
-      "task_id": "CORE-SCALAR-SYNC-TELEMETRY-31",
-      "time_budget_s": 600,
-      "measured_iterations": 100,
-      "repetitions": 5
+      "task_id": "CORE-H2D-PIPELINE-INTERIOR-32",
+      "time_budget_s": 300,
+      "measured_iterations": 15,
+      "repetitions": 6
     },
     {
       "task_id": "CORE-H2D-PIPELINE-03R2",
@@ -527,10 +527,12 @@
   },
   "retired_for_formal": [],
   "public_context": {
-    "CORE-SCALAR-SYNC-TELEMETRY-31": {
+    "CORE-H2D-PIPELINE-INTERIOR-32": {
       "workload": {
-        "scalar_syncs_per_step": 16,
-        "metric_cadence": 1
+        "batch_size": 112,
+        "worker_count": 4,
+        "prefetch_factor": 4,
+        "pin_memory": true
       }
     },
     "CORE-H2D-PIPELINE-03R2": {
