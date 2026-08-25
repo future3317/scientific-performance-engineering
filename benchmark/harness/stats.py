@@ -29,7 +29,8 @@ from .fingerprint import fingerprints_compatible
 DEFAULT_BOOTSTRAP_SAMPLES = 2000
 DEFAULT_CONFIDENCE = 0.95
 DEFAULT_SEED = 0
-NOISE_CONTROL_SCHEMA_VERSION = 1
+NOISE_CONTROL_SCHEMA_VERSION = 2
+NOISE_ESTIMATOR = "log_ratio_median_mad_v1"
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -113,26 +114,40 @@ def estimate_noise_floor(
     higher_is_better: bool,
     confidence: float = DEFAULT_CONFIDENCE,
     samples: int = DEFAULT_BOOTSTRAP_SAMPLES,
-) -> dict[str, float | None]:
-    """Noise floor from baseline-vs-baseline control runs on the same host.
-
-    The observed floor is the bootstrap CI *upper* bound of the median symmetric
-    multiplicative deviation between identical controls.  The construction is
-    label-symmetric, so swapping the two control arms cannot change the floor.
-    """
-    del higher_is_better  # identical controls have no directional improvement
-    deviations = [
-        (max(float(a) / float(b), float(b) / float(a)) - 1.0) * 100.0
+) -> dict[str, Any]:
+    """Estimate typical symmetric null variability in log-ratio space."""
+    del higher_is_better, confidence, samples
+    log_deviations = [
+        abs(math.log(float(a) / float(b)))
         for a, b in zip(control_a_runs, control_b_runs)
         if float(a) > 0 and float(b) > 0
     ]
-    if not deviations:
-        return {"noise_floor_percent_observed": None, "control_median_percent": None}
-    med = median(deviations)
-    _, ci_high = bootstrap_ci(deviations, confidence, samples)
+    if not log_deviations:
+        return {
+            "noise_estimator": NOISE_ESTIMATOR,
+            "control_log_deviations": [],
+            "control_median_log_deviation": None,
+            "noise_floor_percent_observed": None,
+            "control_median_percent": None,
+            "typical_noise_percent": None,
+            "noise_spread_percent": None,
+            "max_deviation_percent": None,
+        }
+    median_log = median(log_deviations)
+    spread_log = 1.4826 * float(mad(log_deviations) or 0.0)
+    max_log = max(log_deviations)
+    typical_percent = (math.exp(float(median_log)) - 1.0) * 100.0
+    spread_percent = (math.exp(spread_log) - 1.0) * 100.0
+    max_percent = (math.exp(max_log) - 1.0) * 100.0
     return {
-        "noise_floor_percent_observed": abs(ci_high) if ci_high is not None else None,
-        "control_median_percent": med,
+        "noise_estimator": NOISE_ESTIMATOR,
+        "control_log_deviations": log_deviations,
+        "control_median_log_deviation": median_log,
+        "noise_floor_percent_observed": typical_percent,
+        "control_median_percent": typical_percent,
+        "typical_noise_percent": typical_percent,
+        "noise_spread_percent": spread_percent,
+        "max_deviation_percent": max_percent,
     }
 
 
@@ -158,6 +173,14 @@ def _noise_control_digest(payload: dict[str, Any]) -> str:
 def write_noise_control(path: str | Path, artifact: dict[str, Any]) -> dict[str, Any]:
     """Write one immutable task×outer-trial same-host control artifact."""
     payload = dict(artifact)
+    estimated = estimate_noise_floor(
+        [float(value) for value in payload.get("control_a_runs", [])],
+        [float(value) for value in payload.get("control_b_runs", [])],
+        bool(payload.get("higher_is_better", False)),
+    )
+    for key, value in estimated.items():
+        payload.setdefault(key, value)
+    payload.setdefault("measurement_phase", "steady_state")
     payload.setdefault("control_implementation", "baseline")
     # Older unit fixtures used one manifest digest for both identities.  Keep
     # their serialization readable while calibration production callers pass
@@ -195,6 +218,8 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         "control_implementation",
         "hardware_fingerprint", "software_fingerprint", "compile_threads",
         "compiler_cache_policy", "control_a_runs", "control_b_runs",
+        "noise_estimator", "control_log_deviations", "typical_noise_percent",
+        "noise_spread_percent", "max_deviation_percent", "measurement_phase",
         "observed_noise_floor_percent", "declared_noise_floor_percent",
         "effective_noise_floor_percent", "expected_speedup_range",
     }
@@ -207,6 +232,8 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         raise ValueError("noise control must use the registered baseline implementation")
     if len(payload["control_a_runs"]) != 5 or len(payload["control_b_runs"]) != 5:
         raise ValueError("noise control artifact requires five control repetitions per arm")
+    if payload.get("noise_estimator") != NOISE_ESTIMATOR:
+        raise ValueError("noise control noise_estimator mismatch")
     for key in ("control_a_runs", "control_b_runs"):
         if any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in payload[key]):
             raise ValueError(f"noise control {key} must contain positive finite measurements")

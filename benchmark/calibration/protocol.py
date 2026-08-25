@@ -15,6 +15,18 @@ def load_calibration_protocol(repo_root: str | Path) -> tuple[dict[str, Any], st
     protocol = json.loads(path.read_text(encoding="utf-8"))
     if protocol.get("schema_version") != 1 or int(protocol.get("atomic_outer_trials", 0)) < 1:
         raise ValueError(f"invalid calibration protocol: {path}")
+    if int(protocol.get("measurement_protocol_version", 0)) != 2:
+        raise ValueError("calibration protocol measurement_protocol_version must be 2")
+    measurement = protocol.get("measurement_protocol")
+    if not isinstance(measurement, dict):
+        raise ValueError("calibration protocol must declare measurement_protocol")
+    if measurement.get("noise_estimator") != "log_ratio_median_mad_v1":
+        raise ValueError("calibration protocol noise estimator mismatch")
+    if float(measurement.get("device_conditioning_prelude_ms", -1.0)) < 0:
+        raise ValueError("calibration protocol conditioning prelude must be non-negative")
+    phase_policy = measurement.get("phase_policy")
+    if phase_policy != {"compiler": "cold_start_inclusive", "default": "steady_state"}:
+        raise ValueError("calibration protocol phase_policy mismatch")
     required_topology = {
         "omp_num_threads", "mkl_num_threads", "openblas_num_threads", "numexpr_num_threads",
         "torch_num_threads", "torch_num_interop_threads", "compiler_threads",

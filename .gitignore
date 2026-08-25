@@ -46,3 +46,11 @@ checkpoints/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local operator scratch and audit attachments
+/_*.patch
+/_*.base
+/_*.modified
+/_smoke_*.json
+/审计.md
+/q2_diagnostic_classification.json
