@@ -397,6 +397,8 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
     raw_root.mkdir(parents=True, exist_ok=True)
     noise_root.mkdir(parents=True, exist_ok=True)
     protocol, protocol_digest = load_calibration_protocol(repo_root)
+    measurement_protocol = protocol["measurement_protocol"]
+    conditioning_prelude_ms = float(measurement_protocol["device_conditioning_prelude_ms"])
     observed_topology = runner.configure_thread_topology(protocol["thread_topology"])
     if observed_topology != {
         key: str(value) if key not in {"torch_num_threads", "torch_num_interop_threads"} else int(value)
@@ -428,6 +430,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
         task_results: list[dict[str, Any]] = []
         task_noises: list[dict[str, Any]] = []
         task_envelopes: list[dict[str, Any]] = []
+        measurement_phase = verifier.measurement_phase_for_task(spec)
         for outer in range(outer_trial_count(spec, protocol)):
             outer_id = f"outer-{outer:03d}"
             cell_started = time.perf_counter()
@@ -535,6 +538,8 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                         args=(
                             "calibrate-noise-control", str(task_dir), "--solution", str(solution_dir),
                             "--out", str(noise_path), "--task-id", task_id,
+                            "--measurement-phase", measurement_phase,
+                            "--device-conditioning-prelude-ms", str(conditioning_prelude_ms),
                             "--outer-trial-id", outer_id, "--benchmark-revision", revision,
                             "--task-manifest-digest", digest,
                             "--task-package-digest", task_digest,
@@ -624,6 +629,8 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                             "--noise-control", str(noise_path), "--noise-control-required",
                             "--outer-trial-id", outer_id, "--benchmark-revision", revision,
                             "--task-manifest-digest", digest,
+                            "--measurement-phase", measurement_phase,
+                            "--device-conditioning-prelude-ms", str(conditioning_prelude_ms),
                             "--task-package-digest", task_digest,
                             "--population-manifest-digest", population_digest,
                         ),

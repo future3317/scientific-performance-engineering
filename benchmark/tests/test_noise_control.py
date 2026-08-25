@@ -31,12 +31,37 @@ def _artifact(**overrides: object) -> dict[str, object]:
     return value
 
 
-def test_noise_control_effective_floor_uses_observed_maximum() -> None:
-    assert stats.effective_noise_floor(2.0, 3.5) == 3.5
+def test_noise_floor_separates_typical_log_noise_from_max_outlier() -> None:
+    a = [100.0] * 5
+    b = [99.0, 101.0, 100.5, 99.5, 1.0]
+    floor = stats.estimate_noise_floor(a, b, False)
+    assert floor["noise_estimator"] == "log_ratio_median_mad_v1"
+    assert floor["noise_floor_percent_observed"] == floor["typical_noise_percent"]
+    assert floor["max_deviation_percent"] > floor["typical_noise_percent"]
+    assert floor["noise_spread_percent"] >= 0.0
+    assert stats.effective_noise_floor(2.0, floor["noise_floor_percent_observed"]) == max(
+        2.0, float(floor["typical_noise_percent"])
+    )
     assert stats.effective_noise_floor(2.0, 0.8) == 2.0
 
+def test_measurement_phase_distinguishes_compile_cold_start() -> None:
+    from benchmark.harness.verifier import measurement_phase_for_task
 
+    assert measurement_phase_for_task({"family": "compiler"}) == "cold_start_inclusive"
+    assert measurement_phase_for_task({"family": "graph_energy_force"}) == "steady_state"
+
+
+
+def test_runtime_provenance_keeps_process_and_host_state() -> None:
+    from benchmark.harness.fingerprint import capture_runtime_provenance
+
+    provenance = capture_runtime_provenance()
+    assert provenance["pid"] > 0
+    assert "cpu_affinity" in provenance
+    assert "host" in provenance
+    assert "timestamp_utc" in provenance
 def test_cache_policy_matches_task_family() -> None:
+
     from benchmark.harness.verifier import cache_policy_for_task
 
     assert cache_policy_for_task({"family": "compiler"}) == "arm-repetition-fresh"
@@ -46,7 +71,10 @@ def test_cache_policy_matches_task_family() -> None:
 def test_noise_floor_is_label_symmetric() -> None:
     a = [10.0, 8.0, 12.0, 10.0, 9.0]
     b = [9.0, 10.0, 10.0, 12.0, 10.0]
-    assert stats.estimate_noise_floor(a, b, False) == stats.estimate_noise_floor(b, a, False)
+    left = stats.estimate_noise_floor(a, b, False)
+    right = stats.estimate_noise_floor(b, a, False)
+    for key in ("noise_floor_percent_observed", "noise_spread_percent", "max_deviation_percent"):
+        assert left[key] == right[key]
 
 
 def test_noise_control_artifact_round_trip_and_digest() -> None:
@@ -141,7 +169,11 @@ def test_paired_measurement_exposes_arm_wall_diagnostics() -> None:
         "baseline.py",
         "candidate.py",
         {"repetitions": 1, "warmup_iterations": 0, "measured_iterations": 1},
+        measurement_phase="steady_state",
+        device_conditioning_prelude_ms=5.0,
     )
+    assert record["measurement_phase"] == "steady_state"
+    assert record["device_conditioning_prelude_ms"] == 5.0
     assert len(record["timing"]) == 2
     for item in record["timing"]:
         assert item["arm"] in {"baseline", "candidate"}
@@ -149,6 +181,7 @@ def test_paired_measurement_exposes_arm_wall_diagnostics() -> None:
         assert item["arm_total_wall_s"] >= 0
         assert item["load_solution_wall_s"] >= 0
         assert item["run_performance_wall_s"] >= 0
+        assert item["device_conditioning_prelude_ms"] == 5.0
 
 
 def test_formal_verifier_consumes_artifact_without_rerunning_control(monkeypatch, tmp_path) -> None:

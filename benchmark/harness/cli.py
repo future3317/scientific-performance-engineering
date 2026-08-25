@@ -56,6 +56,8 @@ def _cmd_run_task(args: argparse.Namespace) -> int:
         condition=args.condition,
         context_mode=args.context_mode,
         noise_control_path=args.noise_control,
+        measurement_phase=args.measurement_phase,
+        device_conditioning_prelude_ms=args.device_conditioning_prelude_ms,
         noise_control_required=args.noise_control_required,
         noise_control_expected={
             key: value for key, value in {
@@ -93,6 +95,8 @@ def _cmd_calibrate_noise_control(args: argparse.Namespace) -> int:
         task_manifest_digest=args.task_manifest_digest,
         task_package_digest=args.task_package_digest,
         population_manifest_digest=args.population_manifest_digest,
+        measurement_phase=args.measurement_phase,
+        device_conditioning_prelude_ms=args.device_conditioning_prelude_ms,
         compiler_cache_policy=args.compiler_cache_policy,
         seed=args.seed,
     )
@@ -172,6 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path, required=True, help="result.json output path")
     p.add_argument("--predict-mechanism", default=None, help="comma-separated predicted mechanism ids (diagnosis)")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--measurement-phase", choices=["steady_state", "cold_start_inclusive"], default=None)
+    p.add_argument("--device-conditioning-prelude-ms", type=float, default=0.0)
     p.add_argument("--condition", default="standalone", choices=["A", "B", "C", "D", "standalone"])
     p.add_argument("--context-mode", default="reset", choices=["reset", "carry"])
     p.add_argument("--noise-control", type=Path, default=None)
@@ -188,6 +194,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--solution", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--task-id", required=True)
+    p.add_argument("--measurement-phase", choices=["steady_state", "cold_start_inclusive"], default=None)
+    p.add_argument("--device-conditioning-prelude-ms", type=float, default=0.0)
     p.add_argument("--outer-trial-id", required=True)
     p.add_argument("--benchmark-revision", required=True)
     p.add_argument("--task-manifest-digest", required=True)

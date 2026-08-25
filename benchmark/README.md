@@ -64,13 +64,15 @@ The archive keeps the source bundle and provenance; it is not a second
 executable task source. The tasks remain calibration candidates and do not
 produce efficacy claims or sealed formal-50 content.
 
-The current H2D counterexample candidate is
-`CORE-H2D-OVERFANOUT-23R3`, an independent replacement that requires fresh
-target-runtime calibration; it remains a pilot candidate and does not confer
-formal eligibility. The evolution episode `EVOL-EQUIVARIANT-SPECIALIZE-30` completed the full C/D
-harness: C produced no canonical promotion, while D produced one validated
-promotion with replay and poison checks passing. These are execution and
-governance observations only, not efficacy or superiority claims.
+The H2D calibration history includes CORE-H2D-PIPELINE-INTERIOR-32, which was
+protocol-valid and scientifically correct but valid-but-ineligible because its
+practical effect and measurement stability were insufficient. It is retained as
+attrition evidence and is not rescued by repetition, threshold changes, or a new
+replacement search. CORE-H2D-OVERFANOUT-23R3 remains a negative/counterexample
+anchor requiring current-revision calibration. The evolution episode EVOL-EQUIVARIANT-SPECIALIZE-30
+completed the full C/D harness: C produced no canonical promotion, while D produced
+one validated promotion with replay and poison checks passing. These are execution
+and governance observations only, not efficacy or superiority claims.
 
 The server-side staged probes from 2026-08-19 are recorded under
 [`calibration/history/pre-3b92ca6/staged-probes/2026-08-19/`](calibration/history/pre-3b92ca6/staged-probes/2026-08-19/).
@@ -79,6 +81,22 @@ replacement probe (valid paired result, observed noise 40.92%, activation not
 declared), and a D evolution governance episode (one canonical rule and poison
 survival 1.0). These artifacts extend the audit trail only; they do not update
 the population approval gate or create formal-50 content.
+
+## Measurement protocol qualification
+
+The current server working tree contains measurement protocol v2. It distinguishes
+cold_start_inclusive compiler measurements from steady_state CUDA measurements,
+applies a fixed 250 ms device-conditioning prelude to steady-state controls, and
+estimates null variability from abs(log(A/B)) using the median and MAD. The maximum
+deviation remains a diagnostic; raw pairs and runtime provenance are retained.
+
+Estimator semantics, phase separation, raw-pair retention, and provenance passed the
+structural control audit. Three independent baseline-only sessions for each of
+repeated, graph, crystal, and compile are recorded externally under
+/home/workspace/lrh/RESULTS/measurement-repeatability-be752e9-gpu2/. The session
+typical-noise medians were approximately 12.9%, 29.8%, 12.6%, and 15.4%, respectively;
+repeatability is still pending and does not authorize Q3 or RC8. These controls contain
+no candidate/oracle measurements and do not change task eligibility.
 
 ## Recent external-execution closure
 

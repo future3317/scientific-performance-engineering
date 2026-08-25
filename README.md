@@ -150,6 +150,27 @@ store digest transitions, while keeping `results_claimed=false`. These artifacts
 are operator-side evidence under `RESULTS/SPE`; they do not open the empirical
 calibration gate, generate formal-50, or support an ACRE-versus-baseline claim.
 
+## Current calibration state
+
+The measurement-protocol v2 revision is present in the server working tree but is not
+yet a release revision. It uses a label-symmetric log-ratio median/MAD estimator,
+separates cold_start_inclusive compiler timing from steady_state CUDA timing, keeps
+raw control pairs and runtime provenance, and reports maximum deviation only as a
+diagnostic. Estimator semantics, phase separation, and provenance passed the structural
+qualification checks.
+
+A 12-session baseline-only repeatability characterization on GPU2 is recorded outside
+the repository at
+/home/workspace/lrh/RESULTS/measurement-repeatability-be752e9-gpu2/.
+Typical-noise session values remain variable for graph and crystal workloads, so
+measurement repeatability is pending. Q3 and RC8 are NO-GO; no candidate/oracle result
+is being reinterpreted and no workload or scientific threshold is being changed.
+
+Research-process evidence is maintained outside Git under
+/home/workspace/lrh/RESULTS/RESEARCH_LEDGER.md and
+/home/workspace/lrh/RESULTS/research_ledger.jsonl. The paper source is maintained
+separately outside this repository; paper prose is not benchmark evidence.
+
 ## Documentation policy
 
 Normative specifications and active workload references stay at their stable

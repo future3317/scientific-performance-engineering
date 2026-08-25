@@ -129,6 +129,40 @@ def selected_gpu_preflight() -> dict[str, Any]:
         "gpu_uuid": selected,
         "reason": "selected GPU has compute processes" if pids else "no compute processes reported",
     }
+def capture_runtime_provenance() -> dict[str, Any]:
+    """Capture host/GPU state alongside a timing control artifact."""
+    provenance: dict[str, Any] = {
+        "pid": os.getpid(),
+        "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    provenance["host"] = _psutil_extras()
+    try:
+        output = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=uuid,pstate,clocks.sm,power.draw,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+        selected = _selected_gpu_uuid()
+        for line in output.splitlines():
+            fields = [item.strip() for item in line.split(",")]
+            if len(fields) == 5 and fields[0] == selected:
+                provenance["gpu"] = {
+                    "uuid": fields[0],
+                    "pstate": fields[1],
+                    "clock_sm_mhz": fields[2],
+                    "power_w": fields[3],
+                    "temperature_c": fields[4],
+                }
+                break
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        provenance["gpu"] = None
+    return provenance
 
 def capture_fingerprint() -> dict[str, Any]:
     """Capture the current hw/sw fingerprint as a JSON-serializable dict."""
