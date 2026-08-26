@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -129,6 +130,23 @@ def selected_gpu_preflight() -> dict[str, Any]:
         "gpu_uuid": selected,
         "reason": "selected GPU has compute processes" if pids else "no compute processes reported",
     }
+
+
+def wait_for_selected_gpu_admission(*, timeout_s: float, poll_interval_s: float) -> dict[str, Any]:
+    """Wait for the already-selected GPU to become exclusively available."""
+    started = time.monotonic()
+    deadline = started + float(timeout_s)
+    latest = selected_gpu_preflight()
+    while latest.get("status") != "clean" and time.monotonic() < deadline:
+        time.sleep(min(float(poll_interval_s), max(0.0, deadline - time.monotonic())))
+        latest = selected_gpu_preflight()
+    admitted = latest.get("status") == "clean"
+    result = dict(latest)
+    result["admission_status"] = "admitted" if admitted else "timeout"
+    result["admission_waited_s"] = round(time.monotonic() - started, 3)
+    return result
+
+
 def capture_runtime_provenance() -> dict[str, Any]:
     """Capture host/GPU state alongside a timing control artifact."""
     provenance: dict[str, Any] = {
