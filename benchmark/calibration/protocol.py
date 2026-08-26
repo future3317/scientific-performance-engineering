@@ -15,8 +15,8 @@ def load_calibration_protocol(repo_root: str | Path) -> tuple[dict[str, Any], st
     protocol = json.loads(path.read_text(encoding="utf-8"))
     if protocol.get("schema_version") != 1 or int(protocol.get("atomic_outer_trials", 0)) < 1:
         raise ValueError(f"invalid calibration protocol: {path}")
-    if int(protocol.get("measurement_protocol_version", 0)) != 2:
-        raise ValueError("calibration protocol measurement_protocol_version must be 2")
+    if int(protocol.get("measurement_protocol_version", 0)) != 3:
+        raise ValueError("calibration protocol measurement_protocol_version must be 3")
     measurement = protocol.get("measurement_protocol")
     if not isinstance(measurement, dict):
         raise ValueError("calibration protocol must declare measurement_protocol")
@@ -34,6 +34,11 @@ def load_calibration_protocol(repo_root: str | Path) -> tuple[dict[str, Any], st
     topology = protocol.get("thread_topology")
     if not isinstance(topology, dict) or set(topology) != required_topology:
         raise ValueError("calibration protocol must declare the complete thread_topology")
+    admission = protocol.get("resource_admission")
+    if not isinstance(admission, dict):
+        raise ValueError("calibration protocol must declare resource_admission")
+    if float(admission.get("timeout_s", 0.0)) <= 0 or float(admission.get("poll_interval_s", 0.0)) <= 0:
+        raise ValueError("resource_admission timeout and poll interval must be positive")
     return protocol, file_digest(path)
 
 

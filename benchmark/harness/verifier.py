@@ -863,7 +863,7 @@ def _verify_episode_task(
                 )
                 cleanup = completed.get("cleanup", {})
                 arm_cleanups.append(cleanup)
-                if cleanup.get("residual_detected"):
+                if runner.cleanup_failed(cleanup):
                     result["executor_cleanup"] = list(arm_cleanups)
                     raise runner.ResourceBlockedError(
                         f"episode arm {label} left a residual process group: {cleanup}"

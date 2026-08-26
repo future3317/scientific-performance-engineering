@@ -83,6 +83,36 @@ def test_empirical_floor_can_clear_high_declared_noise() -> None:
     assert calibration["calibration_gate"] == "ready_for_review"
 
 
+def test_resource_invalid_record_is_excluded_from_effect_instability_flags() -> None:
+    import json
+    import tempfile
+
+    specs = [{
+        "task_id": "RESOURCE",
+        "track": "spe_core",
+        "scientific_gates": ["finite_loss"],
+        "kind": "positive",
+        "measurement": {"noise_floor_percent": 2.0, "min_improvement_percent": 5.0},
+    }]
+    payload = {"tasks": [{
+        "task_id": "RESOURCE",
+        "calibration_status": "blocked",
+        "oracle_ci_low_percent": 1.0,
+        "oracle_ci_high_percent": 2.0,
+        "control_noise_percent": [5.0],
+        "outer_trials": [{"execution_validity": "resource_blocked", "timeout": False}],
+    }]}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", encoding="utf-8", delete=False) as handle:
+        json.dump(payload, handle)
+        path = handle.name
+    flags, _ = _empirical_flags(specs, __import__("pathlib").Path(path), [])
+
+    assert flags["resource_blocked"] == ["RESOURCE"]
+    assert flags["oracle_effect_unstable"] == []
+    assert flags["effect_unstable"] == []
+    assert flags["noise_too_high"] == []
+
+
 def test_evolution_expected_delta_is_a_hard_calibration_gate() -> None:
     import json
     import tempfile

@@ -287,6 +287,25 @@ def _empirical_flags(
         records_by_task[task_id] = dict(record)
         spec = specs_by_id[task_id]
         evolution_record = str(record.get("metric_class", "")) == "evolution" or spec.get("track") == "evolution"
+        execution_invalid = (
+            str(record.get("execution_validity", "")) in {"resource_blocked", "invalid"}
+            or bool(record.get("timeout"))
+            or any(
+                str(trial.get("execution_validity", "")) in {"resource_blocked", "invalid"}
+                or bool(trial.get("timeout"))
+                for trial in record.get("outer_trials", [])
+                if isinstance(trial, dict)
+            )
+        )
+        if execution_invalid:
+            records_by_task[task_id]["effect_status"] = "not_evaluated_due_to_invalid_execution"
+            if any(
+                str(trial.get("execution_validity", "")) == "resource_blocked"
+                or bool(trial.get("timeout"))
+                for trial in record.get("outer_trials", [])
+                if isinstance(trial, dict)
+            ):
+                flags["resource_blocked"].append(task_id)
         if "_task_dir" in spec:
             missing_fields = [key for key in CALIBRATION_FIELDS if key not in record]
             if missing_fields:
@@ -303,9 +322,9 @@ def _empirical_flags(
             bundle_errors = _bundle_integrity_errors(record, spec, empirical_path, protocol_digest)
             if bundle_errors:
                 flags["protocol_invalid"].append(task_id)
-            if not evolution_record and (not isinstance(record.get("noise_control"), dict) or not record.get("noise_control")):
+            if not execution_invalid and not evolution_record and (not isinstance(record.get("noise_control"), dict) or not record.get("noise_control")):
                 flags["noise_too_high"].append(task_id)
-            if not evolution_record and (not isinstance(record.get("oracle_ci"), dict) or not record.get("oracle_ci")):
+            if not execution_invalid and not evolution_record and (not isinstance(record.get("oracle_ci"), dict) or not record.get("oracle_ci")):
                 flags["oracle_effect_unstable"].append(task_id)
             if evolution_record:
                 episode_effect = record.get("episode_effect")
@@ -344,6 +363,8 @@ def _empirical_flags(
                 flags["agent_shortcut_detected"].append(task_id)
             if not isinstance(record.get("revision"), str) or record.get("revision") in {"", "unknown", "pending"}:
                 flags["agent_shortcut_detected"].append(task_id)
+        if execution_invalid:
+            continue
         measurement = spec.get("measurement", {})
         kind = str(spec.get("kind", "positive"))
         noise_limit = float(measurement.get("noise_floor_percent", 2.0))
