@@ -20,7 +20,9 @@ from typing import Any
 
 from benchmark.harness import miniyaml, runner, stats, verifier
 from benchmark.harness.api import execution_class_for_task
-from benchmark.harness.fingerprint import capture_fingerprint, fingerprints_compatible, selected_gpu_preflight
+from benchmark.harness.fingerprint import (
+    capture_fingerprint, fingerprints_compatible, wait_for_selected_gpu_admission,
+)
 from benchmark.calibration.bundle import classify_result, calibration_envelope, validate_calibration_envelope
 from benchmark.calibration.execution import CellExecutor, executor_digest
 from benchmark.calibration.identity import canonical_cell_identity, measurement_session_id, task_package_digest, taskset_digest
@@ -37,7 +39,7 @@ def _bounded_verifier_result(
     """Run one verifier cell in a killable process and persist timeout evidence."""
     completed = CellExecutor(cwd).run_module(module=module, args=args, timeout_s=float(timeout_s))
     cleanup = completed.get("cleanup", {})
-    if cleanup.get("residual_detected"):
+    if runner.cleanup_failed(cleanup):
         result = _resource_blocked_result(
             task_id=task_id, outer_trial_id=outer_trial_id,
             failure_stage="executor_cleanup", timeout_s=timeout_s,
@@ -103,10 +105,9 @@ def _resource_blocked_result(
     return serialize_cell_state(result)
 
 
-def _preflight_blocks(preflight: dict[str, Any], *, allow_shared_gpu: bool) -> bool:
-    """Keep query failures blocking while allowing explicitly shared GPUs."""
-    status = preflight.get("status")
-    return status != "clean" and not (allow_shared_gpu and status == "busy")
+def _preflight_blocks(preflight: dict[str, Any]) -> bool:
+    """Block every non-clean admission result; shared execution is never valid."""
+    return preflight.get("status") != "clean"
 
 
 def _write_resource_blocked_cell(
@@ -176,7 +177,7 @@ def _bounded_noise_control(
         noise["executor_cleanup"] = cleanup
         stats.write_noise_control(noise_path, noise)
         return stats.read_noise_control(noise_path), False
-    if not completed["timed_out"] and cleanup.get("residual_detected") and noise_path.is_file():
+    if not completed["timed_out"] and runner.cleanup_failed(cleanup) and noise_path.is_file():
         noise = stats.read_noise_control(noise_path)
         noise.update({
             "execution_validity": "resource_blocked",
@@ -405,6 +406,9 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
     protocol, protocol_digest = load_calibration_protocol(repo_root)
     measurement_protocol = protocol["measurement_protocol"]
     conditioning_prelude_ms = float(measurement_protocol["device_conditioning_prelude_ms"])
+    admission = protocol["resource_admission"]
+    admission_timeout_s = float(admission["timeout_s"])
+    admission_poll_interval_s = float(admission["poll_interval_s"])
     observed_topology = runner.configure_thread_topology(protocol["thread_topology"])
     if observed_topology != {
         key: str(value) if key not in {"torch_num_threads", "torch_num_interop_threads"} else int(value)
@@ -424,7 +428,8 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
             f"atomic calibration requires --outer-trials={protocol['atomic_outer_trials']} "
             f"from the frozen protocol, got {args.outer_trials}"
         )
-    allow_shared_gpu = bool(args.allow_shared_gpu)
+    if bool(getattr(args, "allow_shared_gpu", False)):
+        raise ValueError("shared GPU execution is not permitted by the frozen calibration contract")
     empirical: list[dict[str, Any]] = []
     timing_rows: list[dict[str, Any]] = []
     campaign_started_monotonic = time.perf_counter()
@@ -453,11 +458,18 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                 "cleanup_status": "not_recorded",
             }
             print(json.dumps({"event": "start_outer_trial", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
-            preflight = selected_gpu_preflight() if fingerprint.get("cuda_available") else {"status": "clean", "foreign_pids": []}
-            resource_mode = "shared_gpu" if preflight.get("status") == "busy" else "exclusive"
+            preflight = (
+                wait_for_selected_gpu_admission(
+                    timeout_s=admission_timeout_s,
+                    poll_interval_s=admission_poll_interval_s,
+                )
+                if fingerprint.get("cuda_available")
+                else {"status": "clean", "foreign_pids": [], "admission_status": "admitted"}
+            )
+            resource_mode = "exclusive"
             timing["resource_preflight"] = preflight
             timing["resource_mode"] = resource_mode
-            if _preflight_blocks(preflight, allow_shared_gpu=allow_shared_gpu):
+            if _preflight_blocks(preflight):
                 result, noise, envelope = _write_resource_blocked_cell(
                     out=out, task_id=task_id, outer_id=outer_id, task_spec=spec,
                     task_digest=task_digest, population_digest=population_digest,

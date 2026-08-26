@@ -2,7 +2,9 @@ from pathlib import Path
 import importlib.util
 import json
 import os
+import signal
 import shutil
+import sys
 
 import pytest
 
@@ -268,8 +270,11 @@ def test_bounded_noise_control_residual_group_is_resource_blocked(tmp_path, monk
             "stdout": "",
             "stderr": "[harness] subprocess exited with a residual process group",
             "cleanup": {
+                "status": "failed",
                 "residual_detected": True,
                 "quiescent": True,
+                "quiescent_after_cleanup": False,
+                "residual_pids_after_cleanup": [123],
                 "term_sent": True,
                 "kill_sent": True,
             },
@@ -350,8 +355,178 @@ def test_normal_exit_cleans_residual_process_group():
     )
 
     assert result["timed_out"] is False
+    assert result["cleanup"]["status"] == "cleaned"
     assert result["cleanup"]["residual_detected"] is True
+    assert result["cleanup"]["cleanup_attempted"] is True
     assert result["cleanup"]["quiescent"] is True
+
+
+def test_clean_exit_reports_clean_exit_without_cleanup():
+    from benchmark.harness.runner import run_python_subprocess
+
+    result = run_python_subprocess(snippet="pass", timeout=5.0)
+
+    assert result["cleanup"]["status"] == "clean_exit"
+    assert result["cleanup"]["residual_detected_before_cleanup"] is False
+    assert result["cleanup"]["quiescent_after_cleanup"] is True
+    assert result["cleanup"]["residual_pids_after_cleanup"] == []
+
+
+def test_forced_owned_worker_cleanup_is_reported_and_valid():
+    from benchmark.harness.runner import run_python_subprocess
+
+    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)"
+    parent_code = (
+        f"import subprocess,sys; "
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+        "import time; time.sleep(0.2); raise SystemExit(0)"
+    )
+    result = run_python_subprocess(snippet=parent_code, timeout=5.0)
+
+    assert result["cleanup"]["status"] == "cleaned"
+    assert result["cleanup"]["forced_cleanup"] is True
+    assert result["cleanup"]["quiescent_after_cleanup"] is True
+    assert result["cleanup"]["residual_pids_after_cleanup"] == []
+
+
+def test_cleanup_failure_requires_nonquiescent_scope(monkeypatch):
+    from benchmark.harness import runner
+
+    def no_cleanup(process, *, process_group):
+        return True, False
+
+    monkeypatch.setattr(runner, "_terminate_process_group", no_cleanup)
+    result = runner.run_python_subprocess(
+        snippet=(
+            "import subprocess,sys; "
+            "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
+            "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
+        ),
+        timeout=5.0,
+    )
+    process_group = result["cleanup"]["process_group"]
+    try:
+        assert result["cleanup"]["status"] == "failed"
+        assert result["cleanup"]["quiescent_after_cleanup"] is False
+        assert result["cleanup"]["residual_pids_after_cleanup"] == [process_group]
+    finally:
+        try:
+            os.killpg(process_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def test_timeout_remains_invalid_even_when_scope_is_cleaned():
+    from benchmark.harness.runner import run_python_subprocess
+
+    result = run_python_subprocess(snippet="import time; time.sleep(1)", timeout=0.05)
+
+    assert result["timed_out"] is True
+    assert result["cleanup"]["status"] == "cleaned"
+    assert result["cleanup"]["quiescent_after_cleanup"] is True
+
+
+def test_foreign_process_outside_scope_is_not_signalled():
+    from benchmark.harness.runner import run_python_subprocess
+
+    result = run_python_subprocess(
+        snippet=(
+            "import subprocess,sys; "
+            "child=subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)'], "
+            "start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+            "print(child.pid, flush=True)"
+        ),
+        timeout=5.0,
+    )
+    foreign_pid = int(result["stdout"].strip())
+    try:
+        os.kill(foreign_pid, 0)
+        assert result["cleanup"]["residual_detected_before_cleanup"] is False
+    finally:
+        try:
+            os.kill(foreign_pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process-group membership is POSIX-specific")
+def test_dataloader_style_owned_child_tree_is_valid_after_cleanup():
+    from benchmark.harness.runner import run_python_subprocess
+
+    worker = "import subprocess,sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'])"
+    result = run_python_subprocess(
+        snippet=f"import subprocess,sys; subprocess.Popen([sys.executable, '-c', {worker!r}])",
+        timeout=5.0,
+    )
+
+    assert result["cleanup"]["status"] == "cleaned"
+    assert result["cleanup"]["quiescent_after_cleanup"] is True
+
+
+@pytest.mark.skipif(os.name == "nt", reason="process-group membership is POSIX-specific")
+def test_compile_worker_style_owned_child_tree_is_valid_after_cleanup():
+    from benchmark.harness.runner import run_python_subprocess
+
+    worker = (
+        "import subprocess,sys; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)']); "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)'])"
+    )
+    result = run_python_subprocess(
+        snippet=f"import subprocess,sys; subprocess.Popen([sys.executable, '-c', {worker!r}])",
+        timeout=5.0,
+    )
+
+    assert result["cleanup"]["status"] == "cleaned"
+    assert result["cleanup"]["quiescent_after_cleanup"] is True
+
+
+def test_cleaned_executor_residual_is_not_resource_blocked(tmp_path, monkeypatch):
+    from benchmark.calibration import campaign
+
+    result_path = tmp_path / "result.json"
+    result_path.write_text(
+        json.dumps({
+            "execution_validity": "valid",
+            "validity": "valid",
+            "calibration_status": "eligible",
+            "efficacy_eligible": True,
+        }),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        campaign.CellExecutor,
+        "run_module",
+        lambda self, **kwargs: {
+            "timed_out": False,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "",
+            "wall_time_s": 0.1,
+            "cleanup": {
+                "status": "cleaned",
+                "residual_detected": True,
+                "residual_detected_before_cleanup": True,
+                "quiescent": True,
+                "quiescent_after_cleanup": True,
+                "residual_pids": [],
+                "residual_pids_after_cleanup": [],
+            },
+        },
+    )
+
+    result = campaign._bounded_verifier_result(
+        task_id="T",
+        outer_trial_id="outer-000",
+        result_path=result_path,
+        timeout_s=5.0,
+        module="benchmark.harness.cli",
+        args=(),
+        cwd=tmp_path,
+    )
+
+    assert result["execution_validity"] == "valid"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="process-group membership is POSIX-specific")
@@ -383,13 +558,28 @@ def test_gpu_preflight_query_failure_is_not_clean(monkeypatch):
     assert "nvidia-smi" in result["reason"]
 
 
+def test_gpu_admission_waits_until_selected_gpu_is_clean(monkeypatch):
+    from benchmark.harness import fingerprint
+
+    states = iter([
+        {"status": "busy", "foreign_pids": [123]},
+        {"status": "clean", "foreign_pids": []},
+    ])
+    monkeypatch.setattr(fingerprint, "selected_gpu_preflight", lambda: next(states))
+    monkeypatch.setattr(fingerprint.time, "sleep", lambda _: None)
+
+    result = fingerprint.wait_for_selected_gpu_admission(timeout_s=1.0, poll_interval_s=0.01)
+
+    assert result["admission_status"] == "admitted"
+    assert result["status"] == "clean"
+
+
 def test_shared_gpu_mode_only_allows_reported_busy_preflight():
     from benchmark.calibration.campaign import _preflight_blocks
 
-    assert _preflight_blocks({"status": "clean"}, allow_shared_gpu=False) is False
-    assert _preflight_blocks({"status": "busy"}, allow_shared_gpu=False) is True
-    assert _preflight_blocks({"status": "busy"}, allow_shared_gpu=True) is False
-    assert _preflight_blocks({"status": "unavailable"}, allow_shared_gpu=True) is True
+    assert _preflight_blocks({"status": "clean"}) is False
+    assert _preflight_blocks({"status": "busy"}) is True
+    assert _preflight_blocks({"status": "unavailable"}) is True
 
 
 def test_subprocess_applies_declared_thread_topology_before_fingerprint():

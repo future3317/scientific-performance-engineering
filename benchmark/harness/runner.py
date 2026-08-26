@@ -274,6 +274,17 @@ def _terminate_process_group(process: subprocess.Popen[str], *, process_group: i
     return term_sent, kill_sent
 
 
+def cleanup_failed(cleanup: dict[str, Any]) -> bool:
+    """Return whether the owned process scope remained non-quiescent."""
+    if cleanup.get("status") == "failed":
+        return True
+    if "quiescent_after_cleanup" in cleanup:
+        return not bool(cleanup["quiescent_after_cleanup"])
+    if "residual_pids_after_cleanup" in cleanup:
+        return bool(cleanup["residual_pids_after_cleanup"])
+    return cleanup.get("quiescent") is False or bool(cleanup.get("residual_pids"))
+
+
 def run_python_subprocess(
     snippet: str | None = None,
     module: str | None = None,
@@ -320,14 +331,16 @@ def run_python_subprocess(
             return process.poll() is None
         return _posix_process_group_alive(process.pid)
 
-    residual_detected = False
+    residual_detected_before_cleanup = False
+    cleanup_attempted = False
     try:
         # Wait for the direct child first.  communicate() alone can wait for a
         # descendant holding inherited stdout/stderr pipes and hide a normal
         # parent exit with a live process group.
         process.wait(timeout=timeout)
-        residual_detected = group_alive()
-        if residual_detected:
+        residual_detected_before_cleanup = group_alive()
+        if residual_detected_before_cleanup:
+            cleanup_attempted = True
             term, killed = _terminate_process_group(process, process_group=process_group)
             term_sent = term_sent or term
             kill_sent = kill_sent or killed
@@ -335,6 +348,7 @@ def run_python_subprocess(
         exit_code = process.returncode
     except subprocess.TimeoutExpired as exc:
         timed_out = True
+        cleanup_attempted = True
         stdout = (exc.stdout or "") if isinstance(exc.stdout, str) else ""
         stderr = (exc.stderr or "") if isinstance(exc.stderr, str) else ""
         term, killed = _terminate_process_group(process, process_group=process_group)
@@ -345,9 +359,13 @@ def run_python_subprocess(
         stderr += stderr_tail or ""
         exit_code = process.returncode if process.returncode is not None else -1
         stderr += f"\n[harness] subprocess timed out after {timeout}s"
-    if residual_detected:
+    if residual_detected_before_cleanup:
         stderr += "\n[harness] subprocess exited with a residual process group; it was terminated"
-    quiescent = not group_alive()
+    quiescent_after_cleanup = not group_alive()
+    residual_pids_after_cleanup = [process_group] if not quiescent_after_cleanup else []
+    cleanup_status = "failed" if not quiescent_after_cleanup else (
+        "cleaned" if cleanup_attempted else "clean_exit"
+    )
     return {
         "exit_code": exit_code,
         "stdout": stdout,
@@ -358,9 +376,15 @@ def run_python_subprocess(
             "process_group": process_group,
             "term_sent": term_sent,
             "kill_sent": kill_sent,
-            "residual_detected": residual_detected,
-            "quiescent": quiescent,
-            "residual_pids": [process_group] if residual_detected and not quiescent else [],
+            "status": cleanup_status,
+            "forced_cleanup": kill_sent,
+            "cleanup_attempted": cleanup_attempted,
+            "residual_detected_before_cleanup": residual_detected_before_cleanup,
+            "quiescent_after_cleanup": quiescent_after_cleanup,
+            "residual_pids_after_cleanup": residual_pids_after_cleanup,
+            "residual_detected": residual_detected_before_cleanup,
+            "quiescent": quiescent_after_cleanup,
+            "residual_pids": residual_pids_after_cleanup,
         },
     }
 
