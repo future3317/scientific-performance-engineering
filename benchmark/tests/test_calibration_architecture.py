@@ -47,7 +47,7 @@ def test_active30_cli_is_only_argument_parsing_and_orchestration():
 
 def test_resource_blocked_verifier_has_one_cleanup_branch():
     source = (Path(__file__).parents[2] / "benchmark" / "calibration" / "campaign.py").read_text(encoding="utf-8")
-    assert source.count("runner.cleanup_failed(cleanup)") == 2
+    assert source.count("runner.cleanup_failed(cleanup)") == 3
     assert 'if cleanup.get("residual_detected")' not in source
     assert "execution_validity\": \"resource_blocked\"" in source
 

@@ -529,6 +529,64 @@ def test_cleaned_executor_residual_is_not_resource_blocked(tmp_path, monkeypatch
     assert result["execution_validity"] == "valid"
 
 
+def test_cleaned_noise_control_residual_is_valid(tmp_path, monkeypatch):
+    noise_path = tmp_path / "noise.json"
+    stats.write_noise_control(noise_path, {
+        "task_id": "CORE-COMPILE-DYNAMIC-11",
+        "outer_trial_id": "outer-000",
+        "benchmark_revision": "rev",
+        "task_manifest_digest": "manifest",
+        "task_package_digest": "package",
+        "population_manifest_digest": "population",
+        "hardware_fingerprint": {},
+        "software_fingerprint": {},
+        "compile_threads": 2,
+        "compiler_cache_policy": "fresh",
+        "primary_metric": "schedule_wall_ms",
+        "higher_is_better": False,
+        "control_a_runs": [1, 1, 1, 1, 1],
+        "control_b_runs": [1, 1, 1, 1, 1],
+        "observed_noise_floor_percent": 0.0,
+        "declared_noise_floor_percent": 2.0,
+        "expected_speedup_range": [1.0, 2.0],
+    })
+
+    monkeypatch.setattr(
+        "benchmark.calibration.campaign.CellExecutor.run_noise_control",
+        lambda self, **kwargs: {
+            "timed_out": False,
+            "wall_time_s": 0.1,
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": "",
+            "cleanup": {
+                "status": "cleaned",
+                "residual_detected": True,
+                "residual_detected_before_cleanup": True,
+                "cleanup_attempted": True,
+                "term_sent": True,
+                "kill_sent": False,
+                "quiescent_after_cleanup": True,
+                "residual_pids_after_cleanup": [],
+                "quiescent": True,
+                "residual_pids": [],
+            },
+        },
+    )
+
+    noise, blocked = _bounded_noise_control(
+        task_id="CORE-COMPILE-DYNAMIC-11",
+        outer_trial_id="outer-000",
+        noise_path=noise_path,
+        timeout_s=600.0,
+        args=("calibrate-noise-control",),
+        cwd=tmp_path,
+    )
+
+    assert blocked is False
+    assert noise["executor_cleanup"]["status"] == "cleaned"
+    assert noise["executor_cleanup"]["residual_detected_before_cleanup"] is True
+
 @pytest.mark.skipif(os.name == "nt", reason="process-group membership is POSIX-specific")
 def test_sigkill_escalates_for_term_resistant_descendant():
     from benchmark.harness.runner import run_python_subprocess

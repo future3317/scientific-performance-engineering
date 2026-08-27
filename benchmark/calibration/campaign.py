@@ -172,7 +172,7 @@ def _bounded_noise_control(
     """Run one noise-control cell in a killable process."""
     completed = CellExecutor(cwd).run_noise_control(args=args, timeout_s=float(timeout_s))
     cleanup = completed.get("cleanup", {})
-    if not completed["timed_out"] and noise_path.is_file() and not cleanup.get("residual_detected"):
+    if not completed["timed_out"] and noise_path.is_file() and not runner.cleanup_failed(cleanup):
         noise = json.loads(noise_path.read_text(encoding="utf-8"))
         noise["executor_cleanup"] = cleanup
         stats.write_noise_control(noise_path, noise)
