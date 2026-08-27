@@ -54,6 +54,14 @@ to confirmatory performance estimands. The primary contrast is D-B, with D-C and
 B-A as secondary contrasts. Raw speedup is one performance coordinate, not the
 sole self-evolution endpoint.
 
+The target runtime is part of the estimand. Before calibration, a baseline-only
+resource-feasibility census freezes the executable population in
+`benchmark/formal/resource_domain.py`. Clean, repeated capacity failures remain
+in the 30-task accounting and attrition report, but are not assigned zero utility
+or included in confirmatory performance estimates. Unresolved admission or
+protocol evidence blocks release rather than being silently classified as
+capacity attrition.
+
 ## Execution environment
 
 The server is the only supported runtime. Run every project test, validator,

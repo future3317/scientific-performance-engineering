@@ -306,6 +306,17 @@ S6 verdict        -> emit result.json (schema/result.schema.json): gates, verifi
   matched A/B/C/D cells and records its task/revision, fingerprint, compiler-thread,
   and cache-policy bindings (`arm-repetition-fresh` for compile anchors). A missing or incompatible artifact is
   `resource_blocked`; the verifier never falls back to the declared floor.
+- Before calibration, every registered baseline also passes a separate
+  resource-feasibility census. The census is agent-blind and baseline-only: it
+  binds the exact runtime contract and clean admission, records memory telemetry
+  and executor cleanup, and permits one preregistered confirmation of a capacity
+  failure. Its status is orthogonal to scientific eligibility:
+  `in_domain`, `out_of_domain_capacity`, `not_applicable`, or `unresolved`.
+  Capacity attrition remains in complete population accounting but is not a
+  scientific failure, valid-but-ineligible outcome, or zero utility. Only the
+  intersection of resource-domain `in_domain` and frozen scientific efficacy
+  eligibility contributes to confirmatory timing estimates. Unresolved resource
+  or protocol evidence is a release blocker.
 - **Verified speedup** = CI lower bound ≥ `max(min_improvement_percent,
   effective_noise_floor_percent)`, where the effective floor is the maximum of
   the declared minimum and the observed same-host control floor. Population
