@@ -57,9 +57,23 @@ def _bounded_verifier_result(
         result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return result
     if not completed["timed_out"]:
+        error = completed["stderr"] or completed["stdout"] or "verifier exited without a result"
+        exit_code = completed.get("exit_code")
+        oom = "out of memory" in error.lower() or exit_code in {-9, 137}
+        if oom:
+            result = _resource_blocked_result(
+                task_id=task_id, outer_trial_id=outer_trial_id,
+                failure_stage="verifier", timeout_s=timeout_s,
+                wall_time_s=float(completed["wall_time_s"]),
+                error=error, measurement_class=measurement_class, timeout=False,
+            )
+            result["process_exit_code"] = exit_code
+            result["executor_cleanup"] = cleanup
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            return result
         raise RuntimeError(
-            f"verifier exited without a result for {task_id}/{outer_trial_id}: "
-            f"{completed['stderr'] or completed['stdout']}"
+            f"verifier exited without a result for {task_id}/{outer_trial_id}: {error}"
         )
     result = _resource_blocked_result(
         task_id=task_id, outer_trial_id=outer_trial_id,
