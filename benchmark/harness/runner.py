@@ -553,6 +553,20 @@ def compare_work_units(
     return (not diffs, diffs)
 
 
+def paired_measurement_complete(record: dict[str, Any], *, repetitions: int) -> bool:
+    """Return whether both arms produced one value for every repetition."""
+    baseline = record.get("baseline_runs", [])
+    candidate = record.get("candidate_runs", [])
+    return (
+        isinstance(baseline, list)
+        and isinstance(candidate, list)
+        and len(baseline) == int(repetitions)
+        and len(candidate) == int(repetitions)
+        and all(value is not None for value in baseline)
+        and all(value is not None for value in candidate)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Interleaved paired measurement driver (section 6.1)
 # ---------------------------------------------------------------------------
