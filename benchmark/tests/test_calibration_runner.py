@@ -632,12 +632,43 @@ def test_gpu_admission_waits_until_selected_gpu_is_clean(monkeypatch):
     assert result["status"] == "clean"
 
 
-def test_shared_gpu_mode_only_allows_reported_busy_preflight():
+def test_shared_gpu_mode_treats_busy_as_observed_not_invalid():
     from benchmark.calibration.campaign import _preflight_blocks
 
-    assert _preflight_blocks({"status": "clean"}) is False
-    assert _preflight_blocks({"status": "busy"}) is True
-    assert _preflight_blocks({"status": "unavailable"}) is True
+    assert _preflight_blocks({"status": "clean", "gpu_uuid": "GPU-test"}, expected_gpu_uuid="GPU-test") is False
+    assert _preflight_blocks({"status": "busy", "gpu_uuid": "GPU-test"}, expected_gpu_uuid="GPU-test") is False
+    assert _preflight_blocks({"status": "unavailable", "gpu_uuid": "GPU-test"}, expected_gpu_uuid="GPU-test") is True
+    assert _preflight_blocks({"status": "clean", "gpu_uuid": "GPU-other"}, expected_gpu_uuid="GPU-test") is True
+
+
+def test_shared_gpu_preflight_records_co_tenant_telemetry(monkeypatch):
+    from benchmark.harness import fingerprint
+
+    monkeypatch.setattr(fingerprint, "_selected_gpu_uuid", lambda: "GPU-test")
+
+    def fake_check_output(command, **_):
+        if command[1].startswith("--query-compute-apps"):
+            return "101, GPU-test, 512 MiB\n"
+        return "GPU-test, 12000, 12000, 37, 1800, 7000, P2, 95, 52\n"
+
+    monkeypatch.setattr(fingerprint.subprocess, "check_output", fake_check_output)
+    result = fingerprint.selected_gpu_preflight()
+
+    assert result["status"] == "busy"
+    assert result["gpu_uuid"] == "GPU-test"
+    assert result["foreign_pids"] == [101]
+    assert result["foreign_processes"] == [{"pid": 101, "used_memory": "512 MiB"}]
+    assert result["gpu_state"] == {
+        "uuid": "GPU-test",
+        "memory_used_mib": 12000,
+        "memory_free_mib": 12000,
+        "utilization_gpu_percent": 37,
+        "clock_sm_mhz": 1800,
+        "clock_memory_mhz": 7000,
+        "pstate": "P2",
+        "power_w": 95,
+        "temperature_c": 52,
+    }
 
 
 def test_subprocess_applies_declared_thread_topology_before_fingerprint():
