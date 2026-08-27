@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 from benchmark.calibration.identity import task_package_digest
+from benchmark.harness import runner
 
 
 def test_resource_domain_census_direct_entrypoint_imports_from_repo_root() -> None:
@@ -50,3 +52,35 @@ def test_resource_probe_uses_registered_solution_entrypoint(monkeypatch, tmp_pat
     args = captured["args"]
     assert isinstance(args, tuple)
     assert str(task_dir / "workspace" / "solution.py") in args
+
+
+def test_resource_probe_uses_registered_measurement_window(monkeypatch, tmp_path: Path) -> None:
+    from benchmark.formal import resource_domain
+
+    repo_root = Path(__file__).parents[2]
+    task_dir = repo_root / "benchmark" / "tasks" / "CORE-REPEATED-BACKBONE-02R2"
+    calls: list[dict[str, object]] = []
+
+    module = SimpleNamespace(
+        load_solution=lambda **_: object(),
+        make_fixtures=lambda **_: {},
+        run_performance=lambda **_: {"step_ms_p50": 1.0},
+    )
+
+    def fake_call(function: object, **kwargs: object) -> object:
+        if function is module.run_performance:
+            calls.append(kwargs)
+        return function(**kwargs)  # type: ignore[operator]
+
+    monkeypatch.setattr(runner, "select_device", lambda _: ("cpu", True))
+    monkeypatch.setattr(runner, "import_module_by_path", lambda _: module)
+    monkeypatch.setattr(runner, "call_benchmark_fn", fake_call)
+    resource_domain.run_baseline_probe(
+        task_dir=task_dir,
+        solution_dir=task_dir / "workspace" / "solution.py",
+        out_path=tmp_path / "probe.json",
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["warmup"] == 40
+    assert calls[0]["iterations"] == 800

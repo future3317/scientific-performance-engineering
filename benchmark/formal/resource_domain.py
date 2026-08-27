@@ -285,6 +285,11 @@ def run_baseline_probe(
     spec = miniyaml.load(str(task_root / "task.yaml"))
     if execution_class_for_task(spec) == "episode":
         raise ValueError("episode resource probes are not applicable")
+    measurement = spec.get("measurement") or {}
+    warmup = int(measurement.get("warmup_iterations", 0))
+    iterations = int(measurement.get("measured_iterations", 1))
+    if warmup < 0 or iterations < 1:
+        raise ValueError("resource probe requires a valid registered measurement window")
     device, usable = runner.select_device(bool(spec.get("requires_cuda")))
     probe: dict[str, Any] = {
         "task_id": str(spec["task_id"]),
@@ -319,7 +324,7 @@ def run_baseline_probe(
             probe["preflight_free_memory"] = int(torch.cuda.mem_get_info()[0])
         runner.call_benchmark_fn(
             module.run_performance, solution=solution, fixtures=fixtures,
-            warmup=0, iterations=1, device=device,
+            warmup=warmup, iterations=iterations, device=device,
         )
         if device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.synchronize()
