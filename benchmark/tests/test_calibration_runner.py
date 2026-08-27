@@ -671,6 +671,15 @@ def test_shared_gpu_preflight_records_co_tenant_telemetry(monkeypatch):
     }
 
 
+def test_paired_measurement_requires_both_arms_for_each_repetition():
+    from benchmark.harness.runner import paired_measurement_complete
+
+    complete = {"baseline_runs": [1.0, 1.0], "candidate_runs": [1.0, 1.0]}
+    incomplete = {"baseline_runs": [1.0, 1.0], "candidate_runs": [1.0]}
+    assert paired_measurement_complete(complete, repetitions=2) is True
+    assert paired_measurement_complete(incomplete, repetitions=2) is False
+
+
 def test_subprocess_applies_declared_thread_topology_before_fingerprint():
     from benchmark.harness.runner import run_python_subprocess
 
