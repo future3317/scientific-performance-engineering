@@ -20,11 +20,6 @@ def main() -> int:
     parser.add_argument("--outer-trials", type=int, default=3)
     parser.add_argument("--task-id", default=None)
     parser.add_argument("--resource-domain-manifest", type=Path, default=None, help="frozen baseline-only resource-domain manifest")
-    parser.add_argument(
-        "--allow-shared-gpu",
-        action="store_true",
-        help="run when the selected GPU has other compute processes; records shared resource provenance",
-    )
     args = parser.parse_args()
     if args.resource_domain_manifest is not None:
         args.resource_domain_manifest = load_resource_domain_manifest(

@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import anticheat
+from .fingerprint import capture_fingerprint, capture_runtime_provenance, fingerprints_compatible
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +602,13 @@ def run_paired_measurement(
         "fixture_hash_time_s": 0.0,
         "measurement_phase": measurement_phase,
         "device_conditioning_prelude_ms": conditioning_ms,
+        "shared_state_telemetry": {
+            "session_start": capture_runtime_provenance() if device.startswith("cuda") else None,
+            "arm_boundaries": [],
+            "session_end": None,
+        },
     }
+    runtime_start = capture_fingerprint() if device.startswith("cuda") else None
     order_plan: list[tuple[str, int]] = []
     for rep in range(repetitions):
         pair = ["baseline", "candidate"]
@@ -672,4 +679,22 @@ def run_paired_measurement(
             "run_performance_wall_s": performance_wall,
             "timing": raw.get("timing", {}),
         })
+        if device.startswith("cuda"):
+            record["shared_state_telemetry"]["arm_boundaries"].append({
+                "arm": arm,
+                "repetition": rep,
+                "provenance": capture_runtime_provenance(),
+            })
+    runtime_end = capture_fingerprint() if device.startswith("cuda") else None
+    if runtime_start is not None and runtime_end is not None:
+        compatible, reasons = fingerprints_compatible(runtime_start, runtime_end)
+        record["runtime_contract"] = {
+            "start": runtime_start,
+            "end": runtime_end,
+            "compatible": compatible,
+            "reasons": reasons,
+        }
+        record["shared_state_telemetry"]["session_end"] = capture_runtime_provenance()
+    else:
+        record["runtime_contract"] = {"compatible": True, "reasons": []}
     return record

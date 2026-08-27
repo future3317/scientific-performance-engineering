@@ -381,7 +381,13 @@ def calibrate_noise_control(
         "control_b_runs": control_b,
         "observed_noise_floor_percent": floor["noise_floor_percent_observed"],
         "declared_noise_floor_percent": float(measurement_cfg.get("noise_floor_percent", 2.0)),
-        "calibration_record": {"timing": record.get("timing", []), "fixture_hashes": record.get("fixture_hashes", {})},
+        "shared_state_telemetry": record.get("shared_state_telemetry"),
+        "runtime_contract": record.get("runtime_contract"),
+        "calibration_record": {
+            "timing": record.get("timing", []),
+            "fixture_hashes": record.get("fixture_hashes", {}),
+            "shared_state_telemetry": record.get("shared_state_telemetry"),
+        },
     }
     return stats.write_noise_control(out_path, artifact)
 
@@ -657,6 +663,15 @@ def verify_task(
         return _finalize(result, started, out_path)
 
     # Work-unit counters must match the baseline exactly (section 7).
+    runtime_contract = record.get("runtime_contract", {})
+    if runtime_contract.get("compatible") is not True:
+        result["protocol_failure"] = True
+        result["validity"] = "invalid"
+        result["execution_validity"] = "invalid"
+        result.setdefault("errors", []).append(
+            "measurement session changed required runtime identity: "
+            + "; ".join(str(item) for item in runtime_contract.get("reasons", []))
+        )
     work_ok = True
     work_diffs: list[str] = []
     for rep in range(int(measurement_cfg.get("repetitions", 5))):

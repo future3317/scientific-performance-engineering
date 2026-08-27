@@ -79,6 +79,15 @@ def _selected_gpu_uuid() -> str | None:
     return uuids[0]
 
 
+def _number(value: str) -> int | float | str:
+    value = value.strip()
+    try:
+        number = float(value)
+    except ValueError:
+        return value
+    return int(number) if number.is_integer() else number
+
+
 def _optional_pyg_version() -> str | None:
     try:
         import torch_geometric  # noqa: PLC0415
@@ -103,31 +112,62 @@ def _psutil_extras() -> dict[str, Any]:
 
 
 def selected_gpu_preflight() -> dict[str, Any]:
-    """Classify selected-GPU occupancy, failing closed on query errors."""
+    """Capture selected-GPU admission and observed co-tenant state."""
     selected = _selected_gpu_uuid()
     if not selected:
         return {"status": "unavailable", "foreign_pids": [], "reason": "selected GPU UUID is unavailable"}
     try:
-        output = subprocess.check_output(
-            ["nvidia-smi", "--query-compute-apps=pid,gpu_uuid", "--format=csv,noheader,nounits"],
+        compute_output = subprocess.check_output(
+            ["nvidia-smi", "--query-compute-apps=pid,gpu_uuid,used_memory", "--format=csv,noheader,nounits"],
+            text=True, stderr=subprocess.DEVNULL, timeout=10,
+        )
+        gpu_output = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=uuid,memory.used,memory.free,utilization.gpu,clocks.sm,clocks.mem,pstate,power.draw,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ],
             text=True, stderr=subprocess.DEVNULL, timeout=10,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         return {"status": "unavailable", "foreign_pids": [], "reason": f"nvidia-smi query failed: {exc}"}
     pids: list[int] = []
-    for line in output.splitlines():
-        fields = [item.strip() for item in line.split(",", 1)]
-        if len(fields) != 2 or fields[1] != selected:
+    foreign_processes: list[dict[str, Any]] = []
+    for line in compute_output.splitlines():
+        fields = [item.strip() for item in line.split(",")]
+        if len(fields) != 3 or fields[1] != selected:
             continue
         try:
-            pids.append(int(fields[0]))
+            pid = int(fields[0])
         except ValueError:
             continue
+        pids.append(pid)
+        foreign_processes.append({"pid": pid, "used_memory": fields[2]})
+    gpu_state = None
+    for line in gpu_output.splitlines():
+        fields = [item.strip() for item in line.split(",")]
+        if len(fields) == 9 and fields[0] == selected:
+            gpu_state = {
+                "uuid": fields[0],
+                "memory_used_mib": _number(fields[1]),
+                "memory_free_mib": _number(fields[2]),
+                "utilization_gpu_percent": _number(fields[3]),
+                "clock_sm_mhz": _number(fields[4]),
+                "clock_memory_mhz": _number(fields[5]),
+                "pstate": fields[6],
+                "power_w": _number(fields[7]),
+                "temperature_c": _number(fields[8]),
+            }
+            break
+    if gpu_state is None:
+        return {"status": "unavailable", "foreign_pids": pids, "foreign_processes": foreign_processes, "gpu_uuid": selected, "reason": "selected GPU telemetry unavailable"}
     pids = sorted(set(pids))
     return {
         "status": "busy" if pids else "clean",
         "foreign_pids": pids,
+        "foreign_processes": foreign_processes,
         "gpu_uuid": selected,
+        "gpu_state": gpu_state,
         "reason": "selected GPU has compute processes" if pids else "no compute processes reported",
     }
 
@@ -155,31 +195,16 @@ def capture_runtime_provenance() -> dict[str, Any]:
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
     provenance["host"] = _psutil_extras()
-    try:
-        output = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=uuid,pstate,clocks.sm,power.draw,temperature.gpu",
-                "--format=csv,noheader,nounits",
-            ],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-        )
-        selected = _selected_gpu_uuid()
-        for line in output.splitlines():
-            fields = [item.strip() for item in line.split(",")]
-            if len(fields) == 5 and fields[0] == selected:
-                provenance["gpu"] = {
-                    "uuid": fields[0],
-                    "pstate": fields[1],
-                    "clock_sm_mhz": fields[2],
-                    "power_w": fields[3],
-                    "temperature_c": fields[4],
-                }
-                break
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        provenance["gpu"] = None
+    shared_state = selected_gpu_preflight()
+    provenance["gpu_shared_state"] = shared_state
+    gpu_state = shared_state.get("gpu_state") if isinstance(shared_state, dict) else None
+    provenance["gpu"] = {
+        "uuid": gpu_state.get("uuid"),
+        "pstate": gpu_state.get("pstate"),
+        "clock_sm_mhz": gpu_state.get("clock_sm_mhz"),
+        "power_w": gpu_state.get("power_w"),
+        "temperature_c": gpu_state.get("temperature_c"),
+    } if isinstance(gpu_state, dict) else None
     return provenance
 
 def capture_fingerprint() -> dict[str, Any]:

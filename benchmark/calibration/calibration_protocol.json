@@ -4,7 +4,7 @@
   "atomic_outer_trials": 3,
   "evolution_outer_trials": "declared_measurement_repetitions",
   "noise_control_repetitions_per_arm": 5,
-  "measurement_protocol_version": 3,
+  "measurement_protocol_version": 4,
   "measurement_protocol": {
     "noise_estimator": "log_ratio_median_mad_v1",
     "device_conditioning_prelude_ms": 250.0,
@@ -15,9 +15,10 @@
   },
   "device_policy": "cuda_when_available",
   "resource_admission": {
+    "gpu_policy": "shared_observed",
     "timeout_s": 600.0,
     "poll_interval_s": 5.0,
-    "require_exclusive": true
+    "require_exclusive": false
   },
   "thread_topology": {
     "omp_num_threads": 8,

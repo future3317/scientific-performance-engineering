@@ -21,7 +21,7 @@ from typing import Any
 from benchmark.harness import miniyaml, runner, stats, verifier
 from benchmark.harness.api import execution_class_for_task
 from benchmark.harness.fingerprint import (
-    capture_fingerprint, fingerprints_compatible, wait_for_selected_gpu_admission,
+    capture_fingerprint, fingerprints_compatible, selected_gpu_preflight,
 )
 from benchmark.calibration.bundle import classify_result, calibration_envelope, validate_calibration_envelope
 from benchmark.calibration.execution import CellExecutor, executor_digest
@@ -105,9 +105,11 @@ def _resource_blocked_result(
     return serialize_cell_state(result)
 
 
-def _preflight_blocks(preflight: dict[str, Any]) -> bool:
-    """Block every non-clean admission result; shared execution is never valid."""
-    return preflight.get("status") != "clean"
+def _preflight_blocks(preflight: dict[str, Any], *, expected_gpu_uuid: str | None = None) -> bool:
+    """Block only query failures or a change in the selected physical GPU."""
+    if preflight.get("status") not in {"clean", "busy"}:
+        return True
+    return expected_gpu_uuid is not None and preflight.get("gpu_uuid") != expected_gpu_uuid
 
 
 def calibration_task_ids(
@@ -383,7 +385,7 @@ def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str
     anti_findings = [finding for item in results for finding in (item.get("anticheat", {}).get("findings", []) if isinstance(item.get("anticheat"), dict) else [])]
     anti = {"hard_fail": any(bool(item.get("anticheat", {}).get("hard_fail")) for item in results), "tripwired": any(bool(item.get("anticheat", {}).get("tripwired")) for item in results), "findings": anti_findings}
     calibration_status = "eligible" if all(derive_cell_state(item) == "eligible" for item in results) else "blocked"
-    resource_modes = {str(item.get("resource_mode", "exclusive")) for item in results}
+    resource_modes = {str(item.get("resource_mode", "shared_observed")) for item in results}
     resource_mode = resource_modes.pop() if len(resource_modes) == 1 else "mixed"
     return {
         "task_id": task_id,
@@ -444,9 +446,6 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
     protocol, protocol_digest = load_calibration_protocol(repo_root)
     measurement_protocol = protocol["measurement_protocol"]
     conditioning_prelude_ms = float(measurement_protocol["device_conditioning_prelude_ms"])
-    admission = protocol["resource_admission"]
-    admission_timeout_s = float(admission["timeout_s"])
-    admission_poll_interval_s = float(admission["poll_interval_s"])
     observed_topology = runner.configure_thread_topology(protocol["thread_topology"])
     if observed_topology != {
         key: str(value) if key not in {"torch_num_threads", "torch_num_interop_threads"} else int(value)
@@ -466,8 +465,6 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
             f"atomic calibration requires --outer-trials={protocol['atomic_outer_trials']} "
             f"from the frozen protocol, got {args.outer_trials}"
         )
-    if bool(getattr(args, "allow_shared_gpu", False)):
-        raise ValueError("shared GPU execution is not permitted by the frozen calibration contract")
     empirical: list[dict[str, Any]] = []
     timing_rows: list[dict[str, Any]] = []
     campaign_started_monotonic = time.perf_counter()
@@ -497,17 +494,14 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
             }
             print(json.dumps({"event": "start_outer_trial", "task_id": task_id, "outer_trial_id": outer_id}, ensure_ascii=False), flush=True)
             preflight = (
-                wait_for_selected_gpu_admission(
-                    timeout_s=admission_timeout_s,
-                    poll_interval_s=admission_poll_interval_s,
-                )
+                selected_gpu_preflight()
                 if fingerprint.get("cuda_available")
-                else {"status": "clean", "foreign_pids": [], "admission_status": "admitted"}
+                else {"status": "clean", "foreign_pids": [], "foreign_processes": [], "gpu_state": None}
             )
-            resource_mode = "exclusive"
+            resource_mode = "shared_observed"
             timing["resource_preflight"] = preflight
             timing["resource_mode"] = resource_mode
-            if _preflight_blocks(preflight):
+            if _preflight_blocks(preflight, expected_gpu_uuid=fingerprint.get("gpu_uuid")):
                 result, noise, envelope = _write_resource_blocked_cell(
                     out=out, task_id=task_id, outer_id=outer_id, task_spec=spec,
                     task_digest=task_digest, population_digest=population_digest,
@@ -521,6 +515,11 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     ),
                 )
                 result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), **preflight}
+                result["resource_mode"] = resource_mode
+                result["shared_state_telemetry"] = {
+                    "session_start": preflight,
+                    "session_end": None,
+                }
                 result = serialize_cell_state(result)
                 raw_path = out / "raw" / outer_id / f"{task_id}.json"
                 raw_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -726,6 +725,22 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     result["validity"] = "invalid"
                     result["execution_validity"] = "invalid"
                     result.setdefault("errors", []).append("post-run validate-task failed")
+                postflight = (
+                    selected_gpu_preflight()
+                    if fingerprint.get("cuda_available")
+                    else {"status": "clean", "foreign_pids": [], "foreign_processes": [], "gpu_state": None}
+                )
+                timing["resource_postflight"] = postflight
+                result["shared_state_telemetry"] = {
+                    "session_start": preflight,
+                    "session_end": postflight,
+                }
+                result["resource_postflight"] = postflight
+                if _preflight_blocks(postflight, expected_gpu_uuid=fingerprint.get("gpu_uuid")):
+                    result["protocol_failure"] = True
+                    result["validity"] = "invalid"
+                    result["execution_validity"] = "invalid"
+                    result.setdefault("errors", []).append("shared measurement session lost required GPU/runtime identity")
                 result["resource_mode"] = resource_mode
                 result["measurement_session_id"] = session_id
                 result["resource_preflight"] = {"gpu_uuid": fingerprint.get("gpu_uuid"), **preflight}
