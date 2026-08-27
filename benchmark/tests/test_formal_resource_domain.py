@@ -80,6 +80,22 @@ def test_resource_out_of_domain_task_is_omitted_without_dummy_cells():
     assert {item["task_id"] for item in schedule} == {"T-in"}
 
 
+def test_not_applicable_evolution_task_remains_in_schedule():
+    manifest = {
+        "task_ids": ["T-in", "T-episode", "T-out"],
+        "in_domain_task_ids": ["T-in"],
+        "not_applicable_task_ids": ["T-episode"],
+        "out_of_domain_task_ids": ["T-out"],
+        "unresolved_task_ids": [],
+    }
+    schedule = build_task_block_schedule(
+        [(1, "T-in"), (1, "T-episode"), (1, "T-out")], conditions=("B", "D"),
+        context_modes=("reset",), outer_trials=1, schedule_seed=0,
+        resource_domain_manifest=manifest,
+    )
+    assert {item["task_id"] for item in schedule} == {"T-in", "T-episode"}
+
+
 def test_resource_sensitivity_uses_registered_weights_and_bounded_delta():
     result = compute_resource_sensitivity(
         registered_weights={"T-out": 0.25},

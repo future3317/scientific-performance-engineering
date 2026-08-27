@@ -2202,11 +2202,15 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         formal_manifest = json.loads(population_manifest.read_text(encoding="utf-8"))
         all_slots = schedule.task_order_from_materialized(formal_manifest)
         if resource_manifest is not None:
-            in_domain = set(resource_manifest["in_domain_task_ids"])
             slot_by_id = {str(slot["task_id"]): slot for slot in formal_manifest.get("slots", [])}
+            excluded = {
+                str(item)
+                for key in ("out_of_domain_task_ids", "unresolved_task_ids")
+                for item in resource_manifest.get(key, [])
+            }
             task_items = [
                 item for item in all_slots
-                if str(slot_by_id[item[1]].get("source_task_id", item[1])) in in_domain
+                if str(slot_by_id[item[1]].get("source_task_id", item[1])) not in excluded
             ]
         else:
             task_items = all_slots
