@@ -72,10 +72,12 @@ def _run_attempt(
     *, repo_root: Path, task_dir: Path, task_id: str, task_digest: str,
     output_path: Path, session_id: str, seed: int,
 ) -> dict[str, Any]:
+    task_spec = miniyaml.load(str(task_dir / "task.yaml"))
+    solution_path = task_dir / "workspace" / str(task_spec["workspace"]["entrypoint"])
     completed = CellExecutor(repo_root).run_module(
         module="benchmark.formal.resource_domain",
-        args=("--probe-task", str(task_dir), "--solution", str(task_dir / "workspace"), "--out", str(output_path), "--seed", str(seed)),
-        timeout_s=float(miniyaml.load(str(task_dir / "task.yaml")).get("time_budget_s", 600.0)),
+        args=("--probe-task", str(task_dir), "--solution", str(solution_path), "--out", str(output_path), "--seed", str(seed)),
+        timeout_s=float(task_spec.get("time_budget_s", 600.0)),
     )
     cleanup = completed.get("cleanup", {})
     if output_path.is_file():
