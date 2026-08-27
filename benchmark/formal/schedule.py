@@ -558,7 +558,7 @@ def build_task_block_schedule(
 def filter_task_items_by_resource_domain(
     tasks: list[tuple[int, str]], manifest: Mapping[str, Any] | None,
 ) -> list[tuple[int, str]]:
-    """Keep only frozen resource-domain in-domain tasks; never create dummy cells."""
+    """Exclude only resource-invalid tasks; retain not-applicable episodes."""
     if manifest is None:
         return list(tasks)
     manifest_ids = {str(item) for item in manifest.get("task_ids", [])}
@@ -566,5 +566,9 @@ def filter_task_items_by_resource_domain(
     missing = sorted(task_ids - manifest_ids)
     if missing:
         raise ValueError("resource domain manifest does not cover scheduled tasks: " + ", ".join(missing))
-    in_domain = {str(item) for item in manifest.get("in_domain_task_ids", [])}
-    return [(phase, task_id) for phase, task_id in tasks if str(task_id) in in_domain]
+    excluded = {
+        str(item)
+        for key in ("out_of_domain_task_ids", "unresolved_task_ids")
+        for item in manifest.get(key, [])
+    }
+    return [(phase, task_id) for phase, task_id in tasks if str(task_id) not in excluded]
