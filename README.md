@@ -72,7 +72,12 @@ and evidence-producing command through `ssh dbcloud`, from
 project commands from the local Windows checkout, local Python, or any local
 Conda environment. Local access is for editing, reading, and static inspection
 only; local output is not runtime evidence. Do not use Conda `base`.
-Qualification and official calibration must not use `--allow-shared-gpu`.
+Qualification and official calibration use the frozen
+`SHARED_GPU_MATCHED_SESSION_V1` policy: shared compute is allowed, but the
+selected GPU UUID/runtime contract, paired session identity, required
+artifacts, and executor lifecycle remain hard validity invariants. Foreign
+processes and GPU load telemetry are recorded as nuisance covariates rather
+than treated as automatic failures.
 
 ## Quickstart
 

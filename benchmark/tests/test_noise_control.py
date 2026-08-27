@@ -60,6 +60,51 @@ def test_runtime_provenance_keeps_process_and_host_state() -> None:
     assert "cpu_affinity" in provenance
     assert "host" in provenance
     assert "timestamp_utc" in provenance
+
+
+def test_paired_measurement_records_shared_session_boundaries(monkeypatch, tmp_path: Path) -> None:
+    from benchmark.harness import runner
+
+    fingerprint = {"gpu_uuid": "GPU-test", "cuda_visible_devices": "0"}
+    telemetry = iter(
+        {"status": "busy", "foreign_pids": [101], "gpu_uuid": "GPU-test"}
+        for _ in range(5)
+    )
+    monkeypatch.setattr(runner, "capture_fingerprint", lambda: fingerprint)
+    monkeypatch.setattr(
+        runner,
+        "capture_runtime_provenance",
+        lambda: {"gpu_shared_state": next(telemetry)},
+    )
+    monkeypatch.setattr(runner, "condition_cuda_device", lambda *_: 0.0)
+
+    class Module:
+        @staticmethod
+        def load_solution(path: str, device: str) -> str:
+            return path
+
+        @staticmethod
+        def make_fixtures(seed: int, device: str) -> dict[str, int]:
+            return {"seed": seed}
+
+        @staticmethod
+        def run_performance(solution: str, fixtures: dict[str, int], warmup: int, iterations: int, device: str) -> float:
+            return 1.0
+
+    record = runner.run_paired_measurement(
+        Module,
+        baseline_path=tmp_path / "baseline.py",
+        candidate_path=tmp_path / "candidate.py",
+        measurement_cfg={"repetitions": 1, "warmup_iterations": 1, "measured_iterations": 1},
+        seed=0,
+        device="cuda:0",
+    )
+
+    telemetry_record = record["shared_state_telemetry"]
+    assert telemetry_record["session_start"]["gpu_shared_state"]["foreign_pids"] == [101]
+    assert len(telemetry_record["arm_boundaries"]) == 2
+    assert telemetry_record["session_end"]["gpu_shared_state"]["foreign_pids"] == [101]
+    assert record["runtime_contract"]["compatible"] is True
 def test_cache_policy_matches_task_family() -> None:
 
     from benchmark.harness.verifier import cache_policy_for_task
