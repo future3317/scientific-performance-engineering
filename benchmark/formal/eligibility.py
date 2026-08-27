@@ -32,12 +32,12 @@ _TASK_FIELDS = {
     "runtime_contract_digest", "declared_noise_floor_percent",
     "observed_typical_noise_percent", "effective_noise_floor_percent",
     "baseline_stability", "protocol_valid", "correctness_scientific_valid",
-    "reason",
+    "reason", "resource_domain_status",
 }
 _MANIFEST_FIELDS = {
     "schema_version", "manifest_id", "status", "benchmark_revision",
     "population_manifest_digest", "calibration_protocol_digest", "task_ids",
-    "efficacy_task_ids", "diagnostic_task_ids", "tasks", "artifact_digest",
+    "resource_domain_manifest_digest", "efficacy_task_ids", "diagnostic_task_ids", "tasks", "artifact_digest",
 }
 _ELIGIBILITY_INPUT_FIELDS = {
     "schema_version", "benchmark_revision", "population_manifest_digest",
@@ -47,6 +47,7 @@ _ELIGIBILITY_INPUT_TASK_FIELDS = {
     "task_id", "task_package_digest", "revision", "environment", "outer_trials",
     "noise_control", "baseline_stability", "semantic_gates", "anti_cheat",
 }
+_RESOURCE_ELIGIBILITY_INPUT_TASK_FIELDS = _ELIGIBILITY_INPUT_TASK_FIELDS | {"resource_domain_status"}
 
 
 def _finite(value: Any) -> bool:
@@ -176,7 +177,11 @@ def build_manifest(
 ) -> dict[str, Any]:
     """Project calibration-only evidence into a frozen, agent-blind manifest."""
     root = Path(tasks_root)
-    if set(pilot_calibration) != _ELIGIBILITY_INPUT_FIELDS:
+    allowed_input_fields = {
+        frozenset(_ELIGIBILITY_INPUT_FIELDS),
+        frozenset(_ELIGIBILITY_INPUT_FIELDS | {"resource_domain_manifest_digest"}),
+    }
+    if frozenset(pilot_calibration) not in allowed_input_fields:
         raise ValueError("eligibility input contains unsupported or missing fields")
     if _FORBIDDEN_TASK_FIELDS.intersection(pilot_calibration):
         raise ValueError("eligibility input contains agent/outcome fields")
@@ -192,6 +197,10 @@ def build_manifest(
                 "calibration_protocol_digest": "protocol digest",
             }[key]
             raise ValueError(f"eligibility {label} mismatch")
+    resource_manifest_digest = pilot_calibration.get("resource_domain_manifest_digest")
+    resource_bound = resource_manifest_digest is not None
+    if resource_bound and (not isinstance(resource_manifest_digest, str) or not resource_manifest_digest):
+        raise ValueError("resource domain manifest digest is invalid")
     task_ids = [str(item) for item in pilot_calibration.get("active_task_ids", [])]
     by_id = {str(item.get("task_id")): item for item in pilot_calibration.get("tasks", []) if isinstance(item, Mapping)}
     if not task_ids or set(task_ids) != set(by_id):
@@ -207,7 +216,10 @@ def build_manifest(
         forbidden = _FORBIDDEN_TASK_FIELDS.intersection(pilot_task)
         if forbidden:
             raise ValueError(f"eligibility input contains agent/outcome fields for {task_id}: {sorted(forbidden)}")
-        if set(pilot_task) != _ELIGIBILITY_INPUT_TASK_FIELDS:
+        expected_task_fields = _RESOURCE_ELIGIBILITY_INPUT_TASK_FIELDS if resource_bound else _ELIGIBILITY_INPUT_TASK_FIELDS
+        if set(pilot_task) != expected_task_fields:
+            if not resource_bound and "resource_domain_status" in pilot_task:
+                raise ValueError("resource domain status requires a frozen resource domain manifest")
             raise ValueError(f"eligibility input contains unsupported or missing fields for {task_id}")
         package_digest = pilot_task.get("task_package_digest")
         if package_digest != task_package_digest(task_dir):
@@ -225,7 +237,12 @@ def build_manifest(
             calibration_protocol_digest=calibration_protocol_digest,
             task_package_digest_value=task_digest, require_noise=require_noise,
         )
-        role = "efficacy" if valid and require_noise and str(spec.get("kind")) == "positive" else "diagnostic"
+        resource_status = pilot_task.get("resource_domain_status")
+        if resource_bound and resource_status not in {"in_domain", "out_of_domain_capacity", "not_applicable", "unresolved"}:
+            raise ValueError(f"{task_id}: invalid resource domain status")
+        if resource_bound and resource_status != "in_domain":
+            reasons.append("RESOURCE_OUT_OF_TARGET_RUNTIME_DOMAIN")
+        role = "efficacy" if valid and require_noise and str(spec.get("kind")) == "positive" and (not resource_bound or resource_status == "in_domain") else "diagnostic"
         declared = float((spec.get("measurement") or {}).get("noise_floor_percent", 2.0))
         effective = max([declared, *observed])
         tasks.append({
@@ -246,6 +263,7 @@ def build_manifest(
             "protocol_valid": protocol_valid,
             "correctness_scientific_valid": scientific_valid,
             "reason": sorted(set(reasons)),
+            "resource_domain_status": resource_status,
         })
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -254,6 +272,7 @@ def build_manifest(
         "benchmark_revision": str(benchmark_revision),
         "population_manifest_digest": str(population_manifest_digest),
         "calibration_protocol_digest": str(calibration_protocol_digest),
+        "resource_domain_manifest_digest": resource_manifest_digest,
         "task_ids": task_ids,
         "efficacy_task_ids": [item["task_id"] for item in tasks if item["role"] == "efficacy"],
         "diagnostic_task_ids": [item["task_id"] for item in tasks if item["role"] == "diagnostic"],
@@ -346,12 +365,22 @@ def main() -> int:
     parser.add_argument("--benchmark-revision", required=True)
     parser.add_argument("--population-manifest-digest", required=True)
     parser.add_argument("--calibration-protocol-digest", required=True)
+    parser.add_argument("--resource-domain-manifest", type=Path, default=None, help="frozen baseline-only resource-domain manifest")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     from benchmark.calibration.report import build_efficacy_eligibility_input
 
+    resource_domain_manifest = None
+    if args.resource_domain_manifest is not None:
+        from benchmark.formal.resource_domain import load_resource_domain_manifest
+
+        resource_domain_manifest = load_resource_domain_manifest(
+            args.resource_domain_manifest,
+            repo_root=args.tasks_root.resolve().parents[1],
+        )
     pilot = build_efficacy_eligibility_input(
-        json.loads(args.pilot_calibration.read_text(encoding="utf-8"))
+        json.loads(args.pilot_calibration.read_text(encoding="utf-8")),
+        resource_domain_manifest=resource_domain_manifest,
     )
     manifest = build_manifest(
         pilot_calibration=pilot, tasks_root=args.tasks_root,

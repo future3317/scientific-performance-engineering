@@ -490,6 +490,7 @@ def build_schedule(
     context_modes: tuple[str, ...] = ("reset",),
     outer_trials: int = 3,
     schedule_seed: int = 0,
+    resource_domain_manifest: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if outer_trials < 1:
         raise ValueError("outer_trials must be positive")
@@ -499,7 +500,7 @@ def build_schedule(
         raise ValueError("unknown formal condition")
     if any(mode not in {"reset", "carry"} for mode in context_modes):
         raise ValueError("unknown context mode")
-    tasks = task_order(split_path)
+    tasks = filter_task_items_by_resource_domain(task_order(split_path), resource_domain_manifest)
     return build_task_block_schedule(
         tasks, conditions=conditions, context_modes=context_modes,
         outer_trials=outer_trials, schedule_seed=schedule_seed,
@@ -519,8 +520,10 @@ def build_task_block_schedule(
     tasks: list[tuple[int, str]], *, conditions: tuple[str, ...],
     context_modes: tuple[str, ...], outer_trials: int, schedule_seed: int,
     task_visibility: Mapping[str, str] | None = None,
+    resource_domain_manifest: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Randomize conditions within each task block, not as complete streams."""
+    tasks = filter_task_items_by_resource_domain(tasks, resource_domain_manifest)
     schedule: list[dict[str, Any]] = []
     index = 0
     for outer_trial in range(outer_trials):
@@ -550,3 +553,18 @@ def build_task_block_schedule(
                     })
                     index += 1
     return schedule
+
+
+def filter_task_items_by_resource_domain(
+    tasks: list[tuple[int, str]], manifest: Mapping[str, Any] | None,
+) -> list[tuple[int, str]]:
+    """Keep only frozen resource-domain in-domain tasks; never create dummy cells."""
+    if manifest is None:
+        return list(tasks)
+    manifest_ids = {str(item) for item in manifest.get("task_ids", [])}
+    task_ids = {str(task_id) for _phase, task_id in tasks}
+    missing = sorted(task_ids - manifest_ids)
+    if missing:
+        raise ValueError("resource domain manifest does not cover scheduled tasks: " + ", ".join(missing))
+    in_domain = {str(item) for item in manifest.get("in_domain_task_ids", [])}
+    return [(phase, task_id) for phase, task_id in tasks if str(task_id) in in_domain]
