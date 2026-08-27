@@ -36,9 +36,13 @@ baseline-only resource census and freeze its artifact:
 
 The census binds the current revision, population, resource protocol, selected
 GPU/runtime contract, and one confirmation attempt for a clean capacity failure.
+Each atomic probe invokes the registered baseline with its task-specific
+`warmup_iterations` and `measured_iterations`; it does not replace the task's
+measurement window with a lightweight probe or change repetitions.
 It may classify a task as `in_domain`, `out_of_domain_capacity`,
 `not_applicable`, or `unresolved`; only `in_domain` tasks enter executable
-performance schedules. Resource-out-of-domain tasks remain in the complete
+performance calibration, while `not_applicable` episode tasks remain in the
+evolution schedule. Resource-out-of-domain tasks remain in the complete
 30-task population and attrition report, but are not scientific failures,
 valid-but-ineligible results, or zero-utility observations. Any unresolved
 resource/protocol evidence is a release blocker.
