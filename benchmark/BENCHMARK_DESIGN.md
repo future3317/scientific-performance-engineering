@@ -310,7 +310,9 @@ S6 verdict        -> emit result.json (schema/result.schema.json): gates, verifi
   resource-feasibility census. The census is agent-blind and baseline-only: it
   binds the exact runtime contract and clean admission, records memory telemetry
   and executor cleanup, and permits one preregistered confirmation of a capacity
-  failure. Its status is orthogonal to scientific eligibility:
+  failure. Atomic probes use the task's registered warmup and measured iteration
+  window, while episode tasks are marked not applicable; the probe never reads
+  candidate/oracle outcomes. Its status is orthogonal to scientific eligibility:
   `in_domain`, `out_of_domain_capacity`, `not_applicable`, or `unresolved`.
   Capacity attrition remains in complete population accounting but is not a
   scientific failure, valid-but-ineligible outcome, or zero utility. Only the
