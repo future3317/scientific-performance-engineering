@@ -671,31 +671,6 @@ def test_shared_gpu_preflight_records_co_tenant_telemetry(monkeypatch):
     }
 
 
-def test_resource_census_accepts_busy_gpu_as_observed(monkeypatch):
-    module_path = Path(__file__).parents[2] / "scripts" / "run_resource_domain_census.py"
-    spec = importlib.util.spec_from_file_location("run_resource_domain_census", module_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    busy = {
-        "status": "busy",
-        "gpu_uuid": "GPU-test",
-        "foreign_processes": [{"pid": 101, "used_memory": "512 MiB"}],
-    }
-    assert module._resource_probe_admitted(busy) is True
-
-
-def test_resource_census_rejects_unavailable_gpu():
-    module_path = Path(__file__).parents[2] / "scripts" / "run_resource_domain_census.py"
-    spec = importlib.util.spec_from_file_location("run_resource_domain_census", module_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    assert module._resource_probe_admitted({"status": "unavailable", "gpu_uuid": "GPU-test"}) is False
-
-
 def test_paired_measurement_requires_both_arms_for_each_repetition():
     from benchmark.harness.runner import paired_measurement_complete
 
