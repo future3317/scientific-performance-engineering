@@ -319,6 +319,18 @@ S6 verdict        -> emit result.json (schema/result.schema.json): gates, verifi
   intersection of resource-domain `in_domain` and frozen scientific efficacy
   eligibility contributes to confirmatory timing estimates. Unresolved resource
   or protocol evidence is a release blocker.
+- Calibration and formal paired measurements use
+  `SHARED_GPU_MATCHED_SESSION_V1`: zero foreign compute processes are not
+  required. Each paired session records selected GPU UUID/runtime identity and
+  shared-state telemetry at session start, arm boundaries when inexpensive,
+  and session end. Foreign PID set, process memory, free/used VRAM, utilization,
+  SM/memory clocks, P-state, power, and temperature are nuisance covariates;
+  their changes do not automatically invalidate a session. A session is
+  infrastructure-invalid only for selected-GPU UUID or runtime-contract
+  changes, executor/protocol failure, timeout, CUDA OOM/resource exhaustion,
+  broken session identity, missing required provenance, or incomplete paired
+  cells. Same-session paired/interleaved contrasts and the registered
+  baseline-null noise estimator determine whether an effect is resolvable.
 - **Verified speedup** = CI lower bound ≥ `max(min_improvement_percent,
   effective_noise_floor_percent)`, where the effective floor is the maximum of
   the declared minimum and the observed same-host control floor. Population
