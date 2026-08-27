@@ -616,6 +616,37 @@ def test_gpu_preflight_query_failure_is_not_clean(monkeypatch):
     assert "nvidia-smi" in result["reason"]
 
 
+def test_verifier_nonzero_exit_without_artifact_is_persisted_as_resource_blocked(monkeypatch, tmp_path):
+    from benchmark.calibration import campaign
+
+    def fail_without_artifact(self, **_kwargs):
+        return {
+            "timed_out": False,
+            "exit_code": 1,
+            "stderr": "CUDA out of memory",
+            "stdout": "",
+            "wall_time_s": 1.2,
+            "cleanup": {"quiescent": True},
+        }
+
+    monkeypatch.setattr(campaign.CellExecutor, "run_module", fail_without_artifact)
+    result_path = tmp_path / "raw.json"
+
+    result = campaign._bounded_verifier_result(
+        task_id="TASK",
+        outer_trial_id="outer-000",
+        result_path=result_path,
+        timeout_s=10.0,
+        module="benchmark.harness.cli",
+        args=(),
+        cwd=tmp_path,
+    )
+
+    assert result["execution_validity"] == "resource_blocked"
+    assert result["calibration_status"] == "blocked"
+    assert result_path.is_file()
+
+
 def test_gpu_admission_waits_until_selected_gpu_is_clean(monkeypatch):
     from benchmark.harness import fingerprint
 
