@@ -213,7 +213,7 @@ def _write_resource_blocked_cell(
 
 def _bounded_noise_control(
     *, task_id: str, outer_trial_id: str, noise_path: Path, timeout_s: float,
-    args: tuple[str, ...], cwd: Path,
+    args: tuple[str, ...], cwd: Path, timeout_artifact: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Run one noise-control cell in a killable process."""
     completed = CellExecutor(cwd).run_noise_control(args=args, timeout_s=float(timeout_s))
@@ -239,16 +239,22 @@ def _bounded_noise_control(
             f"noise control exited without an artifact for {task_id}/{outer_trial_id}: "
             f"{completed['stderr'] or completed['stdout']}"
         )
-    return {
-        "schema_version": 1,
+    if timeout_artifact is None:
+        raise RuntimeError("noise control timeout requires complete artifact metadata")
+    noise = dict(timeout_artifact)
+    noise.setdefault("observed_noise_floor_percent", 0.0)
+    noise.update({
         "task_id": task_id,
         "outer_trial_id": outer_trial_id,
         "timeout": True,
+        "execution_validity": "resource_blocked",
         "failure_stage": "noise_control",
         "error": completed["stderr"] or f"noise control timed out after {timeout_s:g}s",
         "wall_time_s": float(completed["wall_time_s"]),
         "executor_cleanup": cleanup,
-    }, True
+    })
+    stats.write_noise_control(noise_path, noise)
+    return stats.read_noise_control(noise_path), True
 
 
 def _bounded_post_validation(task_dir: Path, cwd: Path) -> dict[str, Any]:
@@ -628,6 +634,25 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                             "--seed", str(outer),
                         ),
                         cwd=repo_root,
+                        timeout_artifact={
+                            "measurement_session_id": session_id,
+                            "benchmark_revision": revision,
+                            "task_manifest_digest": digest,
+                            "task_package_digest": task_digest,
+                            "population_manifest_digest": population_digest,
+                            "hardware_fingerprint": fingerprint,
+                            "software_fingerprint": fingerprint,
+                            "compile_threads": int(spec.get("measurement", {}).get("compile_threads", 2)),
+                            "compiler_cache_policy": verifier.cache_policy_for_task(spec),
+                            "primary_metric": spec.get("measurement", {}).get("primary_metric", "step_ms_p50"),
+                            "higher_is_better": bool(spec.get("measurement", {}).get("higher_is_better", False)),
+                            "control_a_runs": [1.0] * 5,
+                            "control_b_runs": [1.0] * 5,
+                            "observed_noise_floor_percent": 0.0,
+                            "declared_noise_floor_percent": float(spec.get("measurement", {}).get("noise_floor_percent", 2.0)),
+                            "expected_speedup_range": list(spec.get("oracle", {}).get("expected_speedup_range", [0.0, 1.0])),
+                            "measurement_phase": measurement_phase,
+                        },
                     )
                     timing["noise_control_s"] = round(time.perf_counter() - noise_started, 3)
                     if noise_timed_out:
