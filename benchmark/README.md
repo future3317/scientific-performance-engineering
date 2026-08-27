@@ -88,7 +88,13 @@ qualification, test, validator, timing probe, and GPU evidence run. Use
 project commands from the local Windows checkout, local Python, or any local
 Conda environment. Local access is limited to reading, editing, and static
 inspection; local output is not runtime evidence. Do not use Conda `base`.
-Official qualification and calibration must not use `--allow-shared-gpu`.
+Official qualification and calibration use the frozen
+`SHARED_GPU_MATCHED_SESSION_V1` policy. Shared compute is allowed when the
+selected GPU UUID and runtime contract remain fixed; foreign process IDs,
+memory, utilization, clocks, P-state, power, and temperature are recorded as
+nuisance telemetry, not automatic invalidity. UUID/runtime changes, executor
+or timeout failures, OOM/resource exhaustion, missing provenance, and
+incomplete paired cells remain hard blockers.
 
 ## Status and calibration scope
 
