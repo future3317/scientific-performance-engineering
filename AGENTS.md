@@ -32,4 +32,7 @@ git pull --rebase
 ```
 
 Qualification and official calibration must use the declared server resource
-contract and must not pass `--allow-shared-gpu`.
+contract and the frozen `SHARED_GPU_MATCHED_SESSION_V1` policy. Shared compute
+is allowed with observed co-tenancy telemetry; selected GPU UUID/runtime
+identity, session/provenance completeness, executor lifecycle, timeout, OOM,
+and paired-cell completeness remain hard validity invariants.
