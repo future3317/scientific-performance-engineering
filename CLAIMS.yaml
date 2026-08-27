@@ -8,8 +8,10 @@ primary:
   tracks: [spe_core, sciml]
   unit: task_lineage
   metric: task_score
-  estimand: mean(D - B) over sealed task/lineage pairs
+  estimand: mean(D - B) over sealed task/lineage pairs in the preregistered target-runtime-feasible efficacy population
   weighting: equal_task_then_equal_lineage
+  eligibility: agent_blind_scientific_eligibility_intersect_frozen_resource_domain_in_domain
+  resource_attrition_policy: report_separately_not_zero_utility
   confidence_interval: lineage_task_hierarchical_bootstrap
   alpha: 0.05
   missing_policy: infrastructure_invalid_rerun_only; protocol_valid_failure_score_zero

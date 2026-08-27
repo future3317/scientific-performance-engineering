@@ -34,11 +34,20 @@ Any future distribution-sampling protocol must be registered before use.
 Protocol-valid task failures are efficacy-eligible with score zero. Agent
 timeout, crash, or budget exhaustion are outcome failures. Executor, hardware,
 and protocol failures are infrastructure-invalid and are the only rerunnable
-class. Every rerun records its reason, count, and source run digest.
+class. Before efficacy, a baseline-only resource census freezes the target
+runtime domain. A clean, repeated capacity failure is
+`out_of_domain_capacity`: it remains visible in 30-task attrition accounting,
+is not assigned zero utility, and is excluded from confirmatory performance
+estimation. Admission contention, protocol errors, and unresolved resource
+evidence are not capacity attrition; they block release. Every rerun records
+its reason, count, and source run digest.
 
 ## Confirmatory aggregation
 
 `CLAIMS.yaml` freezes the primary D-B estimand and weighting. Formal aggregation
 accepts sealed, efficacy-eligible, complete matrices only; public/dev and
-family/difficulty slices are exploratory. If readiness is withheld, all
-condition-level effects are withheld.
+family/difficulty slices are exploratory. When a resource census is frozen,
+D-B is estimated on the preregistered intersection of agent-blind scientific
+eligibility and target-runtime feasibility. Resource attrition is reported
+separately and does not imply a zero outcome for the excluded task. If
+readiness is withheld, all condition-level effects are withheld.

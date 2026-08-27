@@ -699,7 +699,10 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
     return artifact
 
 
-def build_efficacy_eligibility_input(pilot_calibration: dict[str, Any]) -> dict[str, Any]:
+def build_efficacy_eligibility_input(
+    pilot_calibration: dict[str, Any],
+    *, resource_domain_manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Project a pilot report into the strict, agent-blind eligibility input."""
     if not isinstance(pilot_calibration, dict):
         raise ValueError("pilot calibration must be an object")
@@ -720,6 +723,33 @@ def build_efficacy_eligibility_input(pilot_calibration: dict[str, Any]) -> dict[
     protocol_digest = pilot_calibration.get("calibration_protocol_digest")
     if not all(isinstance(value, str) and value for value in (benchmark_revision, population_digest, protocol_digest)):
         raise ValueError("pilot calibration is missing revision, population, or protocol identity")
+    resource_digest = None
+    resource_status_by_id: dict[str, str] = {}
+    if resource_domain_manifest is not None:
+        if resource_domain_manifest.get("manifest_id") != "resource-domain-eligibility-v1" or resource_domain_manifest.get("status") != "frozen":
+            raise ValueError("resource domain manifest is not frozen")
+        resource_digest = resource_domain_manifest.get("artifact_digest")
+        resource_tasks = resource_domain_manifest.get("tasks")
+        if (
+            not isinstance(resource_digest, str) or not resource_digest
+            or not isinstance(resource_tasks, list)
+            or resource_domain_manifest.get("benchmark_revision") != benchmark_revision
+            or resource_domain_manifest.get("population_manifest_digest") != population_digest
+            or not isinstance(resource_domain_manifest.get("runtime_contract"), dict)
+            or resource_domain_manifest.get("runtime_contract_digest") != json_digest(resource_domain_manifest.get("runtime_contract"))
+        ):
+            raise ValueError("resource domain manifest is incomplete")
+        resource_by_id = {str(item.get("task_id")): item for item in resource_tasks if isinstance(item, dict)}
+        if set(resource_by_id) != set(task_ids) or len(resource_by_id) != len(resource_tasks):
+            raise ValueError("resource domain manifest must cover exactly the eligibility population")
+        for task_id in task_ids:
+            resource_item = resource_by_id[task_id]
+            if resource_item.get("task_package_digest") != by_id[task_id].get("task_digest"):
+                raise ValueError(f"{task_id}: resource domain task package mismatch")
+        resource_status_by_id = {
+            task_id: str(resource_by_id[task_id].get("resource_domain_status"))
+            for task_id in task_ids
+        }
     projected_tasks: list[dict[str, Any]] = []
     for task_id in task_ids:
         source = by_id[task_id]
@@ -779,8 +809,9 @@ def build_efficacy_eligibility_input(pilot_calibration: dict[str, Any]) -> dict[
             "baseline_stability": source.get("baseline_stability"),
             "semantic_gates": source.get("semantic_gates"),
             "anti_cheat": source.get("anti_cheat"),
+            **({"resource_domain_status": resource_status_by_id[task_id]} if resource_domain_manifest is not None else {}),
         })
-    return {
+    projected = {
         "schema_version": 1,
         "benchmark_revision": benchmark_revision,
         "population_manifest_digest": population_digest,
@@ -788,6 +819,9 @@ def build_efficacy_eligibility_input(pilot_calibration: dict[str, Any]) -> dict[
         "active_task_ids": task_ids,
         "tasks": projected_tasks,
     }
+    if resource_domain_manifest is not None:
+        projected["resource_domain_manifest_digest"] = resource_digest
+    return projected
 
 
 def rebuild_calibration_views(

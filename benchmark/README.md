@@ -26,6 +26,23 @@ The complete pilot remains in the diagnostic record for attrition, abstention,
 negative transfer, poison, drift, and evolution evidence. Confirmatory contrasts
 are D−B (primary), D−C, and B−A; raw speedup is only one performance coordinate.
 
+The target runtime is part of the estimand. Before calibration, run the
+baseline-only resource census and freeze its artifact:
+
+```bash
+/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python scripts/run_resource_domain_census.py \
+  --repo-root . --out RESULTS/resource-domain-census
+```
+
+The census binds the current revision, population, resource protocol, selected
+GPU/runtime contract, and one confirmation attempt for a clean capacity failure.
+It may classify a task as `in_domain`, `out_of_domain_capacity`,
+`not_applicable`, or `unresolved`; only `in_domain` tasks enter executable
+performance schedules. Resource-out-of-domain tasks remain in the complete
+30-task population and attrition report, but are not scientific failures,
+valid-but-ineligible results, or zero-utility observations. Any unresolved
+resource/protocol evidence is a release blocker.
+
 After a calibration-only pilot and before any agent command, materialize the
 frozen subset on the server:
 
@@ -36,12 +53,16 @@ frozen subset on the server:
   --benchmark-revision "$REVISION" \
   --population-manifest-digest "$POPULATION_DIGEST" \
   --calibration-protocol-digest "$PROTOCOL_DIGEST" \
+  --resource-domain-manifest RESULTS/resource-domain-census/resource_domain_eligibility.json \
   --out RESULTS/efficacy_eligibility.json
 ```
 
-Pass that artifact to the formal driver with `--efficacy-eligibility`. The
-driver refuses an agent campaign without it and records its digest and each
-paired measurement session in the experiment manifest.
+Pass that artifact to the formal driver with both `--efficacy-eligibility` and
+`--resource-domain-manifest`. A formal campaign refuses a missing or mismatched
+resource artifact and records both digests in the experiment manifest. The
+resource-conditioned confirmatory estimand is the preregistered intersection of
+scientifically eligible tasks and the frozen target-runtime domain; it is not a
+claim about the original 30-task population without qualification.
 
 ## Contents
 

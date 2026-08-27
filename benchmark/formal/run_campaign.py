@@ -30,7 +30,7 @@ from benchmark.harness import conditions, miniyaml, scoring, stats, verifier
 from benchmark.calibration.execution import CellExecutor
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
-from benchmark.formal import aggregate, attest, budget, schedule
+from benchmark.formal import aggregate, attest, budget, resource_domain, schedule
 from benchmark.formal import eligibility
 from benchmark.calibration.approval import validate_calibration_approval
 from benchmark.formal.release_manifest import validate_formal_release, validate_materialized_manifest
@@ -2190,11 +2190,30 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if loaded_campaign.get("status") == "complete":
             return loaded_campaign
         existing_campaign = loaded_campaign
+    resource_domain_path = getattr(args, "resource_domain_manifest", None)
+    if getattr(args, "formal", False) and not resource_domain_path:
+        raise ValueError("formal campaigns require a frozen --resource-domain-manifest")
+    resource_manifest = None
+    if resource_domain_path:
+        resource_manifest = resource_domain.load_resource_domain_manifest(
+            Path(resource_domain_path).resolve(), repo_root=repo_root,
+        )
     if getattr(args, "formal", False):
         formal_manifest = json.loads(population_manifest.read_text(encoding="utf-8"))
-        task_items = schedule.task_order_from_materialized(formal_manifest)
+        all_slots = schedule.task_order_from_materialized(formal_manifest)
+        if resource_manifest is not None:
+            in_domain = set(resource_manifest["in_domain_task_ids"])
+            slot_by_id = {str(slot["task_id"]): slot for slot in formal_manifest.get("slots", [])}
+            task_items = [
+                item for item in all_slots
+                if str(slot_by_id[item[1]].get("source_task_id", item[1])) in in_domain
+            ]
+        else:
+            task_items = all_slots
     else:
         task_items = schedule.task_order(split_path)
+        if resource_manifest is not None:
+            task_items = schedule.filter_task_items_by_resource_domain(task_items, resource_manifest)
     task_ids = [task_id for _, task_id in task_items]
     if args.skill_view:
         skill_view = Path(args.skill_view).resolve()
@@ -2218,6 +2237,12 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         population_manifest_digest=population_digest,
     ) if eligibility_path else None
     if eligibility_manifest is not None:
+        eligibility_resource_digest = eligibility_manifest.get("resource_domain_manifest_digest")
+        if eligibility_resource_digest and resource_manifest is None:
+            raise ValueError("eligibility manifest requires --resource-domain-manifest")
+        if resource_manifest is not None and eligibility_resource_digest != resource_manifest.get("artifact_digest"):
+            raise ValueError("resource-domain manifest digest does not match eligibility manifest")
+    if eligibility_manifest is not None:
         missing_eligibility_tasks = [task_id for task_id in task_ids if eligibility.task_entry(eligibility_manifest, task_id) is None]
         if missing_eligibility_tasks:
             raise ValueError("efficacy eligibility manifest does not cover scheduled tasks: " + ", ".join(missing_eligibility_tasks))
@@ -2240,6 +2265,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         plan = schedule.build_schedule(
             split_path, conditions=conditions_list, context_modes=context_modes,
             outer_trials=args.outer_trials, schedule_seed=int(getattr(args, "schedule_seed", 0)),
+            resource_domain_manifest=resource_manifest,
         )
     budgets = budget.parse_budget(json.loads(args.budgets) if args.budgets else None)
     statistical_budget = StatisticalBudget()
@@ -2247,6 +2273,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         getattr(args, "experiment_executor_command", None), out_dir,
     )
     fingerprint = capture_fingerprint()
+    if resource_manifest is not None:
+        runtime_errors = resource_domain.validate_runtime_contract(resource_manifest, fingerprint)
+        if runtime_errors:
+            raise ValueError("resource-domain runtime contract mismatch: " + "; ".join(runtime_errors))
     if eligibility_manifest is not None:
         runtime_errors = eligibility.validate_runtime_contract(eligibility_manifest, fingerprint)
         if runtime_errors:
@@ -2276,6 +2306,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         "efficacy_eligibility_manifest": str(Path(eligibility_path).resolve()) if eligibility_path else None,
         "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
         "efficacy_task_ids": sorted(efficacy_task_ids),
+        "resource_domain_manifest_digest": resource_manifest.get("artifact_digest") if resource_manifest else None,
     }
     if existing_campaign is not None:
         immutable_keys = (
@@ -2284,6 +2315,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "agent_model_id", "agent_config", "schedule_size",
             "executor_digest",
             "efficacy_eligibility_manifest_digest", "efficacy_task_ids",
+            "resource_domain_manifest_digest",
         )
         mismatches = [key for key in immutable_keys if existing_campaign.get(key) != campaign.get(key)]
         if mismatches:
@@ -3212,6 +3244,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--population-manifest", type=Path, default=None)
     parser.add_argument("--efficacy-eligibility", type=Path, default=None, help="frozen agent-blind measurement eligibility manifest")
+    parser.add_argument("--resource-domain-manifest", type=Path, default=None, help="frozen baseline-only resource-domain manifest")
     parser.add_argument("--campaign-config", type=Path, default=None)
     parser.add_argument("--claims", type=Path, default=None)
     parser.add_argument("--analysis-plan", type=Path, default=None)
