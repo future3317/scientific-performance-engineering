@@ -6,8 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.calibration.execution import CellExecutor
 from benchmark.calibration.identity import measurement_session_id, task_package_digest
