@@ -52,13 +52,23 @@ def validate_calibration_approval(
     if approval.get("empirical_digest") != expected_empirical or approval.get("empirical_digest") != calibration.get("empirical_digest"):
         errors.append("calibration approval empirical digest mismatch")
     active_ids = set(str(item) for item in (active_manifest or {}).get("task_ids", report.get("active_task_ids", [])))
+    resource_domain = report.get("resource_domain") if isinstance(report.get("resource_domain"), dict) else {}
+    resource_excluded = {str(item) for item in resource_domain.get("out_of_domain_task_ids", [])}
+    unresolved = {str(item) for item in resource_domain.get("unresolved_task_ids", [])}
     calibrated = {str(item.get("task_id")) for item in calibration.get("tasks", []) if isinstance(item, dict)}
     approved_tasks = set(str(item) for item in approval.get("approved_task_ids", []))
     if active_ids and calibrated != active_ids:
         errors.append("pilot calibration coverage does not match active population")
-    if active_ids and approved_tasks != active_ids:
-        errors.append("approval approved_task_ids do not match active population")
-    if any(item.get("status") != "eligible" or item.get("eligibility") is not True for item in calibration.get("tasks", []) if isinstance(item, dict)):
+    expected_approved = active_ids - resource_excluded
+    if active_ids and approved_tasks != expected_approved:
+        errors.append("approval approved_task_ids do not match resource-conditioned population")
+    if unresolved:
+        errors.append("resource domain contains unresolved tasks")
+    if any(
+        item.get("task_id") not in resource_excluded
+        and (item.get("status") != "eligible" or item.get("eligibility") is not True)
+        for item in calibration.get("tasks", []) if isinstance(item, dict)
+    ):
         errors.append("all active tasks must have eligible empirical calibration")
     if report.get("retired_for_formal") and any(str(item.get("task_id")) in active_ids for item in report.get("retired_for_formal", [])):
         errors.append("retired task remains active")
@@ -78,6 +88,7 @@ def validate_calibration_approval(
 def issue_calibration_approval(
     *, report_path: Path, pilot_path: Path, empirical_path: Path,
     out_path: Path, repo_root: Path, approver: str, timestamp: str | None,
+    resource_domain_manifest: dict[str, Any] | None = None,
 ) -> dict[str, object]:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     pilot = json.loads(pilot_path.read_text(encoding="utf-8"))
@@ -86,6 +97,7 @@ def issue_calibration_approval(
         tasks_root=repo_root / "benchmark" / "tasks",
         empirical_path=empirical_path,
         manifest_path=repo_root / "benchmark" / "pilot_population.json",
+        resource_domain_manifest=resource_domain_manifest,
     )
     if rebuild_errors:
         raise ValueError("canonical calibration projections are not ready: " + "; ".join(rebuild_errors))
@@ -118,7 +130,9 @@ def issue_calibration_approval(
         "benchmark_revision": revision,
         "claims_digest": file_digest(repo_root / "CLAIMS.yaml"),
         "statistical_protocol_digest": file_digest(repo_root / "references" / "STATISTICAL_PROTOCOL.md"),
-        "approved_task_ids": active_ids, "blocked_task_ids": [], "replacement_task_ids": [],
+        "approved_task_ids": [task_id for task_id in active_ids if task_id not in set(report.get("resource_domain", {}).get("out_of_domain_task_ids", []))],
+        "blocked_task_ids": sorted(set(report.get("resource_domain", {}).get("out_of_domain_task_ids", []))),
+        "replacement_task_ids": [],
         "approver": approver,
         "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
         "validator_revision": "strict-formal-v2",
