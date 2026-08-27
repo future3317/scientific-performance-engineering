@@ -110,6 +110,36 @@ def _preflight_blocks(preflight: dict[str, Any]) -> bool:
     return preflight.get("status") != "clean"
 
 
+def calibration_task_ids(
+    task_ids: list[str], resource_domain_manifest: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return tasks with a registered calibration path.
+
+    Resource-excluded tasks remain in population accounting but do not acquire
+    synthetic performance cells. Evolution tasks marked ``not_applicable``
+    stay on the calibration path because their episode evidence is not a
+    resource probe.
+    """
+    if resource_domain_manifest is None:
+        return list(task_ids)
+    manifest_ids = {str(item) for item in resource_domain_manifest.get("task_ids", [])}
+    missing = sorted(set(task_ids) - manifest_ids)
+    if missing:
+        raise ValueError("resource domain manifest does not cover calibration tasks: " + ", ".join(missing))
+    status_by_id = {
+        str(item.get("task_id")): str(item.get("resource_domain_status"))
+        for item in resource_domain_manifest.get("tasks", [])
+        if isinstance(item, dict)
+    }
+    unresolved = sorted(task_id for task_id in task_ids if status_by_id.get(task_id) == "unresolved")
+    if unresolved:
+        raise ValueError("resource domain manifest contains unresolved tasks: " + ", ".join(unresolved))
+    return [
+        task_id for task_id in task_ids
+        if status_by_id.get(task_id) != "out_of_domain_capacity"
+    ]
+
+
 def _write_resource_blocked_cell(
     *, out: Path, task_id: str, outer_id: str, task_spec: dict[str, Any],
     task_digest: str, population_digest: str, revision: str,
@@ -391,11 +421,19 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
     tasks_root = repo_root / "benchmark" / "tasks"
     active_path = repo_root / "benchmark" / "pilot_population.json"
     active = json.loads(active_path.read_text(encoding="utf-8"))
-    task_ids = [str(item) for item in active["task_ids"]]
+    active_task_ids = [str(item) for item in active["task_ids"]]
+    task_ids = list(active_task_ids)
     if args.task_id:
         task_ids = [task_id for task_id in task_ids if task_id == args.task_id]
         if not task_ids:
             raise ValueError(f"task is not in active population: {args.task_id}")
+    resource_domain_manifest = getattr(args, "resource_domain_manifest", None)
+    if resource_domain_manifest is not None and not isinstance(resource_domain_manifest, dict):
+        raise ValueError("resource domain manifest must be preloaded and validated by the CLI")
+    if resource_domain_manifest is not None:
+        task_ids = calibration_task_ids(task_ids, resource_domain_manifest)
+        if args.task_id and not task_ids:
+            raise ValueError(f"task is outside the frozen resource domain: {args.task_id}")
     out = Path(args.out).resolve()
     if args.task_id and out.exists() and any(out.iterdir()):
         raise ValueError("--task-id requires an independent empty output directory")
@@ -723,11 +761,12 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
     empirical_path.write_text(json.dumps({"schema_version": 1, "calibration_protocol_digest": protocol_digest, "tasks": empirical}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     report, calibration, errors = rebuild_calibration_views(
         tasks_root=tasks_root, empirical_path=empirical_path, manifest_path=active_path,
+        resource_domain_manifest=resource_domain_manifest,
     )
     report_path = out / "population_report.json"
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (out / "pilot_calibration.json").write_text(json.dumps(calibration, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (out / "summary.json").write_text(json.dumps({"task_count": len(empirical), "errors": errors, "calibration_gate": calibration.get("calibration_gate"), "eligible": [item["task_id"] for item in calibration["tasks"] if item.get("eligibility")], "blocked": [item["task_id"] for item in calibration["tasks"] if not item.get("eligibility")]}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (out / "summary.json").write_text(json.dumps({"task_count": len(empirical), "population_accounted": len(active_task_ids), "errors": errors, "calibration_gate": calibration.get("calibration_gate"), "eligible": [item["task_id"] for item in calibration["tasks"] if item.get("eligibility")], "blocked": [item["task_id"] for item in calibration["tasks"] if not item.get("eligibility")]}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     campaign_finished_monotonic = time.perf_counter()
     timing_report = {
         "schema_version": 1,

@@ -229,6 +229,7 @@ def _compile_projection_findings(task_dir: Path, spec: dict[str, Any]) -> list[s
 
 def _empirical_flags(
     specs: list[dict[str, Any]], empirical_path: Path | None, duplicate_findings: list[dict[str, Any]],
+    resource_domain_manifest: dict[str, Any] | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, Any]]:
     """Translate measured pilot evidence into replacement/review flags.
 
@@ -267,6 +268,16 @@ def _empirical_flags(
         }
     empirical_digest = json_digest(payload)
     specs_by_id = {str(spec.get("task_id")): spec for spec in specs}
+    resource_status_by_id = {
+        str(item.get("task_id")): str(item.get("resource_domain_status"))
+        for item in (resource_domain_manifest or {}).get("tasks", [])
+        if isinstance(item, dict)
+    }
+    resource_excluded_ids = {
+        task_id for task_id, status in resource_status_by_id.items()
+        if status in {"out_of_domain_capacity", "unresolved"}
+    }
+    expected_record_ids = set(specs_by_id) - resource_excluded_ids
     tasks_root = Path(specs[0]["_task_dir"]).parent if specs and "_task_dir" in specs[0] else None
     protocol, protocol_digest = _calibration_protocol(tasks_root) if tasks_root else (None, None)
     seen: set[str] = set()
@@ -279,6 +290,9 @@ def _empirical_flags(
         task_id = str(record.get("task_id", ""))
         if task_id not in specs_by_id:
             unknown_task_ids.add(task_id)
+            continue
+        if task_id in resource_excluded_ids:
+            flags["protocol_invalid"].append(f"resource-excluded:{task_id}")
             continue
         if task_id in records_by_task:
             duplicate_task_ids.add(task_id)
@@ -417,8 +431,9 @@ def _empirical_flags(
     for name in flags:
         flags[name] = sorted(set(flags[name]))
     hard_flags = [name for name, task_ids in flags.items() if task_ids]
-    missing = sorted(set(specs_by_id) - seen)
-    if len(records) != len(specs_by_id):
+    missing = sorted(expected_record_ids - seen)
+    unexpected_resource_records = sorted(seen & resource_excluded_ids)
+    if len(records) != len(expected_record_ids):
         flags["protocol_invalid"].append("__record_cardinality__")
     if unknown_task_ids:
         flags["protocol_invalid"].append("unknown:" + ",".join(sorted(unknown_task_ids)))
@@ -426,7 +441,7 @@ def _empirical_flags(
         flags["protocol_invalid"].append("duplicate:" + ",".join(sorted(duplicate_task_ids)))
     if missing:
         hard_flags.append("missing_empirical_task_records")
-    if len(records) != len(specs_by_id) or unknown_task_ids or duplicate_task_ids:
+    if len(records) != len(expected_record_ids) or unknown_task_ids or duplicate_task_ids or unexpected_resource_records:
         hard_flags.append("empirical_record_cardinality_invalid")
     return flags, {
         "status": "observed",
@@ -434,13 +449,19 @@ def _empirical_flags(
         "empirical_digest": empirical_digest,
         "records": len(records),
         "missing_task_ids": missing,
+        "expected_task_ids": [task_id for task_id in specs_by_id if task_id in expected_record_ids],
+        "resource_excluded_task_ids": [task_id for task_id in specs_by_id if task_id in resource_excluded_ids],
         "hard_flags": sorted(set(hard_flags)),
         "calibration_gate": "blocked" if hard_flags else "ready_for_review",
         "records_by_task": records_by_task,
     }
 
 
-def build_report(tasks_root: str | Path, empirical_path: str | Path | None = None, manifest_path: str | Path | None = None) -> tuple[dict[str, Any], list[str]]:
+def build_report(
+    tasks_root: str | Path, empirical_path: str | Path | None = None,
+    manifest_path: str | Path | None = None,
+    resource_domain_manifest: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
     tasks_root = Path(tasks_root)
     errors: list[str] = []
     try:
@@ -546,8 +567,37 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
             errors.append(f"explicit lineage leak: {ids}")
 
     empirical_flags, empirical_calibration = _empirical_flags(
-        specs, Path(empirical_path) if empirical_path is not None else None, duplicate_findings
+        specs, Path(empirical_path) if empirical_path is not None else None, duplicate_findings,
+        resource_domain_manifest,
     )
+    resource_status_by_id = {
+        str(item.get("task_id")): str(item.get("resource_domain_status"))
+        for item in (resource_domain_manifest or {}).get("tasks", [])
+        if isinstance(item, dict)
+    }
+    resource_domain = None
+    if resource_domain_manifest is not None:
+        resource_domain = {
+            "manifest_digest": resource_domain_manifest.get("artifact_digest"),
+            "benchmark_revision": resource_domain_manifest.get("benchmark_revision"),
+            "runtime_contract_digest": resource_domain_manifest.get("runtime_contract_digest"),
+            "runtime_contract": resource_domain_manifest.get("runtime_contract"),
+            "status_by_task": resource_status_by_id,
+            "in_domain_task_ids": list(resource_domain_manifest.get("in_domain_task_ids", [])),
+            "out_of_domain_task_ids": list(resource_domain_manifest.get("out_of_domain_task_ids", [])),
+            "not_applicable_task_ids": list(resource_domain_manifest.get("not_applicable_task_ids", [])),
+            "unresolved_task_ids": list(resource_domain_manifest.get("unresolved_task_ids", [])),
+        }
+        empirical_calibration["population_accounted"] = len(active_task_ids)
+        empirical_calibration["expected_calibration_task_ids"] = [
+            task_id for task_id in active_task_ids
+            if resource_status_by_id.get(task_id) not in {"out_of_domain_capacity", "unresolved"}
+        ]
+        empirical_calibration["expected_calibration_cells"] = len(empirical_calibration["expected_calibration_task_ids"])
+        empirical_calibration["resource_excluded_task_ids"] = [
+            task_id for task_id in active_task_ids
+            if resource_status_by_id.get(task_id) in {"out_of_domain_capacity", "unresolved"}
+        ]
     task_calibration: dict[str, Any] = {}
     retired_tasks: list[dict[str, str]] = []
     for spec in specs:
@@ -572,6 +622,8 @@ def build_report(tasks_root: str | Path, empirical_path: str | Path | None = Non
         "active_manifest": str((Path(manifest_path) if manifest_path else tasks_root.parent / "pilot_population.json").as_posix()),
         "active_task_ids": active_task_ids,
         "num_tasks": len(specs),
+        "benchmark_revision": resource_domain.get("benchmark_revision") if resource_domain else None,
+        "resource_domain": resource_domain,
         "track_counts": dict(counts),
         "mechanism_distribution": dict(Counter(str(spec.get("mechanism")) for spec in specs)),
         "family_distribution": dict(Counter(str(spec.get("family")) for spec in specs)),
@@ -627,6 +679,8 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
     tasks: list[dict[str, Any]] = []
     active_manifest = load_active_manifest(root)
     task_ids = [str(item) for item in active_manifest["task_ids"]]
+    resource_domain = report.get("resource_domain") or {}
+    resource_status_by_id = resource_domain.get("status_by_task", {})
     for task_id in task_ids:
         task_dir = root / task_id
         task_path = task_dir / "task.yaml"
@@ -641,6 +695,8 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
             pass
         local = report.get("task_calibration", {}).get(task_id, {})
         empirical = report.get("empirical_calibration", {}).get("records_by_task", {}).get(task_id, {})
+        resource_status = resource_status_by_id.get(task_id)
+        resource_excluded = resource_status in {"out_of_domain_capacity", "unresolved"}
         # Metadata is descriptive only.  Eligibility comes from a complete,
         # digest-attested empirical record for the active task.
         status = "eligible" if isinstance(empirical, dict) and empirical and empirical.get("calibration_status") == "eligible" and not any(
@@ -657,21 +713,30 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
             flags.append("retired_for_formal")
         if flags or task_id in set(report.get("semantic_gate_failures", [])):
             status = "blocked"
+        if resource_excluded:
+            status = "blocked"
+            flags = ["RESOURCE_OUT_OF_TARGET_RUNTIME_DOMAIN"]
+        fallback_revision = report.get("benchmark_revision", "unknown") if resource_excluded else "unknown"
+        fallback_environment = resource_domain.get("runtime_contract", {}) if resource_excluded else {}
+        fallback_noise = {"artifacts": []} if resource_excluded else {}
+        fallback_semantic = {} if resource_excluded else {"declared": list(spec.get("scientific_gates", [])), "failures": []}
+        fallback_anti_cheat = {"status": "not_applicable"} if resource_excluded else {}
         tasks.append({
             "task_id": task_id,
             "task_digest": task_package_digest(task_dir) if task_path.is_file() else None,
-            "revision": empirical.get("revision", "unknown") if isinstance(empirical, dict) else "unknown",
-            "environment": empirical.get("environment", {}) if isinstance(empirical, dict) else {},
+            "revision": empirical.get("revision", fallback_revision) if isinstance(empirical, dict) else fallback_revision,
+            "environment": empirical.get("environment", fallback_environment) if isinstance(empirical, dict) else fallback_environment,
             "outer_trials": empirical.get("outer_trials", []) if isinstance(empirical, dict) else [],
-            "noise_control": empirical.get("noise_control", {}) if isinstance(empirical, dict) else {},
+            "noise_control": empirical.get("noise_control", fallback_noise) if isinstance(empirical, dict) else fallback_noise,
             "baseline_stability": empirical.get("baseline_stability") if isinstance(empirical, dict) else None,
             "oracle_ci": empirical.get("oracle_ci", {}) if isinstance(empirical, dict) else {},
-            "semantic_gates": empirical.get("semantic_gates", {"declared": list(spec.get("scientific_gates", [])), "failures": []}) if isinstance(empirical, dict) else {"declared": list(spec.get("scientific_gates", [])), "failures": []},
-            "anti_cheat": empirical.get("anti_cheat", {}) if isinstance(empirical, dict) else {},
+            "semantic_gates": empirical.get("semantic_gates", fallback_semantic) if isinstance(empirical, dict) else fallback_semantic,
+            "anti_cheat": empirical.get("anti_cheat", fallback_anti_cheat) if isinstance(empirical, dict) else fallback_anti_cheat,
             "empirical_evidence": {key: value for key, value in empirical.items() if not str(key).startswith("_")} if isinstance(empirical, dict) else {},
             "eligibility": status == "eligible",
             "status": status,
             "block_reason": flags or ([] if status == "eligible" else ["calibration_pending"]),
+            **({"resource_domain_status": resource_status} if resource_status is not None else {}),
         })
     empirical_records = report.get("empirical_calibration", {}).get("records_by_task", {}).values()
     revisions = {
@@ -829,9 +894,12 @@ def rebuild_calibration_views(
     tasks_root: str | Path,
     empirical_path: str | Path,
     manifest_path: str | Path | None = None,
+    resource_domain_manifest: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     """Build the canonical report and pilot projections from raw evidence."""
-    report, errors = build_report(tasks_root, empirical_path, manifest_path)
+    report, errors = build_report(
+        tasks_root, empirical_path, manifest_path, resource_domain_manifest,
+    )
     pilot = build_pilot_calibration(report, tasks_root)
     return report, pilot, errors
 
@@ -841,6 +909,7 @@ def validate_formal_readiness(
     approval: dict[str, Any] | None, empirical: dict[str, Any] | None = None,
     repo_root: str | Path | None = None,
     empirical_path: str | Path | None = None,
+    resource_domain_manifest: dict[str, Any] | None = None,
 ) -> list[str]:
     """Fail closed for formal generation/campaign entry points."""
     from benchmark.calibration.approval import validate_calibration_approval
@@ -851,6 +920,7 @@ def validate_formal_readiness(
                 tasks_root=Path(repo_root) / "benchmark" / "tasks",
                 empirical_path=empirical_path,
                 manifest_path=Path(repo_root) / "benchmark" / "pilot_population.json",
+                resource_domain_manifest=resource_domain_manifest,
             )
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
             errors.append(f"canonical calibration rebuild unavailable: {exc}")
@@ -879,10 +949,16 @@ def validate_formal_readiness(
             errors.append("strict-formal empirical digest does not match pilot calibration")
     calibration_tasks = list((calibration or {}).get("tasks", []))
     active_ids = set(str(item) for item in report.get("active_task_ids", []))
+    resource_domain = report.get("resource_domain") if isinstance(report.get("resource_domain"), dict) else {}
+    resource_excluded = {str(item) for item in resource_domain.get("out_of_domain_task_ids", [])}
     observed_ids = {str(item.get("task_id")) for item in calibration_tasks}
     if observed_ids != active_ids:
         errors.append("pilot calibration does not cover exactly the active population")
-    if any(item.get("status") != "eligible" or item.get("eligibility") is not True for item in calibration_tasks):
+    if any(
+        str(item.get("task_id")) not in resource_excluded
+        and (item.get("status") != "eligible" or item.get("eligibility") is not True)
+        for item in calibration_tasks
+    ):
         errors.append("every active pilot task must be eligible")
     if report.get("retired_for_formal") and any(str(item.get("task_id")) in active_ids for item in report.get("retired_for_formal", [])):
         errors.append("retired task remains in active population")
@@ -899,7 +975,13 @@ def main() -> int:
     parser.add_argument("--strict-formal", action="store_true", help="fail closed unless pilot calibration and approval are ready")
     parser.add_argument("--pilot-calibration", type=Path, default=None, help="write unified pilot_calibration.json")
     parser.add_argument("--approval", type=Path, default=None, help="calibration_approval.json to validate in --strict-formal mode")
+    parser.add_argument("--resource-domain-manifest", type=Path, default=None, help="frozen baseline-only resource-domain manifest")
     args = parser.parse_args()
+    resource_domain_manifest = None
+    if args.resource_domain_manifest is not None:
+        resource_domain_manifest = json.loads(
+            args.resource_domain_manifest.read_text(encoding="utf-8")
+        )
     if args.strict_formal:
         if args.empirical is None:
             errors = ["--strict-formal requires an explicit --empirical artifact"]
@@ -920,9 +1002,13 @@ def main() -> int:
         errors.extend(validate_formal_readiness(
             report, calibration, approval, empirical=empirical,
             repo_root=args.tasks_root.resolve().parents[1], empirical_path=args.empirical,
+            resource_domain_manifest=resource_domain_manifest,
         ))
     else:
-        report, errors = build_report(args.tasks_root, args.empirical, args.population_manifest)
+        report, errors = build_report(
+            args.tasks_root, args.empirical, args.population_manifest,
+            resource_domain_manifest,
+        )
         split_errors = check_leakage(args.split, args.tasks_root)
         errors.extend(split_errors)
         report["split_leakage_findings"] = split_errors

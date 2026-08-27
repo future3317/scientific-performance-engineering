@@ -110,10 +110,18 @@ def _task_validity(
     task: Mapping[str, Any], *, task_id: str, benchmark_revision: str,
     population_manifest_digest: str, calibration_protocol_digest: str,
     task_package_digest_value: str, require_noise: bool,
+    resource_domain_status: str | None = None,
 ) -> tuple[bool, bool, bool, dict[str, str], list[str], list[float]]:
     reasons: list[str] = []
     protocol_valid = True
     correctness_scientific_valid = True
+    if resource_domain_status in {"out_of_domain_capacity", "unresolved"}:
+        reasons.append(
+            "RESOURCE_OUT_OF_TARGET_RUNTIME_DOMAIN"
+            if resource_domain_status == "out_of_domain_capacity"
+            else "RESOURCE_DOMAIN_UNRESOLVED"
+        )
+        return False, True, True, {}, reasons, []
     trials = task.get("outer_trials")
     if not isinstance(trials, list) or not trials:
         return False, False, False, {}, ["outer_trials are missing"]
@@ -231,17 +239,18 @@ def build_manifest(
         fingerprint = pilot_task.get("environment")
         contract = _runtime_contract(fingerprint)
         require_noise = spec.get("track") != "evolution"
+        resource_status = pilot_task.get("resource_domain_status")
+        if resource_bound and resource_status not in {"in_domain", "out_of_domain_capacity", "not_applicable", "unresolved"}:
+            raise ValueError(f"{task_id}: invalid resource domain status")
         valid, protocol_valid, scientific_valid, sessions, reasons, observed = _task_validity(
             pilot_task, task_id=task_id, benchmark_revision=benchmark_revision,
             population_manifest_digest=population_manifest_digest,
             calibration_protocol_digest=calibration_protocol_digest,
             task_package_digest_value=task_digest, require_noise=require_noise,
+            resource_domain_status=resource_status,
         )
-        resource_status = pilot_task.get("resource_domain_status")
-        if resource_bound and resource_status not in {"in_domain", "out_of_domain_capacity", "not_applicable", "unresolved"}:
-            raise ValueError(f"{task_id}: invalid resource domain status")
-        if resource_bound and resource_status != "in_domain":
-            reasons.append("RESOURCE_OUT_OF_TARGET_RUNTIME_DOMAIN")
+        if resource_bound and resource_status != "in_domain" and resource_status not in {"out_of_domain_capacity", "unresolved"}:
+            reasons.append("RESOURCE_DOMAIN_UNRESOLVED")
         role = "efficacy" if valid and require_noise and str(spec.get("kind")) == "positive" and (not resource_bound or resource_status == "in_domain") else "diagnostic"
         declared = float((spec.get("measurement") or {}).get("noise_floor_percent", 2.0))
         effective = max([declared, *observed])
