@@ -672,9 +672,17 @@ def verify_task(
             "measurement session changed required runtime identity: "
             + "; ".join(str(item) for item in runtime_contract.get("reasons", []))
         )
+    repetitions = int(measurement_cfg.get("repetitions", 5))
+    if not runner.paired_measurement_complete(record, repetitions=repetitions):
+        result["protocol_failure"] = True
+        result["validity"] = "invalid"
+        result["execution_validity"] = "invalid"
+        result.setdefault("errors", []).append(
+            "paired measurement did not complete both arms for every repetition"
+        )
     work_ok = True
     work_diffs: list[str] = []
-    for rep in range(int(measurement_cfg.get("repetitions", 5))):
+    for rep in range(repetitions):
         ok, diffs = runner.compare_work_units(
             record["work_units"].get(f"baseline:{rep}", {}),
             record["work_units"].get(f"candidate:{rep}", {}),
