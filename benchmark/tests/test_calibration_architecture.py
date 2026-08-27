@@ -23,6 +23,14 @@ def test_calibration_authority_modules_are_public():
     assert state.derive_cell_state({"execution_validity": "valid", "efficacy_eligible": True, "calibration_status": "eligible"}) == "eligible"
 
 
+def test_calibration_protocol_declares_shared_observed_sessions():
+    from benchmark.calibration.protocol import load_calibration_protocol
+
+    protocol, _ = load_calibration_protocol(Path(__file__).parents[2])
+    assert protocol["resource_admission"]["gpu_policy"] == "shared_observed"
+    assert protocol["resource_admission"]["require_exclusive"] is False
+
+
 def test_calibration_cli_scripts_do_not_import_private_helpers():
     root = Path(__file__).parents[2]
     for name in ("run_active30_calibration.py", "audit_calibration_resume.py", "approve_calibration.py"):
