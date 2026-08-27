@@ -231,11 +231,32 @@ def test_bounded_noise_control_timeout_is_reported(tmp_path, monkeypatch):
         timeout_s=3.0,
         args=("calibrate-noise-control",),
         cwd=tmp_path,
+        timeout_artifact={
+            "measurement_session_id": "session",
+            "benchmark_revision": "rev",
+            "task_manifest_digest": "manifest",
+            "task_package_digest": "package",
+            "population_manifest_digest": "population",
+            "hardware_fingerprint": {},
+            "software_fingerprint": {},
+            "compile_threads": 2,
+            "compiler_cache_policy": "fresh",
+            "primary_metric": "step_ms_p50",
+            "higher_is_better": False,
+            "control_a_runs": [1.0] * 5,
+            "control_b_runs": [1.0] * 5,
+            "declared_noise_floor_percent": 2.0,
+            "expected_speedup_range": [1.0, 2.0],
+            "execution_validity": "resource_blocked",
+            "failure_stage": "noise_control",
+        },
     )
 
     assert timed_out is True
     assert noise["timeout"] is True
     assert noise["failure_stage"] == "noise_control"
+    persisted = stats.read_noise_control(tmp_path / "noise.json", {"measurement_session_id": "session"})
+    assert persisted["execution_validity"] == "resource_blocked"
 
 
 def test_bounded_noise_control_residual_group_is_resource_blocked(tmp_path, monkeypatch):
