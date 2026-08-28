@@ -202,3 +202,26 @@ def test_evolution_record_remains_diagnostic_when_atomic_efficacy_is_blocked():
     assert manifest["efficacy_task_ids"] == []
     assert manifest["diagnostic_task_ids"] == [task_id]
     assert manifest["tasks"][0]["baseline_stability"] == "not_applicable"
+
+
+def test_tripwire_warning_remains_diagnostic_without_protocol_failure():
+    task_id = "CORE-H2D-PIPELINE-03R2"
+    pilot = _eligibility(task_id)
+    pilot["tasks"][0]["anti_cheat"] = {
+        "status": "warning",
+        "hard_fail": False,
+        "tripwired": True,
+        "findings": [{"severity": "warning", "rule": "speedup_tripwire"}],
+    }
+    pilot["tasks"][0]["calibration_eligible"] = False
+    manifest = build_manifest(
+        pilot_calibration=pilot, tasks_root=ROOT / "tasks",
+        benchmark_revision="r" * 40, population_manifest_digest="p" * 64,
+        calibration_protocol_digest="c" * 64,
+    )
+
+    task = manifest["tasks"][0]
+    assert task["role"] == "diagnostic"
+    assert task["protocol_valid"] is True
+    assert task["correctness_scientific_valid"] is False
+    assert "anti-cheat audit warning" in task["reason"]

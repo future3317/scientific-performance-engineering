@@ -169,3 +169,117 @@ def test_oracle_timeout_is_visible_attrition_not_resource_domain():
         "calibration_reference_runtime_ineligible"
     ] == ["T"]
     assert "resource_blocked" not in calibration["hard_validity_flags"]
+
+
+def test_baseline_walltime_diagnostic_is_attrition_not_hard_resource_block():
+    payload = {"tasks": [
+        {
+            "task_id": "T",
+            "calibration_status": "blocked",
+            "baseline_reference_diagnostic": {"status": "out_of_domain_walltime"},
+            "outer_trials": [{"execution_validity": "resource_blocked", "timeout": True}],
+            "anti_cheat": {"status": "pass"},
+        },
+        {
+            "task_id": "C",
+            "calibration_status": "eligible",
+            "oracle_ci_low_percent": 10.0,
+            "oracle_ci_high_percent": 12.0,
+            "control_noise_percent": [2.0],
+            "anti_cheat": {"status": "pass"},
+        },
+    ]}
+    path = Path("/tmp/evospe-baseline-walltime.json")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    try:
+        flags, calibration = _empirical_flags([_positive_spec(), {**_positive_spec(), "task_id": "C"}], path, [])
+    finally:
+        path.unlink()
+    assert calibration["population_integrity_gate"] == "pass"
+    assert calibration["calibration_gate"] == "ready_for_review"
+    assert calibration["task_attrition_flags"]["calibration_reference_out_of_domain_walltime"] == ["T"]
+    assert "resource_blocked" not in calibration["hard_validity_flags"]
+    assert "protocol_invalid" not in calibration["hard_validity_flags"]
+    assert flags["resource_blocked"] == []
+
+
+def test_tripwire_warning_is_task_attrition_not_hard_anti_cheat_failure(tmp_path: Path):
+    payload = {"tasks": [
+        {
+            "task_id": "T",
+            "calibration_status": "blocked",
+            "anti_cheat": {
+                "status": "warning",
+                "hard_fail": False,
+                "tripwired": True,
+                "findings": [{"severity": "warning", "rule": "speedup_tripwire"}],
+            },
+        },
+        {
+            "task_id": "C",
+            "calibration_status": "eligible",
+            "oracle_ci_low_percent": 10.0,
+            "oracle_ci_high_percent": 12.0,
+            "control_noise_percent": [2.0],
+            "anti_cheat": {"status": "pass", "hard_fail": False, "tripwired": False, "findings": []},
+        },
+    ]}
+    path = tmp_path / "empirical.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, calibration = _empirical_flags([_positive_spec(), {**_positive_spec(), "task_id": "C"}], path, [])
+
+    assert calibration["population_integrity_gate"] == "pass"
+    assert "anti_cheat_blocked" not in calibration["hard_validity_flags"]
+    assert "agent_shortcut_detected" not in calibration["hard_validity_flags"]
+    assert calibration["task_attrition_flags"]["anti_cheat_warning"] == ["T"]
+
+
+def test_hard_anti_cheat_failure_still_blocks_population_gate(tmp_path: Path):
+    payload = {"tasks": [
+        {
+            "task_id": "T",
+            "calibration_status": "blocked",
+            "anti_cheat": {
+                "status": "fail",
+                "hard_fail": True,
+                "tripwired": False,
+                "findings": [{"severity": "hard_fail", "rule": "monkey_patch"}],
+            },
+        },
+        {
+            "task_id": "C",
+            "calibration_status": "eligible",
+            "oracle_ci_low_percent": 10.0,
+            "oracle_ci_high_percent": 12.0,
+            "control_noise_percent": [2.0],
+            "anti_cheat": {"status": "pass", "hard_fail": False, "tripwired": False, "findings": []},
+        },
+    ]}
+    path = tmp_path / "empirical.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, calibration = _empirical_flags([_positive_spec(), {**_positive_spec(), "task_id": "C"}], path, [])
+
+    assert calibration["population_integrity_gate"] == "blocked"
+    assert calibration["hard_validity_flags"]["anti_cheat_blocked"] == ["T"]
+    assert calibration["hard_validity_flags"]["agent_shortcut_detected"] == ["T"]
+
+
+def test_calibration_record_preserves_tripwire_as_warning():
+    from benchmark.calibration.campaign import _calibration_record
+
+    result = {
+        "correctness_pass": True,
+        "scientific_gates": {"gate": True},
+        "execution_validity": "valid",
+        "efficacy_eligible": False,
+        "calibration_status": "blocked",
+        "anticheat": {
+            "hard_fail": False,
+            "tripwired": True,
+            "findings": [{"severity": "warning", "rule": "speedup_tripwire"}],
+        },
+    }
+
+    record = _calibration_record(Path("benchmark/tasks/SCIML-CRYSTAL-DIFFUSION-07R2"), "T", "r" * 40, "d" * 64, [result], [])
