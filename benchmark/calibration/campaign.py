@@ -235,9 +235,30 @@ def _bounded_noise_control(
         stats.write_noise_control(noise_path, noise)
         return stats.read_noise_control(noise_path), True
     if not completed["timed_out"]:
+        error = completed["stderr"] or completed["stdout"] or "noise control exited without an artifact"
+        exit_code = completed.get("exit_code")
+        oom = "out of memory" in error.lower() or exit_code in {-9, 137}
+        if oom:
+            if timeout_artifact is None:
+                raise RuntimeError("noise control OOM requires complete artifact metadata")
+            noise = dict(timeout_artifact)
+            noise.setdefault("observed_noise_floor_percent", 0.0)
+            noise.update({
+                "task_id": task_id,
+                "outer_trial_id": outer_trial_id,
+                "timeout": False,
+                "execution_validity": "resource_blocked",
+                "failure_stage": "noise_control",
+                "error": error,
+                "wall_time_s": float(completed["wall_time_s"]),
+                "process_exit_code": exit_code,
+                "executor_cleanup": cleanup,
+            })
+            stats.write_noise_control(noise_path, noise)
+            return stats.read_noise_control(noise_path), True
         raise RuntimeError(
             f"noise control exited without an artifact for {task_id}/{outer_trial_id}: "
-            f"{completed['stderr'] or completed['stdout']}"
+            f"{error}"
         )
     if timeout_artifact is None:
         raise RuntimeError("noise control timeout requires complete artifact metadata")
