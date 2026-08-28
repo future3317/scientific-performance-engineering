@@ -768,7 +768,7 @@ def test_verifier_nonzero_exit_without_artifact_is_persisted_as_resource_blocked
     assert result_path.is_file()
 
 
-def test_gpu_admission_waits_until_selected_gpu_is_clean(monkeypatch):
+def test_gpu_admission_accepts_shared_selected_gpu(monkeypatch):
     from benchmark.harness import fingerprint
 
     states = iter([
@@ -781,7 +781,7 @@ def test_gpu_admission_waits_until_selected_gpu_is_clean(monkeypatch):
     result = fingerprint.wait_for_selected_gpu_admission(timeout_s=1.0, poll_interval_s=0.01)
 
     assert result["admission_status"] == "admitted"
-    assert result["status"] == "clean"
+    assert result["status"] == "busy"
 
 
 def test_shared_gpu_mode_treats_busy_as_observed_not_invalid():
