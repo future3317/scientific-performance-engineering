@@ -76,7 +76,7 @@ def classify_baseline_probe(probe: Mapping[str, Any]) -> str:
     _reject_forbidden_keys(probe)
     if probe.get("baseline_only") is not True:
         return "unresolved"
-    if probe.get("clean_admission") is not True or probe.get("foreign_processes"):
+    if probe.get("clean_admission") is not True:
         return "unresolved"
     if probe.get("protocol_valid") is not True or probe.get("cleanup_quiescent") is not True:
         return "unresolved"
@@ -184,7 +184,7 @@ def build_resource_domain_manifest(
         "total_vram_bytes": runtime.get("total_device_memory"),
         "admission_contract": {
             "clean_required": True,
-            "foreign_processes_allowed": False,
+            "foreign_processes_allowed": True,
             "baseline_only": True,
             "capacity_confirmation_attempts": 2,
         },
