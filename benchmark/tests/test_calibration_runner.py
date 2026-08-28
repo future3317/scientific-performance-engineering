@@ -309,6 +309,55 @@ def test_noise_timeout_persists_shared_state_telemetry_in_raw_and_noise(tmp_path
         assert noise["shared_state_telemetry"] == {"session_start": preflight, "session_end": postflight}
 
 
+def test_noise_control_oom_without_artifact_is_resource_blocked(tmp_path, monkeypatch):
+    from benchmark.calibration import campaign
+
+    def oom_runner(self, **_kwargs):
+        return {
+            "timed_out": False,
+            "wall_time_s": 1.2,
+            "exit_code": 137,
+            "stdout": "",
+            "stderr": "CUDA out of memory",
+            "cleanup": {"quiescent": True},
+        }
+
+    monkeypatch.setattr(campaign.CellExecutor, "run_noise_control", oom_runner)
+    noise_path = tmp_path / "noise.json"
+    noise, blocked = campaign._bounded_noise_control(
+        task_id="CORE-COMPILE-DYNAMIC-11",
+        outer_trial_id="outer-000",
+        noise_path=noise_path,
+        timeout_s=3.0,
+        args=("calibrate-noise-control",),
+        cwd=tmp_path,
+        timeout_artifact={
+            "measurement_session_id": "session",
+            "benchmark_revision": "rev",
+            "task_manifest_digest": "manifest",
+            "task_package_digest": "package",
+            "population_manifest_digest": "population",
+            "hardware_fingerprint": {},
+            "software_fingerprint": {},
+            "compile_threads": 2,
+            "compiler_cache_policy": "fresh",
+            "primary_metric": "step_ms_p50",
+            "higher_is_better": False,
+            "control_a_runs": [1.0] * 5,
+            "control_b_runs": [1.0] * 5,
+            "declared_noise_floor_percent": 2.0,
+            "expected_speedup_range": [1.0, 2.0],
+        },
+    )
+
+    assert blocked is True
+    assert noise["execution_validity"] == "resource_blocked"
+    assert noise["timeout"] is False
+    persisted = stats.read_noise_control(noise_path, {"measurement_session_id": "session"})
+    assert persisted["process_exit_code"] == 137
+    assert persisted["error"] == "CUDA out of memory"
+
+
 
 def test_bounded_noise_control_residual_group_is_resource_blocked(tmp_path, monkeypatch):
     noise_path = tmp_path / "noise.json"
