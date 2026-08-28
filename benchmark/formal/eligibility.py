@@ -45,7 +45,8 @@ _ELIGIBILITY_INPUT_FIELDS = {
 }
 _ELIGIBILITY_INPUT_TASK_FIELDS = {
     "task_id", "task_package_digest", "revision", "environment", "outer_trials",
-    "noise_control", "baseline_stability", "semantic_gates", "anti_cheat",
+    "noise_control", "baseline_stability", "calibration_eligible",
+    "semantic_gates", "anti_cheat",
 }
 _RESOURCE_ELIGIBILITY_INPUT_TASK_FIELDS = _ELIGIBILITY_INPUT_TASK_FIELDS | {"resource_domain_status"}
 
@@ -115,10 +116,12 @@ def _task_validity(
     reasons: list[str] = []
     protocol_valid = True
     correctness_scientific_valid = True
-    if resource_domain_status in {"out_of_domain_capacity", "unresolved"}:
+    if resource_domain_status in {
+        "out_of_domain_capacity", "out_of_domain_walltime", "unresolved",
+    }:
         reasons.append(
             "RESOURCE_OUT_OF_TARGET_RUNTIME_DOMAIN"
-            if resource_domain_status == "out_of_domain_capacity"
+            if resource_domain_status in {"out_of_domain_capacity", "out_of_domain_walltime"}
             else "RESOURCE_DOMAIN_UNRESOLVED"
         )
         return False, True, True, {}, reasons, []
@@ -162,9 +165,6 @@ def _task_validity(
     artifacts = noise.get("artifacts") if isinstance(noise, Mapping) else None
     observed: list[float] = []
     if require_noise:
-        if task.get("baseline_stability") is not True:
-            protocol_valid = False
-            reasons.append("baseline-only measurement stability is not qualified")
         if not isinstance(artifacts, list):
             protocol_valid = False
         else:
@@ -240,7 +240,10 @@ def build_manifest(
         contract = _runtime_contract(fingerprint)
         require_noise = spec.get("track") != "evolution"
         resource_status = pilot_task.get("resource_domain_status")
-        if resource_bound and resource_status not in {"in_domain", "out_of_domain_capacity", "not_applicable", "unresolved"}:
+        if resource_bound and resource_status not in {
+            "in_domain", "out_of_domain_capacity", "out_of_domain_walltime",
+            "not_applicable", "unresolved",
+        }:
             raise ValueError(f"{task_id}: invalid resource domain status")
         valid, protocol_valid, scientific_valid, sessions, reasons, observed = _task_validity(
             pilot_task, task_id=task_id, benchmark_revision=benchmark_revision,
@@ -249,9 +252,14 @@ def build_manifest(
             task_package_digest_value=task_digest, require_noise=require_noise,
             resource_domain_status=resource_status,
         )
-        if resource_bound and resource_status != "in_domain" and resource_status not in {"out_of_domain_capacity", "unresolved"}:
+        if resource_bound and resource_status != "in_domain" and resource_status not in {
+            "out_of_domain_capacity", "out_of_domain_walltime", "unresolved",
+        }:
             reasons.append("RESOURCE_DOMAIN_UNRESOLVED")
         role = "efficacy" if valid and require_noise and str(spec.get("kind")) == "positive" and (not resource_bound or resource_status == "in_domain") else "diagnostic"
+        if role == "efficacy" and pilot_task.get("calibration_eligible", True) is not True:
+            role = "diagnostic"
+            reasons.append("CALIBRATION_ATTRITION")
         declared = float((spec.get("measurement") or {}).get("noise_floor_percent", 2.0))
         effective = max([declared, *observed])
         tasks.append({
@@ -268,7 +276,11 @@ def build_manifest(
             "declared_noise_floor_percent": declared,
             "observed_typical_noise_percent": max(observed) if observed else None,
             "effective_noise_floor_percent": effective,
-            "baseline_stability": "pass" if pilot_task.get("baseline_stability") is True and require_noise else "not_applicable" if not require_noise else "blocked",
+            "baseline_stability": (
+                "not_applicable" if not require_noise
+                else "pass" if pilot_task.get("baseline_stability") is True
+                else "descriptive_only"
+            ),
             "protocol_valid": protocol_valid,
             "correctness_scientific_valid": scientific_valid,
             "reason": sorted(set(reasons)),

@@ -2251,6 +2251,18 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if missing_eligibility_tasks:
             raise ValueError("efficacy eligibility manifest does not cover scheduled tasks: " + ", ".join(missing_eligibility_tasks))
     efficacy_task_ids = set(eligibility_manifest.get("efficacy_task_ids", [])) if eligibility_manifest else set()
+    if eligibility_manifest is not None:
+        if getattr(args, "formal", False):
+            task_items = [
+                item for item in task_items
+                if str(slot_by_id[item[1]].get("source_task_id", item[1])) in efficacy_task_ids
+            ]
+        else:
+            task_items = [item for item in task_items if str(item[1]) in efficacy_task_ids]
+        if not task_items:
+            raise ValueError("frozen confirmatory efficacy subset has no scheduled task slots")
+        task_ids = [task_id for _, task_id in task_items]
+        task_digest = attest.task_manifest_digest(tasks_root, task_ids)
     conditions_list = tuple(item.strip().upper() for item in args.conditions.split(",") if item.strip())
     context_modes = tuple(item.strip() for item in args.context_modes.split(",") if item.strip())
     if getattr(args, "formal", False):

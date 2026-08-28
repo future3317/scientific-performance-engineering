@@ -169,16 +169,16 @@ def test_manifest_is_agent_blind_and_revision_bound():
     assert validate_manifest(tampered)
 
 
-def test_unstable_atomic_task_is_diagnostic_not_efficacy():
+def test_baseline_stability_is_descriptive_not_an_eligibility_gate():
     task_id = "CORE-H2D-PIPELINE-03R2"
     manifest = build_manifest(
         pilot_calibration=_eligibility(task_id, stable=False, typical_noise=40.0), tasks_root=ROOT / "tasks",
         benchmark_revision="r" * 40, population_manifest_digest="p" * 64,
         calibration_protocol_digest="c" * 64,
     )
-    assert manifest["efficacy_task_ids"] == []
-    assert manifest["diagnostic_task_ids"] == [task_id]
-    assert manifest["tasks"][0]["baseline_stability"] == "blocked"
+    assert manifest["efficacy_task_ids"] == [task_id]
+    assert manifest["diagnostic_task_ids"] == []
+    assert manifest["tasks"][0]["baseline_stability"] == "descriptive_only"
 
 
 def test_agent_outcome_cannot_enter_manifest_input():

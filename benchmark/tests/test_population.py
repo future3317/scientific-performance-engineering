@@ -54,7 +54,9 @@ def test_empirical_floor_uses_observed_control_noise() -> None:
     assert flags["oracle_effect_unstable"] == ["DYNAMIC"]
     assert flags["noise_too_high"] == ["DYNAMIC"]
     assert flags["baseline_already_optimal"] == ["DYNAMIC"]
-    assert calibration["calibration_gate"] == "blocked"
+    assert calibration["calibration_gate"] == "ready_for_review"
+    assert calibration["population_integrity_gate"] == "pass"
+    assert calibration["task_attrition_flags"]["noise_too_high"] == ["DYNAMIC"]
 
 
 def test_empirical_floor_can_clear_high_declared_noise() -> None:

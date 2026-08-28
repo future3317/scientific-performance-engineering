@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import argparse
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -15,7 +16,10 @@ from benchmark.provenance import benchmark_revision, file_digest, json_digest
 
 SCHEMA_VERSION = 1
 MANIFEST_ID = "resource-domain-eligibility-v1"
-STATUSES = {"in_domain", "out_of_domain_capacity", "not_applicable", "unresolved"}
+STATUSES = {
+    "in_domain", "out_of_domain_capacity", "out_of_domain_walltime",
+    "not_applicable", "unresolved",
+}
 _FORBIDDEN_KEY_PARTS = {
     "agent", "oracle", "candidate", "d_b", "d_c", "b_a", "condition_results",
     "verified_speedup", "efficacy", "utility", "score",
@@ -76,6 +80,19 @@ def classify_baseline_probe(probe: Mapping[str, Any]) -> str:
         return "unresolved"
     if probe.get("protocol_valid") is not True or probe.get("cleanup_quiescent") is not True:
         return "unresolved"
+    if probe.get("timeout"):
+        timeout_value = probe.get("timeout_s")
+        same_contract = (
+            probe.get("timeout_stage") == "baseline_probe"
+            and isinstance(timeout_value, (int, float))
+            and math.isfinite(float(timeout_value))
+            and float(timeout_value) == 600.0
+            and int(probe.get("confirmation_attempt_count", 0)) >= 2
+            and probe.get("timeout_reproduced") is True
+            and probe.get("baseline_artifact_completed") is not True
+            and probe.get("verifier_began") is not True
+        )
+        return "out_of_domain_walltime" if same_contract else "unresolved"
     if probe.get("resource_exhausted"):
         confirmed = int(probe.get("confirmation_attempt_count", 0)) >= 2
         if confirmed and probe.get("capacity_failure_reproduced") is True and _capacity_evidence(probe):
@@ -113,6 +130,7 @@ def _task_entry(probe: Mapping[str, Any], status: str) -> dict[str, Any]:
         "confirmation_attempt_count": int(probe.get("confirmation_attempt_count", 0)),
         "structured_reason": (
             str(probe.get("structured_reason") or "HOST_CAPACITY_LIMIT") if status == "out_of_domain_capacity"
+            else "HOST_WALLTIME_LIMIT" if status == "out_of_domain_walltime"
             else "RESOURCE_BASELINE_COMPLETED" if status == "in_domain"
             else "RESOURCE_DOMAIN_UNRESOLVED"
         ),
@@ -172,7 +190,10 @@ def build_resource_domain_manifest(
         },
         "task_ids": task_ids,
         "in_domain_task_ids": [task_id for task_id in task_ids if statuses[task_id] == "in_domain"],
-        "out_of_domain_task_ids": [task_id for task_id in task_ids if statuses[task_id] == "out_of_domain_capacity"],
+        "out_of_domain_task_ids": [
+            task_id for task_id in task_ids
+            if statuses[task_id] in {"out_of_domain_capacity", "out_of_domain_walltime"}
+        ],
         "not_applicable_task_ids": [task_id for task_id in task_ids if statuses[task_id] == "not_applicable"],
         "unresolved_task_ids": [task_id for task_id in task_ids if statuses[task_id] == "unresolved"],
         "tasks": tasks,
@@ -240,7 +261,10 @@ def validate_resource_domain_manifest(
             errors.append(f"{task_id}: baseline probe session is missing")
     if manifest.get("in_domain_task_ids") != [task_id for task_id in active_ids if statuses.get(task_id) == "in_domain"]:
         errors.append("resource-domain in-domain projection mismatch")
-    if manifest.get("out_of_domain_task_ids") != [task_id for task_id in active_ids if statuses.get(task_id) == "out_of_domain_capacity"]:
+    if manifest.get("out_of_domain_task_ids") != [
+        task_id for task_id in active_ids
+        if statuses.get(task_id) in {"out_of_domain_capacity", "out_of_domain_walltime"}
+    ]:
         errors.append("resource-domain out-of-domain projection mismatch")
     if manifest.get("not_applicable_task_ids") != [task_id for task_id in active_ids if statuses.get(task_id) == "not_applicable"]:
         errors.append("resource-domain not-applicable projection mismatch")

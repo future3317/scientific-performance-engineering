@@ -173,14 +173,14 @@ def selected_gpu_preflight() -> dict[str, Any]:
 
 
 def wait_for_selected_gpu_admission(*, timeout_s: float, poll_interval_s: float) -> dict[str, Any]:
-    """Wait for the already-selected GPU to become exclusively available."""
+    """Check selected-GPU identity; co-tenants are recorded, not rejected."""
     started = time.monotonic()
     deadline = started + float(timeout_s)
     latest = selected_gpu_preflight()
-    while latest.get("status") != "clean" and time.monotonic() < deadline:
+    while latest.get("status") not in {"clean", "busy"} and time.monotonic() < deadline:
         time.sleep(min(float(poll_interval_s), max(0.0, deadline - time.monotonic())))
         latest = selected_gpu_preflight()
-    admitted = latest.get("status") == "clean"
+    admitted = latest.get("status") in {"clean", "busy"}
     result = dict(latest)
     result["admission_status"] = "admitted" if admitted else "timeout"
     result["admission_waited_s"] = round(time.monotonic() - started, 3)

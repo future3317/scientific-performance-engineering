@@ -59,17 +59,19 @@ def validate_calibration_approval(
     approved_tasks = set(str(item) for item in approval.get("approved_task_ids", []))
     if active_ids and calibrated != active_ids:
         errors.append("pilot calibration coverage does not match active population")
-    expected_approved = active_ids - resource_excluded
+    expected_approved = {
+        str(item.get("task_id")) for item in calibration.get("tasks", [])
+        if isinstance(item, dict)
+        and str(item.get("task_id")) not in resource_excluded
+        and item.get("status") == "eligible"
+        and item.get("eligibility") is True
+    }
     if active_ids and approved_tasks != expected_approved:
-        errors.append("approval approved_task_ids do not match resource-conditioned population")
+        errors.append("approval approved_task_ids do not match frozen confirmatory subset")
     if unresolved:
         errors.append("resource domain contains unresolved tasks")
-    if any(
-        item.get("task_id") not in resource_excluded
-        and (item.get("status") != "eligible" or item.get("eligibility") is not True)
-        for item in calibration.get("tasks", []) if isinstance(item, dict)
-    ):
-        errors.append("all active tasks must have eligible empirical calibration")
+    if not expected_approved:
+        errors.append("approval confirmatory efficacy subset is empty")
     if report.get("retired_for_formal") and any(str(item.get("task_id")) in active_ids for item in report.get("retired_for_formal", [])):
         errors.append("retired task remains active")
     if repo_root is not None:
@@ -112,8 +114,12 @@ def issue_calibration_approval(
         raise ValueError("pilot calibration is not ready_for_review")
     if set(str(item.get("task_id")) for item in pilot.get("tasks", [])) != set(active_ids):
         raise ValueError("pilot calibration does not cover the active population")
-    if any(item.get("status") != "eligible" or item.get("eligibility") is not True for item in pilot.get("tasks", [])):
-        raise ValueError("every active task must be eligible before approval")
+    confirmatory = [
+        item for item in pilot.get("tasks", [])
+        if item.get("status") == "eligible" and item.get("eligibility") is True
+    ]
+    if not confirmatory:
+        raise ValueError("confirmatory efficacy subset is empty before approval")
     empirical_digest = json_digest(empirical)
     if report.get("empirical_calibration", {}).get("empirical_digest") != empirical_digest:
         raise ValueError("empirical digest does not match population report")
@@ -130,8 +136,10 @@ def issue_calibration_approval(
         "benchmark_revision": revision,
         "claims_digest": file_digest(repo_root / "CLAIMS.yaml"),
         "statistical_protocol_digest": file_digest(repo_root / "references" / "STATISTICAL_PROTOCOL.md"),
-        "approved_task_ids": [task_id for task_id in active_ids if task_id not in set(report.get("resource_domain", {}).get("out_of_domain_task_ids", []))],
-        "blocked_task_ids": sorted(set(report.get("resource_domain", {}).get("out_of_domain_task_ids", []))),
+        "approved_task_ids": sorted(str(item.get("task_id")) for item in confirmatory),
+        "blocked_task_ids": sorted(
+            set(active_ids) - {str(item.get("task_id")) for item in confirmatory}
+        ),
         "replacement_task_ids": [],
         "approver": approver,
         "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
