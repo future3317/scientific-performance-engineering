@@ -319,3 +319,21 @@ def test_approval_rejects_tampered_derived_projection(tmp_path: Path, monkeypatc
 
 if __name__ == "__main__":
     main()
+
+def test_report_and_pilot_preserve_calibration_protocol_identity(tmp_path: Path) -> None:
+    import json
+    from benchmark.calibration.report import _calibration_protocol, build_pilot_calibration, build_report
+
+    repo_root = Path(__file__).resolve().parents[2]
+    tasks_root = repo_root / "benchmark" / "tasks"
+    _, expected_digest = _calibration_protocol(tasks_root)
+    assert expected_digest
+
+    empirical_path = tmp_path / "empirical.json"
+    empirical_path.write_text(json.dumps({"tasks": []}), encoding="utf-8")
+    report, _ = build_report(tasks_root, empirical_path=empirical_path)
+    pilot = build_pilot_calibration(report, tasks_root)
+
+    assert report["empirical_calibration"]["calibration_protocol_digest"] == expected_digest
+    assert report["calibration_protocol_digest"] == expected_digest
+    assert pilot["calibration_protocol_digest"] == expected_digest
