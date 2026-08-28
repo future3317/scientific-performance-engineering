@@ -148,9 +148,24 @@ def _task_validity(
         correctness_scientific_valid = False
         reasons.append("aggregate semantic gate failed")
     anti_cheat = task.get("anti_cheat")
-    if not isinstance(anti_cheat, Mapping) or anti_cheat.get("status") not in {"pass", "passed", "clean"}:
+    if not isinstance(anti_cheat, Mapping):
         correctness_scientific_valid = False
         reasons.append("anti-cheat contract failed")
+    else:
+        anti_findings = anti_cheat.get("findings", [])
+        hard_fail = (
+            anti_cheat.get("hard_fail") is True
+            or any(
+                isinstance(finding, Mapping) and finding.get("severity") == "hard_fail"
+                for finding in (anti_findings if isinstance(anti_findings, list) else [])
+            )
+        )
+        if hard_fail:
+            correctness_scientific_valid = False
+            reasons.append("anti-cheat hard failure")
+        elif anti_cheat.get("status") not in {"pass", "passed", "clean"}:
+            correctness_scientific_valid = False
+            reasons.append("anti-cheat audit warning")
     sessions, session_reasons = _session_map(
         task, task_id=task_id, benchmark_revision=benchmark_revision,
         population_manifest_digest=population_manifest_digest,

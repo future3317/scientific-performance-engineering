@@ -486,7 +486,12 @@ def _calibration_record(task_dir: Path, task_id: str, revision: str, digest: str
         "oracle_ci_high_percent": _percent(verified.get("ci_high")),
         "semantic_gates": gates,
         "semantic_gate_pass_rate": sum(bool(value) for value in gates.values()) / max(1, len(gates)),
-        "anti_cheat": {"status": "pass" if not anti.get("hard_fail") and not anti.get("tripwired") else "fail", "findings": anti.get("findings", [])},
+        "anti_cheat": {
+            "status": "fail" if anti.get("hard_fail") else "warning" if anti.get("tripwired") else "pass",
+            "hard_fail": bool(anti.get("hard_fail")),
+            "tripwired": bool(anti.get("tripwired")),
+            "findings": anti.get("findings", []),
+        },
         "metric_class": "evolution" if episode else "atomic_performance",
         "episode_effect": {
             "outer_trial_deltas": episode_effects,

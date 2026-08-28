@@ -57,6 +57,8 @@ EMPIRICAL_FLAGS = (
     "anti_cheat_blocked",
     "calibration_blocked",
     "calibration_reference_runtime_ineligible",
+    "calibration_reference_out_of_domain_walltime",
+    "anti_cheat_warning",
 )
 HARD_VALIDITY_FLAGS = frozenset({
     "protocol_invalid",
@@ -67,6 +69,30 @@ HARD_VALIDITY_FLAGS = frozenset({
     "repair_pattern_duplicate",
 })
 TASK_ATTRITION_FLAGS = frozenset(set(EMPIRICAL_FLAGS) - set(HARD_VALIDITY_FLAGS))
+
+
+def _anti_cheat_outcome(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "missing"
+    findings = value.get("findings", [])
+    findings = findings if isinstance(findings, list) else []
+    if value.get("hard_fail") is True or any(
+        isinstance(finding, dict) and finding.get("severity") == "hard_fail"
+        for finding in findings
+    ):
+        return "hard"
+    if (
+        value.get("status") not in {"pass", "passed", "clean"}
+        or bool(value.get("tripwired"))
+        or any(isinstance(finding, dict) and finding.get("severity") == "warning" for finding in findings)
+    ):
+        return "warning"
+    return "clean"
+
+BASELINE_REFERENCE_ATTRITION_STATUSES = frozenset({
+    "calibration_reference_runtime_ineligible",
+    "out_of_domain_walltime",
+})
 CALIBRATION_FIELDS = (
     "task_digest", "revision", "environment", "outer_trials", "noise_control",
     "oracle_ci", "semantic_gates", "anti_cheat", "calibration_status",
@@ -326,11 +352,14 @@ def _empirical_flags(
         spec = specs_by_id[task_id]
         evolution_record = str(record.get("metric_class", "")) == "evolution" or spec.get("track") == "evolution"
         reference_diagnostic = record.get("baseline_reference_diagnostic")
-        reference_runtime_ineligible = (
-            isinstance(reference_diagnostic, dict)
-            and reference_diagnostic.get("status")
-            == "calibration_reference_runtime_ineligible"
+        reference_diagnostic_status = (
+            reference_diagnostic.get("status")
+            if isinstance(reference_diagnostic, dict) else None
         )
+        reference_runtime_ineligible = (
+            reference_diagnostic_status == "calibration_reference_runtime_ineligible"
+        )
+        reference_diagnostic_attrition = reference_diagnostic_status in BASELINE_REFERENCE_ATTRITION_STATUSES
         execution_invalid = (
             str(record.get("execution_validity", "")) in {"resource_blocked", "invalid"}
             or bool(record.get("protocol_failure"))
@@ -351,14 +380,14 @@ def _empirical_flags(
                 or bool(trial.get("timeout"))
                 for trial in record.get("outer_trials", [])
                 if isinstance(trial, dict)
-            ) and not reference_runtime_ineligible:
+            ) and not reference_diagnostic_attrition:
                 flags["resource_blocked"].append(task_id)
         if (
-            isinstance(reference_diagnostic, dict)
-            and reference_diagnostic.get("status")
-            == "calibration_reference_runtime_ineligible"
+            reference_runtime_ineligible
         ):
             flags["calibration_reference_runtime_ineligible"].append(task_id)
+        if reference_diagnostic_status == "out_of_domain_walltime":
+            flags["calibration_reference_out_of_domain_walltime"].append(task_id)
         if "_task_dir" in spec:
             missing_fields = [key for key in CALIBRATION_FIELDS if key not in record]
             if missing_fields:
@@ -400,16 +429,26 @@ def _empirical_flags(
                     flags["scientific_gate_failed"].append(task_id)
             if not isinstance(record.get("semantic_gates"), dict) or not record.get("semantic_gates"):
                 flags["semantic_gate_too_weak"].append(task_id)
-            if not isinstance(record.get("anti_cheat"), dict) or record.get("anti_cheat", {}).get("status") not in {"pass", "passed", "clean"}:
+            anti_outcome = _anti_cheat_outcome(record.get("anti_cheat"))
+            if anti_outcome == "hard":
                 flags["agent_shortcut_detected"].append(task_id)
                 flags["anti_cheat_blocked"].append(task_id)
+            elif anti_outcome == "warning":
+                flags["anti_cheat_warning"].append(task_id)
             if record.get("calibration_status") != "eligible":
-                if any(str(trial.get("execution_validity")) == "resource_blocked" or bool(trial.get("timeout")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)) and not reference_runtime_ineligible:
+                if any(str(trial.get("execution_validity")) == "resource_blocked" or bool(trial.get("timeout")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)) and not reference_diagnostic_attrition:
                     flags["resource_blocked"].append(task_id)
                 elif any(bool(trial.get("protocol_failure")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
                     flags["protocol_invalid"].append(task_id)
                 elif task_id not in flags["episode_delta_out_of_range"]:
                     flags["calibration_blocked"].append(task_id)
+        if "_task_dir" not in spec and isinstance(record.get("anti_cheat"), dict):
+            anti_outcome = _anti_cheat_outcome(record["anti_cheat"])
+            if anti_outcome == "hard":
+                flags["agent_shortcut_detected"].append(task_id)
+                flags["anti_cheat_blocked"].append(task_id)
+            elif anti_outcome == "warning":
+                flags["anti_cheat_warning"].append(task_id)
         if "_task_dir" in spec:
             task_dir = Path(spec.get("_task_dir", ""))
             if record.get("task_digest") != task_package_digest(task_dir):
