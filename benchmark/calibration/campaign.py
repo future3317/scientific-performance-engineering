@@ -656,6 +656,14 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                     )
                     timing["noise_control_s"] = round(time.perf_counter() - noise_started, 3)
                     if noise_timed_out:
+                        postflight = (
+                            selected_gpu_preflight()
+                            if fingerprint.get("cuda_available")
+                            else {"status": "clean", "foreign_pids": [], "foreign_processes": [], "gpu_state": None}
+                        )
+                        timeout_telemetry = {"session_start": preflight, "session_end": postflight}
+                        noise["shared_state_telemetry"] = timeout_telemetry
+                        noise = stats.write_noise_control(noise_path, noise)
                         noise["measurement_session_id"] = session_id
                         cleanup = noise.get("executor_cleanup") if isinstance(noise, dict) else None
                         if isinstance(cleanup, dict):
@@ -672,6 +680,7 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                             timeout=bool(noise.get("timeout", False)),
                         )
                         result["measurement_session_id"] = session_id
+                        result["shared_state_telemetry"] = timeout_telemetry
                         result_path.write_text(
                             json.dumps(result, indent=2, ensure_ascii=False) + "\n",
                             encoding="utf-8",
