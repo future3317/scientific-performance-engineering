@@ -447,6 +447,7 @@ def _empirical_flags(
         "status": "observed",
         "source": str(empirical_path),
         "empirical_digest": empirical_digest,
+        "calibration_protocol_digest": protocol_digest,
         "records": len(records),
         "missing_task_ids": missing,
         "expected_task_ids": [task_id for task_id in specs_by_id if task_id in expected_record_ids],
