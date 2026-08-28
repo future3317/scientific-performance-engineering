@@ -95,8 +95,8 @@ def test_repeated_clean_capacity_oom_does_not_require_ninety_percent_peak():
     )) == "out_of_domain_capacity"
 
 
-def test_foreign_process_and_protocol_failure_are_unresolved():
-    assert classify_baseline_probe(_probe(foreign_processes=[1234])) == "unresolved"
+def test_foreign_process_telemetry_does_not_change_resource_domain():
+    assert classify_baseline_probe(_probe(foreign_processes=[1234])) == "in_domain"
     assert classify_baseline_probe(_probe(protocol_valid=False)) == "unresolved"
 
 
@@ -120,6 +120,7 @@ def test_manifest_is_frozen_and_binds_runtime_and_population(tmp_path: Path):
     manifest = build_resource_domain_manifest(repo_root=repo_root, task_probes=probes, runtime_contract=runtime, out_path=path)
     assert manifest["manifest_id"] == MANIFEST_ID
     assert manifest["status"] == "frozen"
+    assert manifest["admission_contract"]["foreign_processes_allowed"] is True
     assert len(manifest["task_ids"]) == 30
     assert len(manifest["in_domain_task_ids"]) == 30
     assert validate_resource_domain_manifest(manifest, repo_root=repo_root) == []
