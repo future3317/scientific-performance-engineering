@@ -56,7 +56,17 @@ EMPIRICAL_FLAGS = (
     "episode_delta_out_of_range",
     "anti_cheat_blocked",
     "calibration_blocked",
+    "calibration_reference_runtime_ineligible",
 )
+HARD_VALIDITY_FLAGS = frozenset({
+    "protocol_invalid",
+    "resource_blocked",
+    "semantic_gate_too_weak",
+    "agent_shortcut_detected",
+    "anti_cheat_blocked",
+    "repair_pattern_duplicate",
+})
+TASK_ATTRITION_FLAGS = frozenset(set(EMPIRICAL_FLAGS) - set(HARD_VALIDITY_FLAGS))
 CALIBRATION_FIELDS = (
     "task_digest", "revision", "environment", "outer_trials", "noise_control",
     "oracle_ci", "semantic_gates", "anti_cheat", "calibration_status",
@@ -247,7 +257,13 @@ def _empirical_flags(
     for name in flags:
         flags[name] = sorted(set(flags[name]))
     if empirical_path is None:
-        return flags, {"status": "pending", "source": None, "hard_flags": [], "calibration_gate": "blocked"}
+        return flags, {
+            "status": "pending", "source": None, "hard_flags": [],
+            "hard_validity_flags": {}, "task_attrition_flags": {},
+            "population_integrity_gate": "blocked",
+            "confirmatory_efficacy_task_ids": [],
+            "calibration_gate": "blocked",
+        }
 
     try:
         payload = json.loads(empirical_path.read_text(encoding="utf-8"))
@@ -256,6 +272,10 @@ def _empirical_flags(
             "status": "invalid",
             "source": str(empirical_path),
             "hard_flags": [f"empirical input unreadable: {exc}"],
+            "hard_validity_flags": {"protocol_invalid": ["__empirical_input__"]},
+            "task_attrition_flags": {},
+            "population_integrity_gate": "blocked",
+            "confirmatory_efficacy_task_ids": [],
             "calibration_gate": "blocked",
         }
     records = payload.get("tasks") if isinstance(payload, dict) else None
@@ -264,6 +284,10 @@ def _empirical_flags(
             "status": "invalid",
             "source": str(empirical_path),
             "hard_flags": ["empirical input must contain a tasks list"],
+            "hard_validity_flags": {"protocol_invalid": ["__empirical_input__"]},
+            "task_attrition_flags": {},
+            "population_integrity_gate": "blocked",
+            "confirmatory_efficacy_task_ids": [],
             "calibration_gate": "blocked",
         }
     empirical_digest = json_digest(payload)
@@ -275,7 +299,7 @@ def _empirical_flags(
     }
     resource_excluded_ids = {
         task_id for task_id, status in resource_status_by_id.items()
-        if status in {"out_of_domain_capacity", "unresolved"}
+        if status in {"out_of_domain_capacity", "out_of_domain_walltime", "unresolved"}
     }
     expected_record_ids = set(specs_by_id) - resource_excluded_ids
     tasks_root = Path(specs[0]["_task_dir"]).parent if specs and "_task_dir" in specs[0] else None
@@ -301,8 +325,15 @@ def _empirical_flags(
         records_by_task[task_id] = dict(record)
         spec = specs_by_id[task_id]
         evolution_record = str(record.get("metric_class", "")) == "evolution" or spec.get("track") == "evolution"
+        reference_diagnostic = record.get("baseline_reference_diagnostic")
+        reference_runtime_ineligible = (
+            isinstance(reference_diagnostic, dict)
+            and reference_diagnostic.get("status")
+            == "calibration_reference_runtime_ineligible"
+        )
         execution_invalid = (
             str(record.get("execution_validity", "")) in {"resource_blocked", "invalid"}
+            or bool(record.get("protocol_failure"))
             or bool(record.get("timeout"))
             or any(
                 str(trial.get("execution_validity", "")) in {"resource_blocked", "invalid"}
@@ -313,13 +344,21 @@ def _empirical_flags(
         )
         if execution_invalid:
             records_by_task[task_id]["effect_status"] = "not_evaluated_due_to_invalid_execution"
+            if record.get("protocol_failure") or str(record.get("execution_validity", "")) == "invalid":
+                flags["protocol_invalid"].append(task_id)
             if any(
                 str(trial.get("execution_validity", "")) == "resource_blocked"
                 or bool(trial.get("timeout"))
                 for trial in record.get("outer_trials", [])
                 if isinstance(trial, dict)
-            ):
+            ) and not reference_runtime_ineligible:
                 flags["resource_blocked"].append(task_id)
+        if (
+            isinstance(reference_diagnostic, dict)
+            and reference_diagnostic.get("status")
+            == "calibration_reference_runtime_ineligible"
+        ):
+            flags["calibration_reference_runtime_ineligible"].append(task_id)
         if "_task_dir" in spec:
             missing_fields = [key for key in CALIBRATION_FIELDS if key not in record]
             if missing_fields:
@@ -365,7 +404,7 @@ def _empirical_flags(
                 flags["agent_shortcut_detected"].append(task_id)
                 flags["anti_cheat_blocked"].append(task_id)
             if record.get("calibration_status") != "eligible":
-                if any(str(trial.get("execution_validity")) == "resource_blocked" or bool(trial.get("timeout")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
+                if any(str(trial.get("execution_validity")) == "resource_blocked" or bool(trial.get("timeout")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)) and not reference_runtime_ineligible:
                     flags["resource_blocked"].append(task_id)
                 elif any(bool(trial.get("protocol_failure")) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
                     flags["protocol_invalid"].append(task_id)
@@ -430,7 +469,6 @@ def _empirical_flags(
                 flags["difficulty_floor"].append(task_id)
     for name in flags:
         flags[name] = sorted(set(flags[name]))
-    hard_flags = [name for name, task_ids in flags.items() if task_ids]
     missing = sorted(expected_record_ids - seen)
     unexpected_resource_records = sorted(seen & resource_excluded_ids)
     if len(records) != len(expected_record_ids):
@@ -440,9 +478,29 @@ def _empirical_flags(
     if duplicate_task_ids:
         flags["protocol_invalid"].append("duplicate:" + ",".join(sorted(duplicate_task_ids)))
     if missing:
-        hard_flags.append("missing_empirical_task_records")
+        flags["protocol_invalid"].append("missing_empirical_task_records")
     if len(records) != len(expected_record_ids) or unknown_task_ids or duplicate_task_ids or unexpected_resource_records:
-        hard_flags.append("empirical_record_cardinality_invalid")
+        flags["protocol_invalid"].append("empirical_record_cardinality_invalid")
+    for name in flags:
+        flags[name] = sorted(set(flags[name]))
+    hard_validity_flags = {
+        name: list(flags[name]) for name in HARD_VALIDITY_FLAGS if flags.get(name)
+    }
+    task_attrition_flags = {
+        name: list(flags[name]) for name in TASK_ATTRITION_FLAGS if flags.get(name)
+    }
+    hard_flags = sorted(name for name, task_ids in hard_validity_flags.items() if task_ids)
+    hard_task_ids = {
+        task_id for task_ids in hard_validity_flags.values() for task_id in task_ids
+    }
+    confirmatory_efficacy_task_ids = [
+        task_id for task_id in sorted(seen)
+        if task_id not in hard_task_ids
+        and specs_by_id[task_id].get("track") != "evolution"
+        and str(specs_by_id[task_id].get("kind", "positive")) == "positive"
+        and records_by_task[task_id].get("calibration_status", "eligible") == "eligible"
+    ]
+    population_integrity_gate = "pass" if not hard_validity_flags else "blocked"
     return flags, {
         "status": "observed",
         "source": str(empirical_path),
@@ -453,7 +511,15 @@ def _empirical_flags(
         "expected_task_ids": [task_id for task_id in specs_by_id if task_id in expected_record_ids],
         "resource_excluded_task_ids": [task_id for task_id in specs_by_id if task_id in resource_excluded_ids],
         "hard_flags": sorted(set(hard_flags)),
-        "calibration_gate": "blocked" if hard_flags else "ready_for_review",
+        "hard_validity_flags": hard_validity_flags,
+        "task_attrition_flags": task_attrition_flags,
+        "population_integrity_gate": population_integrity_gate,
+        "confirmatory_efficacy_task_ids": confirmatory_efficacy_task_ids,
+        "calibration_gate": (
+            "ready_for_review"
+            if population_integrity_gate == "pass" and confirmatory_efficacy_task_ids
+            else "blocked"
+        ),
         "records_by_task": records_by_task,
     }
 
@@ -697,7 +763,9 @@ def build_pilot_calibration(report: dict[str, Any], tasks_root: str | Path) -> d
         local = report.get("task_calibration", {}).get(task_id, {})
         empirical = report.get("empirical_calibration", {}).get("records_by_task", {}).get(task_id, {})
         resource_status = resource_status_by_id.get(task_id)
-        resource_excluded = resource_status in {"out_of_domain_capacity", "unresolved"}
+        resource_excluded = resource_status in {
+            "out_of_domain_capacity", "out_of_domain_walltime", "unresolved",
+        }
         # Metadata is descriptive only.  Eligibility comes from a complete,
         # digest-attested empirical record for the active task.
         status = "eligible" if isinstance(empirical, dict) and empirical and empirical.get("calibration_status") == "eligible" and not any(
@@ -873,6 +941,13 @@ def build_efficacy_eligibility_input(
             "outer_trials": projected_trials,
             "noise_control": {"artifacts": projected_artifacts},
             "baseline_stability": source.get("baseline_stability"),
+            "calibration_eligible": (
+                bool(source["eligibility"])
+                if isinstance(source.get("eligibility"), bool)
+                else source.get("status") != "blocked"
+                if "status" in source
+                else True
+            ),
             "semantic_gates": source.get("semantic_gates"),
             "anti_cheat": source.get("anti_cheat"),
             **({"resource_domain_status": resource_status_by_id[task_id]} if resource_domain_manifest is not None else {}),
@@ -933,10 +1008,9 @@ def validate_formal_readiness(
                 errors.append("pilot calibration does not match canonical calibration rebuild")
     if report.get("empirical_calibration", {}).get("calibration_gate") != "ready_for_review":
         errors.append("empirical calibration gate is not ready_for_review")
-    if report.get("semantic_gate_failures"):
-        errors.append("semantic_gate_failures are present")
-    if any(report.get("empirical_rejection_flags", {}).values()):
-        errors.append("empirical hard flags are present")
+    empirical_calibration = report.get("empirical_calibration", {})
+    if empirical_calibration.get("population_integrity_gate") != "pass":
+        errors.append("population integrity gate is blocked")
     if calibration is None or calibration.get("calibration_gate") != "ready_for_review":
         errors.append("pilot_calibration artifact is missing or blocked")
     errors.extend(validate_calibration_approval(report, calibration, approval, repo_root=repo_root))
@@ -955,12 +1029,14 @@ def validate_formal_readiness(
     observed_ids = {str(item.get("task_id")) for item in calibration_tasks}
     if observed_ids != active_ids:
         errors.append("pilot calibration does not cover exactly the active population")
-    if any(
-        str(item.get("task_id")) not in resource_excluded
-        and (item.get("status") != "eligible" or item.get("eligibility") is not True)
-        for item in calibration_tasks
-    ):
-        errors.append("every active pilot task must be eligible")
+    confirmatory = {
+        str(item.get("task_id")) for item in calibration_tasks
+        if str(item.get("task_id")) not in resource_excluded
+        and item.get("status") == "eligible"
+        and item.get("eligibility") is True
+    }
+    if not confirmatory:
+        errors.append("confirmatory efficacy subset is empty")
     if report.get("retired_for_formal") and any(str(item.get("task_id")) in active_ids for item in report.get("retired_for_formal", [])):
         errors.append("retired task remains in active population")
     return errors

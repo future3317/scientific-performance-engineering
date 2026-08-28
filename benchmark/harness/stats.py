@@ -188,6 +188,24 @@ def write_noise_control(path: str | Path, artifact: dict[str, Any]) -> dict[str,
     payload.setdefault("task_package_digest", payload.get("task_manifest_digest"))
     payload.setdefault("population_manifest_digest", payload.get("task_manifest_digest"))
     payload["schema_version"] = NOISE_CONTROL_SCHEMA_VERSION
+    controls_complete = (
+        len(payload.get("control_a_runs", [])) == 5
+        and len(payload.get("control_b_runs", [])) == 5
+        and all(
+            isinstance(value, (int, float))
+            and math.isfinite(float(value))
+            and float(value) > 0
+            for key in ("control_a_runs", "control_b_runs")
+            for value in payload.get(key, [])
+        )
+    )
+    payload["baseline_stability"] = bool(
+        controls_complete
+        and not payload.get("timeout")
+        and payload.get("execution_validity") not in {"resource_blocked", "invalid"}
+        and isinstance(payload.get("typical_noise_percent"), (int, float))
+        and math.isfinite(float(payload["typical_noise_percent"]))
+    )
     payload["effective_noise_floor_percent"] = effective_noise_floor(
         float(payload["declared_noise_floor_percent"]),
         payload.get("observed_noise_floor_percent"),
@@ -222,6 +240,7 @@ def read_noise_control(path: str | Path, expected: dict[str, Any] | None = None)
         "noise_spread_percent", "max_deviation_percent", "measurement_phase",
         "observed_noise_floor_percent", "declared_noise_floor_percent",
         "effective_noise_floor_percent", "expected_speedup_range",
+        "baseline_stability",
     }
     missing = sorted(key for key in required if key not in payload)
     if missing:

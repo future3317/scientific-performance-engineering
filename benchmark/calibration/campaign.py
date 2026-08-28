@@ -46,6 +46,8 @@ def _bounded_verifier_result(
             wall_time_s=float(completed["wall_time_s"]),
             error="verifier left a residual process group",
             measurement_class=measurement_class, timeout=False,
+            executor_cleanup=cleanup, verifier_began=True,
+            stderr=completed.get("stderr", ""), stdout=completed.get("stdout", ""),
         )
         result["executor_cleanup"] = cleanup
         result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,6 +68,8 @@ def _bounded_verifier_result(
                 failure_stage="verifier", timeout_s=timeout_s,
                 wall_time_s=float(completed["wall_time_s"]),
                 error=error, measurement_class=measurement_class, timeout=False,
+                executor_cleanup=cleanup, verifier_began=True,
+                stderr=completed.get("stderr", ""), stdout=completed.get("stdout", ""),
             )
             result["process_exit_code"] = exit_code
             result["executor_cleanup"] = cleanup
@@ -81,6 +85,8 @@ def _bounded_verifier_result(
         wall_time_s=float(completed["wall_time_s"]),
         error=completed["stderr"] or f"verifier timed out after {timeout_s:g}s",
         measurement_class=measurement_class,
+        executor_cleanup=cleanup, verifier_began=True,
+        stderr=completed.get("stderr", ""), stdout=completed.get("stdout", ""),
     )
     result["executor_cleanup"] = cleanup
     result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +98,10 @@ def _resource_blocked_result(
     *, task_id: str, outer_trial_id: str, failure_stage: str,
     timeout_s: float, wall_time_s: float, error: str,
     measurement_class: str = "atomic_performance", timeout: bool = True,
+    executor_cleanup: dict[str, Any] | None = None,
+    stdout: str = "", stderr: str = "",
+    baseline_artifact_completed: bool = False,
+    verifier_began: bool = False,
 ) -> dict[str, Any]:
     result = {
         "schema_version": 1,
@@ -111,6 +121,13 @@ def _resource_blocked_result(
         "calibration_block_reason": error or f"{failure_stage} exceeded the task time budget",
         "timeout": timeout,
         "failure_stage": failure_stage,
+        "timeout_stage": failure_stage if timeout else None,
+        "timeout_s": float(timeout_s),
+        "baseline_artifact_completed": baseline_artifact_completed,
+        "verifier_began": verifier_began,
+        "stdout": stdout,
+        "stderr": stderr,
+        "executor_cleanup": executor_cleanup or {},
         "cost": {"wall_time_s": wall_time_s, "tokens": None, "tool_calls": None, "retries": 0},
         "anticheat": {"hard_fail": False, "findings": [], "tripwired": False, "status": "pass"},
         "errors": [error or f"{failure_stage} timed out after {timeout_s:g}s"],
@@ -152,7 +169,9 @@ def calibration_task_ids(
         raise ValueError("resource domain manifest contains unresolved tasks: " + ", ".join(unresolved))
     return [
         task_id for task_id in task_ids
-        if status_by_id.get(task_id) != "out_of_domain_capacity"
+        if status_by_id.get(task_id) not in {
+            "out_of_domain_capacity", "out_of_domain_walltime",
+        }
     ]
 
 
@@ -230,6 +249,13 @@ def _bounded_noise_control(
             "failure_stage": "executor_cleanup",
             "timeout": False,
             "error": completed["stderr"] or "noise control left a residual process group",
+            "timeout_stage": "noise_control",
+            "timeout_s": float(timeout_s),
+            "wall_time_s": float(completed["wall_time_s"]),
+            "stdout": completed.get("stdout", ""),
+            "stderr": completed.get("stderr", ""),
+            "baseline_artifact_completed": True,
+            "verifier_began": False,
         })
         noise["executor_cleanup"] = cleanup
         stats.write_noise_control(noise_path, noise)
@@ -253,6 +279,12 @@ def _bounded_noise_control(
                 "wall_time_s": float(completed["wall_time_s"]),
                 "process_exit_code": exit_code,
                 "executor_cleanup": cleanup,
+                "timeout_stage": None,
+                "timeout_s": float(timeout_s),
+                "stdout": completed.get("stdout", ""),
+                "stderr": completed.get("stderr", ""),
+                "baseline_artifact_completed": False,
+                "verifier_began": False,
             })
             stats.write_noise_control(noise_path, noise)
             return stats.read_noise_control(noise_path), True
@@ -273,6 +305,12 @@ def _bounded_noise_control(
         "error": completed["stderr"] or f"noise control timed out after {timeout_s:g}s",
         "wall_time_s": float(completed["wall_time_s"]),
         "executor_cleanup": cleanup,
+        "timeout_stage": "noise_control",
+        "timeout_s": float(timeout_s),
+        "stdout": completed.get("stdout", ""),
+        "stderr": completed.get("stderr", ""),
+        "baseline_artifact_completed": False,
+        "verifier_began": False,
     })
     stats.write_noise_control(noise_path, noise)
     return stats.read_noise_control(noise_path), True
@@ -776,6 +814,56 @@ def run_calibration_campaign(args: argparse.Namespace) -> int:
                         cwd=repo_root,
                         measurement_class="atomic_performance",
                     )
+                    if result.get("timeout") and result.get("failure_stage") == "verifier":
+                        baseline_solution_dir = (
+                            out / "baseline-reference" / outer_id / task_id / "solution"
+                        )
+                        baseline_result_path = (
+                            out / "baseline-reference" / outer_id / task_id / "result.json"
+                        )
+                        shutil.copytree(
+                            task_dir / "workspace", baseline_solution_dir,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                            dirs_exist_ok=True,
+                        )
+                        baseline_args = list((
+                            "run-task", str(task_dir), "--out", str(baseline_result_path),
+                            "--seed", str(outer), "--condition", "standalone",
+                            "--context-mode", "reset", "--noise-control", str(noise_path),
+                            "--noise-control-required", "--outer-trial-id", outer_id,
+                            "--benchmark-revision", revision, "--task-manifest-digest", digest,
+                            "--measurement-phase", measurement_phase,
+                            "--device-conditioning-prelude-ms", str(conditioning_prelude_ms),
+                            "--task-package-digest", task_digest,
+                            "--population-manifest-digest", population_digest,
+                            "--solution", str(baseline_solution_dir),
+                        ))
+                        baseline_result = _bounded_verifier_result(
+                            task_id=task_id, outer_trial_id=outer_id,
+                            result_path=baseline_result_path,
+                            timeout_s=float(spec.get("time_budget_s", 600.0)),
+                            module="benchmark.harness.cli", args=tuple(baseline_args),
+                            cwd=repo_root, measurement_class="atomic_performance",
+                        )
+                        baseline_timed_out = bool(baseline_result.get("timeout"))
+                        result["baseline_reference_diagnostic"] = {
+                            "status": (
+                                "out_of_domain_walltime"
+                                if baseline_timed_out
+                                else "calibration_reference_runtime_ineligible"
+                            ),
+                            "verifier_timed_out": baseline_timed_out,
+                            "wall_time_s": baseline_result.get("cost", {}).get("wall_time_s"),
+                            "timeout_stage": baseline_result.get("timeout_stage"),
+                            "executor_cleanup": baseline_result.get("executor_cleanup", {}),
+                            "stdout": baseline_result.get("stdout", ""),
+                            "stderr": baseline_result.get("stderr", ""),
+                        }
+                        result["calibration_block_reason"] = (
+                            "baseline verifier exceeded registered task time budget"
+                            if baseline_timed_out
+                            else "CALIBRATION_REFERENCE_RUNTIME_INELIGIBLE"
+                        )
                 timing["verifier_s"] = round(time.perf_counter() - verifier_started, 3)
                 cleanup = result.get("executor_cleanup") if isinstance(result, dict) else None
                 if isinstance(cleanup, dict):
