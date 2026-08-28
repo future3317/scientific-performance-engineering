@@ -1,3 +1,4 @@
+from argparse import Namespace
 from pathlib import Path
 import importlib.util
 import json
@@ -255,8 +256,58 @@ def test_bounded_noise_control_timeout_is_reported(tmp_path, monkeypatch):
     assert timed_out is True
     assert noise["timeout"] is True
     assert noise["failure_stage"] == "noise_control"
+
     persisted = stats.read_noise_control(tmp_path / "noise.json", {"measurement_session_id": "session"})
     assert persisted["execution_validity"] == "resource_blocked"
+def test_noise_timeout_persists_shared_state_telemetry_in_raw_and_noise(tmp_path, monkeypatch):
+    from benchmark.calibration import campaign
+
+    repo_root = Path(__file__).parents[2]
+    fingerprint = {
+        "cuda_available": True,
+        "gpu_uuid": "GPU-test",
+        "cuda_visible_devices": "5",
+        "thread_topology": {
+            "omp_num_threads": "8",
+            "mkl_num_threads": "8",
+            "openblas_num_threads": "8",
+            "numexpr_num_threads": "8",
+            "torch_num_threads": 8,
+            "torch_num_interop_threads": 1,
+            "compiler_threads": "2",
+        },
+    }
+    preflight = {"status": "busy", "gpu_uuid": "GPU-test", "foreign_pids": [101]}
+    postflight = {"status": "busy", "gpu_uuid": "GPU-test", "foreign_pids": [101, 202]}
+    preflights = iter([preflight, postflight] * 3)
+    monkeypatch.setattr(campaign, "capture_fingerprint", lambda: fingerprint)
+    monkeypatch.setattr(campaign, "selected_gpu_preflight", lambda: next(preflights))
+    monkeypatch.setattr(
+        campaign.CellExecutor,
+        "run_noise_control",
+        lambda self, **_kwargs: {
+            "timed_out": True,
+            "wall_time_s": 3.01,
+            "exit_code": -1,
+            "stdout": "",
+            "stderr": "[harness] subprocess timed out after 3s",
+            "cleanup": {"quiescent": True},
+        },
+    )
+    monkeypatch.setattr(campaign, "rebuild_calibration_views", lambda **_kwargs: ({}, {"tasks": []}, []))
+
+    result = campaign.run_calibration_campaign(
+        Namespace(repo_root=repo_root, out=tmp_path, task_id="CORE-H2D-OVERFANOUT-23R3", outer_trials=3)
+    )
+
+    assert result == 0
+    for outer in range(3):
+        outer_id = f"outer-{outer:03d}"
+        raw = json.loads((tmp_path / "raw" / outer_id / "CORE-H2D-OVERFANOUT-23R3.json").read_text())
+        noise = json.loads((tmp_path / "noise-control" / outer_id / "CORE-H2D-OVERFANOUT-23R3.json").read_text())
+        assert raw["shared_state_telemetry"] == {"session_start": preflight, "session_end": postflight}
+        assert noise["shared_state_telemetry"] == {"session_start": preflight, "session_end": postflight}
+
 
 
 def test_bounded_noise_control_residual_group_is_resource_blocked(tmp_path, monkeypatch):
