@@ -151,3 +151,36 @@ def test_s5_exception_is_protocol_invalid(monkeypatch, tmp_path) -> None:
     assert result.get("protocol_failure") is True, result.get("errors")
     assert result["validity"] == "invalid"
     assert result["verdict"] == "error"
+
+
+def test_scientific_gate_failure_is_valid_task_attrition(monkeypatch, tmp_path: Path) -> None:
+    from types import SimpleNamespace
+    from benchmark.harness import verifier
+
+    task_dir = Path(__file__).resolve().parents[1] / "tasks" / "CORE-COMPILE-TINY-12"
+    solution_dir = tmp_path / "solution"
+    solution_dir.mkdir()
+    (solution_dir / "solution.py").write_text("x = 1\n", encoding="utf-8")
+    fake_module = SimpleNamespace(
+        make_fixtures=lambda **kwargs: {},
+        load_solution=lambda **kwargs: {},
+        run_scientific_gates=lambda **kwargs: {"gate": {"passed": False, "details": {"reason": "synthetic"}}},
+    )
+    monkeypatch.setattr(verifier.runner, "select_device", lambda requires_cuda: ("cpu", True))
+    monkeypatch.setattr(verifier.runner, "import_module_by_path", lambda path: fake_module)
+    monkeypatch.setattr(
+        verifier,
+        "_fresh_input_correctness",
+        lambda *args, **kwargs: {"passed": True, "per_input": [], "output_checksums": {}},
+    )
+    monkeypatch.setattr(verifier.runner, "call_benchmark_fn", lambda *args, **kwargs: args[0](**kwargs))
+
+    result = verifier.verify_task(task_dir, solution_dir, out_path=tmp_path / "result.json")
+
+    assert result["verdict"] == "fail"
+    assert result["protocol_failure"] is False
+    assert result["validity"] == "valid"
+    assert result["execution_validity"] == "valid"
+    assert result["efficacy_eligible"] is False
+    assert result["calibration_status"] == "blocked"
+    assert result["calibration_state"] == "ineligible"
