@@ -593,6 +593,10 @@ def verify_task(
     result["scientific_gates"] = {name: gate["passed"] for name, gate in gates.items()}
     result["scientific_gate_details"] = {name: gate["details"] for name, gate in gates.items()}
     if not all(result["scientific_gates"].values()):
+        result["validity"] = "valid"
+        result["execution_validity"] = "valid"
+        result["efficacy_eligible"] = False
+        result["calibration_status"] = "blocked"
         result["verdict"] = "fail"
         mark_stage("S3")
         return _finalize(result, started, out_path)
