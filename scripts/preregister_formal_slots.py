@@ -43,7 +43,7 @@ def build(repo_root: str | Path) -> dict:
                 "mechanism": template.get("mechanism", "pending"),
                 "polarity": template.get("kind", "pending"),
                 "difficulty": template.get("difficulty_tier", "medium"),
-                "lineage_class": "pilot-derived-public" if visibility == "public_dev" else "sealed-independent-lineage",
+                "lineage_class": "pilot-derived-public" if visibility == "public_dev" else "seeded-template-instance",
                 "generator_version": "SPE-EvoBench-generator-v1",
                 "seed": 100000 + ordinal,
                 "scientific_contract": template.get("scientific_contract_id", "pending"),

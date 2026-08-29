@@ -287,6 +287,7 @@ def materialize_frozen_slots(
         projection = assert_executable_projection(package_dir)
         item["task_id"] = str(package_dir.name)
         item["source_task_id"] = source_record["task_id"]
+        item["source_template_cluster"] = source_record["task_id"]
         item["source_task_dir"] = str(source)
         item["formal_variant_seed"] = int(item["seed"])
         item["formal_variant_parameters"] = dict(source_record["instance"].parameters)
@@ -328,7 +329,7 @@ def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | 
         if not isinstance(slot, dict):
             errors.append("slot must be an object")
             continue
-        for key in ("slot_id", "task_id", "package_digest", "visibility", "track", "split", "source_task_id", "family_instance", "projection"):
+        for key in ("slot_id", "task_id", "package_digest", "visibility", "track", "split", "source_task_id", "source_template_cluster", "lineage_class", "family_instance", "projection"):
             if not slot.get(key):
                 errors.append(f"slot missing {key}")
         if not isinstance(slot.get("formal_variant_seed"), int):
@@ -339,6 +340,10 @@ def validate_materialized_manifest(manifest: dict[str, Any], sealed_root: str | 
         seen.add(slot_id)
         if slot.get("visibility") not in {"sealed", "public_dev"}:
             errors.append(f"invalid visibility for {slot_id}")
+        if slot.get("visibility") == "sealed" and slot.get("lineage_class") != "seeded-template-instance":
+            errors.append(f"sealed slot lineage class is not independent: {slot_id}")
+        if slot.get("source_template_cluster") != slot.get("source_task_id"):
+            errors.append(f"slot source template cluster mismatch: {slot_id}")
         split_key = json.dumps(slot.get("split"), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         if split_key in seen_splits:
             errors.append(f"duplicate split group: {slot_id}")

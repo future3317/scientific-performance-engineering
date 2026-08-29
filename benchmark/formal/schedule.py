@@ -490,6 +490,7 @@ def build_schedule(
     context_modes: tuple[str, ...] = ("reset",),
     outer_trials: int = 3,
     schedule_seed: int = 0,
+    task_items: list[tuple[int, str]] | None = None,
     resource_domain_manifest: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if outer_trials < 1:
@@ -500,7 +501,8 @@ def build_schedule(
         raise ValueError("unknown formal condition")
     if any(mode not in {"reset", "carry"} for mode in context_modes):
         raise ValueError("unknown context mode")
-    tasks = filter_task_items_by_resource_domain(task_order(split_path), resource_domain_manifest)
+    tasks = list(task_items) if task_items is not None else task_order(split_path)
+    tasks = filter_task_items_by_resource_domain(tasks, resource_domain_manifest)
     return build_task_block_schedule(
         tasks, conditions=conditions, context_modes=context_modes,
         outer_trials=outer_trials, schedule_seed=schedule_seed,

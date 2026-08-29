@@ -267,10 +267,6 @@ def build_manifest(
             task_package_digest_value=task_digest, require_noise=require_noise,
             resource_domain_status=resource_status,
         )
-        if resource_bound and resource_status != "in_domain" and resource_status not in {
-            "out_of_domain_capacity", "out_of_domain_walltime", "unresolved",
-        }:
-            reasons.append("RESOURCE_DOMAIN_UNRESOLVED")
         role = "efficacy" if valid and require_noise and str(spec.get("kind")) == "positive" and (not resource_bound or resource_status == "in_domain") else "diagnostic"
         if role == "efficacy" and pilot_task.get("calibration_eligible", True) is not True:
             role = "diagnostic"
@@ -392,6 +388,177 @@ def validate_runtime_contract(manifest: Mapping[str, Any], fingerprint: Mapping[
 
 def task_entry(manifest: Mapping[str, Any], task_id: str) -> dict[str, Any] | None:
     return next((dict(item) for item in manifest.get("tasks", []) if str(item.get("task_id")) == str(task_id)), None)
+FORMAL_PROJECTION_SCHEMA_VERSION = 1
+FORMAL_PROJECTION_ID = "formal-efficacy-projection-v1"
+
+
+def build_formal_efficacy_projection(
+    eligibility_manifest: Mapping[str, Any],
+    formal_population: Mapping[str, Any],
+    *,
+    out_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Bind source-task eligibility to materialized formal slot identities."""
+    errors = validate_manifest(eligibility_manifest)
+    if errors:
+        raise ValueError("source eligibility manifest is invalid: " + "; ".join(errors))
+    if formal_population.get("status") != "materialized_frozen":
+        raise ValueError("formal efficacy projection requires materialized_frozen population")
+    slots = formal_population.get("slots")
+    if not isinstance(slots, list) or not slots:
+        raise ValueError("formal efficacy projection requires materialized slots")
+    source_by_id = {
+        str(task.get("task_id")): task
+        for task in eligibility_manifest.get("tasks", [])
+        if isinstance(task, Mapping)
+    }
+    projected: list[dict[str, Any]] = []
+    seen_slots: set[str] = set()
+    population_digest = json_digest(dict(formal_population))
+    for slot in slots:
+        if not isinstance(slot, Mapping):
+            raise ValueError("formal slot must be an object")
+        slot_id = str(slot.get("slot_id", ""))
+        source_id = str(slot.get("source_task_id", ""))
+        package_digest = slot.get("package_digest")
+        if not slot_id or slot_id in seen_slots:
+            raise ValueError(f"formal slot identity is missing or duplicated: {slot_id}")
+        if not source_id or source_id not in source_by_id:
+            raise ValueError(f"formal slot source task is not in eligibility: {source_id or slot_id}")
+        if not isinstance(package_digest, str) or not package_digest:
+            raise ValueError(f"formal slot package digest is missing: {slot_id}")
+        source = source_by_id[source_id]
+        projected.append({
+            "source_task_id": source_id,
+            "formal_slot_id": slot_id,
+            "formal_population_digest": population_digest,
+            "slot_package_digest": package_digest,
+            "inherited_eligibility": {
+                "role": str(source.get("role")),
+                "eligible": str(source.get("role")) == "efficacy",
+            },
+        })
+        seen_slots.add(slot_id)
+    projection = {
+        "schema_version": FORMAL_PROJECTION_SCHEMA_VERSION,
+        "projection_id": FORMAL_PROJECTION_ID,
+        "status": "frozen",
+        "source_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest"),
+        "formal_population_digest": population_digest,
+        "slots": projected,
+    }
+    projection["artifact_digest"] = json_digest(projection)
+    validation_errors = validate_formal_efficacy_projection(
+        projection, eligibility_manifest=eligibility_manifest, formal_population=formal_population,
+    )
+    if validation_errors:
+        raise ValueError("invalid formal efficacy projection: " + "; ".join(validation_errors))
+    if out_path is not None:
+        path = Path(out_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(projection, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return projection
+
+
+def validate_formal_efficacy_projection(
+    projection: Mapping[str, Any],
+    *,
+    eligibility_manifest: Mapping[str, Any] | None = None,
+    formal_population: Mapping[str, Any] | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    if projection.get("schema_version") != FORMAL_PROJECTION_SCHEMA_VERSION:
+        errors.append("formal projection schema version mismatch")
+    if projection.get("projection_id") != FORMAL_PROJECTION_ID or projection.get("status") != "frozen":
+        errors.append("formal projection identity or status mismatch")
+    expected_digest = json_digest({key: value for key, value in projection.items() if key != "artifact_digest"})
+    if projection.get("artifact_digest") != expected_digest:
+        errors.append("formal projection digest mismatch")
+    slots = projection.get("slots")
+    if not isinstance(slots, list) or not slots:
+        errors.append("formal projection slots are missing")
+        return errors
+    seen: set[str] = set()
+    source_ids: set[str] = set()
+    materialized_slots = (
+        formal_population.get("slots", [])
+        if isinstance(formal_population, Mapping)
+        else []
+    )
+    eligibility_tasks = (
+        eligibility_manifest.get("tasks", [])
+        if isinstance(eligibility_manifest, Mapping)
+        else []
+    )
+    formal_slots_by_id = {
+        str(slot.get("slot_id", slot.get("task_id"))): slot
+        for slot in (materialized_slots if isinstance(materialized_slots, list) else [])
+        if isinstance(slot, Mapping)
+    }
+    eligibility_by_id = {
+        str(task.get("task_id")): task
+        for task in (eligibility_tasks if isinstance(eligibility_tasks, list) else [])
+        if isinstance(task, Mapping)
+    }
+    for item in slots:
+        if not isinstance(item, Mapping):
+            errors.append("formal projection slot is not an object")
+            continue
+        slot_id = str(item.get("formal_slot_id", ""))
+        source_id = str(item.get("source_task_id", ""))
+        formal_slot = formal_slots_by_id.get(slot_id)
+        if formal_population is not None:
+            if formal_slot is None:
+                errors.append(f"formal projection slot is not in materialized population: {slot_id}")
+            else:
+                if item.get("slot_package_digest") != formal_slot.get("package_digest"):
+                    errors.append(f"formal slot package digest mismatch: {slot_id}")
+                if source_id != str(formal_slot.get("source_task_id", "")):
+                    errors.append(f"formal slot source task mismatch: {slot_id}")
+        if not slot_id or slot_id in seen:
+            errors.append(f"formal projection slot is missing or duplicated: {slot_id}")
+        seen.add(slot_id)
+        source_ids.add(source_id)
+        if item.get("formal_population_digest") != projection.get("formal_population_digest"):
+            errors.append(f"formal population digest mismatch: {slot_id}")
+        inherited = item.get("inherited_eligibility")
+        if not isinstance(inherited, Mapping) or inherited.get("role") not in {"efficacy", "diagnostic"}:
+            errors.append(f"formal inherited eligibility is invalid: {slot_id}")
+        source = eligibility_by_id.get(source_id)
+        if source is not None and isinstance(inherited, Mapping) and (
+            inherited.get("role") != source.get("role")
+            or inherited.get("eligible") is not (source.get("role") == "efficacy")
+        ):
+            errors.append(f"formal inherited eligibility mismatch: {slot_id}")
+    if formal_population is not None and seen != set(formal_slots_by_id):
+        errors.append("formal projection does not cover exactly the materialized slots")
+    if eligibility_manifest is not None:
+        if projection.get("source_eligibility_manifest_digest") != eligibility_manifest.get("artifact_digest"):
+            errors.append("formal source eligibility digest mismatch")
+        eligible_ids = set(eligibility_by_id)
+        if not source_ids.issubset(eligible_ids):
+            errors.append("formal projection contains source task outside eligibility manifest")
+    if formal_population is not None and projection.get("formal_population_digest") != json_digest(dict(formal_population)):
+        errors.append("formal population digest does not match materialized population")
+    return errors
+
+
+def load_formal_efficacy_projection(
+    path: str | Path,
+    *,
+    eligibility_manifest: Mapping[str, Any] | None = None,
+    formal_population: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        projection = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"formal efficacy projection unavailable: {path}") from exc
+    errors = validate_formal_efficacy_projection(
+        projection, eligibility_manifest=eligibility_manifest, formal_population=formal_population,
+    )
+    if errors:
+        raise ValueError("invalid formal efficacy projection: " + "; ".join(errors))
+    return dict(projection)
 
 
 def main() -> int:

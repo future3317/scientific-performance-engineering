@@ -225,7 +225,7 @@ def _lineage_task_outer_ci(
     seed: int = 0,
     samples: int = 2000,
 ) -> dict[str, float | None]:
-    """Bootstrap the registered primary hierarchy: lineage -> task -> outer."""
+    """Bootstrap lineage, then lineage-local task, then outer trials."""
     hierarchy: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for _family, lineage, task, _trial, value in observations:
         hierarchy[lineage][task].append(value)
@@ -244,8 +244,19 @@ def _lineage_task_outer_ci(
     rng = random.Random(seed)
     bootstrap = []
     for _ in range(samples):
-        sampled = {lineage: hierarchy[rng.choice(lineages)] for lineage in lineages}
-        bootstrap.append(mean({str(index): tasks for index, tasks in enumerate(sampled.values())}))
+        sampled_lineages = [rng.choice(lineages) for _ in lineages]
+        lineage_means = []
+        for lineage in sampled_lineages:
+            tasks = hierarchy[lineage]
+            task_ids = list(tasks)
+            sampled_tasks = [rng.choice(task_ids) for _ in task_ids]
+            task_means = []
+            for task in sampled_tasks:
+                values = tasks[task]
+                sampled_values = [rng.choice(values) for _ in values]
+                task_means.append(sum(sampled_values) / len(sampled_values))
+            lineage_means.append(sum(task_means) / len(task_means))
+        bootstrap.append(sum(lineage_means) / len(lineage_means))
     bootstrap.sort()
     return {
         "estimate": mean(hierarchy),

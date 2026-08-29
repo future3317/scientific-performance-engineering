@@ -110,6 +110,7 @@ def _trial_failure_record(manifest: dict[str, Any], task_spec: Mapping[str, Any]
         "experiment": manifest,
         "task_id": str(item["task_id"]),
         "slot_id": item.get("slot_id", item["task_id"]),
+        "source_task_id": item.get("source_task_id", item["task_id"]),
         "visibility": item.get("visibility"),
         "family": task_spec.get("family"),
         "family_id": task_spec.get("family_id", task_spec.get("family")),
@@ -2034,7 +2035,8 @@ def _experiment_manifest(
         "family_id": task_spec.get("family_id", task_spec.get("family", "unknown")),
         "anchor_instance_id": task_spec.get("anchor_instance_id", item["task_id"]),
         "family_instance_digest": task_spec.get("family_instance_digest"),
-        "lineage_id": lineage.get("mutation_template_id", item["task_id"]),
+        "source_task_id": item.get("source_task_id", item["task_id"]),
+        "lineage_id": item.get("source_task_id", lineage.get("mutation_template_id", item["task_id"])),
         "outer_trial_id": item["outer_trial_id"],
         "budgets": budgets.as_dict(),
         "hardware_fingerprint": fingerprint,
@@ -2200,9 +2202,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         )
     if getattr(args, "formal", False):
         formal_manifest = json.loads(population_manifest.read_text(encoding="utf-8"))
+        slot_by_id = {str(slot["task_id"]): slot for slot in formal_manifest.get("slots", [])}
         all_slots = schedule.task_order_from_materialized(formal_manifest)
         if resource_manifest is not None:
-            slot_by_id = {str(slot["task_id"]): slot for slot in formal_manifest.get("slots", [])}
             excluded = {
                 str(item)
                 for key in ("out_of_domain_task_ids", "unresolved_task_ids")
@@ -2235,11 +2237,32 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     eligibility_path = getattr(args, "efficacy_eligibility", None)
     if getattr(args, "agent_command", None) and not eligibility_path:
         raise ValueError("agent campaigns require a frozen --efficacy-eligibility manifest")
+    eligibility_population_digest = population_digest
+    if getattr(args, "formal", False):
+        eligibility_population_digest = hashlib.sha256(
+            (repo_root / "benchmark" / "pilot_population.json").read_bytes()
+        ).hexdigest()
     eligibility_manifest = eligibility.load_manifest(
         Path(eligibility_path).resolve(),
         benchmark_revision=attest.benchmark_revision(repo_root),
-        population_manifest_digest=population_digest,
+        population_manifest_digest=eligibility_population_digest,
     ) if eligibility_path else None
+    formal_projection_by_slot: dict[str, dict[str, Any]] = {}
+    if getattr(args, "formal", False) and eligibility_manifest is not None:
+        projection_path = population_manifest.with_name("formal_efficacy_projection.json")
+        formal_projection = eligibility.load_formal_efficacy_projection(
+            projection_path,
+            eligibility_manifest=eligibility_manifest,
+            formal_population=formal_manifest,
+        )
+        formal_projection_by_slot = {
+            str(item["formal_slot_id"]): dict(item)
+            for item in formal_projection["slots"]
+        }
+
+    def eligibility_entry(task_id: str) -> dict[str, Any] | None:
+        source_id = formal_projection_by_slot.get(str(task_id), {}).get("source_task_id", str(task_id))
+        return eligibility.task_entry(eligibility_manifest, str(source_id)) if eligibility_manifest else None
     if eligibility_manifest is not None:
         eligibility_resource_digest = eligibility_manifest.get("resource_domain_manifest_digest")
         if eligibility_resource_digest and resource_manifest is None:
@@ -2247,7 +2270,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if resource_manifest is not None and eligibility_resource_digest != resource_manifest.get("artifact_digest"):
             raise ValueError("resource-domain manifest digest does not match eligibility manifest")
     if eligibility_manifest is not None:
-        missing_eligibility_tasks = [task_id for task_id in task_ids if eligibility.task_entry(eligibility_manifest, task_id) is None]
+        missing_eligibility_tasks = [task_id for task_id in task_ids if eligibility_entry(task_id) is None]
         if missing_eligibility_tasks:
             raise ValueError("efficacy eligibility manifest does not cover scheduled tasks: " + ", ".join(missing_eligibility_tasks))
     efficacy_task_ids = set(eligibility_manifest.get("efficacy_task_ids", [])) if eligibility_manifest else set()
@@ -2255,7 +2278,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if getattr(args, "formal", False):
             task_items = [
                 item for item in task_items
-                if str(slot_by_id[item[1]].get("source_task_id", item[1])) in efficacy_task_ids
+                if str(formal_projection_by_slot[item[1]]["source_task_id"]) in efficacy_task_ids
             ]
         else:
             task_items = [item for item in task_items if str(item[1]) in efficacy_task_ids]
@@ -2281,8 +2304,21 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         plan = schedule.build_schedule(
             split_path, conditions=conditions_list, context_modes=context_modes,
             outer_trials=args.outer_trials, schedule_seed=int(getattr(args, "schedule_seed", 0)),
-            resource_domain_manifest=resource_manifest,
+            task_items=task_items, resource_domain_manifest=None,
         )
+    if getattr(args, "formal", False) and eligibility_manifest is not None:
+        for item in plan:
+            item["source_task_id"] = formal_projection_by_slot[item["task_id"]]["source_task_id"]
+            item["slot_id"] = item["task_id"]
+    efficacy_slot_ids = {str(item["task_id"]) for item in plan} if getattr(args, "formal", False) else set(efficacy_task_ids)
+    if eligibility_manifest is not None:
+        planned_sources = {
+            str(formal_projection_by_slot[item["task_id"]]["source_task_id"])
+            if getattr(args, "formal", False) else str(item["task_id"])
+            for item in plan
+        }
+        if not planned_sources.issubset(efficacy_task_ids):
+            raise ValueError("planned schedule contains task outside frozen efficacy subset")
     budgets = budget.parse_budget(json.loads(args.budgets) if args.budgets else None)
     statistical_budget = StatisticalBudget()
     experiment_executor = _build_required_experiment_executor(
@@ -2322,6 +2358,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         "efficacy_eligibility_manifest": str(Path(eligibility_path).resolve()) if eligibility_path else None,
         "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
         "efficacy_task_ids": sorted(efficacy_task_ids),
+        "efficacy_slot_ids": sorted(efficacy_slot_ids),
         "resource_domain_manifest_digest": resource_manifest.get("artifact_digest") if resource_manifest else None,
     }
     if existing_campaign is not None:
@@ -2330,7 +2367,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "conditions", "context_modes", "outer_trials", "task_order", "budgets",
             "agent_model_id", "agent_config", "schedule_size",
             "executor_digest",
-            "efficacy_eligibility_manifest_digest", "efficacy_task_ids",
+            "efficacy_eligibility_manifest_digest", "efficacy_task_ids", "efficacy_slot_ids",
             "resource_domain_manifest_digest",
         )
         mismatches = [key for key in immutable_keys if existing_campaign.get(key) != campaign.get(key)]
@@ -2353,7 +2390,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     for noise_task_id, noise_outer_trial_id in unique_noise_cells:
         artifact_path = noise_control_root / noise_outer_trial_id / f"{noise_task_id}.json"
         noise_spec = miniyaml.load(str(tasks_root / noise_task_id / "task.yaml"))
-        noise_entry = eligibility.task_entry(eligibility_manifest, noise_task_id) if eligibility_manifest else None
+        noise_entry = eligibility_entry(noise_task_id)
         noise_session_id = (noise_entry or {}).get("measurement_sessions", {}).get(noise_outer_trial_id)
         expected_noise = {
             "task_id": noise_task_id,
@@ -2453,7 +2490,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "expected_speedup_range": task_spec.get("oracle", {}).get("expected_speedup_range"),
         }
         if eligibility_manifest is not None:
-            noise_expected["measurement_session_id"] = (eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"]))
+            noise_expected["measurement_session_id"] = (eligibility_entry(task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"]))
         trial_dir = out_dir / "trials" / stream_id / task_id
         trial_dir.mkdir(parents=True, exist_ok=True)
         manifest = _experiment_manifest(
@@ -2470,7 +2507,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             trial_dir=trial_dir,
             population_id=population_id,
             efficacy_eligibility_manifest_digest=eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
-            measurement_session_id=(eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
+            measurement_session_id=(eligibility_entry(task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
         )
         manifest["schedule_digest"] = hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         manifest["analysis_plan_digest"] = hashlib.sha256(analysis_plan_path.read_bytes()).hexdigest() if analysis_plan_path.is_file() else None
@@ -2493,8 +2530,9 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 "execution_validity": "resource_blocked",
                 "task_outcome": "error",
                 "efficacy_eligible": False,
-                "measurement_eligible": task_id in efficacy_task_ids,
-                "measurement_session_id": (eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
+                "source_task_id": item.get("source_task_id", task_id),
+                "measurement_eligible": task_id in efficacy_slot_ids,
+                "measurement_session_id": (eligibility_entry(task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
                 "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
                 "validity": "invalid",
                 "transition": {"status": "stream_blocked"},
@@ -3070,7 +3108,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "track": task_spec.get("track"),
             "anchor_instance_id": task_spec.get("anchor_instance_id", task_id),
             "family_instance_digest": task_spec.get("family_instance_digest"),
-            "lineage_id": task_spec.get("lineage", {}).get("mutation_template_id", task_id),
+            "source_task_id": item.get("source_task_id", task_id),
+            "lineage_id": item.get("source_task_id", task_spec.get("lineage", {}).get("mutation_template_id", task_id)),
             "kind": task_spec.get("kind"),
             "condition": item["condition"],
             "context_mode": item["context_mode"],
@@ -3089,8 +3128,8 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             # score-zero efficacy cell.  Only infrastructure/protocol errors
             # are excluded from the efficacy matrix.
             "efficacy_eligible": bool(execution_valid and attestation_ok),
-            "measurement_eligible": task_id in efficacy_task_ids,
-            "measurement_session_id": (eligibility.task_entry(eligibility_manifest, task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
+            "measurement_eligible": task_id in efficacy_slot_ids,
+            "measurement_session_id": (eligibility_entry(task_id) or {}).get("measurement_sessions", {}).get(str(item["outer_trial_id"])) if eligibility_manifest else None,
             "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
             "validity": "valid" if execution_valid and attestation_ok else "invalid",
             "transition": transition,
@@ -3123,7 +3162,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             claims_value_for_aggregate = {}
         campaign["aggregate"] = aggregate.aggregate_confirmatory(
             records, required_cells=required_sealed_cells, claims=claims_value_for_aggregate,
-            efficacy_task_ids=efficacy_task_ids if eligibility_manifest else None,
+            efficacy_task_ids=efficacy_slot_ids if eligibility_manifest else None,
             eligibility_manifest_digest=eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
         )
     else:
