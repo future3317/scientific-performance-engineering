@@ -69,6 +69,15 @@ def _empty_probe(task_id: str, task_digest: str, session_id: str, **values: Any)
     return probe
 
 
+def _foreign_processes(*snapshots: dict[str, Any]) -> list[Any]:
+    observed: dict[str, Any] = {}
+    for snapshot in snapshots:
+        for process in snapshot.get("foreign_processes", []):
+            key = str(process.get("pid")) if isinstance(process, dict) else repr(process)
+            observed[key] = process
+    return list(observed.values())
+
+
 def _run_attempt(
     *, repo_root: Path, task_dir: Path, task_id: str, task_digest: str,
     output_path: Path, session_id: str, seed: int,
@@ -101,9 +110,7 @@ def _run_attempt(
         "task_package_digest": task_digest,
         "baseline_probe_session_id": session_id,
         "clean_admission": True,
-        "foreign_processes": list(
-            (session_start or {}).get("foreign_processes", [])
-        ),
+        "foreign_processes": _foreign_processes(session_start or {}, session_end),
         "protocol_valid": bool(
             not runner.cleanup_failed(cleanup)
             and (

@@ -94,6 +94,8 @@ def classify_baseline_probe(probe: Mapping[str, Any]) -> str:
         )
         return "out_of_domain_walltime" if same_contract else "unresolved"
     if probe.get("resource_exhausted"):
+        if probe.get("foreign_processes"):
+            return "unresolved"
         confirmed = int(probe.get("confirmation_attempt_count", 0)) >= 2
         if confirmed and probe.get("capacity_failure_reproduced") is True and _capacity_evidence(probe):
             return "out_of_domain_capacity"
@@ -178,12 +180,13 @@ def build_resource_domain_manifest(
         "device_policy": {
             "mode": "fixed_gpu_uuid",
             "cuda_visible_devices": runtime.get("cuda_visible_devices"),
-            "no_shared_compute": True,
+            "no_shared_compute": False,
+            "shared_compute": "allowed_and_observed",
         },
         "selected_gpu_uuid": runtime.get("gpu_uuid"),
         "total_vram_bytes": runtime.get("total_device_memory"),
         "admission_contract": {
-            "clean_required": True,
+            "clean_required": False,
             "foreign_processes_allowed": True,
             "baseline_only": True,
             "capacity_confirmation_attempts": 2,
