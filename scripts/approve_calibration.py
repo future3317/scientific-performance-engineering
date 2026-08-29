@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark.calibration.approval import issue_calibration_approval
 from benchmark.formal.resource_domain import load_resource_domain_manifest
