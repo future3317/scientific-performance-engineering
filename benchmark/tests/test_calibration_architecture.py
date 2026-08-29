@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -40,6 +42,19 @@ def test_calibration_cli_scripts_do_not_import_private_helpers():
                 assert all(not alias.name.startswith("_") for alias in node.names), (name, ast.dump(node))
                 assert not (node.module or "").startswith("scripts."), (name, ast.dump(node))
 
+
+def test_approval_cli_runs_directly_from_repository_root():
+    root = Path(__file__).parents[2]
+    completed = subprocess.run(
+        [sys.executable, "scripts/approve_calibration.py", "--help"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "--resource-domain-manifest" in completed.stdout
 
 def test_active30_cli_is_only_argument_parsing_and_orchestration():
     root = Path(__file__).parents[2]
