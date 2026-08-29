@@ -427,6 +427,13 @@ def _empirical_flags(
                             flags["episode_delta_out_of_range"].append(task_id)
                 if not all(all(bool(value) for value in trial.get("scientific_gates", {}).values()) for trial in record.get("outer_trials", []) if isinstance(trial, dict)):
                     flags["scientific_gate_failed"].append(task_id)
+            registered_scientific_gates = record.get("scientific_gates")
+            if (
+                isinstance(registered_scientific_gates, dict)
+                and registered_scientific_gates
+                and not all(value is True for value in registered_scientific_gates.values())
+            ):
+                flags["scientific_gate_failed"].append(task_id)
             if not isinstance(record.get("semantic_gates"), dict) or not record.get("semantic_gates"):
                 flags["semantic_gate_too_weak"].append(task_id)
             anti_outcome = _anti_cheat_outcome(record.get("anti_cheat"))
@@ -490,7 +497,7 @@ def _empirical_flags(
             flags["noise_too_high"].append(task_id)
         gate_rate = record.get("semantic_gate_pass_rate")
         if isinstance(gate_rate, (int, float)) and float(gate_rate) < 1.0:
-            flags["semantic_gate_too_weak"].append(task_id)
+            flags["scientific_gate_failed"].append(task_id)
         elif not spec.get("scientific_gates"):
             flags["semantic_gate_too_weak"].append(task_id)
         effects = record.get("platform_effects")
