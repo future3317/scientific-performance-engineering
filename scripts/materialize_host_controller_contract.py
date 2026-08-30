@@ -48,18 +48,22 @@ def build_runtime_manifest(controller_root: Path) -> dict[str, Any]:
         raise ValueError("controller root is missing benchmark/formal/host_agent.py")
     return {
         "schema_version": 1,
-        "runtime_attestation_kind": "trusted_host_conda_prefix_manifest",
+        "runtime_attestation_kind": "trusted_host_python_runtime_manifest",
         "controller_commit": _git(root, "rev-parse", "HEAD"),
         "controller_source": "benchmark/formal/host_agent.py",
         "controller_source_digest": hashlib.sha256(source.read_bytes()).hexdigest(),
         "python_executable": sys.executable,
         "python_version": platform.python_version(),
         "operating_system": platform.platform(),
-        "installed_packages": {},
     }
 
 
-def build_contract(runtime: dict[str, Any], provider_probe: dict[str, Any]) -> dict[str, Any]:
+def build_contract(
+    runtime: dict[str, Any],
+    provider_probe: dict[str, Any],
+    *,
+    benchmark_revision: str,
+) -> dict[str, Any]:
     credential_fields = [
         key for key in provider_probe
         if any(marker in str(key).lower() for marker in CREDENTIAL_MARKERS)
@@ -76,6 +80,8 @@ def build_contract(runtime: dict[str, Any], provider_probe: dict[str, Any]) -> d
     commit = runtime.get("controller_commit")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{7,64}", commit):
         raise ValueError("runtime controller_commit must be a commit digest")
+    if not re.fullmatch(r"[0-9a-f]{40}", benchmark_revision):
+        raise ValueError("benchmark_revision must be a full 40-hex commit digest")
     runtime_digest = canonical_digest(runtime)
     agent_config = host_agent.build_agent_attestation(
         model_list_digest=digest,
@@ -89,8 +95,9 @@ def build_contract(runtime: dict[str, Any], provider_probe: dict[str, Any]) -> d
         "status": "ready_for_nonsealed_probe",
         "provider": "deepseek",
         "model_id": "deepseek-v4-flash",
+        "benchmark_revision": benchmark_revision,
         "campaign_budget": dict(CAMPAIGN_BUDGET),
-        "runtime_attestation_kind": "trusted_host_conda_prefix_manifest",
+        "runtime_attestation_kind": "trusted_host_python_runtime_manifest",
         "container_digest_semantics": "runtime_manifest_digest",
         "container_digest": runtime_digest,
         "pricing_revision": PRICING_REVISION,
@@ -105,11 +112,14 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         errors.append("container_digest does not bind runtime_manifest")
     if contract.get("campaign_budget") != CAMPAIGN_BUDGET:
         errors.append("campaign_budget does not match frozen controller budget")
+    benchmark_revision = contract.get("benchmark_revision")
+    if not isinstance(benchmark_revision, str) or not re.fullmatch(r"[0-9a-f]{40}", benchmark_revision):
+        errors.append("benchmark_revision must be a full 40-hex commit digest")
     manifest = {
         "schema_version": 1,
         "population_id": "SPE-EvoBench-v1.0-50",
         "experiment_id": "host-controller-contract-validation",
-        "benchmark_revision": "dce4d194354b998d94ac9eb5b02a3d3d804828c9",
+        "benchmark_revision": benchmark_revision,
         "skill_view_digest": "a" * 64,
         "task_manifest_digest": "b" * 64,
         "agent_model_id": "deepseek-v4-flash",
@@ -141,13 +151,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--controller-root", type=Path, required=True)
     parser.add_argument("--provider-probe", type=Path, required=True)
+    parser.add_argument("--benchmark-revision", required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if _git(args.controller_root, "status", "--porcelain"):
         raise ValueError("controller root must be clean before materialization")
     runtime = build_runtime_manifest(args.controller_root)
     probe = json.loads(args.provider_probe.read_text(encoding="utf-8"))
-    contract = build_contract(runtime, probe)
+    contract = build_contract(runtime, probe, benchmark_revision=args.benchmark_revision)
     errors = validate_contract(contract)
     if errors:
         raise ValueError("invalid host controller contract: " + "; ".join(errors))
