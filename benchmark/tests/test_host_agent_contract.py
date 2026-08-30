@@ -193,6 +193,36 @@ def test_budget_outcome_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     assert attempts == 1
 
 
+def test_provider_contract_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+
+    def fail(*args: object, **kwargs: object) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        raise RuntimeError("authentication failed")
+
+    monkeypatch.setattr(host_agent, "_api_call", fail)
+    with pytest.raises(RuntimeError, match="authentication failed"):
+        host_agent._api_call_with_retry("http://provider", "key", {}, 1)
+    assert attempts == 1
+
+
+def test_transient_provider_failure_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    attempts = 0
+
+    def call(*args: object, **kwargs: object) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise host_agent.TransientProviderError("temporary")
+        return {"choices": [{"message": {"content": "done"}}]}
+
+    monkeypatch.setattr(host_agent, "_api_call", call)
+    value = host_agent._api_call_with_retry("http://provider", "key", {}, 1)
+    assert value["choices"]
+    assert attempts == 2
+
+
 def test_main_returns_controlled_outcome_code(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr(host_agent, "run", lambda: {"returncode": 2, "usage": {}, "outcome": "turn_limit"})
 
