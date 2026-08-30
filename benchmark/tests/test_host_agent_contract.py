@@ -55,7 +55,7 @@ def test_agent_attestation_records_policy_and_runtime_semantics() -> None:
     assert value["output_token_limit"] == 16_384
     assert value["turn_limit"] == 12
     assert value["timeout_s"] == 900
-    assert value["runtime_attestation_kind"] == "trusted_host_conda_prefix_manifest"
+    assert value["runtime_attestation_kind"] == "trusted_host_python_runtime_manifest"
     assert value["container_digest_semantics"] == "runtime_manifest_digest"
 
 
@@ -240,9 +240,10 @@ def test_materialized_contract_binds_runtime_and_frozen_policy() -> None:
         "provider_model_list_response_digest": "a" * 64,
     }
 
-    contract = materializer.build_contract(runtime, probe)
+    contract = materializer.build_contract(runtime, probe, benchmark_revision="d" * 40)
 
-    assert runtime["runtime_attestation_kind"] == "trusted_host_conda_prefix_manifest"
+    assert runtime["runtime_attestation_kind"] == "trusted_host_python_runtime_manifest"
+    assert "installed_packages" not in runtime
     assert runtime["python_executable"] == sys.executable
     assert runtime["controller_commit"]
     assert len(runtime["controller_source_digest"]) == 64
@@ -250,22 +251,43 @@ def test_materialized_contract_binds_runtime_and_frozen_policy() -> None:
     assert contract["container_digest_semantics"] == "runtime_manifest_digest"
     assert contract["pricing_revision"] == "unpriced-provider-probe-2026-08-30"
     assert contract["campaign_budget"] == FROZEN_BUDGET
+    assert contract["benchmark_revision"] == "d" * 40
     assert contract["agent_config"]["reasoning_effort"] == "medium"
     assert materializer.validate_contract(contract) == []
     assert "api_key" not in json.dumps(contract).lower()
 
 
 def test_materializer_rejects_malformed_provider_digest() -> None:
-    runtime = {"runtime_attestation_kind": "trusted_host_conda_prefix_manifest"}
+    runtime = {"runtime_attestation_kind": "trusted_host_python_runtime_manifest"}
     probe = {"status": "pass", "model_id": "deepseek-v4-flash", "returned_model": "deepseek-v4-flash", "provider_model_list_response_digest": "bad"}
 
     with pytest.raises(ValueError, match="provider_model_list_response_digest"):
-        materializer.build_contract(runtime, probe)
+        materializer.build_contract(runtime, probe, benchmark_revision="d" * 40)
 
 
 def test_materializer_rejects_credential_fields() -> None:
-    runtime = {"runtime_attestation_kind": "trusted_host_conda_prefix_manifest"}
+    runtime = {"runtime_attestation_kind": "trusted_host_python_runtime_manifest"}
     probe = {"status": "pass", "model_id": "deepseek-v4-flash", "returned_model": "deepseek-v4-flash", "provider_model_list_response_digest": "a" * 64, "api_key": "secret"}
 
     with pytest.raises(ValueError, match="credential"):
-        materializer.build_contract(runtime, probe)
+        materializer.build_contract(runtime, probe, benchmark_revision="d" * 40)
+
+
+def test_contract_validation_uses_explicit_benchmark_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def validate(manifest: dict[str, object]) -> list[str]:
+        captured.update(manifest)
+        return []
+
+    monkeypatch.setattr(materializer.attest, "validate_experiment", validate)
+    contract = {
+        "runtime_manifest": {},
+        "container_digest": materializer.canonical_digest({}),
+        "campaign_budget": dict(FROZEN_BUDGET),
+        "benchmark_revision": "e" * 40,
+        "agent_config": {},
+    }
+
+    assert materializer.validate_contract(contract) == []
+    assert captured["benchmark_revision"] == "e" * 40
