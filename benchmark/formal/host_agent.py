@@ -234,6 +234,10 @@ for line in sys.stdin:
 '''
 
 
+class TransientProviderError(RuntimeError):
+    pass
+
+
 def _api_call(base_url: str, api_key: str, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
     request = Request(
         f"{base_url.rstrip('/')}/chat/completions",
@@ -244,7 +248,13 @@ def _api_call(base_url: str, api_key: str, payload: dict[str, Any], timeout_s: f
     try:
         with urlopen(request, timeout=timeout_s) as response:
             value = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except HTTPError as exc:
+        if exc.code in {408, 429} or 500 <= exc.code < 600:
+            raise TransientProviderError(f"DeepSeek API request failed: {exc}") from exc
+        raise RuntimeError(f"DeepSeek API request failed: {exc}") from exc
+    except (URLError, TimeoutError) as exc:
+        raise TransientProviderError(f"DeepSeek API request failed: {exc}") from exc
+    except json.JSONDecodeError as exc:
         raise RuntimeError(f"DeepSeek API request failed: {exc}") from exc
     if not isinstance(value, dict) or not isinstance(value.get("choices"), list) or not value["choices"]:
         raise RuntimeError("DeepSeek API response has no choices")
@@ -255,9 +265,7 @@ def _api_call_with_retry(base_url: str, api_key: str, payload: dict[str, Any], t
     for attempt in range(2):
         try:
             return _api_call(base_url, api_key, payload, timeout_s)
-        except BudgetOutcome:
-            raise
-        except RuntimeError:
+        except TransientProviderError:
             if attempt == 1:
                 raise
             time.sleep(1.0)
