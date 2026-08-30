@@ -7,6 +7,7 @@ same namespace executor used by formal campaigns.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -77,6 +78,35 @@ FIXED_PREFIX_PARTS = (
     "Output schema: finish with a concise status message; the controller records the authoritative usage and result receipt.",
 )
 FIXED_PREFIX_TEXT = "\n\n".join(FIXED_PREFIX_PARTS)
+
+
+@dataclass(frozen=True)
+class ControllerLimits:
+    input_tokens: int = 65_536
+    output_tokens: int = 16_384
+    max_output_tokens: int = 4_096
+    context_tokens: int = 32_768
+    tool_calls: int = 24
+    turns: int = 12
+    wall_time_s: float = 900.0
+    api_timeout_s: float = 120.0
+
+
+def parse_controller_limits(raw: str) -> ControllerLimits:
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("SPE_BUDGET_JSON must be an object")
+    limits = ControllerLimits()
+    expected = {
+        "tokens": limits.input_tokens + limits.output_tokens,
+        "tool_calls": limits.tool_calls,
+        "wall_time_s": limits.wall_time_s,
+        "context_tokens": limits.context_tokens,
+    }
+    for key, required in expected.items():
+        if value.get(key) != required:
+            raise ValueError(f"SPE_BUDGET_JSON {key} must equal {required}")
+    return limits
 
 
 def _digest_bytes(value: bytes) -> str:
@@ -240,12 +270,20 @@ def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, c
         "tool_schema_digest": tool_schema_digest(),
         "tool_allowlist": list(TOOL_NAMES),
         "retry_policy": {"max_attempts": 2, "backoff_s": 1},
-        "max_output_tokens": 8192,
+        "input_token_limit": 65_536,
+        "output_token_limit": 16_384,
+        "max_output_tokens": 4_096,
+        "context_token_limit": 32_768,
+        "tool_call_limit": 24,
+        "turn_limit": 12,
+        "timeout_s": 900,
         "container_digest": container_digest,
+        "runtime_attestation_kind": "trusted_host_conda_prefix_manifest",
+        "container_digest_semantics": "runtime_manifest_digest",
         "pricing_revision": pricing_revision,
         "backend_weight_immutability_claim": False,
         "thinking": "enabled",
-        "reasoning_effort": "high",
+        "reasoning_effort": "medium",
         "temperature": 0,
         "top_p": 1,
     }
