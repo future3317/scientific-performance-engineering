@@ -8,7 +8,8 @@ import sys
 
 import pytest
 
-from benchmark.formal import host_agent
+from benchmark.formal import attest, host_agent
+from benchmark.harness.skill_view import render_skill_view
 from scripts import materialize_host_controller_contract as materializer
 
 
@@ -177,6 +178,50 @@ def test_controller_receipt_excludes_reasoning_and_credentials(tmp_path: Path) -
     assert receipt["usage"] == {"input_tokens": 10, "output_tokens": 20, "tool_calls": 1, "wall_time_s": 2.5}
     assert "reasoning_content" not in serialized
     assert "api-key" not in serialized
+
+def test_controller_receipt_binds_present_skill_view(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    worker_root = tmp_path / "worker"
+    for name in (
+        "task",
+        "solution",
+        "retrieved_context",
+        "context_state",
+        "result",
+        "executor_receipt",
+    ):
+        (worker_root / name).mkdir(parents=True, exist_ok=True)
+    (worker_root / "task" / "public_task.json").write_text(
+        json.dumps({"allowed_files": ["solution.py"]}), encoding="utf-8"
+    )
+    (worker_root / "retrieved_context" / "retrieved_context.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    (worker_root / "context_state" / "context_state.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    (worker_root / "solution" / "solution.py").write_text("", encoding="utf-8")
+    render_skill_view(root, worker_root / "skill_view")
+    receipt_path = tmp_path / "executor_receipt.json"
+    server, _ = _serve_responses([{
+        "choices": [{"message": {"content": "done"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+    }])
+    monkeypatch.setenv("SPE_WORKER_ROOT", str(worker_root))
+    monkeypatch.setenv("SPE_EXECUTOR_RECEIPT_PATH", str(receipt_path))
+    monkeypatch.setenv("SPE_BUDGET_JSON", json.dumps(FROZEN_BUDGET))
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", f"http://127.0.0.1:{server.server_port}")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+    try:
+        result = host_agent.run()
+    finally:
+        server.shutdown()
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert result["returncode"] == 0
+    assert receipt["skill_view_digest"] == attest.skill_view_digest(worker_root / "skill_view")
 
 
 def test_budget_outcome_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
