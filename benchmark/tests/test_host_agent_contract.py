@@ -4,10 +4,12 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import threading
+import sys
 
 import pytest
 
 from benchmark.formal import host_agent
+from scripts import materialize_host_controller_contract as materializer
 
 
 FROZEN_BUDGET = {
@@ -196,3 +198,44 @@ def test_main_returns_controlled_outcome_code(monkeypatch: pytest.MonkeyPatch, c
 
     assert host_agent.main() == 2
     assert json.loads(capsys.readouterr().out)["outcome"] == "turn_limit"
+
+
+def test_materialized_contract_binds_runtime_and_frozen_policy() -> None:
+    root = Path(__file__).resolve().parents[2]
+    runtime = materializer.build_runtime_manifest(root)
+    probe = {
+        "status": "pass",
+        "model_id": "deepseek-v4-flash",
+        "returned_model": "deepseek-v4-flash",
+        "provider_model_list_response_digest": "a" * 64,
+    }
+
+    contract = materializer.build_contract(runtime, probe)
+
+    assert runtime["runtime_attestation_kind"] == "trusted_host_conda_prefix_manifest"
+    assert runtime["python_executable"] == sys.executable
+    assert runtime["controller_commit"]
+    assert len(runtime["controller_source_digest"]) == 64
+    assert contract["container_digest"] == materializer.canonical_digest(runtime)
+    assert contract["container_digest_semantics"] == "runtime_manifest_digest"
+    assert contract["pricing_revision"] == "unpriced-provider-probe-2026-08-30"
+    assert contract["campaign_budget"] == FROZEN_BUDGET
+    assert contract["agent_config"]["reasoning_effort"] == "medium"
+    assert materializer.validate_contract(contract) == []
+    assert "api_key" not in json.dumps(contract).lower()
+
+
+def test_materializer_rejects_malformed_provider_digest() -> None:
+    runtime = {"runtime_attestation_kind": "trusted_host_conda_prefix_manifest"}
+    probe = {"status": "pass", "model_id": "deepseek-v4-flash", "returned_model": "deepseek-v4-flash", "provider_model_list_response_digest": "bad"}
+
+    with pytest.raises(ValueError, match="provider_model_list_response_digest"):
+        materializer.build_contract(runtime, probe)
+
+
+def test_materializer_rejects_credential_fields() -> None:
+    runtime = {"runtime_attestation_kind": "trusted_host_conda_prefix_manifest"}
+    probe = {"status": "pass", "model_id": "deepseek-v4-flash", "returned_model": "deepseek-v4-flash", "provider_model_list_response_digest": "a" * 64, "api_key": "secret"}
+
+    with pytest.raises(ValueError, match="credential"):
+        materializer.build_contract(runtime, probe)
