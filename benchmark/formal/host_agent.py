@@ -428,7 +428,7 @@ def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, c
         "turn_limit": 12,
         "timeout_s": 900,
         "container_digest": container_digest,
-        "runtime_attestation_kind": "trusted_host_conda_prefix_manifest",
+        "runtime_attestation_kind": "trusted_host_python_runtime_manifest",
         "container_digest_semantics": "runtime_manifest_digest",
         "pricing_revision": pricing_revision,
         "backend_weight_immutability_claim": False,
