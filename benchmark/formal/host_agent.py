@@ -20,6 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from benchmark.formal.reference_executor import ReferenceExecutor
+from benchmark.formal.attest import skill_view_digest
 
 
 TOOL_NAMES = ("read_file", "write_file", "run_command")
@@ -480,7 +481,16 @@ def run() -> dict[str, Any]:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
-    completed = executor.execute([sys.executable, "-c", "pass"], worker_root, receipt_path=receipt_path, worker_uid="host-deepseek-controller", include_skill=(worker_root / "skill_view").is_dir())
+    skill_root = worker_root / "skill_view"
+    include_skill = skill_root.is_dir()
+    completed = executor.execute(
+        [sys.executable, "-c", "pass"],
+        worker_root,
+        receipt_path=receipt_path,
+        worker_uid="host-deepseek-controller",
+        include_skill=include_skill,
+        skill_view_digest=skill_view_digest(skill_root) if include_skill else None,
+    )
     if completed.returncode != 0:
         raise RuntimeError(f"sandbox receipt canary failed: {completed.returncode}")
     usage_value = _write_controller_receipt(
