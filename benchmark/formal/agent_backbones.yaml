@@ -8,8 +8,8 @@ primary_backbone:
   snapshot_type: provider_managed_release
   immutable_snapshot_available: false
   decoding:
-    thinking: enabled
-    reasoning_effort: high
+    thinking: disabled
+    reasoning_effort: none
     temperature: 0
     top_p: 1
   prompt_contract:

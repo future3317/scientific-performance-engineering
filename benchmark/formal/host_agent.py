@@ -301,8 +301,7 @@ def _run_conversation(
                 "temperature": 0,
                 "top_p": 1,
                 "max_tokens": _remaining_output_tokens(limits, usage),
-                "thinking": {"type": "enabled"},
-                "reasoning_effort": "medium",
+                "thinking": {"type": "disabled"},
             },
             timeout_s=limits.api_timeout_s,
         )
@@ -433,8 +432,8 @@ def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, c
         "container_digest_semantics": "runtime_manifest_digest",
         "pricing_revision": pricing_revision,
         "backend_weight_immutability_claim": False,
-        "thinking": "enabled",
-        "reasoning_effort": "medium",
+        "thinking": "disabled",
+        "reasoning_effort": "none",
         "temperature": 0,
         "top_p": 1,
     }
