@@ -2696,7 +2696,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             # Agent timeout/crash/budget exhaustion is a protocol-valid
             # outcome failure: retain the cell with score zero.  Only receipt
             # or verifier infrastructure failures are execution-invalid.
-            worker_valid = True
+            worker_valid = _agent_result_is_protocol_valid(agent, receipt)
             failure.update({
                 "agent": agent,
                 "receipt_valid": True,
@@ -3325,6 +3325,22 @@ def main() -> int:
     print(json.dumps({"status": result["status"], "schedule_size": result["schedule_size"], "results_claimed": result["results_claimed"]}, ensure_ascii=False))
     return 0
 
+
+def _agent_result_is_protocol_valid(agent: Mapping[str, Any], receipt: Mapping[str, Any]) -> bool:
+    if agent.get("returncode") == 0:
+        host_controller = receipt.get("host_controller")
+        return isinstance(host_controller, Mapping) and host_controller.get("outcome") == "completed"
+    host_controller = receipt.get("host_controller")
+    if not isinstance(host_controller, Mapping):
+        return False
+    return host_controller.get("outcome") in {
+        "input_token_limit",
+        "output_token_limit",
+        "tool_call_limit",
+        "turn_limit",
+        "wall_time_limit",
+        "incomplete_agent_outcome",
+    }
 
 if __name__ == "__main__":
     raise SystemExit(main())
