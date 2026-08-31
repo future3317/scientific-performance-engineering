@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from benchmark.formal import aggregate, attest
-from benchmark.formal.run_campaign import _build_required_experiment_executor, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from benchmark.formal.run_campaign import _agent_result_is_protocol_valid, _build_required_experiment_executor, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
 from benchmark.calibration.execution import CellExecutor
 from benchmark.calibration.bundle import classify_result as classify_calibration_result
 from benchmark.harness import conditions
@@ -35,6 +35,16 @@ def test_protocol_valid_task_failure_remains_efficacy_eligible() -> None:
     summary = aggregate.aggregate_trials([record], required_cells=cell)
     assert summary["readiness"]["efficacy_aggregate_status"] == "available"
     assert summary["readiness"]["outcome_counts"] == {"fail": 1}
+
+
+def test_controller_failure_with_valid_receipt_is_execution_invalid() -> None:
+    receipt = {"host_controller": {"outcome": "controller_failure"}}
+    assert _agent_result_is_protocol_valid({"returncode": 1}, receipt) is False
+
+
+def test_registered_budget_outcome_with_valid_receipt_is_execution_valid() -> None:
+    receipt = {"host_controller": {"outcome": "output_token_limit"}}
+    assert _agent_result_is_protocol_valid({"returncode": 2}, receipt) is True
 
 
 def test_calibration_resume_requires_valid_eligible_raw_result() -> None:
@@ -216,3 +226,7 @@ def test_resume_uses_final_digest_and_persists_stream_block(tmp_path: Path) -> N
     )
     _resume_stream_prefix(stream, [("phase", "T1"), ("phase", "T2")], {"T1": 0, "T2": 1}, "C-reset", blocked)
     assert "C-reset" in blocked
+
+def test_completed_receipt_is_execution_valid() -> None:
+    receipt = {"host_controller": {"outcome": "completed"}}
+    assert _agent_result_is_protocol_valid({"returncode": 0}, receipt) is True
