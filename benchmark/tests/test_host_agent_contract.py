@@ -49,8 +49,8 @@ def test_agent_attestation_records_policy_and_runtime_semantics() -> None:
         pricing_revision="unpriced-provider-probe-2026-08-30",
     )
 
-    assert value["thinking"] == "enabled"
-    assert value["reasoning_effort"] == "medium"
+    assert value["thinking"] == "disabled"
+    assert value["reasoning_effort"] == "none"
     assert value["max_output_tokens"] == 4_096
     assert value["input_token_limit"] == 65_536
     assert value["output_token_limit"] == 16_384
@@ -119,7 +119,7 @@ def _serve_responses(responses: list[dict[str, object]]) -> tuple[ThreadingHTTPS
     return server, requests
 
 
-def test_conversation_uses_medium_thinking_and_remaining_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_conversation_disables_thinking_and_preserves_remaining_output(monkeypatch: pytest.MonkeyPatch) -> None:
     responses = [
         {
             "choices": [{"message": {"content": None, "reasoning_content": "private", "tool_calls": [{"id": "c1", "function": {"name": "read_file", "arguments": "{\"path\":\"task/public_task.json\"}"}}]}}],
@@ -138,8 +138,8 @@ def test_conversation_uses_medium_thinking_and_remaining_output(monkeypatch: pyt
     finally:
         server.shutdown()
 
-    assert requests[0]["thinking"] == {"type": "enabled"}
-    assert requests[0]["reasoning_effort"] == "medium"
+    assert requests[0]["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in requests[0]
     assert requests[0]["max_tokens"] == 4_096
     assert requests[1]["max_tokens"] == 384
     assert usage.output_tokens == 16_100
@@ -297,7 +297,7 @@ def test_materialized_contract_binds_runtime_and_frozen_policy() -> None:
     assert contract["pricing_revision"] == "unpriced-provider-probe-2026-08-30"
     assert contract["campaign_budget"] == FROZEN_BUDGET
     assert contract["benchmark_revision"] == "d" * 40
-    assert contract["agent_config"]["reasoning_effort"] == "medium"
+    assert contract["agent_config"]["reasoning_effort"] == "none"
     assert materializer.validate_contract(contract) == []
     assert "api_key" not in json.dumps(contract).lower()
 
