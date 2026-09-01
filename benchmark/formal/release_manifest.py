@@ -391,6 +391,7 @@ def validate_formal_release(
     claims_path: Path,
     protocol_path: Path,
     campaign_config: Path,
+    analysis_plan_path: Path | None = None,
 ) -> list[str]:
     """Validate the frozen release bindings at every formal entry point."""
     root = Path(repo_root)
@@ -422,6 +423,10 @@ def validate_formal_release(
     for key, value in bindings.items():
         if value is None or manifest.get(key) != value:
             errors.append(f"formal release {key} mismatch")
+    if analysis_plan_path is not None:
+        analysis_digest = hashlib.sha256(analysis_plan_path.read_bytes()).hexdigest() if analysis_plan_path.is_file() else None
+        if analysis_digest is None or manifest.get("analysis_plan_digest") != analysis_digest:
+            errors.append("formal release analysis_plan_digest mismatch")
     if not isinstance(manifest.get("executor_image"), str) or not manifest.get("executor_image"):
         errors.append("formal release executor_image is missing")
     return errors

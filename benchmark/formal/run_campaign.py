@@ -3258,7 +3258,8 @@ def _validate_formal_entry(
     release_errors = validate_formal_release(
         release, repo_root=repo_root, population_manifest=population_manifest,
         approval_path=approval_path, claims_path=claims_path,
-        protocol_path=analysis_plan_path, campaign_config=campaign_config,
+        protocol_path=repo_root / "references" / "STATISTICAL_PROTOCOL.md",
+        campaign_config=campaign_config, analysis_plan_path=analysis_plan_path,
     )
     if release_errors:
         raise ValueError("formal release validation failed: " + "; ".join(release_errors))
