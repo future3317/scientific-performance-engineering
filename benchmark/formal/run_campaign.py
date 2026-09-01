@@ -2171,7 +2171,14 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     claims_path = Path(getattr(args, "claims", None) or (repo_root / "CLAIMS.yaml")).resolve()
     analysis_plan_path = Path(getattr(args, "analysis_plan", None) or (repo_root / "references" / "STATISTICAL_PROTOCOL.md")).resolve()
     if getattr(args, "formal", False):
-        _validate_formal_entry(repo_root, population_manifest, campaign_config_path, claims_path, analysis_plan_path, getattr(args, "sealed_tasks_root", None))
+        _validate_formal_entry(
+            repo_root, population_manifest, campaign_config_path, claims_path, analysis_plan_path,
+            getattr(args, "sealed_tasks_root", None),
+            calibration_approval_path=getattr(args, "calibration_approval", None),
+            pilot_calibration_path=getattr(args, "pilot_calibration", None),
+            population_report_path=getattr(args, "population_report", None),
+            formal_release_manifest_path=getattr(args, "formal_release_manifest", None),
+        )
         sealed_root = getattr(args, "sealed_tasks_root", None) or json.loads(population_manifest.read_text(encoding="utf-8")).get("sealed_root")
         if not sealed_root:
             raise ValueError("formal mode requires --sealed-tasks-root or manifest sealed_root")
@@ -3192,6 +3199,11 @@ def _validate_formal_entry(
     claims_path: Path,
     analysis_plan_path: Path,
     sealed_tasks_root: Path | None = None,
+    *,
+    calibration_approval_path: Path | None = None,
+    pilot_calibration_path: Path | None = None,
+    population_report_path: Path | None = None,
+    formal_release_manifest_path: Path | None = None,
 ) -> None:
     """Validate immutable formal inputs before scheduling any sealed cell."""
     missing = [str(path) for path in (population_manifest, claims_path, analysis_plan_path) if not path.is_file()]
@@ -3211,14 +3223,14 @@ def _validate_formal_entry(
     errors = validate_materialized_manifest(manifest, sealed_root)
     if errors:
         raise ValueError("invalid materialized formal population: " + "; ".join(errors))
-    approval_path = repo_root / "benchmark" / "calibration" / "calibration_approval.json"
+    approval_path = (calibration_approval_path or repo_root / "benchmark" / "calibration" / "calibration_approval.json").resolve()
     try:
         approval = json.loads(approval_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("calibration approval is missing or invalid") from exc
     if approval.get("approved") is not True:
         raise ValueError("calibration approval is not PASS")
-    pilot_path = repo_root / "benchmark" / "calibration" / "pilot_calibration.json"
+    pilot_path = (pilot_calibration_path or repo_root / "benchmark" / "calibration" / "pilot_calibration.json").resolve()
     if not pilot_path.is_file() or approval.get("pilot_calibration_digest") in {None, "pending-review"}:
         raise ValueError("calibration approval is not bound to pilot_calibration.json")
     try:
@@ -3227,15 +3239,16 @@ def _validate_formal_entry(
         raise ValueError("pilot calibration artifact is invalid") from exc
     if pilot.get("artifact_digest") != approval.get("pilot_calibration_digest"):
         raise ValueError("calibration approval pilot digest mismatch")
+    report_path = (population_report_path or repo_root / "benchmark" / "population_report.json").resolve()
     approval_errors = validate_calibration_approval(
-        json.loads((repo_root / "benchmark" / "population_report.json").read_text(encoding="utf-8")),
+        json.loads(report_path.read_text(encoding="utf-8")),
         pilot,
         approval,
         repo_root=repo_root,
     )
     if approval_errors:
         raise ValueError("calibration approval validation failed: " + "; ".join(approval_errors))
-    release_path = repo_root / "benchmark" / "formal_release_manifest.json"
+    release_path = (formal_release_manifest_path or repo_root / "benchmark" / "formal_release_manifest.json").resolve()
     if not release_path.is_file():
         raise ValueError("formal_release_manifest.json is required")
     try:
@@ -3245,7 +3258,7 @@ def _validate_formal_entry(
     release_errors = validate_formal_release(
         release, repo_root=repo_root, population_manifest=population_manifest,
         approval_path=approval_path, claims_path=claims_path,
-        protocol_path=analysis_plan_path, campaign_config=Path(campaign_config_path),
+        protocol_path=analysis_plan_path, campaign_config=campaign_config,
     )
     if release_errors:
         raise ValueError("formal release validation failed: " + "; ".join(release_errors))
@@ -3300,6 +3313,10 @@ def main() -> int:
     parser.add_argument("--population-manifest", type=Path, default=None)
     parser.add_argument("--efficacy-eligibility", type=Path, default=None, help="frozen agent-blind measurement eligibility manifest")
     parser.add_argument("--resource-domain-manifest", type=Path, default=None, help="frozen baseline-only resource-domain manifest")
+    parser.add_argument("--calibration-approval", type=Path, default=None, help="external frozen calibration approval artifact")
+    parser.add_argument("--pilot-calibration", type=Path, default=None, help="external frozen pilot calibration artifact")
+    parser.add_argument("--population-report", type=Path, default=None, help="external frozen population report artifact")
+    parser.add_argument("--formal-release-manifest", type=Path, default=None, help="external formal release artifact")
     parser.add_argument("--campaign-config", type=Path, default=None)
     parser.add_argument("--claims", type=Path, default=None)
     parser.add_argument("--analysis-plan", type=Path, default=None)
