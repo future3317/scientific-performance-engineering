@@ -109,9 +109,11 @@ def test_formal_entry_separates_statistical_protocol_and_analysis_plan(tmp_path:
     calibration_protocol = repo_root / "benchmark/calibration/calibration_protocol.json"
     for path in (claims, statistical_protocol, campaign_config, agent_policy, calibration_protocol):
         path.write_text("{}\n", encoding="utf-8")
-    analysis_plan.write_text(json.dumps({
+    analysis_payload = {
         "status": "frozen", "sealed_outcomes_observed": False,
-    }), encoding="utf-8")
+    }
+    analysis_payload["analysis_plan_digest"] = release_manifest.digest_json(analysis_payload)
+    analysis_plan.write_text(json.dumps(analysis_payload), encoding="utf-8")
 
     external = tmp_path / "external"
     external.mkdir()
@@ -132,7 +134,7 @@ def test_formal_entry_separates_statistical_protocol_and_analysis_plan(tmp_path:
         campaign_config=campaign_config, executor_image="sha256:executor",
     )
     manifest["status"] = "ready"
-    manifest["analysis_plan_digest"] = release_manifest.digest_json(json.loads(analysis_plan.read_text()))
+    manifest["analysis_plan_digest"] = analysis_payload["analysis_plan_digest"]
     manifest["release_digest"] = release_manifest.digest_json(
         {key: value for key, value in manifest.items() if key != "release_digest"}
     )
