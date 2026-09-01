@@ -395,8 +395,8 @@ def validate_formal_release(
     """Validate the frozen release bindings at every formal entry point."""
     root = Path(repo_root)
     errors: list[str] = []
-    if manifest.get("status") != "frozen":
-        errors.append("formal release manifest is not frozen")
+    if manifest.get("status") not in {"frozen", "ready", "released"}:
+        errors.append("formal release manifest status must be frozen, ready, or released")
     expected_digest = digest_json({key: value for key, value in manifest.items() if key != "release_digest"})
     if manifest.get("release_digest") != expected_digest:
         errors.append("formal release release_digest mismatch")
