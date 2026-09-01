@@ -2036,6 +2036,8 @@ def _experiment_manifest(
         "anchor_instance_id": task_spec.get("anchor_instance_id", item["task_id"]),
         "family_instance_digest": task_spec.get("family_instance_digest"),
         "source_task_id": item.get("source_task_id", item["task_id"]),
+        "slot_id": item.get("slot_id", item["task_id"]),
+        "visibility": item.get("visibility"),
         "lineage_id": item.get("source_task_id", lineage.get("mutation_template_id", item["task_id"])),
         "outer_trial_id": item["outer_trial_id"],
         "budgets": budgets.as_dict(),

@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from benchmark.formal import aggregate, attest
-from benchmark.formal.run_campaign import _build_required_experiment_executor, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from benchmark.formal.run_campaign import _build_required_experiment_executor, _experiment_manifest, _manifest_executor_receipt, _resume_stream_prefix, _trial_compiler_cache, post_task_update
+from benchmark.formal import budget
 from benchmark.calibration.execution import CellExecutor
 from benchmark.calibration.bundle import classify_result as classify_calibration_result
 from benchmark.harness import conditions
@@ -35,6 +36,39 @@ def test_protocol_valid_task_failure_remains_efficacy_eligible() -> None:
     summary = aggregate.aggregate_trials([record], required_cells=cell)
     assert summary["readiness"]["efficacy_aggregate_status"] == "available"
     assert summary["readiness"]["outcome_counts"] == {"fail": 1}
+
+
+def test_formal_experiment_manifest_preserves_slot_identity_and_visibility(tmp_path: Path) -> None:
+    tasks_root = tmp_path / "tasks"
+    task_dir = tasks_root / "SLOT-01"
+    task_dir.mkdir(parents=True)
+    (task_dir / "task.yaml").write_text("family: test-family\n", encoding="utf-8")
+    item = {
+        "task_id": "SLOT-01",
+        "slot_id": "SLOT-01",
+        "visibility": "sealed",
+        "stream_id": "trial-000-A-reset",
+        "condition": "A",
+        "context_mode": "reset",
+        "outer_trial_id": "outer-000",
+        "phase": 1,
+    }
+    manifest = _experiment_manifest(
+        repo_root=tmp_path,
+        tasks_root=tasks_root,
+        skill_digest="skill",
+        task_digest="tasks",
+        task_ids=["SLOT-01"],
+        item=item,
+        model_id="deepseek-v4-flash",
+        agent_config={},
+        budgets=budget.parse_budget(None),
+        fingerprint={},
+        trial_dir=tmp_path / "trial",
+        population_id="SPE-EvoBench-v1.0-50",
+    )
+    assert manifest["slot_id"] == "SLOT-01"
+    assert manifest["visibility"] == "sealed"
 
 
 def test_calibration_resume_requires_valid_eligible_raw_result() -> None:
