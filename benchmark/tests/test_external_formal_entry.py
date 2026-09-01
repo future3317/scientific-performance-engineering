@@ -132,7 +132,7 @@ def test_formal_entry_separates_statistical_protocol_and_analysis_plan(tmp_path:
         campaign_config=campaign_config, executor_image="sha256:executor",
     )
     manifest["status"] = "ready"
-    manifest["analysis_plan_digest"] = hashlib.sha256(analysis_plan.read_bytes()).hexdigest()
+    manifest["analysis_plan_digest"] = release_manifest.digest_json(json.loads(analysis_plan.read_text()))
     manifest["release_digest"] = release_manifest.digest_json(
         {key: value for key, value in manifest.items() if key != "release_digest"}
     )

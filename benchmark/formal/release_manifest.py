@@ -424,7 +424,7 @@ def validate_formal_release(
         if value is None or manifest.get(key) != value:
             errors.append(f"formal release {key} mismatch")
     if analysis_plan_path is not None:
-        analysis_digest = hashlib.sha256(analysis_plan_path.read_bytes()).hexdigest() if analysis_plan_path.is_file() else None
+        analysis_digest = digest_json(json.loads(analysis_plan_path.read_text(encoding="utf-8"))) if analysis_plan_path.is_file() else None
         if analysis_digest is None or manifest.get("analysis_plan_digest") != analysis_digest:
             errors.append("formal release analysis_plan_digest mismatch")
     if not isinstance(manifest.get("executor_image"), str) or not manifest.get("executor_image"):
