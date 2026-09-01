@@ -325,8 +325,15 @@ def _run_conversation(
             usage.reserve_tool_call(limits)
             function = call.get("function", {})
             name = str(function.get("name", ""))
-            arguments = json.loads(function.get("arguments", "{}"))
-            result = _tool_call(process, name, arguments)  # type: ignore[arg-type]
+            try:
+                arguments = json.loads(function.get("arguments", "{}"))
+            except json.JSONDecodeError:
+                result = {"ok": False, "error": "invalid tool arguments JSON"}
+            else:
+                if not isinstance(arguments, dict):
+                    result = {"ok": False, "error": "tool arguments must be a JSON object"}
+                else:
+                    result = _tool_call(process, name, arguments)  # type: ignore[arg-type]
             tool_trace.append(name)
             messages.append({
                 "role": "tool",

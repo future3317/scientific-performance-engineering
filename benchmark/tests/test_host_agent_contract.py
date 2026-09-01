@@ -147,6 +147,79 @@ def test_conversation_disables_thinking_and_preserves_remaining_output(monkeypat
     assert outcome == "completed"
 
 
+def test_conversation_returns_tool_error_for_malformed_arguments_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        {
+            "choices": [{"message": {"content": None, "tool_calls": [{
+                "id": "malformed-1",
+                "function": {"name": "read_file", "arguments": '{"path": "unterminated'},
+            }]}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+        },
+        {
+            "choices": [{"message": {"content": "recovered"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+        },
+    ]
+    server, _ = _serve_responses(responses)
+    tool_calls: list[tuple[str, object]] = []
+
+    def unexpected_tool_call(process: object, name: str, arguments: object) -> dict[str, object]:
+        tool_calls.append((name, arguments))
+        return {"ok": True}
+
+    monkeypatch.setattr(host_agent, "_tool_call", unexpected_tool_call)
+    messages = [{"role": "user", "content": "public"}]
+    try:
+        usage, trace, outcome = host_agent._run_conversation(
+            base_url=f"http://127.0.0.1:{server.server_port}", api_key="api-key", model="deepseek-v4-flash",
+            messages=messages, process=None, limits=host_agent.ControllerLimits(), started=0.0,
+            clock=lambda: 1.0,
+        )
+    finally:
+        server.shutdown()
+
+    assert usage.tool_calls == 1
+    assert trace == ["read_file"]
+    assert outcome == "completed"
+    assert tool_calls == []
+    assert messages[2] == {
+        "role": "tool",
+        "tool_call_id": "malformed-1",
+        "content": json.dumps({"ok": False, "error": "invalid tool arguments JSON"}),
+    }
+
+
+def test_conversation_returns_error_for_non_object_arguments() -> None:
+    responses = [
+        {
+            "choices": [{"message": {"content": None, "tool_calls": [{
+                "id": "array-1",
+                "function": {"name": "read_file", "arguments": "[]"},
+            }]}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        },
+        {"choices": [{"message": {"content": "recovered"}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    ]
+    server, _ = _serve_responses(responses)
+    messages = [{"role": "user", "content": "public"}]
+    try:
+        usage, trace, outcome = host_agent._run_conversation(
+            base_url=f"http://127.0.0.1:{server.server_port}", api_key="api-key", model="deepseek-v4-flash",
+            messages=messages, process=None, limits=host_agent.ControllerLimits(), started=0.0,
+            clock=lambda: 1.0,
+        )
+    finally:
+        server.shutdown()
+
+    assert usage.tool_calls == 1
+    assert trace == ["read_file"]
+    assert outcome == "completed"
+    assert messages[2]["content"] == json.dumps({"ok": False, "error": "tool arguments must be a JSON object"})
+
+
 def test_conversation_rejects_empty_final_as_outcome() -> None:
     server, _ = _serve_responses([
         {"choices": [{"message": {"content": None, "reasoning_content": "private"}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
