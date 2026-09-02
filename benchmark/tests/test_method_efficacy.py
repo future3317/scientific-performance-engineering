@@ -98,3 +98,6 @@ def test_method_efficacy_runner_covers_all_families_and_prefixes() -> None:
     assert report["evidence_prefixes"] == [1, 2, 4, 8, 16, "all"]
     assert len(report["family_results"]) == 11
     assert set(report["aggregate"]) == set(report["policies"])
+    assert "pairwise_acre" in report
+    assert "nearest_experience" in report["pairwise_acre"]
+    assert "unsafe_generalization_rate" in report["pairwise_acre"]["nearest_experience"]["all"]
