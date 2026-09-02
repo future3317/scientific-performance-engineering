@@ -87,6 +87,27 @@ def test_lazy_relation_returns_underidentified_without_running_factorial_engine(
     assert result.confidence["reason"] == "single_rule_gate_missing"
 
 
+def test_relation_scheduler_skips_pair_when_bundle_decision_cannot_change():
+    from benchmark.formal.schedule import RelationExperimentScheduler
+
+    def unexpected_blocks(_context, *, context_id):
+        raise AssertionError(f"relation blocks unexpectedly executed: {context_id}")
+
+    result = RelationExperimentScheduler().execute(
+        {
+            "relation_id": "REL-LAZY",
+            "individual_gates": {"left": True, "right": True},
+            "router_may_bundle": True,
+            "changes_bundle_decision": False,
+        },
+        "compile",
+        block_executor=unexpected_blocks,
+        maintainer=object(),
+    )
+    assert result["status"] == "underidentified"
+    assert result["reason"] == "relation_cannot_change_bundle"
+
+
 def test_certificate_cache_reuses_only_unchanged_dependencies():
     from core.acre.certificate_cache import compare_certificate_dependencies
 
