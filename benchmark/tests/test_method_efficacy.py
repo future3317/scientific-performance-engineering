@@ -123,3 +123,18 @@ def test_provider_free_ablation_reports_common_contract_and_components() -> None
     assert "router" in report
     assert "lifecycle" in report
     assert len(report["lifecycle"]["episodes"]) == 3
+
+
+def test_relation_metrics_separate_coverage_from_resolved_accuracy() -> None:
+    from benchmark.interaction.factorial_bench import relation_recovery_metrics
+
+    metrics = relation_recovery_metrics([
+        {"hidden_relation": "synergy", "predicted_relation": "synergy"},
+        {"hidden_relation": "antagonism", "predicted_relation": "unresolved"},
+        {"hidden_relation": "independence", "predicted_relation": "synergy"},
+    ])
+
+    assert metrics["coverage"] == 2 / 3
+    assert metrics["overall_accuracy"] == 1 / 3
+    assert metrics["resolved_accuracy"] == 0.5
+    assert metrics["abstention_accuracy"] is None
