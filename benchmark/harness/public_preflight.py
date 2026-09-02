@@ -26,7 +26,7 @@ def validate_public_solution(solution_path: str | Path, task_spec: Mapping[str, 
         violations.append("candidate public entrypoint is missing")
     if not violations:
         try:
-            module = runner.import_module_by_path(path, "spe_public_preflight")
+            module = runner.import_module_by_path(path)
             violations.extend(validate_solution_api(module, api_name))
         except (OSError, TypeError, ValueError, ImportError, SyntaxError) as exc:
             violations.append(f"public import failed: {type(exc).__name__}: {exc}")
