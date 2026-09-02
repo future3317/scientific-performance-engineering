@@ -17,12 +17,25 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from benchmark.boundary.families import family_cases, run_boundary_family
+from benchmark.boundary.baselines import predict_applicability
+from benchmark.boundary.evaluator import evaluate_applicability
 from benchmark.families import PILOT_FAMILIES, validate_cross_view_consistency
 from benchmark.harness.evolution import run_episode
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
 from benchmark.interaction.factorial_bench import run_family_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
 from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
 from core.acre.decision_probe import decision_sensitivity_callback
+
+
+METHOD_POLICIES = [
+    "always_apply",
+    "observed_positive_only",
+    "nearest_experience",
+    "untyped_positive_summary",
+    "shortest_without_counterexamples",
+    "acre_full",
+]
+METHOD_EVIDENCE_PREFIXES: list[int | str] = [1, 2, 4, 8, 16, "all"]
 
 
 def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> dict[str, Any]:
@@ -118,6 +131,91 @@ def run_drift_poison(*, root: Path, seed: int = 0) -> dict[str, Any]:
     return results
 
 
+def _bootstrap_mean(values: list[float], *, seed: int, draws: int = 1000) -> dict[str, float | int | None]:
+    if not values:
+        return {"mean": None, "lower": None, "upper": None, "n_families": 0}
+    rng = random.Random(seed)
+    samples = [
+        sum(values[rng.randrange(len(values))] for _ in values) / len(values)
+        for _ in range(draws)
+    ]
+    samples.sort()
+    lower_index = max(0, int(0.025 * draws) - 1)
+    upper_index = min(draws - 1, int(0.975 * draws))
+    return {
+        "mean": sum(values) / len(values),
+        "lower": samples[lower_index],
+        "upper": samples[upper_index],
+        "n_families": len(values),
+    }
+
+
+def run_method_efficacy(*, surface_count: int = 100, seed: int = 7) -> dict[str, Any]:
+    """Run provider-free applicability comparisons on the family catalog."""
+    if surface_count < 6:
+        raise ValueError("surface_count must be at least 6")
+    family_results: list[dict[str, Any]] = []
+    for family in PILOT_FAMILIES:
+        pools = family_cases(family, surface_count=surface_count, seed=seed)
+        visible = sorted(
+            list(pools["representative_pool"]) + list(pools["active_query_pool"]),
+            key=lambda item: item.observation_id,
+        )
+        heldout = sorted(pools["sealed_boundary_pool"], key=lambda item: item.observation_id)
+        truth = {item.observation_id: item.expected_applicable for item in heldout}
+        prefix_results: dict[str, dict[str, Any]] = {}
+        for prefix in METHOD_EVIDENCE_PREFIXES:
+            visible_prefix = visible if prefix == "all" else visible[: int(prefix)]
+            policy_metrics: dict[str, Any] = {}
+            for policy in METHOD_POLICIES:
+                predictions = predict_applicability(
+                    policy,
+                    visible_prefix,
+                    heldout,
+                    family=family,
+                )
+                policy_metrics[policy] = evaluate_applicability(predictions, truth)
+            prefix_results[str(prefix)] = {
+                "visible_evidence_count": len(visible_prefix),
+                "heldout_count": len(heldout),
+                "policies": policy_metrics,
+            }
+        family_results.append({
+            "family": family,
+            "visible_count": len(visible),
+            "heldout_count": len(heldout),
+            "prefixes": prefix_results,
+        })
+
+    aggregate: dict[str, dict[str, Any]] = {policy: {} for policy in METHOD_POLICIES}
+    for policy in METHOD_POLICIES:
+        for prefix in METHOD_EVIDENCE_PREFIXES:
+            key = str(prefix)
+            metrics = [
+                result["prefixes"][key]["policies"][policy]
+                for result in family_results
+            ]
+            aggregate[policy][key] = {
+                metric: _bootstrap_mean(
+                    [float(item[metric]) for item in metrics if item[metric] is not None],
+                    seed=seed * 1000 + len(policy) * 17 + len(key),
+                )
+                for metric in ("precision", "recall", "f1", "unsafe_generalization_rate", "abstention_rate")
+            }
+    return {
+        "schema_version": 1,
+        "provider_calls": 0,
+        "surface_count": surface_count,
+        "family_count": len(family_results),
+        "families": list(PILOT_FAMILIES),
+        "policies": list(METHOD_POLICIES),
+        "evidence_prefixes": list(METHOD_EVIDENCE_PREFIXES),
+        "uncertainty": "family_cluster_bootstrap_95_percent",
+        "family_results": family_results,
+        "aggregate": aggregate,
+    }
+
+
 def run_pilot(*, root: Path, surface_count: int = 100, seed: int = 7) -> dict[str, Any]:
     if not 100 <= surface_count <= 500:
         raise ValueError("surface_count must be between 100 and 500")
@@ -148,8 +246,13 @@ def main() -> int:
     parser.add_argument("--surface-count", type=int, default=100)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--out", type=Path, default=root / "benchmark" / "pilot_surface_report.json")
+    parser.add_argument("--method-efficacy-only", action="store_true")
     args = parser.parse_args()
-    report = run_pilot(root=root, surface_count=args.surface_count, seed=args.seed)
+    report = (
+        run_method_efficacy(surface_count=args.surface_count, seed=args.seed)
+        if args.method_efficacy_only
+        else run_pilot(root=root, surface_count=args.surface_count, seed=args.seed)
+    )
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
     print(json.dumps({"status": "complete", "surface_count": report["surface_count"], "out": str(args.out)}, ensure_ascii=False))
     return 0
