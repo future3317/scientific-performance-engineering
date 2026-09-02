@@ -36,6 +36,7 @@ def partial_identification_bounds(
     lower = observed_sum / population_size - b_mean
     upper = (observed_sum + population_size - observed_count) / population_size - b_mean
     complete_case_effect = observed_sum / observed_count - b_mean if observed_count else None
+    interval_width = max(0.0, upper - lower)
     return {
         "population_size": population_size,
         "observed_count": observed_count,
@@ -45,7 +46,7 @@ def partial_identification_bounds(
         "complete_case_bias": complete_case_effect - true_effect if complete_case_effect is not None else None,
         "lower": lower,
         "upper": upper,
-        "interval_width": upper - lower,
+        "interval_width": interval_width,
         "covered": lower - 1e-12 <= true_effect <= upper + 1e-12,
     }
 
