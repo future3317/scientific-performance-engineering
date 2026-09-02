@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from core.acre.cegis import BoundaryObservation
 
 
@@ -101,3 +103,22 @@ def test_method_efficacy_runner_covers_all_families_and_prefixes() -> None:
     assert "pairwise_acre" in report
     assert "nearest_experience" in report["pairwise_acre"]
     assert "unsafe_generalization_rate" in report["pairwise_acre"]["nearest_experience"]["all"]
+
+
+def test_provider_free_ablation_reports_common_contract_and_components() -> None:
+    from scripts.run_pilot_surface_experiments import run_provider_free_ablation
+
+    report = run_provider_free_ablation(
+        root=Path(__file__).resolve().parents[2],
+        surface_count=12,
+        seed=7,
+    )
+
+    assert report["provider_calls"] == 0
+    assert set(report["applicability"]) == {
+        "acre_full",
+        "minus_counterexample",
+        "minus_typed",
+    }
+    assert "router" in report
+    assert "lifecycle" in report
