@@ -236,8 +236,20 @@ def test_formal_verifier_consumes_artifact_without_rerunning_control(monkeypatch
     task_dir = Path(__file__).resolve().parents[1] / "tasks" / "CORE-COMPILE-TINY-12"
     solution_dir = tmp_path / "solution"
     solution_dir.mkdir()
-    (solution_dir / "solution.py").write_text("x = 1\n", encoding="utf-8")
-    fake_module = SimpleNamespace(make_fixtures=lambda **kwargs: {}, load_solution=lambda **kwargs: {}, run_scientific_gates=lambda **kwargs: {"gate": {"passed": True, "details": {}}})
+    (solution_dir / "solution.py").write_text(
+        "def build_model(fixtures): return None\n"
+        "def train_step(model, batch, optimizer): return {'loss': 0, 'work_units': {}}\n"
+        "def run_training(fixtures, steps): return {}\n",
+        encoding="utf-8",
+    )
+    fake_module = SimpleNamespace(
+        build_model=lambda fixtures: None,
+        train_step=lambda model, batch, optimizer: {"loss": 0, "work_units": {}},
+        run_training=lambda fixtures, steps: {},
+        make_fixtures=lambda **kwargs: {},
+        load_solution=lambda **kwargs: {},
+        run_scientific_gates=lambda **kwargs: {"gate": {"passed": True, "details": {}}},
+    )
     monkeypatch.setattr(verifier.runner, "select_device", lambda requires_cuda: ("cpu", True))
     monkeypatch.setattr(verifier.runner, "import_module_by_path", lambda path: fake_module)
     monkeypatch.setattr(verifier, "_fresh_input_correctness", lambda *args, **kwargs: {"passed": True, "per_input": [], "output_checksums": {}})
