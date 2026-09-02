@@ -290,12 +290,16 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--out", type=Path, default=root / "benchmark" / "pilot_surface_report.json")
     parser.add_argument("--method-efficacy-only", action="store_true")
+    parser.add_argument("--component-ablation", action="store_true")
     args = parser.parse_args()
-    report = (
-        run_method_efficacy(surface_count=args.surface_count, seed=args.seed)
-        if args.method_efficacy_only
-        else run_pilot(root=root, surface_count=args.surface_count, seed=args.seed)
-    )
+    if args.method_efficacy_only and args.component_ablation:
+        parser.error("--method-efficacy-only and --component-ablation are mutually exclusive")
+    if args.component_ablation:
+        report = run_provider_free_ablation(root=root, surface_count=args.surface_count, seed=args.seed)
+    elif args.method_efficacy_only:
+        report = run_method_efficacy(surface_count=args.surface_count, seed=args.seed)
+    else:
+        report = run_pilot(root=root, surface_count=args.surface_count, seed=args.seed)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
     print(json.dumps({"status": "complete", "surface_count": report["surface_count"], "out": str(args.out)}, ensure_ascii=False))
     return 0
