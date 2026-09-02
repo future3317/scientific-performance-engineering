@@ -41,6 +41,16 @@ def test_budget_exhaustion_freezes_evolution_but_not_scheduled_execution():
     assert frozen.scheduled_execution_allowed is True
 
 
+def test_formal_evolution_exhaustion_policy_keeps_scheduled_cell_observed():
+    from benchmark.formal.budget import evolution_exhaustion_policy
+
+    policy = evolution_exhaustion_policy(exhausted=True)
+    assert policy["status"] == "evolution_frozen"
+    assert policy["scheduled_execution"] == "continue"
+    assert policy["execution_validity"] == "valid"
+    assert policy["rerunnable"] is False
+
+
 def test_certificate_critical_acquisition_ignores_queries_that_cannot_change_decision():
     from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, run_acquisition
 
