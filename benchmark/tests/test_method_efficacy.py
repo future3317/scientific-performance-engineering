@@ -78,3 +78,23 @@ def test_acre_full_requires_a_certified_counterexample() -> None:
     predictions = predict_applicability("acre_full", visible, heldout, family="compile")
 
     assert predictions == {"same": False}
+
+
+def test_method_efficacy_runner_covers_all_families_and_prefixes() -> None:
+    from scripts.run_pilot_surface_experiments import run_method_efficacy
+
+    report = run_method_efficacy(surface_count=12, seed=7)
+
+    assert report["provider_calls"] == 0
+    assert report["family_count"] == 11
+    assert report["policies"] == [
+        "always_apply",
+        "observed_positive_only",
+        "nearest_experience",
+        "untyped_positive_summary",
+        "shortest_without_counterexamples",
+        "acre_full",
+    ]
+    assert report["evidence_prefixes"] == [1, 2, 4, 8, 16, "all"]
+    assert len(report["family_results"]) == 11
+    assert set(report["aggregate"]) == set(report["policies"])
