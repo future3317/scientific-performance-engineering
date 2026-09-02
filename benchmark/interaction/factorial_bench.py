@@ -116,6 +116,57 @@ def generate_family_interaction_surface(
     return surfaces
 
 
+def relation_recovery_metrics(details: list[dict[str, object]]) -> dict[str, float | int | None]:
+    """Summarize relation predictions without hiding selective coverage."""
+    unresolved = {"unresolved", "underidentified_context_relation"}
+    total = len(details)
+    resolved_rows = [item for item in details if item.get("predicted_relation") not in unresolved]
+    correct = sum(
+        canonical_relation_label(str(item.get("hidden_relation"))) == str(item.get("predicted_relation"))
+        for item in details
+    )
+    resolved_correct = sum(
+        canonical_relation_label(str(item.get("hidden_relation"))) == str(item.get("predicted_relation"))
+        for item in resolved_rows
+    )
+    labels = sorted({canonical_relation_label(str(item.get("hidden_relation"))) for item in details})
+    f1_values: list[float] = []
+    for label in labels:
+        tp = sum(
+            canonical_relation_label(str(item.get("hidden_relation"))) == label
+            and str(item.get("predicted_relation")) == label
+            for item in details
+        )
+        fp = sum(
+            canonical_relation_label(str(item.get("hidden_relation"))) != label
+            and str(item.get("predicted_relation")) == label
+            for item in details
+        )
+        fn = sum(
+            canonical_relation_label(str(item.get("hidden_relation"))) == label
+            and str(item.get("predicted_relation")) != label
+            for item in details
+        )
+        if 2 * tp + fp + fn:
+            f1_values.append(2.0 * tp / (2 * tp + fp + fn))
+    ambiguous = [
+        item for item in details
+        if canonical_relation_label(str(item.get("hidden_relation"))) == "context_dependent_relation"
+    ]
+    return {
+        "surface_count": total,
+        "coverage": len(resolved_rows) / total if total else 0.0,
+        "overall_accuracy": correct / total if total else None,
+        "resolved_accuracy": resolved_correct / len(resolved_rows) if resolved_rows else None,
+        "macro_f1": sum(f1_values) / len(f1_values) if f1_values else None,
+        "abstention_count": total - len(resolved_rows),
+        "abstention_accuracy": (
+            sum(str(item.get("predicted_relation")) in unresolved for item in ambiguous) / len(ambiguous)
+            if ambiguous else None
+        ),
+    }
+
+
 def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: tuple[int, ...] = (8, 16, 32, 64, 128)) -> dict[str, object]:
     """Run sequential confirmation on family-derived hidden surfaces."""
     if count < 1 or not blocks or any(item < 2 for item in blocks):
@@ -250,6 +301,7 @@ def run_family_factorial_benchmark(*, count: int = 100, seed: int = 7, blocks: t
         "total_identification_failure_rate": (len(wrong_resolved) + unresolved_count) / len(details),
         "median_blocks_to_confirmation": sorted(item["stopping_blocks"] for item in details if item["stopping_blocks"] is not None)[len([item for item in details if item["stopping_blocks"] is not None]) // 2] if any(item["stopping_blocks"] is not None for item in details) else None,
         "experiment_cost": sum(float(item["experiment_cost"]) for item in details),
+        "relation_metrics": relation_recovery_metrics(details),
     }
 
 
