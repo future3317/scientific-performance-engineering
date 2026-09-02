@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
+from . import runner
 from .api import validate_solution_api
-from .runner import import_module_by_path
 
 
 def validate_public_solution(solution_path: str | Path, task_spec: Mapping[str, Any]) -> dict[str, Any]:
@@ -26,7 +26,7 @@ def validate_public_solution(solution_path: str | Path, task_spec: Mapping[str, 
         violations.append("candidate public entrypoint is missing")
     if not violations:
         try:
-            module = import_module_by_path(path, "spe_public_preflight")
+            module = runner.import_module_by_path(path, "spe_public_preflight")
             violations.extend(validate_solution_api(module, api_name))
         except (OSError, TypeError, ValueError, ImportError, SyntaxError) as exc:
             violations.append(f"public import failed: {type(exc).__name__}: {exc}")
