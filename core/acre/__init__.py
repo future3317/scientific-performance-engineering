@@ -11,6 +11,9 @@ from .acquisition import AcquisitionPolicy, AcquisitionQuery, AcquisitionResult,
 from .router import BundleCertificate, ConservativeCausalRouter, RoutingDecision, RequiredExperiment, PairExperimentRequest, validate_relation_nonoverlap
 from .engine import AcreEngine
 from .relation import RelationIdentifier, RelationIdentification, relational_cegis
+from .relation import RelationExperimentEligibility, relation_experiment_eligibility
+from .resource_budget import ExecutionReserveBudget, EvolutionAdmission
+from .certificate_cache import CertificateDependencyResult, compare_certificate_dependencies
 from .policy import RelationDecisionPolicy
 from core.governance import EvolutionDecision
 from .evidence import EvidenceAssessment, adversarial_events, assess, representative_events
@@ -25,7 +28,8 @@ __all__ = [
     "CoverageResult", "FactorialBlock", "FactorialEngine", "FactorialEstimate", "simulate_coverage",
     "AcquisitionPolicy", "AcquisitionQuery", "AcquisitionResult", "run_acquisition",
     "ConservativeCausalRouter", "RoutingDecision", "RequiredExperiment", "PairExperimentRequest", "BundleCertificate", "validate_relation_nonoverlap", "RelationDecisionPolicy",
-    "AcreEngine", "EvolutionDecision", "RelationIdentifier", "RelationIdentification", "relational_cegis", "HigherOrderEstimate", "HigherOrderCertificate", "ThreeWayBlock", "RelationEvidenceCertificate", "estimate_higher_order", "canonical_relation_label",
+    "AcreEngine", "EvolutionDecision", "RelationIdentifier", "RelationIdentification", "RelationExperimentEligibility", "relation_experiment_eligibility", "relational_cegis", "HigherOrderEstimate", "HigherOrderCertificate", "ThreeWayBlock", "RelationEvidenceCertificate", "estimate_higher_order", "canonical_relation_label",
+    "ExecutionReserveBudget", "EvolutionAdmission", "CertificateDependencyResult", "compare_certificate_dependencies",
     "EvidenceAssessment", "representative_events", "adversarial_events", "assess",
     "AcreController", "AcreMaintainer", "MaintenanceInput", "MaintenanceTransition", "ExperimentExecutor", "ExperimentPlan", "ExperimentExecution", "PairedContrastEvidence", "execute_paired_plan", "RealizationValidator", "StatisticalBudget",
 ]
