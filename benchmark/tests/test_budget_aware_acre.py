@@ -158,3 +158,32 @@ def test_condition_blind_calibration_split_has_disjoint_ids():
     assert split["promotion_disjoint"] is True
     assert split["evidence_disjoint"] is True
     assert not set(split["calibration_instance_ids"]) & set(split["final_instance_ids"])
+
+
+def test_public_preflight_checks_only_the_declared_solution_contract(tmp_path):
+    from benchmark.harness.public_preflight import validate_public_solution
+
+    solution = tmp_path / "solution.py"
+    solution.write_text("def build_model(fixtures): return None\n", encoding="utf-8")
+    result = validate_public_solution(
+        solution,
+        {"workspace": {"entrypoint": "solution.py", "api": "train_loop_v1"}},
+    )
+    assert result["status"] == "fail"
+    assert any("train_step" in item for item in result["violations"])
+    assert "oracle" not in result
+    assert "hidden_verifier" not in result
+
+
+def test_host_controller_near_budget_policy_and_thinking_mode_are_explicit():
+    from benchmark.formal.host_agent import build_agent_attestation, should_finalize_before_next_turn
+
+    assert should_finalize_before_next_turn(
+        turn_index=15, max_turns=16, input_tokens=0, output_tokens=0,
+        input_limit=12000, output_limit=8192,
+    ) is True
+    attestation = build_agent_attestation(
+        model_list_digest="m", agent_code_commit="c", container_digest="d", pricing_revision="p",
+    )
+    assert attestation["thinking"] == "disabled"
+    assert attestation["reasoning_effort"] == "none"
