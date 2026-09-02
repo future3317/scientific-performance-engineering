@@ -150,6 +150,17 @@ def test_provider_free_budget_ablation_keeps_legacy_reference_and_reports_saving
     assert report["calibration_split"]["evidence_disjoint"] is True
 
 
+def test_provider_free_ablation_reports_reserve_limited_execution_completion():
+    from scripts.run_pilot_surface_experiments import run_budget_aware_ablation
+
+    report = run_budget_aware_ablation(seed=7)
+    reserve = report["execution_reserve"]
+    assert reserve["evolution_frozen"] is True
+    assert reserve["evolution_queries_admitted"] == 0
+    assert reserve["scheduled_cells"] == reserve["scheduled_cells_completed"] == 2
+    assert reserve["missing_scheduled_cells"] == 0
+
+
 def test_condition_blind_calibration_split_has_disjoint_ids():
     from benchmark.calibration.split import build_calibration_split
 
