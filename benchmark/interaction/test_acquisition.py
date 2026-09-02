@@ -36,7 +36,10 @@ def test_policies_share_pool_and_selection_has_no_sealed_labels() -> None:
     for policy in AcquisitionPolicy:
         result = run_acquisition(queries, labels, policy, confidence_target=0.9)
         assert set(result.selected_query_ids) <= {query.query_id for query in queries}
-        assert result.cumulative_cost[-1] == result.total_cost
+        if result.cumulative_cost:
+            assert result.cumulative_cost[-1] == result.total_cost
+        else:
+            assert result.total_cost == 0.0
         assert all("label" not in selection for selection in result.selection_trace)
 
 
