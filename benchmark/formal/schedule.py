@@ -10,6 +10,7 @@ from typing import Any, Mapping, Sequence
 from benchmark.harness import split
 from core.sequential_stats import minimum_all_successes
 from core.acre.budget import StatisticalBudget
+from core.acre.relation import RelationExperimentEligibility, relation_experiment_eligibility
 
 
 class FamilyReplayExecutor:
@@ -291,6 +292,33 @@ class RelationExperimentScheduler:
     is the only input that can later reach relation governance.
     """
 
+    @staticmethod
+    def candidate_eligibility(candidate: Mapping[str, Any]) -> RelationExperimentEligibility | None:
+        """Return lazy-admission evidence when a candidate declares its gates.
+
+        Older in-memory fixtures intentionally omit these fields and retain
+        their historical scheduler behavior.  New governed candidates carry
+        them explicitly, so an irrelevant relation is stopped before any
+        factorial block or family replay is paid for.
+        """
+        declared = {"individual_gates", "router_may_bundle", "changes_bundle_decision"}
+        if not declared.intersection(candidate):
+            return None
+        gates = candidate.get("individual_gates")
+        if not isinstance(gates, Mapping):
+            return RelationExperimentEligibility(False, "single_rule_gate_missing")
+        return relation_experiment_eligibility(
+            left_individual_gate=bool(gates.get("left", False)),
+            right_individual_gate=bool(gates.get("right", False)),
+            router_may_bundle=bool(candidate.get("router_may_bundle", False)),
+            changes_bundle_decision=bool(candidate.get("changes_bundle_decision", False)),
+            evolution_available=(
+                float(candidate["evolution_available"])
+                if candidate.get("evolution_available") is not None else None
+            ),
+            next_block_cost=float(candidate.get("next_block_cost", 0.0)),
+        )
+
     def schedule(self, candidate: Mapping[str, Any], family_id: str, *, seed: int = 0) -> dict[str, Any]:
         from benchmark.families import family_views
         pools = family_views(family_id, count=24, seed=seed)
@@ -325,6 +353,17 @@ class RelationExperimentScheduler:
         and semantic inference are otherwise not represented as metadata.
         """
         plan = self.schedule(candidate, family_id, seed=seed)
+        eligibility = self.candidate_eligibility(candidate)
+        if eligibility is not None and not eligibility.eligible:
+            plan["status"] = "underidentified"
+            plan["reason"] = eligibility.reason
+            plan["identification"] = {
+                "decision": "underidentified_context_relation",
+                "context_decisions": {},
+                "applicability_predicate": None,
+                "confidence": {"reason": eligibility.reason},
+            }
+            return plan
         context_blocks: dict[str, list[Any]] = {}
         for item in plan["pending_contexts"]:
             context_id = str(item["context_id"])
