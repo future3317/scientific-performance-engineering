@@ -562,6 +562,19 @@ def verify_task(
             mark_stage("S2")
             return _finalize(result, started, out_path)
 
+    from .public_preflight import validate_public_solution
+    public_preflight = validate_public_solution(candidate_path, spec)
+    result["public_preflight"] = public_preflight
+    if public_preflight["status"] != "pass":
+        result["verdict"] = "fail"
+        result["validity"] = "valid"
+        result["execution_validity"] = "valid"
+        result["efficacy_eligible"] = False
+        result["calibration_status"] = "blocked"
+        result["calibration_block_reason"] = "public contract preflight failed"
+        mark_stage("S2")
+        return _finalize(result, started, out_path)
+
     runner.set_global_seeds(seed)
     try:
         correctness = _fresh_input_correctness(benchmark_module, candidate_path, spec, seed, device)

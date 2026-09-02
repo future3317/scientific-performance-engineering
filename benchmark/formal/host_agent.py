@@ -92,6 +92,26 @@ def tool_schema_digest() -> str:
     return _digest_bytes(payload.encode("utf-8"))
 
 
+def should_finalize_before_next_turn(
+    *,
+    turn_index: int,
+    max_turns: int,
+    input_tokens: int,
+    output_tokens: int,
+    input_limit: int,
+    output_limit: int,
+    reserve_tokens: int = 512,
+) -> bool:
+    """Signal a finalization turn before the controller exhausts its budget."""
+    if max_turns < 1 or input_limit < 1 or output_limit < 1:
+        raise ValueError("controller limits must be positive")
+    return (
+        turn_index >= max_turns - 1
+        or input_tokens >= max(0, input_limit - reserve_tokens)
+        or output_tokens >= max(0, output_limit - reserve_tokens)
+    )
+
+
 def _safe_environment() -> dict[str, str]:
     blocked = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
     return {
@@ -244,8 +264,8 @@ def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, c
         "container_digest": container_digest,
         "pricing_revision": pricing_revision,
         "backend_weight_immutability_claim": False,
-        "thinking": "enabled",
-        "reasoning_effort": "high",
+        "thinking": "disabled",
+        "reasoning_effort": "none",
         "temperature": 0,
         "top_p": 1,
     }
@@ -271,7 +291,19 @@ def run() -> dict[str, Any]:
     tool_trace: list[str] = []
     started = time.monotonic()
     try:
-        for _ in range(16):
+        for turn_index in range(16):
+            if should_finalize_before_next_turn(
+                turn_index=turn_index,
+                max_turns=16,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                input_limit=12000,
+                output_limit=8192,
+            ):
+                messages.append({
+                    "role": "user",
+                    "content": "Finalize the current best solution now; do not start another exploratory turn.",
+                })
             response = _api_call_with_retry(base_url, api_key, {
                 "model": model,
                 "messages": messages,
@@ -280,8 +312,8 @@ def run() -> dict[str, Any]:
                 "temperature": 0,
                 "top_p": 1,
                 "max_tokens": 8192,
-                "thinking": {"type": "enabled"},
-                "reasoning_effort": "high",
+                "thinking": {"type": "disabled"},
+                "reasoning_effort": "none",
             }, timeout_s=120)
             usage = response.get("usage", {}) if isinstance(response.get("usage"), dict) else {}
             input_tokens += int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
