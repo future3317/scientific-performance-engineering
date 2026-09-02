@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from core.acre.cegis import BoundaryObservation
@@ -149,9 +150,10 @@ def test_observability_bounds_collapse_without_censoring() -> None:
         [True, True, True],
     )
 
-    assert result["true_effect"] == 0.26666666666666666
-    assert result["lower"] == result["upper"] == result["true_effect"]
-    assert result["complete_case_effect"] == result["true_effect"]
+    assert math.isclose(result["true_effect"], 0.26666666666666666)
+    assert math.isclose(result["lower"], result["upper"])
+    assert math.isclose(result["lower"], result["true_effect"])
+    assert math.isclose(result["complete_case_effect"], result["true_effect"])
 
 
 def test_observability_bounds_cover_all_censored_treatment_outcomes() -> None:
@@ -164,8 +166,8 @@ def test_observability_bounds_cover_all_censored_treatment_outcomes() -> None:
     )
 
     assert result["complete_case_effect"] is None
-    assert result["lower"] == -0.26666666666666666
-    assert result["upper"] == 0.7333333333333334
+    assert math.isclose(result["lower"], -0.26666666666666666)
+    assert math.isclose(result["upper"], 0.7333333333333334)
     assert result["lower"] <= result["true_effect"] <= result["upper"]
 
 
