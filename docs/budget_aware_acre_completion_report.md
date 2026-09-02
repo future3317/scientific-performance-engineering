@@ -1,6 +1,6 @@
 # Budget-aware ACRE completion report
 
-Date: 2026-09-02
+Date: 2026-09-03
 
 ## Scope and evidence boundary
 
@@ -12,8 +12,8 @@ or efficacy rescue was performed.
 
 The implementation source is the server repository
 `/home/workspace/lrh/CODE/scientific-performance-engineering`, on `main` at
-`7995dac98d4107e8048075b8d805e300a574cc64`; this report is a documentation-only
-follow-up commit. The local Windows checkout contains
+`05046354da9b9a27ba66e39b5a0741e454178345`. This working report is kept separate
+from the server runtime evidence. The local Windows checkout contains
 only user-local untracked materials in addition to this tracked source; those
 materials were not staged.
 
@@ -40,6 +40,9 @@ materials were not staged.
   and protocol errors remain infrastructure-invalid and still block their stream.
 - Updated one existing noise-control test fixture to satisfy the now-enforced
   public API contract. No production verifier behavior was weakened.
+- Made thread-topology configuration idempotent for repeated same-process
+  calibration setup, while preserving PyTorch's error on a genuinely different
+  interop-thread request.
 
 ## Verification
 
@@ -49,11 +52,28 @@ All commands below used the project environment on `dbcloud`:
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python
 ```
 
-- Targeted budget/ACRE/controller tests: 23 passed, 13 passed, 1 stress test
-  passed, and 1 passed in the earlier staged checks.
+- Targeted budget/ACRE/controller/closure tests: **39 passed, 1 warning** in
+  8.71 s, including the seeded reserve stress regression.
+- Fresh affected-path selection after calibration: **94 passed, 1 warning** in
+  143.79 s.
 - Regression test after the public-contract fixture correction: 1 passed,
   1 existing torch-geometric deprecation warning.
-- Full project suite at commit `84dd160`: **381 passed, 8 warnings**, 636.37 s.
+- Earlier full project suite at commit `3bb2c2b`: **382 passed, 8 warnings**,
+  545.81 s.
+
+A fresh full-suite attempt on 2026-09-03 reached 381 passed and one failure:
+`benchmark/tests/test_compile_calibration.py::test_dynamic_compile_activation_is_harness_owned_and_contrastive`
+failed during TorchInductor CUDA-context initialization with an out-of-memory
+error. At the time, the fixed GPU5 had an unrelated foreign process using
+13,894 MiB and 98% utilization. No process was terminated and no runtime or
+scientific configuration was changed. The earlier 382/382 run at this same
+code revision and the directly affected 94-test selection remain recorded
+separately; that attempt is classified as shared-resource
+infrastructure-blocked, not as a code assertion failure.
+
+After the GPU5 resource was released, the affected selection passed with
+**38 passed, 1 warning** in 34.88 s, and the final full suite at commit
+`0504635` passed with **383 passed, 8 warnings** in 610.87 s.
 
 The warnings are dependency/deprecation or fixture warnings; no test was skipped
 to hide a failure.
@@ -119,6 +139,48 @@ as a separate minimum bound.
 These are provider-free mechanism and resource-governance results. They are not
 hosted-model efficacy results and do not establish that EVOSPE improves task
 utility.
+
+## Condition-blind calibration closure
+
+The independent condition-blind calibration is now complete. The derived index
+is:
+
+```text
+Path: /home/workspace/lrh/RESULTS/evospe-condition-blind-calibration-8tasks-20260903-complete/calibration_funnel.json
+SHA256: ca8cd8b5eeee3db1e25bccc832fe416dd78c713e37601018080c2ff859c4dab2
+Benchmark/method revision: 3bb2c2b20f399c021f6e48879f489401c74aad50
+Calibration protocol digest: fdf4d06f33d8cdfcf8b350b8ead745c7888d277e13bd7dd9eaf9c68d649d5d20
+Population manifest digest: ae40e9c217ade74ad6d1409561797ddad3b46b753875f4674d76ebff4a08e2ad
+Provider calls: 0
+```
+
+The index references eight task-specific raw roots and preserves their raw,
+noise-control, and envelope artifacts in place. The 24-cell funnel is:
+
+| Quantity | Count |
+|---|---:|
+| Expected / submitted | 24 / 24 |
+| Execution-valid | 24 |
+| Correctness-pass | 24 |
+| Eligible | 24 |
+| Public-contract applicable / pass | 15 / 15 |
+| Atomic-performance measurement reached | 15 |
+| Atomic verified-positive / inconclusive | 9 / 6 |
+| Evolution-episode evidence cells | 9 |
+| Protocol-invalid / unresolved invalid | 0 / 0 |
+
+The completed set uses one revision, one calibration protocol digest, one
+population manifest digest, `shared_observed` resource mode, GPU UUID
+`GPU-a40e8c73-adfc-eb76-9aa1-63b6569cd9f7`, and `CUDA_VISIBLE_DEVICES=5`.
+The earlier interrupted repeated-backbone root and the failed resume attempt
+remain separate historical evidence; neither was edited or used as a source
+for the three completed repeated-backbone cells. The failed resume attempt was
+an output-root/CLI precondition error, not a calibration outcome.
+
+This closes the condition-blind feasibility check: the selected tasks can reach
+their public contract and correctness/measurement paths under the fixed runtime.
+It does not establish hosted efficacy, compare treatments, or authorize a
+provider campaign by itself.
 
 ## Historical hosted funnel
 
@@ -186,6 +248,9 @@ overlap, and figure/table layout problems.
   through the explicit non-blocking `evolution_frozen` path; a future hosted
   revision would need a calibrated per-cell minimum-cost schedule before using
   a numeric total-compute reserve as a confirmatory contract.
+- The condition-blind calibration is complete for the eight selected tasks, but
+  it is a feasibility sample rather than a held-out end-to-end treatment study;
+  broader task-population calibration remains outside this revision.
 - The hosted funnel still has no positive verified-speedup events, so no new
   hosted efficacy claim is available.
 - Prompt-cache hit/miss counters were not persisted in historical receipts and
@@ -196,14 +261,15 @@ overlap, and figure/table layout problems.
 
 ## Commit and provenance summary
 
-The budget-aware implementation was integrated into `main` through the staged
+The budget-aware implementation is integrated into `main` through the staged
 commits ending at:
 
 ```text
-7995dac98d4107e8048075b8d805e300a574cc64
+05046354da9b9a27ba66e39b5a0741e454178345
 ```
 
-The latest commit only aligns the existing noise-control test with the public
-API preflight. The resource evidence remains bound to
+The latest tracked commit records the thread-topology idempotence regression
+fix and its verification. The
+resource evidence remains bound to
 `59fe1a5bd4af06d368eecb1ffd6e50df161fb384` and the historical formal evidence
 remains bound to its original benchmark/controller revisions.
