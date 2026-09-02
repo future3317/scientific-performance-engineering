@@ -92,6 +92,31 @@ class EvolutionComputeBudget:
         return [key for key, limit in self.LIMITS.items() if float(getattr(self, key)) > float(limit)]
 
 
+def evolution_exhaustion_policy(*, exhausted: bool) -> dict[str, Any]:
+    """Describe the non-blocking policy for a scheduled evolution stream.
+
+    Evolution is optional maintenance.  A scheduled cell is part of the
+    execution contract and therefore remains observed even when maintenance
+    has to be frozen.  This helper centralizes that contract for the runner
+    and its audit tests.
+    """
+    if exhausted:
+        return {
+            "status": "evolution_frozen",
+            "scheduled_execution": "continue",
+            "execution_validity": "valid",
+            "efficacy_eligible": True,
+            "rerunnable": False,
+        }
+    return {
+        "status": "evolution_active",
+        "scheduled_execution": "continue",
+        "execution_validity": "valid",
+        "efficacy_eligible": True,
+        "rerunnable": False,
+    }
+
+
 def classify_failure(*, failure_stage: str | None, protocol_failure: bool = False, agent_crashed: bool = False, budget_exhausted: bool = False) -> dict[str, Any]:
     """Canonical missingness policy used by formal scheduling and reruns."""
     if protocol_failure or failure_stage in {"executor", "hardware", "protocol"}:
