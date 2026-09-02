@@ -161,6 +161,19 @@ def test_provider_free_ablation_reports_reserve_limited_execution_completion():
     assert reserve["missing_scheduled_cells"] == 0
 
 
+def test_provider_free_reserve_stress_has_no_missing_scheduled_cells():
+    from scripts.run_pilot_surface_experiments import run_budget_aware_reserve_stress
+
+    report = run_budget_aware_reserve_stress(seed=17, schedule_count=128)
+
+    assert report["provider_calls"] == 0
+    assert report["schedule_count"] == 128
+    assert report["scheduled_completion_rate"] == 1.0
+    assert report["missing_scheduled_cells"] == 0
+    assert report["pressure_levels"]["tight"]["evolution_spent"] <= report["pressure_levels"]["slack"]["evolution_spent"]
+    assert report["pressure_levels"]["tight"]["abstentions"] >= report["pressure_levels"]["slack"]["abstentions"]
+
+
 def test_condition_blind_calibration_split_has_disjoint_ids():
     from benchmark.calibration.split import build_calibration_split
 
