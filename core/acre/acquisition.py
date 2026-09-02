@@ -14,6 +14,7 @@ class AcquisitionPolicy(str, Enum):
     RANDOM = "random"
     UNCERTAINTY_ONLY = "uncertainty-only"
     DECISION_AWARE = "decision-aware"
+    CERTIFICATE_CRITICAL = "certificate-critical"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class AcquisitionQuery:
     experiment_type: str = "observation"
     risk: float = 0.5
     provenance_novelty: float = 0.5
+    can_change_decisions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.query_id or not self.edge_id:
@@ -36,6 +38,9 @@ class AcquisitionQuery:
             raise ValueError("risk and provenance_novelty must be in [0, 1]")
         if self.experiment_type == "":
             raise ValueError("experiment_type must be non-empty")
+        allowed = {"deploy", "abstain", "specialize", "revalidate", "retire"}
+        if any(decision not in allowed for decision in self.can_change_decisions):
+            raise ValueError("can_change_decisions contains an unknown deployment decision")
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,7 @@ class AcquisitionResult:
     posterior: Mapping[str, Mapping[str, float]]
     selection_trace: tuple[dict[str, object], ...]
     identification_certificate: bool = False
+    stop_reason: str = "pool_exhausted"
 
     @property
     def total_cost(self) -> float:
@@ -201,6 +207,11 @@ def _choose(
             raise ValueError("decision_sensitivity_fn must return a value in [0, 1]")
         if policy is AcquisitionPolicy.UNCERTAINTY_ONLY:
             score = information_gain / query.cost
+        elif policy is AcquisitionPolicy.CERTIFICATE_CRITICAL:
+            # Criticality is an explicit semantic property of a query.  It is
+            # not inferred from hidden labels or from a generic sensitivity
+            # surrogate.
+            score = uncertainty / query.cost if query.can_change_decisions else float("-inf")
         else:
             # Canonical ACRE decision-aware acquisition value.
             score = (information_gain * decision * max(query.risk, query.provenance_novelty)) / (query.cost + 0.1)
@@ -218,6 +229,7 @@ def run_acquisition(
     delta_family: float = 0.05,
     seed: int = 0,
     decision_sensitivity_fn: Callable[[AcquisitionQuery, Mapping[str, list[bool]]], float] | None = None,
+    resource_budget: object | None = None,
 ) -> AcquisitionResult:
     """Select until the observable posterior is confident or the pool ends.
 
@@ -239,17 +251,34 @@ def run_acquisition(
     rng = random.Random(seed)
     cost = 0.0
     stopped_by_policy = False
+    stop_reason = "pool_exhausted"
     certificate = _certificate(observations, edge_ids, delta_family)
     while available:
         certificate = _certificate(observations, edge_ids, delta_family)
         if certificate.certified:
             stopped_by_policy = True
+            stop_reason = "certificate"
             break
         frontier = [
             query for query in available
             if query.edge_id not in certificate.covered_edges
         ]
+        if policy is AcquisitionPolicy.CERTIFICATE_CRITICAL:
+            frontier = [query for query in frontier if query.can_change_decisions]
+            if not frontier:
+                stop_reason = "no_critical_query"
+                break
+        if resource_budget is not None:
+            frontier = [query for query in frontier if query.cost <= float(getattr(resource_budget, "evolution_available")) + 1e-12]
+            if not frontier:
+                stop_reason = "evolution_frozen"
+                break
         query, uncertainty, information_gain, decision = _choose(frontier or available, policy, observations, rng, decision_sensitivity_fn)
+        if resource_budget is not None:
+            resource_budget, admission = resource_budget.admit_evolution(query.cost, query_id=query.query_id)
+            if not admission.accepted:
+                stop_reason = admission.reason
+                break
         available.remove(query)
         # The observation is revealed only after selection; selection saw only
         # the posterior state accumulated from earlier revealed observations.
@@ -267,6 +296,7 @@ def run_acquisition(
             "decision_model": "bounded_decision_surrogate" if decision_sensitivity_fn else "none",
             "risk": query.risk,
             "provenance_novelty": query.provenance_novelty,
+            "can_change_decisions": list(query.can_change_decisions),
             "cost": query.cost,
             "certificate_min_confidence": current_certificate.min_confidence,
             "certificate_covered_edges": list(current_certificate.covered_edges),
@@ -277,7 +307,7 @@ def run_acquisition(
         for edge_id in sorted(edge_ids)
     }
     certificate = _certificate(observations, edge_ids, delta_family)
-    return AcquisitionResult(policy.value, tuple(selected), tuple(cumulative), stopped_by_policy, posterior, tuple(trace), certificate.certified)
+    return AcquisitionResult(policy.value, tuple(selected), tuple(cumulative), stopped_by_policy, posterior, tuple(trace), certificate.certified, stop_reason)
 
 
 def evaluate_trajectory(

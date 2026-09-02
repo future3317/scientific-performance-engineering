@@ -96,10 +96,23 @@ class AcreMaintainer:
             update_certificate=update_certificate,
         )
 
-    def execute_relation_experiment(self, context_blocks: Mapping[str, Sequence[Any]], *, delta: float = 0.05, practical_margin: float = 0.05) -> Any:
+    def execute_relation_experiment(
+        self,
+        context_blocks: Mapping[str, Sequence[Any]],
+        *,
+        delta: float = 0.05,
+        practical_margin: float = 0.05,
+        eligibility: Any = None,
+    ) -> Any:
         """Execute scheduled factorial blocks and identify a relation in core."""
         from .factorial import FactorialEngine
         from .relation import RelationIdentifier
+        if eligibility is not None and not bool(getattr(eligibility, "eligible", False)):
+            return __import__("core.acre.relation", fromlist=["RelationIdentification"]).RelationIdentification(
+                "underidentified_context_relation",
+                {},
+                confidence={"reason": str(getattr(eligibility, "reason", "ineligible"))},
+            )
         estimates = {}
         for context_id, blocks in context_blocks.items():
             engine = FactorialEngine(delta=delta, practical_margin=practical_margin, look_count=max(1, len(blocks)))

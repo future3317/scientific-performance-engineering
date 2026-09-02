@@ -27,6 +27,35 @@ class RelationIdentification:
     confidence: Mapping[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class RelationExperimentEligibility:
+    """Decision made before paying for a factorial relation experiment."""
+
+    eligible: bool
+    reason: str
+
+
+def relation_experiment_eligibility(
+    *,
+    left_individual_gate: bool,
+    right_individual_gate: bool,
+    router_may_bundle: bool,
+    changes_bundle_decision: bool,
+    evolution_available: float | None = None,
+    next_block_cost: float = 0.0,
+) -> RelationExperimentEligibility:
+    """Apply the cheap-to-expensive relation admission cascade."""
+    if not left_individual_gate or not right_individual_gate:
+        return RelationExperimentEligibility(False, "single_rule_gate_missing")
+    if not router_may_bundle:
+        return RelationExperimentEligibility(False, "router_will_not_bundle")
+    if not changes_bundle_decision:
+        return RelationExperimentEligibility(False, "relation_cannot_change_bundle")
+    if evolution_available is not None and next_block_cost > evolution_available + 1e-12:
+        return RelationExperimentEligibility(False, "evolution_frozen")
+    return RelationExperimentEligibility(True, "eligible")
+
+
 class RelationIdentifier:
     """Identify a canonical relation from one or more context estimates."""
 
@@ -185,4 +214,7 @@ def relational_cegis(
     return tuple(children)
 
 
-__all__ = ["RelationIdentifier", "RelationIdentification", "relational_cegis", "CANONICAL_RELATIONS"]
+__all__ = [
+    "RelationIdentifier", "RelationIdentification", "RelationExperimentEligibility",
+    "relation_experiment_eligibility", "relational_cegis", "CANONICAL_RELATIONS",
+]
