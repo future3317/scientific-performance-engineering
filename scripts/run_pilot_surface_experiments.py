@@ -273,6 +273,7 @@ def run_provider_free_ablation(*, root: Path, surface_count: int = 100, seed: in
 def run_budget_aware_ablation(*, root: Path | None = None, seed: int = 7) -> dict[str, Any]:
     """Run the compact provider-free resource/acquisition policy ablation."""
     from benchmark.calibration.split import build_calibration_split
+    from core.acre.resource_budget import ExecutionReserveBudget
 
     # This admission fixture is intentionally public and deterministic: it
     # measures the cost of the eligibility policy, not relation truth.
@@ -285,6 +286,12 @@ def run_budget_aware_ablation(*, root: Path | None = None, seed: int = 7) -> dic
     calibration = build_calibration_split(
         ("compile", "episode"), calibration_seed=101, final_seed=seed, count=4,
     )
+    reserve_ledger = ExecutionReserveBudget(total_budget=3.0, scheduled_minimums=(1.0, 1.0))
+    reserve_ledger, admission = reserve_ledger.admit_evolution(2.0, query_id="reserve-limited-query")
+    completed = 0
+    while completed < len(reserve_ledger.scheduled_minimums):
+        reserve_ledger = reserve_ledger.advance_task()
+        completed += 1
     return {
         "schema_version": 1,
         "provider_calls": 0,
@@ -303,6 +310,15 @@ def run_budget_aware_ablation(*, root: Path | None = None, seed: int = 7) -> dic
                 "factorial_invocations_saved": eager_invocations - lazy_invocations,
                 "fixture": "public_relation_admission_v1",
             },
+        },
+        "execution_reserve": {
+            "total_budget": 3.0,
+            "evolution_frozen": reserve_ledger.evolution_frozen,
+            "evolution_queries_admitted": int(admission.accepted),
+            "scheduled_cells": len(reserve_ledger.scheduled_minimums),
+            "scheduled_cells_completed": completed,
+            "missing_scheduled_cells": len(reserve_ledger.scheduled_minimums) - completed,
+            "admission_reason": admission.reason,
         },
         "calibration_split": calibration,
     }
