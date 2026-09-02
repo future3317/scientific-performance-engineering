@@ -154,6 +154,8 @@ def test_observability_bounds_collapse_without_censoring() -> None:
     assert math.isclose(result["lower"], result["upper"])
     assert math.isclose(result["lower"], result["true_effect"])
     assert math.isclose(result["complete_case_effect"], result["true_effect"])
+    assert result["interval_width"] >= 0
+    assert math.isclose(result["interval_width"], 0.0)
 
 
 def test_observability_bounds_cover_all_censored_treatment_outcomes() -> None:
