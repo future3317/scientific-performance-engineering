@@ -23,6 +23,7 @@ from benchmark.families import PILOT_FAMILIES, validate_cross_view_consistency
 from benchmark.harness.evolution import run_episode
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
 from benchmark.interaction.factorial_bench import run_family_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
+from benchmark.interaction.router_bench import run_router_benchmark
 from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
 from core.acre.decision_probe import decision_sensitivity_callback
 
@@ -238,6 +239,23 @@ def run_method_efficacy(*, surface_count: int = 100, seed: int = 7) -> dict[str,
         "family_results": family_results,
         "aggregate": aggregate,
         "pairwise_acre": pairwise_acre,
+    }
+
+
+def run_provider_free_ablation(*, root: Path, surface_count: int = 100, seed: int = 7) -> dict[str, Any]:
+    """Collect component comparisons over the same deterministic fixtures."""
+    method = run_method_efficacy(surface_count=surface_count, seed=seed)
+    return {
+        "schema_version": 1,
+        "provider_calls": 0,
+        "surface_count": surface_count,
+        "applicability": {
+            "acre_full": method["aggregate"]["acre_full"]["all"],
+            "minus_counterexample": method["aggregate"]["shortest_without_counterexamples"]["all"],
+            "minus_typed": method["aggregate"]["untyped_positive_summary"]["all"],
+        },
+        "router": run_router_benchmark(),
+        "lifecycle": run_drift_poison(root=root, seed=seed),
     }
 
 
