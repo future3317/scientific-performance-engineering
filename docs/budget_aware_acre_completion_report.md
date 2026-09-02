@@ -12,7 +12,7 @@ or efficacy rescue was performed.
 
 The implementation source is the server repository
 `/home/workspace/lrh/CODE/scientific-performance-engineering`, on `main` at
-`84dd160827af4cf92cfaef72438d49e6e4d91c9f`; this report is a documentation-only
+`7995dac98d4107e8048075b8d805e300a574cc64`; this report is a documentation-only
 follow-up commit. The local Windows checkout contains
 only user-local untracked materials in addition to this tracked source; those
 materials were not staged.
@@ -49,8 +49,8 @@ All commands below used the project environment on `dbcloud`:
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python
 ```
 
-- Targeted budget/ACRE/controller tests: 23 passed, 13 passed, and 1 passed in
-  the earlier staged checks.
+- Targeted budget/ACRE/controller tests: 23 passed, 13 passed, 1 stress test
+  passed, and 1 passed in the earlier staged checks.
 - Regression test after the public-contract fixture correction: 1 passed,
   1 existing torch-geometric deprecation warning.
 - Full project suite at commit `84dd160`: **381 passed, 8 warnings**, 636.37 s.
@@ -89,6 +89,32 @@ zero missing scheduled cells. Deterministic replay produced the same digest.
 The split contained 8 calibration instances and 8 final-surface instances with
 seed, promotion, and evidence disjointness; labels were not exposed to policy,
 and the split was excluded from treatment-effect estimation.
+
+### Seeded reserve stress evidence
+
+The single tight-reserve fixture was extended to 256 deterministic schedules,
+covering schedule lengths 1--32, four execution-cost levels, six optional-query
+costs, and tight/moderate/slack optional-budget levels. Across all levels, 2,902
+scheduled cells completed and zero were missing. Tight pressure admitted 0 of
+1,317 optional-query opportunities and abstained on all 1,317; moderate pressure
+admitted 250 at cost 183.25; slack pressure admitted 628 at cost 1,184.5.
+Thus the stress evidence demonstrates the intended operational direction—budget
+pressure reduces optional evolution and increases abstention without cancelling
+scheduled execution—but does not estimate utility or hosted efficacy.
+
+Canonical stress artifact:
+
+```text
+Path: /home/workspace/lrh/RESULTS/evospe-budget-aware-reserve-stress-7995dac-20260902/report.json
+SHA256: 93b7027b6b9d221f40da732437c72c0619439d3bc691960c993aeeac5570dbb8
+Code revision: 7995dac98d4107e8048075b8d805e300a574cc64
+Seed: 17; schedules: 256; provider calls: 0
+```
+
+The formula/documentation consistency check found that the implementation
+already reserves future execution from the total envelope; the manuscript now
+names that quantity `B_total^remain` and applies any independent evolution cap
+as a separate minimum bound.
 
 These are provider-free mechanism and resource-governance results. They are not
 hosted-model efficacy results and do not establish that EVOSPE improves task
@@ -174,7 +200,7 @@ The budget-aware implementation was integrated into `main` through the staged
 commits ending at:
 
 ```text
-84dd160827af4cf92cfaef72438d49e6e4d91c9f
+7995dac98d4107e8048075b8d805e300a574cc64
 ```
 
 The latest commit only aligns the existing noise-control test with the public
