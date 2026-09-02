@@ -230,3 +230,34 @@ def test_resume_uses_final_digest_and_persists_stream_block(tmp_path: Path) -> N
 def test_completed_receipt_is_execution_valid() -> None:
     receipt = {"host_controller": {"outcome": "completed"}}
     assert _agent_result_is_protocol_valid({"returncode": 0}, receipt) is True
+
+
+def test_evolution_frozen_resume_record_does_not_block_following_cells(tmp_path: Path) -> None:
+    from scripts.render_skill_view import render_skill_view
+
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+    bundle = tmp_path / "bundle"
+    render_skill_view(skill, bundle)
+    store = tmp_path / "stream" / "condition-store"
+    conditions.materialize_condition("D", bundle, store, context_mode="reset")
+    stream = store.parent
+    for task_id, status in (("T1", "evolution_frozen"), ("T2", "task_complete")):
+        task_dir = stream / task_id
+        task_dir.mkdir()
+        (task_dir / "trial.json").write_text(
+            json.dumps({
+                "task_id": task_id,
+                "transition": {"status": status, "post_store_digest": conditions.store_digest(store)},
+                "execution_validity": "valid",
+                "attestation_ok": True,
+            }), encoding="utf-8",
+        )
+    blocked: set[str] = set()
+    prefix, records, _ = _resume_stream_prefix(
+        stream, [("phase", "T1"), ("phase", "T2")], {"T1": 0, "T2": 1}, "D-reset", blocked,
+    )
+    assert prefix == 2
+    assert set(records) == {("D-reset", "T1"), ("D-reset", "T2")}
+    assert blocked == set()
