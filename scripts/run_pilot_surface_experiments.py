@@ -349,7 +349,7 @@ def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256)
             "missing_scheduled_cells": 0,
             "optional_query_opportunities": 0,
             "evolution_queries_admitted": 0,
-            "evidence_queries_abstained": 0,
+            "abstentions": 0,
             "evolution_spent": 0.0,
             "evolution_frozen_schedules": 0,
         }
@@ -386,7 +386,7 @@ def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256)
             row["missing_scheduled_cells"] += length - completed
             row["optional_query_opportunities"] += len(queries)
             row["evolution_queries_admitted"] += admitted
-            row["evidence_queries_abstained"] += abstained
+            row["abstentions"] += abstained
             row["evolution_spent"] += ledger.evolution_spent
             row["evolution_frozen_schedules"] += int(ledger.evolution_frozen)
 
@@ -396,7 +396,7 @@ def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256)
             if row["scheduled_cells"] else 1.0
         )
         row["abstention_rate"] = (
-            row["evidence_queries_abstained"] / row["optional_query_opportunities"]
+            row["abstentions"] / row["optional_query_opportunities"]
             if row["optional_query_opportunities"] else 0.0
         )
     total_cells = summary["tight"]["scheduled_cells"]
