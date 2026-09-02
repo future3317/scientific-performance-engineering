@@ -2353,9 +2353,10 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         "results_claimed": False,
         "population_manifest": str(population_manifest),
         "claims_path": str(claims_path),
-        "analysis_plan_path": str(analysis_plan_path),
-        "evolution_compute_budget": budget.EvolutionComputeBudget().as_dict(),
-        "efficacy_eligibility_manifest": str(Path(eligibility_path).resolve()) if eligibility_path else None,
+          "analysis_plan_path": str(analysis_plan_path),
+          "evolution_compute_budget": budget.EvolutionComputeBudget().as_dict(),
+          "evolution_frozen": False,
+          "efficacy_eligibility_manifest": str(Path(eligibility_path).resolve()) if eligibility_path else None,
         "efficacy_eligibility_manifest_digest": eligibility_manifest.get("artifact_digest") if eligibility_manifest else None,
         "efficacy_task_ids": sorted(efficacy_task_ids),
         "efficacy_slot_ids": sorted(efficacy_slot_ids),
@@ -2448,6 +2449,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     existing_budget = (existing_campaign or {}).get("evolution_compute_budget", {}) if isinstance(existing_campaign, dict) else {}
     evolution_budget = budget.EvolutionComputeBudget(**{key: existing_budget.get(key, 0) for key in budget.EvolutionComputeBudget.__dataclass_fields__})
+    evolution_frozen = bool((existing_campaign or {}).get("evolution_frozen", False)) if isinstance(existing_campaign, dict) else False
     stores: dict[str, Path] = {}
     context_paths: dict[str, Path] = {}
     ledgers: dict[str, EvolutionDecisionLedger] = {}
@@ -3047,7 +3049,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
                 stream_id,
                 EvolutionDecisionLedger(store / "evolution" / "decisions.jsonl"),
             ),
-            allow_maintenance=not budget_errors and not (int(item.get("phase", 0)) >= 3 and str(item["condition"]) in {"C", "D"}),
+            allow_maintenance=not budget_errors and not evolution_frozen and not (int(item.get("phase", 0)) >= 3 and str(item["condition"]) in {"C", "D"}),
             control_result=control_result,
             control_scored=control_scored,
             public_context=public_routing,
@@ -3084,11 +3086,18 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             campaign["evolution_compute_budget"] = evolution_budget.as_dict()
             exceeded = evolution_budget.exceeds_limits()
             if exceeded:
-                blocked_streams.add(stream_id)
-                budget_errors.extend(f"evolution compute budget exceeded: {key}" for key in exceeded)
-                transition["evolution_compute_budget"] = {"status": "blocked", "exceeded": exceeded, "state": evolution_budget.as_dict()}
+                evolution_frozen = True
+                campaign["evolution_frozen"] = True
+                transition["evolution_compute_budget"] = {
+                    **budget.evolution_exhaustion_policy(exhausted=True),
+                    "exceeded": exceeded,
+                    "state": evolution_budget.as_dict(),
+                }
             else:
-                transition["evolution_compute_budget"] = {"status": "within_limits", "state": evolution_budget.as_dict()}
+                transition["evolution_compute_budget"] = {
+                    **budget.evolution_exhaustion_policy(exhausted=False),
+                    "state": evolution_budget.as_dict(),
+                }
         attestation_ok, attestation_errors = conditions.verify_attestation(store)
         if not attestation_ok:
             budget_errors.extend(f"condition attestation failed: {error}" for error in attestation_errors)
