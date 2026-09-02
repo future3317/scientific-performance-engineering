@@ -109,7 +109,8 @@ def validate(root: Path = ROOT) -> list[str]:
     if not all("raw_residual" in row and "normalized_residual" in row for row in higher["results"]):
         errors.append("higher-order: raw and normalized residuals are not recorded")
     acquisition = run_acquisition_benchmark()
-    if set(acquisition["cost_to_target"]) != {"random", "uncertainty-only", "decision-aware"}:
+    required_acquisition_policies = {"random", "uncertainty-only", "decision-aware", "certificate-critical"}
+    if not required_acquisition_policies.issubset(set(acquisition["cost_to_target"])):
         errors.append("acquisition: missing policy comparison")
     if any(cost is None for cost in acquisition["cost_to_target"].values()):
         errors.append("acquisition: a policy did not reach the declared target error")
