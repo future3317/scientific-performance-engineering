@@ -100,35 +100,44 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
 
 
 def run_drift_poison(*, root: Path, seed: int = 0) -> dict[str, Any]:
-    episode = root / "benchmark" / "tasks" / "EVOL-COMPILER-DRIFT-20" / "episodes" / "compiler_drift_episode.yaml"
-    results: dict[str, Any] = {}
+    episode_paths = (
+        root / "benchmark" / "tasks" / "EVOL-EPISODE-POISON-10" / "episodes" / "poison_episode.yaml",
+        root / "benchmark" / "tasks" / "EVOL-COMPILER-DRIFT-20" / "episodes" / "compiler_drift_episode.yaml",
+        root / "benchmark" / "tasks" / "EVOL-EQUIVARIANT-SPECIALIZE-30" / "episodes" / "equivariant_specialization_episode.yaml",
+    )
+    results: dict[str, Any] = {"episodes": {}}
     with tempfile.TemporaryDirectory(prefix="spe-evolution-pilot-") as temp:
-        for condition in ("C", "D"):
-            out = Path(temp) / condition
-            try:
-                result = run_episode(episode, condition, out, core_repo=root, context_mode="reset")
-                rules_dir = out / "store" / "rules"
-                canonical_rules = [
-                    json.loads(path.read_text(encoding="utf-8"))
-                    for path in sorted(rules_dir.rglob("*.json"))
-                    if not path.name.endswith(".state.json")
-                ] if rules_dir.is_dir() else []
-                promotions_dir = out / "store" / "evolution" / "promotions"
-                promotion_records = [
-                    json.loads(path.read_text(encoding="utf-8"))
-                    for path in sorted(promotions_dir.rglob("*.json"))
-                ] if promotions_dir.is_dir() else []
-                results[condition] = {
-                    "status": "complete",
-                    "context_mode": result["context_mode"],
-                    "metrics": result["metrics"],
-                    "promoted_rules": list(result["raw"].get("promoted_rules", [])),
-                    "canonical_rules": canonical_rules,
-                    "promotion_records": promotion_records,
-                    "family_transformations": result["raw"]["family_transformations"],
-                }
-            except Exception as exc:
-                results[condition] = {"status": "failed", "error": str(exc)}
+        for episode in episode_paths:
+            episode_results: dict[str, Any] = {}
+            for condition in ("C", "D"):
+                out = Path(temp) / episode.stem / condition
+                try:
+                    result = run_episode(episode, condition, out, core_repo=root, context_mode="reset")
+                    rules_dir = out / "store" / "rules"
+                    canonical_rules = [
+                        json.loads(path.read_text(encoding="utf-8"))
+                        for path in sorted(rules_dir.rglob("*.json"))
+                        if not path.name.endswith(".state.json")
+                    ] if rules_dir.is_dir() else []
+                    promotions_dir = out / "store" / "evolution" / "promotions"
+                    promotion_records = [
+                        json.loads(path.read_text(encoding="utf-8"))
+                        for path in sorted(promotions_dir.rglob("*.json"))
+                    ] if promotions_dir.is_dir() else []
+                    episode_results[condition] = {
+                        "status": "complete",
+                        "context_mode": result["context_mode"],
+                        "metrics": result["metrics"],
+                        "promoted_rules": list(result["raw"].get("promoted_rules", [])),
+                        "canonical_rules": canonical_rules,
+                        "promotion_records": promotion_records,
+                        "family_transformations": result["raw"]["family_transformations"],
+                    }
+                except Exception as exc:
+                    episode_results[condition] = {"status": "failed", "error": str(exc)}
+            results["episodes"][episode.stem] = episode_results
+    compiler_result = results["episodes"]["compiler_drift_episode"]
+    results.update(compiler_result)
     return results
 
 
