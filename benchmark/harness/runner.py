@@ -186,7 +186,9 @@ def configure_thread_topology(topology: dict[str, Any]) -> dict[str, Any]:
     import torch
 
     torch.set_num_threads(int(topology["torch_num_threads"]))
-    torch.set_num_interop_threads(int(topology["torch_num_interop_threads"]))
+    interop_threads = int(topology["torch_num_interop_threads"])
+    if torch.get_num_interop_threads() != interop_threads:
+        torch.set_num_interop_threads(interop_threads)
     return {
         "omp_num_threads": os.environ["OMP_NUM_THREADS"],
         "mkl_num_threads": os.environ["MKL_NUM_THREADS"],
@@ -211,7 +213,9 @@ def configure_thread_topology_from_env() -> dict[str, Any] | None:
     import torch
 
     torch.set_num_threads(int(os.environ["SPE_TORCH_NUM_THREADS"]))
-    torch.set_num_interop_threads(int(os.environ["SPE_TORCH_NUM_INTEROP_THREADS"]))
+    interop_threads = int(os.environ["SPE_TORCH_NUM_INTEROP_THREADS"])
+    if torch.get_num_interop_threads() != interop_threads:
+        torch.set_num_interop_threads(interop_threads)
     return {
         "omp_num_threads": os.environ.get("OMP_NUM_THREADS"),
         "mkl_num_threads": os.environ.get("MKL_NUM_THREADS"),
