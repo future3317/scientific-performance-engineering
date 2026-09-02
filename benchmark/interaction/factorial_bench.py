@@ -119,14 +119,19 @@ def generate_family_interaction_surface(
 def relation_recovery_metrics(details: list[dict[str, object]]) -> dict[str, float | int | None]:
     """Summarize relation predictions without hiding selective coverage."""
     unresolved = {"unresolved", "underidentified_context_relation"}
+
+    def canonical_prediction(item: dict[str, object]) -> str:
+        prediction = str(item.get("predicted_relation"))
+        return prediction if prediction in unresolved else canonical_relation_label(prediction)
+
     total = len(details)
     resolved_rows = [item for item in details if item.get("predicted_relation") not in unresolved]
     correct = sum(
-        canonical_relation_label(str(item.get("hidden_relation"))) == str(item.get("predicted_relation"))
+        canonical_relation_label(str(item.get("hidden_relation"))) == canonical_prediction(item)
         for item in details
     )
     resolved_correct = sum(
-        canonical_relation_label(str(item.get("hidden_relation"))) == str(item.get("predicted_relation"))
+        canonical_relation_label(str(item.get("hidden_relation"))) == canonical_prediction(item)
         for item in resolved_rows
     )
     labels = sorted({canonical_relation_label(str(item.get("hidden_relation"))) for item in details})
@@ -134,17 +139,17 @@ def relation_recovery_metrics(details: list[dict[str, object]]) -> dict[str, flo
     for label in labels:
         tp = sum(
             canonical_relation_label(str(item.get("hidden_relation"))) == label
-            and str(item.get("predicted_relation")) == label
+            and canonical_prediction(item) == label
             for item in details
         )
         fp = sum(
             canonical_relation_label(str(item.get("hidden_relation"))) != label
-            and str(item.get("predicted_relation")) == label
+            and canonical_prediction(item) == label
             for item in details
         )
         fn = sum(
             canonical_relation_label(str(item.get("hidden_relation"))) == label
-            and str(item.get("predicted_relation")) != label
+            and canonical_prediction(item) != label
             for item in details
         )
         if 2 * tp + fp + fn:
