@@ -202,6 +202,30 @@ def run_method_efficacy(*, surface_count: int = 100, seed: int = 7) -> dict[str,
                 )
                 for metric in ("precision", "recall", "f1", "unsafe_generalization_rate", "abstention_rate")
             }
+    pairwise_acre: dict[str, dict[str, Any]] = {}
+    for policy in METHOD_POLICIES:
+        if policy == "acre_full":
+            continue
+        pairwise_acre[policy] = {}
+        for prefix in METHOD_EVIDENCE_PREFIXES:
+            key = str(prefix)
+            differences = {
+                metric: [
+                    float(result["prefixes"][key]["policies"]["acre_full"][metric])
+                    - float(result["prefixes"][key]["policies"][policy][metric])
+                    for result in family_results
+                    if result["prefixes"][key]["policies"]["acre_full"][metric] is not None
+                    and result["prefixes"][key]["policies"][policy][metric] is not None
+                ]
+                for metric in ("recall", "f1", "unsafe_generalization_rate")
+            }
+            pairwise_acre[policy][key] = {
+                metric: _bootstrap_mean(
+                    values,
+                    seed=seed * 2000 + len(policy) * 31 + len(key) * 7 + len(metric),
+                )
+                for metric, values in differences.items()
+            }
     return {
         "schema_version": 1,
         "provider_calls": 0,
@@ -213,6 +237,7 @@ def run_method_efficacy(*, surface_count: int = 100, seed: int = 7) -> dict[str,
         "uncertainty": "family_cluster_bootstrap_95_percent",
         "family_results": family_results,
         "aggregate": aggregate,
+        "pairwise_acre": pairwise_acre,
     }
 
 
