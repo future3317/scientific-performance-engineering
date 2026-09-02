@@ -129,3 +129,32 @@ def test_certificate_cache_reuses_only_unchanged_dependencies():
     assert invalidated.reusable is False
     assert "E" in invalidated.invalidated_clauses
     assert "software" in invalidated.receipt["changed_dependencies"]
+
+
+def test_provider_free_budget_ablation_keeps_legacy_reference_and_reports_savings():
+    from scripts.run_pilot_surface_experiments import run_budget_aware_ablation
+
+    report = run_budget_aware_ablation(seed=7)
+    assert report["provider_calls"] == 0
+    assert set(report["variants"]) == {
+        "legacy_acre",
+        "execution_reserve",
+        "certificate_critical",
+        "lazy_relation",
+        "full_budget_aware_acre",
+    }
+    assert report["acquisition"]["legacy_acre"]["provider_calls"] == 0
+    assert report["relation"]["lazy_relation"]["factorial_invocations"] <= report["relation"]["eager_reference"]["factorial_invocations"]
+    assert report["calibration_split"]["seed_disjoint"] is True
+    assert report["calibration_split"]["promotion_disjoint"] is True
+    assert report["calibration_split"]["evidence_disjoint"] is True
+
+
+def test_condition_blind_calibration_split_has_disjoint_ids():
+    from benchmark.calibration.split import build_calibration_split
+
+    split = build_calibration_split(("compile", "episode"), calibration_seed=101, final_seed=7, count=4)
+    assert split["seed_disjoint"] is True
+    assert split["promotion_disjoint"] is True
+    assert split["evidence_disjoint"] is True
+    assert not set(split["calibration_instance_ids"]) & set(split["final_instance_ids"])
