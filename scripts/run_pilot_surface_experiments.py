@@ -324,6 +324,102 @@ def run_budget_aware_ablation(*, root: Path | None = None, seed: int = 7) -> dic
     }
 
 
+def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256) -> dict[str, Any]:
+    """Stress the reserve contract without provider calls or hidden labels.
+
+    Each seeded schedule is replayed at three levels of optional-evidence
+    slack.  The schedule and query sequence are identical across levels, so
+    differences reflect only available optional budget.  The measured
+    outcome is operational: optional work admitted/abstained and scheduled
+    cells completed.  It is not a utility or efficacy estimate.
+    """
+    from core.acre.resource_budget import ExecutionReserveBudget
+
+    if schedule_count < 1:
+        raise ValueError("schedule_count must be positive")
+    rng = random.Random(int(seed))
+    schedule_lengths = (1, 2, 4, 8, 16, 32)
+    minimum_costs = (0.25, 0.5, 1.0, 2.0)
+    query_costs = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
+    slack_by_level = {"tight": 0.0, "moderate": 2.0, "slack": 8.0}
+    summary = {
+        level: {
+            "scheduled_cells": 0,
+            "scheduled_cells_completed": 0,
+            "missing_scheduled_cells": 0,
+            "optional_query_opportunities": 0,
+            "evolution_queries_admitted": 0,
+            "evidence_queries_abstained": 0,
+            "evolution_spent": 0.0,
+            "evolution_frozen_schedules": 0,
+        }
+        for level in slack_by_level
+    }
+
+    for _ in range(int(schedule_count)):
+        length = rng.choice(schedule_lengths)
+        minimums = tuple(rng.choice(minimum_costs) for _ in range(length))
+        queries = tuple(rng.choice(query_costs) for _ in range(rng.randint(2, 8)))
+        reserve = float(sum(minimums))
+        for level, slack in slack_by_level.items():
+            ledger = ExecutionReserveBudget(
+                total_budget=reserve + slack,
+                scheduled_minimums=minimums,
+            )
+            admitted = 0
+            abstained = 0
+            for query_index, cost in enumerate(queries):
+                ledger, decision = ledger.admit_evolution(
+                    cost, query_id=f"stress-{level}-{query_index}"
+                )
+                if decision.accepted:
+                    admitted += 1
+                else:
+                    abstained += 1
+            completed = 0
+            while ledger.task_index < len(ledger.scheduled_minimums):
+                ledger = ledger.advance_task()
+                completed += 1
+            row = summary[level]
+            row["scheduled_cells"] += length
+            row["scheduled_cells_completed"] += completed
+            row["missing_scheduled_cells"] += length - completed
+            row["optional_query_opportunities"] += len(queries)
+            row["evolution_queries_admitted"] += admitted
+            row["evidence_queries_abstained"] += abstained
+            row["evolution_spent"] += ledger.evolution_spent
+            row["evolution_frozen_schedules"] += int(ledger.evolution_frozen)
+
+    for row in summary.values():
+        row["scheduled_completion_rate"] = (
+            row["scheduled_cells_completed"] / row["scheduled_cells"]
+            if row["scheduled_cells"] else 1.0
+        )
+        row["abstention_rate"] = (
+            row["evidence_queries_abstained"] / row["optional_query_opportunities"]
+            if row["optional_query_opportunities"] else 0.0
+        )
+    total_cells = summary["tight"]["scheduled_cells"]
+    return {
+        "schema_version": 1,
+        "provider_calls": 0,
+        "seed": int(seed),
+        "schedule_count": int(schedule_count),
+        "design": {
+            "schedule_lengths": list(schedule_lengths),
+            "minimum_execution_costs": list(minimum_costs),
+            "optional_query_costs": list(query_costs),
+            "optional_budget_slack": slack_by_level,
+            "interpretation": "operational reserve stress; not efficacy or utility evidence",
+        },
+        "pressure_levels": summary,
+        "scheduled_cells": total_cells,
+        "scheduled_cells_completed": summary["tight"]["scheduled_cells_completed"],
+        "missing_scheduled_cells": summary["tight"]["missing_scheduled_cells"],
+        "scheduled_completion_rate": summary["tight"]["scheduled_completion_rate"],
+    }
+
+
 def run_pilot(*, root: Path, surface_count: int = 100, seed: int = 7) -> dict[str, Any]:
     if not 100 <= surface_count <= 500:
         raise ValueError("surface_count must be between 100 and 500")
@@ -357,11 +453,14 @@ def main() -> int:
     parser.add_argument("--method-efficacy-only", action="store_true")
     parser.add_argument("--component-ablation", action="store_true")
     parser.add_argument("--budget-aware-ablation", action="store_true")
+    parser.add_argument("--budget-aware-stress", action="store_true")
     args = parser.parse_args()
-    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.budget_aware_ablation))
+    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.budget_aware_ablation, args.budget_aware_stress))
     if selected_modes > 1:
         parser.error("provider-free experiment modes are mutually exclusive")
-    if args.budget_aware_ablation:
+    if args.budget_aware_stress:
+        report = run_budget_aware_reserve_stress(seed=args.seed)
+    elif args.budget_aware_ablation:
         report = run_budget_aware_ablation(root=root, seed=args.seed)
     elif args.component_ablation:
         report = run_provider_free_ablation(root=root, surface_count=args.surface_count, seed=args.seed)
