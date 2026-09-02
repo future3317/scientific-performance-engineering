@@ -354,7 +354,7 @@ def main() -> int:
     else:
         report = run_pilot(root=root, surface_count=args.surface_count, seed=args.seed)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8")
-    print(json.dumps({"status": "complete", "surface_count": report["surface_count"], "out": str(args.out)}, ensure_ascii=False))
+    print(json.dumps({"status": "complete", "surface_count": report.get("surface_count"), "out": str(args.out)}, ensure_ascii=False))
     return 0
 
 
