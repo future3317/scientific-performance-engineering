@@ -61,14 +61,14 @@ def run_budget_aware_acquisition_benchmark(*, seed: int = 7) -> dict[str, object
         "certificate_critical": (queries, AcquisitionPolicy.CERTIFICATE_CRITICAL, None),
         "full_budget_aware_acre": (queries, AcquisitionPolicy.CERTIFICATE_CRITICAL, reserve),
     }
-    report: dict[str, object] = {"provider_calls": 0, "variants": {}}
+    variant_rows: dict[str, object] = {}
     for name, (pool, policy, ledger) in configurations.items():
         trajectory = run_acquisition(
             pool, labels, policy, confidence_target=0.9, seed=seed,
             resource_budget=ledger,
         )
         evaluation = evaluate_trajectory(trajectory, pool, labels, truths, target_error=0.0)
-        report["variants"][name] = {
+        variant_rows[name] = {
             "selected_queries": len(trajectory.selected_query_ids),
             "total_cost": trajectory.total_cost,
             "stop_reason": trajectory.stop_reason,
@@ -77,4 +77,4 @@ def run_budget_aware_acquisition_benchmark(*, seed: int = 7) -> dict[str, object
             "evolution_frozen": trajectory.stop_reason in {"evolution_frozen", "execution_reserve"},
             "provider_calls": 0,
         }
-    return report
+    return {"provider_calls": 0, **variant_rows}
