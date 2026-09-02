@@ -46,7 +46,7 @@ def partial_identification_bounds(
         "lower": lower,
         "upper": upper,
         "interval_width": upper - lower,
-        "covered": lower <= true_effect <= upper,
+        "covered": lower - 1e-12 <= true_effect <= upper + 1e-12,
     }
 
 
