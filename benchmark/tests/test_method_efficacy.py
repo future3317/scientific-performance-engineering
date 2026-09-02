@@ -138,3 +138,54 @@ def test_relation_metrics_separate_coverage_from_resolved_accuracy() -> None:
     assert metrics["overall_accuracy"] == 1 / 3
     assert metrics["resolved_accuracy"] == 0.5
     assert metrics["abstention_accuracy"] is None
+
+
+def test_observability_bounds_collapse_without_censoring() -> None:
+    from benchmark.formal.observability_simulation import partial_identification_bounds
+
+    result = partial_identification_bounds(
+        [0.2, 0.6, 0.8],
+        [0.1, 0.3, 0.4],
+        [True, True, True],
+    )
+
+    assert result["true_effect"] == 0.26666666666666666
+    assert result["lower"] == result["upper"] == result["true_effect"]
+    assert result["complete_case_effect"] == result["true_effect"]
+
+
+def test_observability_bounds_cover_all_censored_treatment_outcomes() -> None:
+    from benchmark.formal.observability_simulation import partial_identification_bounds
+
+    result = partial_identification_bounds(
+        [0.2, 0.6, 0.8],
+        [0.1, 0.3, 0.4],
+        [False, False, False],
+    )
+
+    assert result["complete_case_effect"] is None
+    assert result["lower"] == -0.26666666666666666
+    assert result["upper"] == 0.7333333333333334
+    assert result["lower"] <= result["true_effect"] <= result["upper"]
+
+
+def test_observability_simulation_distinguishes_independent_and_coupled_censoring() -> None:
+    from benchmark.formal.observability_simulation import run_observability_simulation
+
+    report = run_observability_simulation(
+        censoring_rates=(0.0, 0.5),
+        population_size=40,
+        repetitions=20,
+        seed=7,
+    )
+
+    assert report["provider_calls"] == 0
+    assert report["censoring_rates"] == [0.0, 0.5]
+    assert {row["mechanism"] for row in report["results"]} == {
+        "independent",
+        "treatment_coupled",
+    }
+    assert all(row["coverage"] == 1.0 for row in report["results"])
+    independent = next(row for row in report["results"] if row["mechanism"] == "independent" and row["censoring_rate"] == 0.5)
+    coupled = next(row for row in report["results"] if row["mechanism"] == "treatment_coupled" and row["censoring_rate"] == 0.5)
+    assert coupled["mean_complete_case_bias"] < independent["mean_complete_case_bias"]
