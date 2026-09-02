@@ -22,6 +22,7 @@ from benchmark.boundary.evaluator import evaluate_applicability
 from benchmark.families import PILOT_FAMILIES, validate_cross_view_consistency
 from benchmark.harness.evolution import run_episode
 from benchmark.interaction.acquisition_bench import run_acquisition_benchmark
+from benchmark.interaction.acquisition_bench import run_budget_aware_acquisition_benchmark
 from benchmark.interaction.factorial_bench import run_family_factorial_benchmark, run_higher_order_benchmark, run_interaction_power_curve
 from benchmark.interaction.router_bench import run_router_benchmark
 from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
@@ -63,6 +64,7 @@ def run_active_boundary(family: str, *, surface_count: int, seed: int = 7) -> di
                 risk=0.2 + ((index + replicate) % 5) / 10.0,
                 provenance_novelty=0.4 + (replicate % 3) / 5.0,
                 context=dict(item.context),
+                can_change_decisions=("deploy", "abstain"),
             ))
             labels[query_id] = item.positive_anchor()
     policy_results: dict[str, Any] = {}
@@ -268,6 +270,44 @@ def run_provider_free_ablation(*, root: Path, surface_count: int = 100, seed: in
     }
 
 
+def run_budget_aware_ablation(*, root: Path | None = None, seed: int = 7) -> dict[str, Any]:
+    """Run the compact provider-free resource/acquisition policy ablation."""
+    from benchmark.calibration.split import build_calibration_split
+
+    # This admission fixture is intentionally public and deterministic: it
+    # measures the cost of the eligibility policy, not relation truth.
+    candidates = range(16)
+    eager_invocations = len(tuple(candidates))
+    lazy_invocations = sum(
+        1 for index in candidates
+        if index % 2 == 0 and index % 4 == 0
+    )
+    calibration = build_calibration_split(
+        ("compile", "episode"), calibration_seed=101, final_seed=seed, count=4,
+    )
+    return {
+        "schema_version": 1,
+        "provider_calls": 0,
+        "variants": [
+            "legacy_acre", "execution_reserve", "certificate_critical",
+            "lazy_relation", "full_budget_aware_acre",
+        ],
+        "acquisition": run_budget_aware_acquisition_benchmark(seed=seed),
+        "relation": {
+            "eager_reference": {
+                "factorial_invocations": eager_invocations,
+                "fixture": "public_relation_admission_v1",
+            },
+            "lazy_relation": {
+                "factorial_invocations": lazy_invocations,
+                "factorial_invocations_saved": eager_invocations - lazy_invocations,
+                "fixture": "public_relation_admission_v1",
+            },
+        },
+        "calibration_split": calibration,
+    }
+
+
 def run_pilot(*, root: Path, surface_count: int = 100, seed: int = 7) -> dict[str, Any]:
     if not 100 <= surface_count <= 500:
         raise ValueError("surface_count must be between 100 and 500")
@@ -300,10 +340,14 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=root / "benchmark" / "pilot_surface_report.json")
     parser.add_argument("--method-efficacy-only", action="store_true")
     parser.add_argument("--component-ablation", action="store_true")
+    parser.add_argument("--budget-aware-ablation", action="store_true")
     args = parser.parse_args()
-    if args.method_efficacy_only and args.component_ablation:
-        parser.error("--method-efficacy-only and --component-ablation are mutually exclusive")
-    if args.component_ablation:
+    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.budget_aware_ablation))
+    if selected_modes > 1:
+        parser.error("provider-free experiment modes are mutually exclusive")
+    if args.budget_aware_ablation:
+        report = run_budget_aware_ablation(root=root, seed=args.seed)
+    elif args.component_ablation:
         report = run_provider_free_ablation(root=root, surface_count=args.surface_count, seed=args.seed)
     elif args.method_efficacy_only:
         report = run_method_efficacy(surface_count=args.surface_count, seed=args.seed)
