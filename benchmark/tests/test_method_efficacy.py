@@ -122,3 +122,4 @@ def test_provider_free_ablation_reports_common_contract_and_components() -> None
     }
     assert "router" in report
     assert "lifecycle" in report
+    assert len(report["lifecycle"]["episodes"]) == 3
