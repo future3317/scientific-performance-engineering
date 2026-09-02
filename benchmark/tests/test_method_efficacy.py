@@ -48,7 +48,7 @@ def test_applicability_metrics_return_none_for_undefined_precision() -> None:
 def test_nearest_experience_uses_visible_context_only() -> None:
     from benchmark.boundary.baselines import predict_applicability
 
-    visible = [_observation("p", 2, positive=True)]
+    visible = [_observation("p", 2, positive=True), _observation("n", 10, positive=False)]
     heldout = [_observation("near", 3, positive=True), _observation("far", 20, positive=False)]
 
     predictions = predict_applicability("nearest_experience", visible, heldout)
