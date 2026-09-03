@@ -2283,14 +2283,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if missing_eligibility_tasks:
             raise ValueError("efficacy eligibility manifest does not cover scheduled tasks: " + ", ".join(missing_eligibility_tasks))
     efficacy_task_ids = set(eligibility_manifest.get("efficacy_task_ids", [])) if eligibility_manifest else set()
-    if eligibility_manifest is not None:
-        if getattr(args, "formal", False):
-            task_items = [
-                item for item in task_items
-                if str(formal_projection_by_slot[item[1]]["source_task_id"]) in efficacy_task_ids
-            ]
-        else:
-            task_items = [item for item in task_items if str(item[1]) in efficacy_task_ids]
+    if eligibility_manifest is not None and getattr(args, "formal", False):
+        task_items = [
+            item for item in task_items
+            if str(formal_projection_by_slot[item[1]]["source_task_id"]) in efficacy_task_ids
+        ]
         if not task_items:
             raise ValueError("frozen confirmatory efficacy subset has no scheduled task slots")
         task_ids = [task_id for _, task_id in task_items]
@@ -2320,7 +2317,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             item["source_task_id"] = formal_projection_by_slot[item["task_id"]]["source_task_id"]
             item["slot_id"] = item["task_id"]
     efficacy_slot_ids = {str(item["task_id"]) for item in plan} if getattr(args, "formal", False) else set(efficacy_task_ids)
-    if eligibility_manifest is not None:
+    if eligibility_manifest is not None and getattr(args, "formal", False):
         planned_sources = {
             str(formal_projection_by_slot[item["task_id"]]["source_task_id"])
             if getattr(args, "formal", False) else str(item["task_id"])
