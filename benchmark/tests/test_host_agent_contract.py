@@ -25,7 +25,7 @@ def test_parse_controller_limits_accepts_exact_budget() -> None:
     value = host_agent.parse_controller_limits(json.dumps(FROZEN_BUDGET))
 
     assert (value.input_tokens, value.output_tokens, value.max_output_tokens) == (65_536, 16_384, 4_096)
-    assert (value.context_tokens, value.tool_calls, value.turns) == (32_768, 24, 12)
+    assert (value.context_tokens, value.tool_calls, value.turns) == (32_768, 24, 16)
     assert (value.wall_time_s, value.api_timeout_s) == (900, 120)
 
 
@@ -54,7 +54,7 @@ def test_agent_attestation_records_policy_and_runtime_semantics() -> None:
     assert value["max_output_tokens"] == 4_096
     assert value["input_token_limit"] == 65_536
     assert value["output_token_limit"] == 16_384
-    assert value["turn_limit"] == 12
+    assert value["turn_limit"] == 16
     assert value["timeout_s"] == 900
     assert value["runtime_attestation_kind"] == "trusted_host_python_runtime_manifest"
     assert value["container_digest_semantics"] == "runtime_manifest_digest"
@@ -409,3 +409,36 @@ def test_contract_validation_uses_explicit_benchmark_revision(monkeypatch: pytes
 
     assert materializer.validate_contract(contract) == []
     assert captured["benchmark_revision"] == "e" * 40
+
+
+def test_conversation_allows_finalization_after_twelve_turns() -> None:
+    responses = [
+        {
+            "choices": [{"message": {"content": None, "tool_calls": [{
+                "id": f"call-{index}",
+                "function": {"name": "read_file", "arguments": '{"path":"task/public_task.json"}'},
+            }]}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+        for index in range(13)
+    ]
+    responses.append({
+        "choices": [{"message": {"content": "final"}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    })
+    server, _ = _serve_responses(responses)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(host_agent, "_tool_call", lambda process, name, arguments: {"ok": True})
+    try:
+        usage, trace, outcome = host_agent._run_conversation(
+            base_url=f"http://127.0.0.1:{server.server_port}", api_key="api-key", model="deepseek-v4-flash",
+            messages=[{"role": "user", "content": "public"}], process=None,
+            limits=host_agent.ControllerLimits(), started=0.0, clock=lambda: 1.0,
+        )
+    finally:
+        server.shutdown()
+        monkeypatch.undo()
+
+    assert outcome == "completed"
+    assert usage.tool_calls == 13
+    assert len(trace) == 13
