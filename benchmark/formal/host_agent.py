@@ -88,7 +88,7 @@ class ControllerLimits:
     max_output_tokens: int = 4_096
     context_tokens: int = 32_768
     tool_calls: int = 24
-    turns: int = 12
+    turns: int = 16
     wall_time_s: float = 900.0
     api_timeout_s: float = 120.0
 
@@ -432,7 +432,7 @@ def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, c
         "max_output_tokens": 4_096,
         "context_token_limit": 32_768,
         "tool_call_limit": 24,
-        "turn_limit": 12,
+        "turn_limit": 16,
         "timeout_s": 900,
         "container_digest": container_digest,
         "runtime_attestation_kind": "trusted_host_python_runtime_manifest",
