@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 
 
 def test_execution_reserve_rejects_evolution_without_consuming_future_task_reserve():
@@ -197,6 +198,122 @@ def test_public_preflight_checks_only_the_declared_solution_contract(tmp_path):
     assert any("train_step" in item for item in result["violations"])
     assert "oracle" not in result
     assert "hidden_verifier" not in result
+
+
+def test_public_task_projection_exposes_task_specific_execution_contract(tmp_path):
+    from benchmark.formal.run_campaign import materialize_agent_task
+
+    task = tmp_path / "task"
+    (task / "workspace").mkdir(parents=True)
+    (task / "public_tests").mkdir()
+    (task / "task.yaml").write_text(
+        "task_id: T\ntitle: public\nrequires_cuda: false\ntime_budget_s: 1\n"
+        "workspace:\n  entrypoint: solution.py\n  api: train_loop_v1\n"
+        "public_contract:\n"
+        "  batch:\n"
+        "    type: mapping\n"
+        "    required_keys: [step, fixed, targets]\n"
+        "  model_methods:\n"
+        "    project_fixed: project_fixed(fixed_input) -> tensor\n"
+        "    forward_head: forward_head(step_input, context, head_idx) -> tensor\n"
+        "  seed_policy:\n"
+        "    owner: harness\n"
+        "    forbidden_calls: [random.seed, torch.manual_seed]\n",
+        encoding="utf-8",
+    )
+    (task / "workspace" / "solution.py").write_text("x = 1\n", encoding="utf-8")
+
+    public = tmp_path / "public"
+    materialize_agent_task(task, public)
+    payload = json.loads((public / "public_task.json").read_text(encoding="utf-8"))
+
+    assert payload["public_contract"]["batch"]["required_keys"] == ["step", "fixed", "targets"]
+    assert payload["public_contract"]["model_methods"]["project_fixed"].startswith("project_fixed")
+    assert payload["public_contract"]["seed_policy"]["owner"] == "harness"
+
+
+def test_public_preflight_reports_harness_owned_seed_violation(tmp_path):
+    from benchmark.harness.public_preflight import validate_public_solution
+
+    solution = tmp_path / "solution.py"
+    solution.write_text(
+        "import torch\n"
+        "def build_model(fixtures):\n    torch.manual_seed(1)\n    return None\n"
+        "def train_step(model, batch, optimizer): return {'loss': 0, 'work_units': {}}\n"
+        "def run_training(fixtures, steps): return {}\n",
+        encoding="utf-8",
+    )
+    result = validate_public_solution(
+        solution,
+        {
+            "workspace": {"entrypoint": "solution.py", "api": "train_loop_v1"},
+            "public_contract": {
+                "seed_policy": {
+                    "owner": "harness",
+                    "forbidden_calls": ["random.seed", "torch.manual_seed"],
+                }
+            },
+        },
+    )
+
+    assert result["status"] == "fail"
+    assert any("harness-owned seed policy" in item for item in result["violations"])
+
+
+def test_near_budget_finalize_uses_estimated_next_request_cost():
+    from benchmark.formal.host_agent import should_finalize_before_next_turn
+
+    assert should_finalize_before_next_turn(
+        turn_index=2,
+        max_turns=16,
+        input_tokens=50_000,
+        output_tokens=0,
+        input_limit=65_536,
+        output_limit=8_192,
+        estimated_next_input_tokens=1_000,
+        reserve_tokens=4_096,
+    ) is False
+    assert should_finalize_before_next_turn(
+        turn_index=2,
+        max_turns=16,
+        input_tokens=60_000,
+        output_tokens=0,
+        input_limit=65_536,
+        output_limit=8_192,
+        estimated_next_input_tokens=2_000,
+        reserve_tokens=4_096,
+    ) is True
+
+
+def test_partial_controller_telemetry_preserves_trace_and_candidate_state(tmp_path):
+    from benchmark.formal.host_agent import persist_partial_controller_telemetry
+
+    worker_root = tmp_path / "worker"
+    (worker_root / "solution").mkdir(parents=True)
+    (worker_root / "solution" / "solution.py").write_text("candidate = True\n", encoding="utf-8")
+    output = tmp_path / "host_controller_partial.json"
+
+    persist_partial_controller_telemetry(
+        output,
+        worker_root,
+        outcome="input_token_limit",
+        error="context window exceeded",
+        turn_trace=[{
+            "turn_index": 3,
+            "tool_calls": [{"name": "write_file", "result_bytes": 42}],
+            "cumulative_input_tokens": 70_458,
+        }],
+        input_tokens=70_458,
+        output_tokens=15_237,
+        tool_calls=16,
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert payload["status"] == "aborted"
+    assert payload["outcome"] == "input_token_limit"
+    assert payload["turn_trace"][0]["tool_calls"][0]["result_bytes"] == 42
+    assert payload["usage"]["input_tokens"] == 70_458
+    assert payload["candidate_state"]["files"]["solution.py"]["exists"] is True
 
 
 def test_host_controller_near_budget_policy_and_thinking_mode_are_explicit():
