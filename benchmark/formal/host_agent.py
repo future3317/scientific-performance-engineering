@@ -160,6 +160,30 @@ def tool_schema_digest() -> str:
     return _digest_bytes(payload.encode("utf-8"))
 
 
+def _estimate_message_tokens(messages: list[dict[str, Any]]) -> int:
+    payload = json.dumps(messages, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return max(1, (len(payload) + 3) // 4)
+
+
+def should_finalize_before_next_request(
+    *,
+    turn_index: int,
+    limits: ControllerLimits,
+    usage: UsageState,
+    estimated_next_input_tokens: int,
+    reserve_tokens: int = 4_096,
+) -> bool:
+    """Reserve one final provider request before input context exhaustion."""
+    if turn_index < 0 or estimated_next_input_tokens < 0 or reserve_tokens < 0:
+        raise ValueError("turn and token estimates must be non-negative")
+    threshold = max(0, limits.input_tokens - reserve_tokens)
+    return (
+        turn_index >= limits.turns - 1
+        or usage.input_tokens >= threshold
+        or usage.input_tokens + estimated_next_input_tokens >= threshold
+    )
+
+
 def _safe_environment() -> dict[str, str]:
     blocked = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
     return {
@@ -284,12 +308,32 @@ def _run_conversation(
     started: float,
     clock: Any = time.monotonic,
     usage: UsageState | None = None,
+    turn_trace: list[dict[str, Any]] | None = None,
 ) -> tuple[UsageState, list[str], str]:
     usage = usage or UsageState()
     tool_trace: list[str] = []
-    for _ in range(limits.turns):
+    finalization_sent = False
+    for turn_index in range(limits.turns):
+        active_turn: dict[str, Any] = {
+            "turn_index": turn_index,
+            "estimated_next_input_tokens": _estimate_message_tokens(messages),
+            "tool_calls": [],
+        }
         if clock() - started >= limits.wall_time_s:
             raise BudgetOutcome("wall_time_limit")
+        if should_finalize_before_next_request(
+            turn_index=turn_index,
+            limits=limits,
+            usage=usage,
+            estimated_next_input_tokens=_estimate_message_tokens(messages),
+        ):
+            if finalization_sent:
+                raise BudgetOutcome("incomplete_agent_outcome")
+            messages.append({
+                "role": "user",
+                "content": "Finalize the current best solution now; do not start another exploratory turn.",
+            })
+            finalization_sent = True
         response = _api_call_with_retry(
             base_url,
             api_key,
@@ -306,7 +350,17 @@ def _run_conversation(
             timeout_s=limits.api_timeout_s,
         )
         provider_usage = response.get("usage", {})
-        usage.add_provider_usage(provider_usage if isinstance(provider_usage, dict) else {}, limits)
+        active_turn["provider_usage"] = dict(provider_usage) if isinstance(provider_usage, dict) else {}
+        try:
+            usage.add_provider_usage(provider_usage if isinstance(provider_usage, dict) else {}, limits)
+        except Exception as exc:
+            active_turn["error"] = f"{type(exc).__name__}: {exc}"
+            active_turn["cumulative_input_tokens"] = usage.input_tokens
+            active_turn["cumulative_output_tokens"] = usage.output_tokens
+            active_turn["cumulative_tool_calls"] = usage.tool_calls
+            if turn_trace is not None:
+                turn_trace.append(active_turn)
+            raise
         message = response["choices"][0].get("message", {})
         if not isinstance(message, dict):
             raise RuntimeError("DeepSeek response message is invalid")
@@ -318,6 +372,11 @@ def _run_conversation(
             if not message.get("content"):
                 raise BudgetOutcome("incomplete_agent_outcome")
             messages.append(assistant)
+            active_turn["cumulative_input_tokens"] = usage.input_tokens
+            active_turn["cumulative_output_tokens"] = usage.output_tokens
+            active_turn["cumulative_tool_calls"] = usage.tool_calls
+            if turn_trace is not None:
+                turn_trace.append(active_turn)
             return usage, tool_trace, "completed"
         assistant["tool_calls"] = calls
         messages.append(assistant)
@@ -335,11 +394,24 @@ def _run_conversation(
                 else:
                     result = _tool_call(process, name, arguments)  # type: ignore[arg-type]
             tool_trace.append(name)
+            serialized_result = json.dumps(result, ensure_ascii=False)
+            active_turn["tool_calls"].append({
+                "name": name,
+                "result_bytes": len(serialized_result.encode("utf-8")),
+                "tool_call_id": call.get("id", f"tool-{usage.tool_calls}"),
+            })
             messages.append({
                 "role": "tool",
                 "tool_call_id": call.get("id", f"tool-{usage.tool_calls}"),
-                "content": json.dumps(result, ensure_ascii=False),
+                "content": serialized_result,
             })
+        active_turn["cumulative_input_tokens"] = usage.input_tokens
+        active_turn["cumulative_output_tokens"] = usage.output_tokens
+        active_turn["cumulative_tool_calls"] = usage.tool_calls
+        if turn_trace is not None:
+            turn_trace.append(active_turn)
+        if finalization_sent:
+            return usage, tool_trace, "completed"
     raise BudgetOutcome("turn_limit")
 
 
@@ -416,6 +488,46 @@ def _public_bundle(worker_root: Path) -> dict[str, Any]:
     }
 
 
+def _candidate_state(worker_root: Path) -> dict[str, Any]:
+    solution_root = worker_root / "solution"
+    files: dict[str, dict[str, Any]] = {}
+    if solution_root.is_dir():
+        for path in sorted(solution_root.rglob("*")):
+            if path.is_file() and not path.is_symlink():
+                files[path.relative_to(solution_root).as_posix()] = {
+                    "exists": True,
+                    "bytes": path.stat().st_size,
+                }
+    return {"files": files}
+
+
+def persist_partial_controller_telemetry(
+    output_path: Path,
+    worker_root: Path,
+    *,
+    outcome: str,
+    error: str | None,
+    turn_trace: list[dict[str, Any]],
+    usage: UsageState,
+) -> None:
+    """Persist trusted controller diagnostics without fabricating an executor receipt."""
+    payload = {
+        "schema_version": 1,
+        "status": "aborted",
+        "outcome": outcome,
+        "error": error,
+        "usage": {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "tool_calls": usage.tool_calls,
+        },
+        "turn_trace": list(turn_trace),
+        "candidate_state": _candidate_state(worker_root),
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, container_digest: str, pricing_revision: str) -> dict[str, Any]:
     return {
         "provider": "deepseek",
@@ -465,13 +577,15 @@ def run() -> dict[str, Any]:
     ]
     usage = UsageState()
     tool_trace: list[str] = []
+    turn_trace: list[dict[str, Any]] = []
     outcome = "controller_failure"
     failure: Exception | None = None
+    partial_trace_path = os.environ.get("SPE_HOST_CONTROLLER_TRACE_PATH", "").strip()
     started = time.monotonic()
     try:
         usage, tool_trace, outcome = _run_conversation(
             base_url=base_url, api_key=api_key, model=model, messages=messages,
-            process=process, limits=limits, started=started, usage=usage,
+            process=process, limits=limits, started=started, usage=usage, turn_trace=turn_trace,
         )
     except BudgetOutcome as exc:
         outcome = exc.reason
@@ -487,6 +601,15 @@ def run() -> dict[str, Any]:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+    if partial_trace_path and (outcome != "completed" or failure is not None):
+        persist_partial_controller_telemetry(
+            Path(partial_trace_path),
+            worker_root,
+            outcome=outcome,
+            error=str(failure) if failure is not None else outcome,
+            turn_trace=turn_trace,
+            usage=usage,
+        )
     skill_root = worker_root / "skill_view"
     include_skill = skill_root.is_dir()
     completed = executor.execute(
