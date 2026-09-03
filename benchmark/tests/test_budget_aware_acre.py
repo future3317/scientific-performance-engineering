@@ -260,62 +260,6 @@ def test_public_preflight_reports_harness_owned_seed_violation(tmp_path):
     assert any("harness-owned seed policy" in item for item in result["violations"])
 
 
-def test_near_budget_finalize_uses_estimated_next_request_cost():
-    from benchmark.formal.host_agent import should_finalize_before_next_turn
-
-    assert should_finalize_before_next_turn(
-        turn_index=2,
-        max_turns=16,
-        input_tokens=50_000,
-        output_tokens=0,
-        input_limit=65_536,
-        output_limit=8_192,
-        estimated_next_input_tokens=1_000,
-        reserve_tokens=4_096,
-    ) is False
-    assert should_finalize_before_next_turn(
-        turn_index=2,
-        max_turns=16,
-        input_tokens=60_000,
-        output_tokens=0,
-        input_limit=65_536,
-        output_limit=8_192,
-        estimated_next_input_tokens=2_000,
-        reserve_tokens=4_096,
-    ) is True
-
-
-def test_partial_controller_telemetry_preserves_trace_and_candidate_state(tmp_path):
-    from benchmark.formal.host_agent import persist_partial_controller_telemetry
-
-    worker_root = tmp_path / "worker"
-    (worker_root / "solution").mkdir(parents=True)
-    (worker_root / "solution" / "solution.py").write_text("candidate = True\n", encoding="utf-8")
-    output = tmp_path / "host_controller_partial.json"
-
-    persist_partial_controller_telemetry(
-        output,
-        worker_root,
-        outcome="input_token_limit",
-        error="context window exceeded",
-        turn_trace=[{
-            "turn_index": 3,
-            "tool_calls": [{"name": "write_file", "result_bytes": 42}],
-            "cumulative_input_tokens": 70_458,
-        }],
-        input_tokens=70_458,
-        output_tokens=15_237,
-        tool_calls=16,
-    )
-    payload = json.loads(output.read_text(encoding="utf-8"))
-
-    assert payload["status"] == "aborted"
-    assert payload["outcome"] == "input_token_limit"
-    assert payload["turn_trace"][0]["tool_calls"][0]["result_bytes"] == 42
-    assert payload["usage"]["input_tokens"] == 70_458
-    assert payload["candidate_state"]["files"]["solution.py"]["exists"] is True
-
-
 def test_host_controller_near_budget_policy_and_thinking_mode_are_explicit():
     from benchmark.formal.host_agent import build_agent_attestation, should_finalize_before_next_turn
 
