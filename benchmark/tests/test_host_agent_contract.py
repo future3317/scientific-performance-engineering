@@ -77,6 +77,47 @@ def test_provider_input_partition_is_outcome_failure() -> None:
     assert (usage.input_tokens, usage.output_tokens) == (65_600, 1)
 
 
+def test_near_budget_finalize_uses_estimated_next_request_cost() -> None:
+    assert host_agent.should_finalize_before_next_request(
+        turn_index=2,
+        limits=host_agent.ControllerLimits(),
+        usage=host_agent.UsageState(input_tokens=50_000),
+        estimated_next_input_tokens=1_000,
+    ) is False
+    assert host_agent.should_finalize_before_next_request(
+        turn_index=2,
+        limits=host_agent.ControllerLimits(),
+        usage=host_agent.UsageState(input_tokens=60_000),
+        estimated_next_input_tokens=2_000,
+    ) is True
+
+
+def test_partial_controller_telemetry_preserves_trace_and_candidate_state(tmp_path: Path) -> None:
+    worker_root = tmp_path / "worker"
+    (worker_root / "solution").mkdir(parents=True)
+    (worker_root / "solution" / "solution.py").write_text("candidate = True\n", encoding="utf-8")
+    output = tmp_path / "host_controller_partial.json"
+
+    host_agent.persist_partial_controller_telemetry(
+        output,
+        worker_root,
+        outcome="input_token_limit",
+        error="context window exceeded",
+        turn_trace=[{
+            "turn_index": 3,
+            "tool_calls": [{"name": "write_file", "result_bytes": 42}],
+            "cumulative_input_tokens": 70_458,
+        }],
+        usage=host_agent.UsageState(input_tokens=70_458, output_tokens=15_237, tool_calls=16),
+    )
+    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert payload["status"] == "aborted"
+    assert payload["outcome"] == "input_token_limit"
+    assert payload["turn_trace"][0]["tool_calls"][0]["result_bytes"] == 42
+    assert payload["usage"]["input_tokens"] == 70_458
+    assert payload["candidate_state"]["files"]["solution.py"]["exists"] is True
+
 def test_provider_output_partition_counts_reasoning_output() -> None:
     limits = host_agent.ControllerLimits()
     usage = host_agent.UsageState(output_tokens=16_300)
