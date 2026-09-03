@@ -541,8 +541,7 @@ def verify_task(
 
     # Public contract checks happen before the hidden static scan so an
     # agent-visible policy violation is reported as a contract error rather
-    # than as an opaque hidden-stage rejection.  The full import check is
-    # repeated after S1, where execution of candidate code is permitted.
+    # than as an opaque hidden-stage rejection.
     from .public_preflight import validate_public_solution
     public_preflight = validate_public_solution(candidate_path, spec)
     result["public_preflight"] = public_preflight
