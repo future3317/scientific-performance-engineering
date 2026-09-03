@@ -40,7 +40,12 @@ def _seed_policy_violations(path: Path, public_contract: Mapping[str, Any]) -> l
     return violations
 
 
-def validate_public_solution(solution_path: str | Path, task_spec: Mapping[str, Any]) -> dict[str, Any]:
+def validate_public_solution(
+    solution_path: str | Path,
+    task_spec: Mapping[str, Any],
+    *,
+    check_import: bool = True,
+) -> dict[str, Any]:
     """Validate only the task-declared public API and import boundary."""
     path = Path(solution_path).resolve()
     workspace = task_spec.get("workspace") if isinstance(task_spec, Mapping) else None
@@ -57,7 +62,7 @@ def validate_public_solution(solution_path: str | Path, task_spec: Mapping[str, 
         violations.append("candidate public entrypoint is missing")
     if path.is_file() and isinstance(task_spec.get("public_contract"), Mapping):
         violations.extend(_seed_policy_violations(path, task_spec["public_contract"]))
-    if not violations:
+    if not violations and check_import:
         try:
             module = runner.import_module_by_path(path)
             violations.extend(validate_solution_api(module, api_name))
