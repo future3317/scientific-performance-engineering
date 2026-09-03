@@ -210,6 +210,27 @@ def test_public_task_projection_does_not_copy_hidden_metadata(tmp_path: Path) ->
     assert not (public / "task.yaml").exists()
 
 
+def test_public_task_projection_exposes_registered_callable_contract(tmp_path: Path) -> None:
+    task = tmp_path / "task"
+    (task / "workspace").mkdir(parents=True)
+    (task / "public_tests").mkdir()
+    (task / "task.yaml").write_text(
+        "task_id: T\ntitle: public\nrequires_cuda: false\ntime_budget_s: 1\n"
+        "workspace:\n  entrypoint: solution.py\n  api: train_loop_v1\n",
+        encoding="utf-8",
+    )
+    (task / "workspace" / "solution.py").write_text("x = 1\n", encoding="utf-8")
+    public = tmp_path / "public"
+    materialize_agent_task(task, public)
+    payload = json.loads((public / "public_task.json").read_text(encoding="utf-8"))
+
+    assert payload["api_contract"]["required_callables"] == {
+        "build_model": "build_model(fixtures) -> torch.nn.Module",
+        "train_step": "train_step(model, batch, optimizer) -> dict with at least 'loss' (tensor) and 'work_units' (dict of counters)",
+        "run_training": "run_training(fixtures, steps: int) -> dict with final metrics",
+    }
+
+
 def test_worker_extensions_cannot_override_scored_result(tmp_path: Path) -> None:
     result = tmp_path / "result.json"
     result.write_text(json.dumps({
