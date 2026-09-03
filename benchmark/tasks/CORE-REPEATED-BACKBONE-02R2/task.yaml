@@ -14,6 +14,20 @@ time_budget_s: 600
 workspace:
   entrypoint: solution.py
   api: train_loop_v1
+public_contract:
+  batch:
+    type: mapping
+    required_keys: [step, fixed, targets]
+    value_types:
+      step: torch.Tensor
+      fixed: torch.Tensor
+      targets: list[torch.Tensor]
+  model_methods:
+    project_fixed: project_fixed(fixed_input) -> torch.Tensor
+    forward_head: forward_head(step_input, context, head_idx: int) -> torch.Tensor
+  seed_policy:
+    owner: harness
+    forbidden_calls: [random.seed, torch.manual_seed, torch.cuda.manual_seed_all]
 measurement:
   primary_metric: step_ms_p50
   higher_is_better: false
