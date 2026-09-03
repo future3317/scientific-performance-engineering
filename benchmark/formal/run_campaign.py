@@ -906,6 +906,9 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
         # Only fields explicitly declared public may drive retrieval/routing.
         "routing_context": declared_public_context,
     }
+    public_contract = task.get("public_contract") if isinstance(task.get("public_contract"), dict) else None
+    if public_contract is not None:
+        public_task["public_contract"] = public_contract
     if api_name:
         public_task["api_contract"] = {
             "required_callables": dict(get_api(api_name)["required_callables"]),
@@ -2638,6 +2641,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
             "SPE_CONDITION": str(item["condition"]),
             "SPE_CONTEXT_STATE_PATH": "/worker/context_state/context_state.json",
+            "SPE_HOST_CONTROLLER_TRACE_PATH": str(trial_dir / "host_controller_partial.json"),
         }
         try:
             agent = _run_host_agent_controller(args.agent_command, env, worker_root, budgets.wall_time_s)
