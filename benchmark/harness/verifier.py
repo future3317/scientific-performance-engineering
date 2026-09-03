@@ -543,7 +543,7 @@ def verify_task(
     # agent-visible policy violation is reported as a contract error rather
     # than as an opaque hidden-stage rejection.
     from .public_preflight import validate_public_solution
-    public_preflight = validate_public_solution(candidate_path, spec)
+    public_preflight = validate_public_solution(candidate_path, spec, check_import=False)
     result["public_preflight"] = public_preflight
     if public_preflight["status"] != "pass":
         result["verdict"] = "fail"
@@ -570,6 +570,18 @@ def verify_task(
     mark_stage("S1")
 
     # --- S2/S3: correctness + scientific gates --------------------------------
+    public_preflight = validate_public_solution(candidate_path, spec)
+    result["public_preflight"] = public_preflight
+    if public_preflight["status"] != "pass":
+        result["verdict"] = "fail"
+        result["validity"] = "valid"
+        result["execution_validity"] = "valid"
+        result["efficacy_eligible"] = False
+        result["calibration_status"] = "blocked"
+        result["calibration_block_reason"] = "public contract preflight failed"
+        mark_stage("S2")
+        return _finalize(result, started, out_path)
+
     device, usable = runner.select_device(bool(spec.get("requires_cuda")))
     if not usable:
         result["verdict"] = "inconclusive"
