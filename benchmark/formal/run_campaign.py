@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from benchmark.harness import conditions, miniyaml, scoring, stats, verifier
+from benchmark.harness.api import get_api
 from benchmark.calibration.execution import CellExecutor
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
@@ -883,6 +884,7 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
     if isinstance(task.get("pre_task_telemetry"), dict):
         declared_public_context.setdefault("evidence", dict(task["pre_task_telemetry"]))
     declared_public_context = build_public_context(declared_public_context)
+    api_name = str(task.get("workspace", {}).get("api", ""))
     public_task = {
         "schema_version": 1,
         "task_id": task.get("task_id", task_dir.name),
@@ -904,6 +906,10 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
         # Only fields explicitly declared public may drive retrieval/routing.
         "routing_context": declared_public_context,
     }
+    if api_name:
+        public_task["api_contract"] = {
+            "required_callables": dict(get_api(api_name)["required_callables"]),
+        }
     (destination / "public_task.json").write_text(
         json.dumps(public_task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
