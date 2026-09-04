@@ -318,6 +318,7 @@ def _run_conversation(
             "turn_index": turn_index,
             "estimated_next_input_tokens": _estimate_message_tokens(messages),
             "tool_calls": [],
+            "finalize_reserve_triggered": False,
         }
         if clock() - started >= limits.wall_time_s:
             raise BudgetOutcome("wall_time_limit")
@@ -329,6 +330,12 @@ def _run_conversation(
         ):
             if finalization_sent:
                 raise BudgetOutcome("incomplete_agent_outcome")
+            active_turn.update({
+                "finalize_reserve_triggered": True,
+                "trigger_cumulative_input_tokens": usage.input_tokens,
+                "trigger_cumulative_output_tokens": usage.output_tokens,
+                "remaining_input_reserve": max(0, limits.input_tokens - usage.input_tokens),
+            })
             messages.append({
                 "role": "user",
                 "content": "Finalize the current best solution now; do not start another exploratory turn.",
@@ -511,6 +518,11 @@ def persist_partial_controller_telemetry(
     usage: UsageState,
 ) -> None:
     """Persist trusted controller diagnostics without fabricating an executor receipt."""
+    finalize_turn = next(
+        (turn for turn in turn_trace if turn.get("finalize_reserve_triggered")),
+        None,
+    )
+    candidate_state = _candidate_state(worker_root)
     payload = {
         "schema_version": 1,
         "status": "aborted",
@@ -522,7 +534,14 @@ def persist_partial_controller_telemetry(
             "tool_calls": usage.tool_calls,
         },
         "turn_trace": list(turn_trace),
-        "candidate_state": _candidate_state(worker_root),
+        "candidate_state": candidate_state,
+        "finalize_reserve_triggered": finalize_turn is not None,
+        "trigger_cumulative_input_tokens": finalize_turn.get("trigger_cumulative_input_tokens") if finalize_turn else None,
+        "trigger_cumulative_output_tokens": finalize_turn.get("trigger_cumulative_output_tokens") if finalize_turn else None,
+        "remaining_input_reserve": finalize_turn.get("remaining_input_reserve") if finalize_turn else None,
+        "candidate_present": bool(candidate_state.get("files")),
+        "public_preflight_status": "not_run",
+        "submit_status": "not_run",
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

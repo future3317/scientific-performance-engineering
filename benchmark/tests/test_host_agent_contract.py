@@ -105,6 +105,10 @@ def test_partial_controller_telemetry_preserves_trace_and_candidate_state(tmp_pa
         error="context window exceeded",
         turn_trace=[{
             "turn_index": 3,
+            "finalize_reserve_triggered": True,
+            "trigger_cumulative_input_tokens": 60_458,
+            "trigger_cumulative_output_tokens": 12_000,
+            "remaining_input_reserve": 5_078,
             "tool_calls": [{"name": "write_file", "result_bytes": 42}],
             "cumulative_input_tokens": 70_458,
         }],
@@ -117,6 +121,13 @@ def test_partial_controller_telemetry_preserves_trace_and_candidate_state(tmp_pa
     assert payload["turn_trace"][0]["tool_calls"][0]["result_bytes"] == 42
     assert payload["usage"]["input_tokens"] == 70_458
     assert payload["candidate_state"]["files"]["solution.py"]["exists"] is True
+    assert payload["finalize_reserve_triggered"] is True
+    assert payload["trigger_cumulative_input_tokens"] == 60_458
+    assert payload["trigger_cumulative_output_tokens"] == 12_000
+    assert payload["remaining_input_reserve"] == 5_078
+    assert payload["candidate_present"] is True
+    assert payload["public_preflight_status"] == "not_run"
+    assert payload["submit_status"] == "not_run"
 
 def test_provider_output_partition_counts_reasoning_output() -> None:
     limits = host_agent.ControllerLimits()
