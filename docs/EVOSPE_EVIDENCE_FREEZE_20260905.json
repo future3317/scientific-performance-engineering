@@ -1,0 +1,30 @@
+{
+  "manifest_id": "EVOSPE_EVIDENCE_FREEZE_20260905",
+  "schema_version": 1,
+  "benchmark_commit": "c5eb494d2ac9b17712c446a0b7b8eecc37d1d897",
+  "controller_commit": "097a36a0c49812ba20d626310040f7e84f2192b3",
+  "paper_commit": "cafee6a406f2d87d949a1b3c0cd4bedabdbfc1af",
+  "historical_formal_revision": "dce4d194354b998d94ac9eb5b02a3d3d804828c9",
+  "provider_free_evidence_sha256": "17ecbfcf393affcc2b9c2c046ca64b9fc34aab881f830b2c9da2383b75f0d13",
+  "resource_ablation_sha256": "db9331024a39bd79c5bb403d44668649eaa1d599c96f48393532176f5a7ff503",
+  "paper_pdf_sha256": "210dda3c7df71fe3b7dcbe38eaa60fd23e58e207a59885090282aa9cc03725c",
+  "hosted_efficacy_status": "UNSUPPORTED",
+  "hosted_feasibility_status": "INSUFFICIENT",
+  "sealed_cd_status": "NOT_RUN",
+  "results_claimed": false,
+  "provider_calls_for_current_freeze": 0,
+  "full_suite_status": "420 passed, 8 warnings",
+  "cleanup_regression": {
+    "prior_full_order_flake": "test_forced_owned_worker_cleanup_is_reported_and_valid",
+    "resolution": "deterministic child-ready handshake; no fixed sleep",
+    "targeted_result": "36 passed, 1 warning"
+  },
+  "tags": {
+    "name": "EVOSPE_EVIDENCE_FREEZE_20260905",
+    "benchmark_target": "c5eb494d2ac9b17712c446a0b7b8eecc37d1d897",
+    "controller_target": "097a36a0c49812ba20d626310040f7e84f2192b3",
+    "paper_target": "cafee6a406f2d87d949a1b3c0cd4bedabdbfc1af"
+  },
+  "claim_boundary": "Provider-free mechanism/resource evidence only; no hosted D-C efficacy claim.",
+  "historical_results_immutable": true
+}
