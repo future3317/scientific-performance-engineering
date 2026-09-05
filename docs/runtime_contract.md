@@ -4,6 +4,12 @@ This document records the model-facing and executor-facing contract implemented
 by `benchmark/formal/host_agent.py`. It is an execution contract, not an
 efficacy claim.
 
+The contract is referenced by the cross-repository freeze manifest
+`docs/EVOSPE_EVIDENCE_FREEZE_20260905.json`. The current freeze records
+hosted feasibility as insufficient, sealed C/D as not run, and
+`results_claimed=false`; this document therefore defines the boundary for
+diagnostic hosted execution only, not an authorization to start a campaign.
+
 ## Fixed model-facing configuration
 
 - Provider: DeepSeek-compatible `/chat/completions` endpoint.
