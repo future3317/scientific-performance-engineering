@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from benchmark.harness import conditions, miniyaml, scoring, stats, verifier
+from benchmark.harness.api import get_api
 from benchmark.calibration.execution import CellExecutor
 from benchmark.harness.evolution_ledger import EvolutionDecisionLedger
 from benchmark.harness.fingerprint import capture_fingerprint
@@ -883,6 +884,7 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
     if isinstance(task.get("pre_task_telemetry"), dict):
         declared_public_context.setdefault("evidence", dict(task["pre_task_telemetry"]))
     declared_public_context = build_public_context(declared_public_context)
+    api_name = str(task.get("workspace", {}).get("api", ""))
     public_task = {
         "schema_version": 1,
         "task_id": task.get("task_id", task_dir.name),
@@ -904,6 +906,13 @@ def materialize_agent_task(task_dir: Path, destination: Path) -> None:
         # Only fields explicitly declared public may drive retrieval/routing.
         "routing_context": declared_public_context,
     }
+    public_contract = task.get("public_contract") if isinstance(task.get("public_contract"), dict) else None
+    if public_contract is not None:
+        public_task["public_contract"] = public_contract
+    if api_name:
+        public_task["api_contract"] = {
+            "required_callables": dict(get_api(api_name)["required_callables"]),
+        }
     (destination / "public_task.json").write_text(
         json.dumps(public_task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -2274,14 +2283,11 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
         if missing_eligibility_tasks:
             raise ValueError("efficacy eligibility manifest does not cover scheduled tasks: " + ", ".join(missing_eligibility_tasks))
     efficacy_task_ids = set(eligibility_manifest.get("efficacy_task_ids", [])) if eligibility_manifest else set()
-    if eligibility_manifest is not None:
-        if getattr(args, "formal", False):
-            task_items = [
-                item for item in task_items
-                if str(formal_projection_by_slot[item[1]]["source_task_id"]) in efficacy_task_ids
-            ]
-        else:
-            task_items = [item for item in task_items if str(item[1]) in efficacy_task_ids]
+    if eligibility_manifest is not None and getattr(args, "formal", False):
+        task_items = [
+            item for item in task_items
+            if str(formal_projection_by_slot[item[1]]["source_task_id"]) in efficacy_task_ids
+        ]
         if not task_items:
             raise ValueError("frozen confirmatory efficacy subset has no scheduled task slots")
         task_ids = [task_id for _, task_id in task_items]
@@ -2311,7 +2317,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             item["source_task_id"] = formal_projection_by_slot[item["task_id"]]["source_task_id"]
             item["slot_id"] = item["task_id"]
     efficacy_slot_ids = {str(item["task_id"]) for item in plan} if getattr(args, "formal", False) else set(efficacy_task_ids)
-    if eligibility_manifest is not None:
+    if eligibility_manifest is not None and getattr(args, "formal", False):
         planned_sources = {
             str(formal_projection_by_slot[item["task_id"]]["source_task_id"])
             if getattr(args, "formal", False) else str(item["task_id"])
@@ -2632,6 +2638,7 @@ def run_campaign(args: argparse.Namespace) -> dict[str, Any]:
             "SPE_OUTER_TRIAL_ID": str(item["outer_trial_id"]),
             "SPE_CONDITION": str(item["condition"]),
             "SPE_CONTEXT_STATE_PATH": "/worker/context_state/context_state.json",
+            "SPE_HOST_CONTROLLER_TRACE_PATH": str(trial_dir / "host_controller_partial.json"),
         }
         try:
             agent = _run_host_agent_controller(args.agent_command, env, worker_root, budgets.wall_time_s)
