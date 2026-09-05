@@ -7,6 +7,7 @@ same namespace executor used by formal campaigns.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from benchmark.formal.reference_executor import ReferenceExecutor
+from benchmark.formal.attest import skill_view_digest
 
 
 TOOL_NAMES = ("read_file", "write_file", "run_command")
@@ -79,6 +81,72 @@ FIXED_PREFIX_PARTS = (
 FIXED_PREFIX_TEXT = "\n\n".join(FIXED_PREFIX_PARTS)
 
 
+@dataclass(frozen=True)
+class ControllerLimits:
+    input_tokens: int = 65_536
+    output_tokens: int = 16_384
+    max_output_tokens: int = 4_096
+    context_tokens: int = 32_768
+    tool_calls: int = 24
+    turns: int = 16
+    wall_time_s: float = 900.0
+    api_timeout_s: float = 120.0
+
+
+class BudgetOutcome(RuntimeError):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+@dataclass
+class UsageState:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    tool_calls: int = 0
+
+    def add_provider_usage(self, provider_usage: dict[str, Any], limits: ControllerLimits) -> None:
+        self.input_tokens += int(
+            provider_usage.get("prompt_tokens", provider_usage.get("input_tokens", 0)) or 0
+        )
+        self.output_tokens += int(
+            provider_usage.get("completion_tokens", provider_usage.get("output_tokens", 0)) or 0
+        )
+        if self.input_tokens >= limits.input_tokens:
+            raise BudgetOutcome("input_token_limit")
+        if self.output_tokens >= limits.output_tokens:
+            raise BudgetOutcome("output_token_limit")
+
+    def reserve_tool_call(self, limits: ControllerLimits) -> None:
+        if self.tool_calls >= limits.tool_calls:
+            raise BudgetOutcome("tool_call_limit")
+        self.tool_calls += 1
+
+
+def _remaining_output_tokens(limits: ControllerLimits, usage: UsageState) -> int:
+    remaining = limits.output_tokens - usage.output_tokens
+    if remaining <= 0:
+        raise BudgetOutcome("output_token_limit")
+    return min(limits.max_output_tokens, remaining)
+
+
+def parse_controller_limits(raw: str) -> ControllerLimits:
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("SPE_BUDGET_JSON must be an object")
+    limits = ControllerLimits()
+    expected = {
+        "tokens": limits.input_tokens + limits.output_tokens,
+        "tool_calls": limits.tool_calls,
+        "wall_time_s": limits.wall_time_s,
+        "context_tokens": limits.context_tokens,
+    }
+    for key, required in expected.items():
+        if value.get(key) != required:
+            raise ValueError(f"SPE_BUDGET_JSON {key} must equal {required}")
+    return limits
+
+
 def _digest_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -92,23 +160,27 @@ def tool_schema_digest() -> str:
     return _digest_bytes(payload.encode("utf-8"))
 
 
-def should_finalize_before_next_turn(
+def _estimate_message_tokens(messages: list[dict[str, Any]]) -> int:
+    payload = json.dumps(messages, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return max(1, (len(payload) + 3) // 4)
+
+
+def should_finalize_before_next_request(
     *,
     turn_index: int,
-    max_turns: int,
-    input_tokens: int,
-    output_tokens: int,
-    input_limit: int,
-    output_limit: int,
-    reserve_tokens: int = 512,
+    limits: ControllerLimits,
+    usage: UsageState,
+    estimated_next_input_tokens: int,
+    reserve_tokens: int = 4_096,
 ) -> bool:
-    """Signal a finalization turn before the controller exhausts its budget."""
-    if max_turns < 1 or input_limit < 1 or output_limit < 1:
-        raise ValueError("controller limits must be positive")
+    """Reserve one final provider request before input context exhaustion."""
+    if turn_index < 0 or estimated_next_input_tokens < 0 or reserve_tokens < 0:
+        raise ValueError("turn and token estimates must be non-negative")
+    threshold = max(0, limits.input_tokens - reserve_tokens)
     return (
-        turn_index >= max_turns - 1
-        or input_tokens >= max(0, input_limit - reserve_tokens)
-        or output_tokens >= max(0, output_limit - reserve_tokens)
+        turn_index >= limits.turns - 1
+        or usage.input_tokens >= threshold
+        or usage.input_tokens + estimated_next_input_tokens >= threshold
     )
 
 
@@ -187,6 +259,10 @@ for line in sys.stdin:
 '''
 
 
+class TransientProviderError(RuntimeError):
+    pass
+
+
 def _api_call(base_url: str, api_key: str, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
     request = Request(
         f"{base_url.rstrip('/')}/chat/completions",
@@ -197,7 +273,13 @@ def _api_call(base_url: str, api_key: str, payload: dict[str, Any], timeout_s: f
     try:
         with urlopen(request, timeout=timeout_s) as response:
             value = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except HTTPError as exc:
+        if exc.code in {408, 429} or 500 <= exc.code < 600:
+            raise TransientProviderError(f"DeepSeek API request failed: {exc}") from exc
+        raise RuntimeError(f"DeepSeek API request failed: {exc}") from exc
+    except (URLError, TimeoutError) as exc:
+        raise TransientProviderError(f"DeepSeek API request failed: {exc}") from exc
+    except json.JSONDecodeError as exc:
         raise RuntimeError(f"DeepSeek API request failed: {exc}") from exc
     if not isinstance(value, dict) or not isinstance(value.get("choices"), list) or not value["choices"]:
         raise RuntimeError("DeepSeek API response has no choices")
@@ -208,11 +290,175 @@ def _api_call_with_retry(base_url: str, api_key: str, payload: dict[str, Any], t
     for attempt in range(2):
         try:
             return _api_call(base_url, api_key, payload, timeout_s)
-        except RuntimeError:
+        except TransientProviderError:
             if attempt == 1:
                 raise
             time.sleep(1.0)
     raise RuntimeError("unreachable API retry state")
+
+
+def _run_conversation(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, Any]],
+    process: subprocess.Popen[str] | None,
+    limits: ControllerLimits,
+    started: float,
+    clock: Any = time.monotonic,
+    usage: UsageState | None = None,
+    turn_trace: list[dict[str, Any]] | None = None,
+) -> tuple[UsageState, list[str], str]:
+    usage = usage or UsageState()
+    tool_trace: list[str] = []
+    finalization_sent = False
+    for turn_index in range(limits.turns):
+        active_turn: dict[str, Any] = {
+            "turn_index": turn_index,
+            "estimated_next_input_tokens": _estimate_message_tokens(messages),
+            "tool_calls": [],
+            "finalize_reserve_triggered": False,
+        }
+        if clock() - started >= limits.wall_time_s:
+            raise BudgetOutcome("wall_time_limit")
+        if should_finalize_before_next_request(
+            turn_index=turn_index,
+            limits=limits,
+            usage=usage,
+            estimated_next_input_tokens=_estimate_message_tokens(messages),
+        ):
+            if finalization_sent:
+                raise BudgetOutcome("incomplete_agent_outcome")
+            active_turn.update({
+                "finalize_reserve_triggered": True,
+                "trigger_cumulative_input_tokens": usage.input_tokens,
+                "trigger_cumulative_output_tokens": usage.output_tokens,
+                "remaining_input_reserve": max(0, limits.input_tokens - usage.input_tokens),
+            })
+            messages.append({
+                "role": "user",
+                "content": "Finalize the current best solution now; do not start another exploratory turn.",
+            })
+            finalization_sent = True
+        response = _api_call_with_retry(
+            base_url,
+            api_key,
+            {
+                "model": model,
+                "messages": messages,
+                "tools": TOOL_DEFINITIONS,
+                "tool_choice": "auto",
+                "temperature": 0,
+                "top_p": 1,
+                "max_tokens": _remaining_output_tokens(limits, usage),
+                "thinking": {"type": "disabled"},
+            },
+            timeout_s=limits.api_timeout_s,
+        )
+        provider_usage = response.get("usage", {})
+        active_turn["provider_usage"] = dict(provider_usage) if isinstance(provider_usage, dict) else {}
+        try:
+            usage.add_provider_usage(provider_usage if isinstance(provider_usage, dict) else {}, limits)
+        except Exception as exc:
+            active_turn["error"] = f"{type(exc).__name__}: {exc}"
+            active_turn["cumulative_input_tokens"] = usage.input_tokens
+            active_turn["cumulative_output_tokens"] = usage.output_tokens
+            active_turn["cumulative_tool_calls"] = usage.tool_calls
+            if turn_trace is not None:
+                turn_trace.append(active_turn)
+            raise
+        message = response["choices"][0].get("message", {})
+        if not isinstance(message, dict):
+            raise RuntimeError("DeepSeek response message is invalid")
+        assistant: dict[str, Any] = {"role": "assistant", "content": message.get("content")}
+        if message.get("reasoning_content") is not None:
+            assistant["reasoning_content"] = message["reasoning_content"]
+        calls = message.get("tool_calls") or []
+        if not calls:
+            if not message.get("content"):
+                raise BudgetOutcome("incomplete_agent_outcome")
+            messages.append(assistant)
+            active_turn["cumulative_input_tokens"] = usage.input_tokens
+            active_turn["cumulative_output_tokens"] = usage.output_tokens
+            active_turn["cumulative_tool_calls"] = usage.tool_calls
+            if turn_trace is not None:
+                turn_trace.append(active_turn)
+            return usage, tool_trace, "completed"
+        assistant["tool_calls"] = calls
+        messages.append(assistant)
+        for call in calls:
+            usage.reserve_tool_call(limits)
+            function = call.get("function", {})
+            name = str(function.get("name", ""))
+            try:
+                arguments = json.loads(function.get("arguments", "{}"))
+            except json.JSONDecodeError:
+                result = {"ok": False, "error": "invalid tool arguments JSON"}
+            else:
+                if not isinstance(arguments, dict):
+                    result = {"ok": False, "error": "tool arguments must be a JSON object"}
+                else:
+                    result = _tool_call(process, name, arguments)  # type: ignore[arg-type]
+            tool_trace.append(name)
+            serialized_result = json.dumps(result, ensure_ascii=False)
+            active_turn["tool_calls"].append({
+                "name": name,
+                "result_bytes": len(serialized_result.encode("utf-8")),
+                "tool_call_id": call.get("id", f"tool-{usage.tool_calls}"),
+            })
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.get("id", f"tool-{usage.tool_calls}"),
+                "content": serialized_result,
+            })
+        active_turn["cumulative_input_tokens"] = usage.input_tokens
+        active_turn["cumulative_output_tokens"] = usage.output_tokens
+        active_turn["cumulative_tool_calls"] = usage.tool_calls
+        if turn_trace is not None:
+            turn_trace.append(active_turn)
+        if finalization_sent:
+            return usage, tool_trace, "completed"
+    raise BudgetOutcome("turn_limit")
+
+
+def _write_controller_receipt(
+    *,
+    receipt_path: Path,
+    worker_root: Path,
+    usage: UsageState,
+    wall_time_s: float,
+    outcome: str,
+    model: str,
+    tool_trace: list[str],
+) -> dict[str, Any]:
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    usage_value = {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "tool_calls": usage.tool_calls,
+        "wall_time_s": wall_time_s,
+    }
+    receipt["usage"] = usage_value
+    receipt["usage_meter_source"] = "trusted-host-controller-provider-observed"
+    receipt["host_controller"] = {
+        "provider": "deepseek",
+        "model_id": model,
+        "system_prompt_digest": fixed_prefix_digest(),
+        "tool_schema_digest": tool_schema_digest(),
+        "tool_trace": tool_trace,
+        "outcome": outcome,
+    }
+    receipt_path.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    result_root = worker_root / "result"
+    result_root.mkdir(parents=True, exist_ok=True)
+    (result_root / "agent_usage.json").write_text(json.dumps(usage_value, indent=2) + "\n", encoding="utf-8")
+    status = "completed" if outcome == "completed" else "outcome_failure"
+    (result_root / "worker_result.json").write_text(
+        json.dumps({"status": status, "controller": "trusted_host_deepseek", "outcome": outcome}) + "\n",
+        encoding="utf-8",
+    )
+    return usage_value
 
 
 def _tool_call(process: subprocess.Popen[str], name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -249,6 +495,58 @@ def _public_bundle(worker_root: Path) -> dict[str, Any]:
     }
 
 
+def _candidate_state(worker_root: Path) -> dict[str, Any]:
+    solution_root = worker_root / "solution"
+    files: dict[str, dict[str, Any]] = {}
+    if solution_root.is_dir():
+        for path in sorted(solution_root.rglob("*")):
+            if path.is_file() and not path.is_symlink():
+                files[path.relative_to(solution_root).as_posix()] = {
+                    "exists": True,
+                    "bytes": path.stat().st_size,
+                }
+    return {"files": files}
+
+
+def persist_partial_controller_telemetry(
+    output_path: Path,
+    worker_root: Path,
+    *,
+    outcome: str,
+    error: str | None,
+    turn_trace: list[dict[str, Any]],
+    usage: UsageState,
+) -> None:
+    """Persist trusted controller diagnostics without fabricating an executor receipt."""
+    finalize_turn = next(
+        (turn for turn in turn_trace if turn.get("finalize_reserve_triggered")),
+        None,
+    )
+    candidate_state = _candidate_state(worker_root)
+    payload = {
+        "schema_version": 1,
+        "status": "aborted",
+        "outcome": outcome,
+        "error": error,
+        "usage": {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "tool_calls": usage.tool_calls,
+        },
+        "turn_trace": list(turn_trace),
+        "candidate_state": candidate_state,
+        "finalize_reserve_triggered": finalize_turn is not None,
+        "trigger_cumulative_input_tokens": finalize_turn.get("trigger_cumulative_input_tokens") if finalize_turn else None,
+        "trigger_cumulative_output_tokens": finalize_turn.get("trigger_cumulative_output_tokens") if finalize_turn else None,
+        "remaining_input_reserve": finalize_turn.get("remaining_input_reserve") if finalize_turn else None,
+        "candidate_present": bool(candidate_state.get("files")),
+        "public_preflight_status": "not_run",
+        "submit_status": "not_run",
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, container_digest: str, pricing_revision: str) -> dict[str, Any]:
     return {
         "provider": "deepseek",
@@ -260,8 +558,16 @@ def build_agent_attestation(*, model_list_digest: str, agent_code_commit: str, c
         "tool_schema_digest": tool_schema_digest(),
         "tool_allowlist": list(TOOL_NAMES),
         "retry_policy": {"max_attempts": 2, "backoff_s": 1},
-        "max_output_tokens": 8192,
+        "input_token_limit": 65_536,
+        "output_token_limit": 16_384,
+        "max_output_tokens": 4_096,
+        "context_token_limit": 32_768,
+        "tool_call_limit": 24,
+        "turn_limit": 16,
+        "timeout_s": 900,
         "container_digest": container_digest,
+        "runtime_attestation_kind": "trusted_host_python_runtime_manifest",
+        "container_digest_semantics": "runtime_manifest_digest",
         "pricing_revision": pricing_revision,
         "backend_weight_immutability_claim": False,
         "thinking": "disabled",
@@ -279,6 +585,7 @@ def run() -> dict[str, Any]:
     model = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash").strip().rstrip("\r")
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY is required by the host controller")
+    limits = parse_controller_limits(os.environ["SPE_BUDGET_JSON"])
     allowed_files = json.loads((worker_root / "task" / "public_task.json").read_text(encoding="utf-8")).get("allowed_files", [])
     executor = ReferenceExecutor()
     command = executor.command([sys.executable, "-c", TOOL_SERVER, json.dumps(allowed_files)], worker_root)
@@ -287,59 +594,22 @@ def run() -> dict[str, Any]:
         {"role": "system", "content": FIXED_PREFIX_TEXT},
         {"role": "user", "content": json.dumps(_public_bundle(worker_root), ensure_ascii=False, sort_keys=True)},
     ]
-    input_tokens = output_tokens = tool_calls = 0
+    usage = UsageState()
     tool_trace: list[str] = []
+    turn_trace: list[dict[str, Any]] = []
+    outcome = "controller_failure"
+    failure: Exception | None = None
+    partial_trace_path = os.environ.get("SPE_HOST_CONTROLLER_TRACE_PATH", "").strip()
     started = time.monotonic()
     try:
-        for turn_index in range(16):
-            if should_finalize_before_next_turn(
-                turn_index=turn_index,
-                max_turns=16,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                input_limit=12000,
-                output_limit=8192,
-            ):
-                messages.append({
-                    "role": "user",
-                    "content": "Finalize the current best solution now; do not start another exploratory turn.",
-                })
-            response = _api_call_with_retry(base_url, api_key, {
-                "model": model,
-                "messages": messages,
-                "tools": TOOL_DEFINITIONS,
-                "tool_choice": "auto",
-                "temperature": 0,
-                "top_p": 1,
-                "max_tokens": 8192,
-                "thinking": {"type": "disabled"},
-                "reasoning_effort": "none",
-            }, timeout_s=120)
-            usage = response.get("usage", {}) if isinstance(response.get("usage"), dict) else {}
-            input_tokens += int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
-            output_tokens += int(usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0)
-            message = response["choices"][0].get("message", {})
-            if not isinstance(message, dict):
-                raise RuntimeError("DeepSeek response message is invalid")
-            assistant: dict[str, Any] = {"role": "assistant", "content": message.get("content")}
-            if message.get("reasoning_content") is not None:
-                assistant["reasoning_content"] = message["reasoning_content"]
-            calls = message.get("tool_calls") or []
-            if not calls:
-                messages.append(assistant)
-                break
-            assistant["tool_calls"] = calls
-            messages.append(assistant)
-            for call in calls:
-                function = call.get("function", {})
-                name = str(function.get("name", ""))
-                arguments = json.loads(function.get("arguments", "{}"))
-                result = _tool_call(process, name, arguments)
-                tool_calls += 1
-                tool_trace.append(name)
-                messages.append({"role": "tool", "tool_call_id": call.get("id", f"tool-{tool_calls}"), "content": json.dumps(result, ensure_ascii=False)})
-        else:
-            raise RuntimeError("host controller tool-call loop exceeded 16 turns")
+        usage, tool_trace, outcome = _run_conversation(
+            base_url=base_url, api_key=api_key, model=model, messages=messages,
+            process=process, limits=limits, started=started, usage=usage, turn_trace=turn_trace,
+        )
+    except BudgetOutcome as exc:
+        outcome = exc.reason
+    except Exception as exc:
+        failure = exc
     finally:
         try:
             _tool_call(process, "shutdown", {})
@@ -350,18 +620,34 @@ def run() -> dict[str, Any]:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
-    completed = executor.execute([sys.executable, "-c", "pass"], worker_root, receipt_path=receipt_path, worker_uid="host-deepseek-controller", include_skill=(worker_root / "skill_view").is_dir())
+    if partial_trace_path and (outcome != "completed" or failure is not None):
+        persist_partial_controller_telemetry(
+            Path(partial_trace_path),
+            worker_root,
+            outcome=outcome,
+            error=str(failure) if failure is not None else outcome,
+            turn_trace=turn_trace,
+            usage=usage,
+        )
+    skill_root = worker_root / "skill_view"
+    include_skill = skill_root.is_dir()
+    completed = executor.execute(
+        [sys.executable, "-c", "pass"],
+        worker_root,
+        receipt_path=receipt_path,
+        worker_uid="host-deepseek-controller",
+        include_skill=include_skill,
+        skill_view_digest=skill_view_digest(skill_root) if include_skill else None,
+    )
     if completed.returncode != 0:
         raise RuntimeError(f"sandbox receipt canary failed: {completed.returncode}")
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    usage = {"input_tokens": input_tokens, "output_tokens": output_tokens, "tool_calls": tool_calls, "wall_time_s": time.monotonic() - started}
-    receipt["usage"] = usage
-    receipt["usage_meter_source"] = "trusted-host-controller-provider-observed"
-    receipt["host_controller"] = {"provider": "deepseek", "model_id": model, "system_prompt_digest": fixed_prefix_digest(), "tool_schema_digest": tool_schema_digest(), "tool_trace": tool_trace}
-    receipt_path.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (worker_root / "result" / "agent_usage.json").write_text(json.dumps(usage, indent=2) + "\n", encoding="utf-8")
-    (worker_root / "result" / "worker_result.json").write_text(json.dumps({"status": "completed", "controller": "trusted_host_deepseek"}) + "\n", encoding="utf-8")
-    return {"returncode": 0, "usage": usage}
+    usage_value = _write_controller_receipt(
+        receipt_path=receipt_path, worker_root=worker_root, usage=usage,
+        wall_time_s=time.monotonic() - started, outcome=outcome, model=model, tool_trace=tool_trace,
+    )
+    if failure is not None:
+        raise failure
+    return {"returncode": 0 if outcome == "completed" else 2, "usage": usage_value, "outcome": outcome}
 
 
 def main() -> int:
@@ -371,7 +657,7 @@ def main() -> int:
         print(f"host agent controller failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False))
-    return 0
+    return int(result["returncode"])
 
 
 if __name__ == "__main__":
