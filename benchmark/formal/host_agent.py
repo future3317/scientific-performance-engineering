@@ -184,7 +184,28 @@ def should_finalize_before_next_request(
     )
 
 
+def should_finalize_before_next_turn(
+    *,
+    turn_index: int,
+    max_turns: int,
+    input_tokens: int,
+    output_tokens: int,
+    input_limit: int,
+    output_limit: int,
+    reserve_tokens: int = 512,
+) -> bool:
+    """Preserve the benchmark-side name for the same finalization policy."""
+    if max_turns < 1 or input_limit < 1 or output_limit < 1:
+        raise ValueError("controller limits must be positive")
+    return (
+        turn_index >= max_turns - 1
+        or input_tokens >= max(0, input_limit - reserve_tokens)
+        or output_tokens >= max(0, output_limit - reserve_tokens)
+    )
+
+
 def _safe_environment() -> dict[str, str]:
+
     blocked = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
     return {
         key: value
