@@ -12,7 +12,7 @@ or efficacy rescue was performed.
 
 The implementation source is the server repository
 `/home/workspace/lrh/CODE/scientific-performance-engineering`, on `main` at
-`05046354da9b9a27ba66e39b5a0741e454178345`. This working report is kept separate
+`097a36a0c49812ba20d626310040f7e84f2192b3`. This working report is kept separate
 from the server runtime evidence. The local Windows checkout contains
 only user-local untracked materials in addition to this tracked source; those
 materials were not staged.
