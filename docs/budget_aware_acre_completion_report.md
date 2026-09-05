@@ -1,6 +1,6 @@
 # Budget-aware ACRE completion report
 
-Date: 2026-09-03
+Date: 2026-09-05
 
 ## Scope and evidence boundary
 
@@ -12,7 +12,8 @@ or efficacy rescue was performed.
 
 The implementation source is the server repository
 `/home/workspace/lrh/CODE/scientific-performance-engineering`, on `main` at
-`097a36a0c49812ba20d626310040f7e84f2192b3`. This working report is kept separate
+`f28e5e317a40b52e2c4a41012b25c53a89875caf`. The method/controller evidence
+freeze remains tagged at `097a36a0c49812ba20d626310040f7e84f2192b3`. This report is kept separate
 from the server runtime evidence. The local Windows checkout contains
 only user-local untracked materials in addition to this tracked source; those
 materials were not staged.
@@ -74,6 +75,14 @@ infrastructure-blocked, not as a code assertion failure.
 After the GPU5 resource was released, the affected selection passed with
 **38 passed, 1 warning** in 34.88 s, and the final full suite at commit
 `0504635` passed with **383 passed, 8 warnings** in 610.87 s.
+
+On 2026-09-05, the final `main` full-suite verification at
+`f28e5e317a40b52e2c4a41012b25c53a89875caf` recorded **419 passed and 1
+failed** in 1,659.11 s. The failure was the process-group cleanup assertion
+in `test_forced_owned_worker_cleanup_is_reported_and_valid`; the same test
+passed alone and the complete `test_calibration_runner.py` selection passed
+with **36 passed, 1 warning**. It is retained as a resource/order-sensitive
+test flake, not reported as a clean full-suite pass.
 
 The warnings are dependency/deprecation or fixture warnings; no test was skipped
 to hide a failure.
