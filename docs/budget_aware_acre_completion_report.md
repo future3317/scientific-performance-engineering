@@ -224,7 +224,8 @@ Not supported:
 
 ## Paper closure
 
-The manuscript repository is `E:\PAPER\EvoSPE`, branch `paper-update`. It now
+The manuscript repository is `E:\PAPER\EvoSPE`, branch
+`codex/paper-evidence-restructure-20260905`. It now
 uses the deployable-knowledge narrative, gives treatment-coupled observability
 and execution reservation mathematical definitions, includes the provider-free
 resource ablation, removes implementation-only identifiers from the manuscript,
@@ -237,9 +238,13 @@ E:\PAPER\EvoSPE\main.pdf
 ```
 
 LaTeX build completed successfully with BibTeX. The final PDF has 15 pages.
-The final log has no undefined references/citations and no overfull or underfull
-box warnings. All 15 rendered pages were visually checked for clipping,
-overlap, and figure/table layout problems.
+The final log has no undefined references/citations, no overfull boxes, and no
+duplicate hyperref destinations after setting `hypertexnames=false`. Two
+non-fatal underfull vertical-box diagnostics remain around intentionally
+page-filling figure material; they do not cause clipping or overlap. Pages 14
+and 15 were freshly rendered and checked for clipping, overlap, blank-page
+errors, and table/figure placement; the full-page render set is retained under
+the paper repository's QA directory.
 
 ## Remaining limitations
 
