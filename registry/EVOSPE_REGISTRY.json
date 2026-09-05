@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "registry": "EVOSPE",
+  "generated_at": "2026-09-05",
+  "status": {
+    "hosted_efficacy": "unsupported",
+    "hosted_feasibility": "insufficient",
+    "sealed_c_d": "not_run",
+    "results_claimed": false
+  },
+  "immutable_historical": [
+    {
+      "name": "formal_228_observation_boundary",
+      "root": "/home/workspace/lrh/RESULTS/formal-partial-identification-dce4d19-20260902",
+      "benchmark_revision": "dce4d194354b998d94ac9eb5b02a3d3d804828c9",
+      "use": "treatment_coupled_observability_only"
+    }
+  ],
+  "provider_free": [
+    {
+      "name": "resource_ablation",
+      "artifact": "/home/workspace/lrh/RESULTS/evospe-budget-aware-ablation-59fe1a5-20260902-tight-reserve/report.json",
+      "revision": "59fe1a5bd4af06d368eecb1ffd6e50df161fb384",
+      "sha256": "db9331024a39bd79c5bb403d44668649eaa1d599c96f48393532176f5a7ff503",
+      "provider_calls": 0
+    },
+    {
+      "name": "reserve_stress",
+      "artifact": "/home/workspace/lrh/RESULTS/evospe-budget-aware-reserve-stress-7995dac-20260902/report.json",
+      "revision": "7995dac98d4107e8048075b8d805e300a574cc64",
+      "sha256": "93b7027b6b9d221f40da732437c72c0619439d3bc691960c993aeeac5570dbb8",
+      "provider_calls": 0
+    }
+  ],
+  "hosted_feasibility": [
+    {
+      "name": "v3_recovery2",
+      "root": "/home/workspace/lrh/RESULTS/evospe-hosted-feasibility-calibration-v3-f104f2d-d72219a-gpu5-20260904-executor-recovery2",
+      "benchmark_revision": "f104f2d59701ffeeef622099f4fca33c9fc4c561",
+      "controller_revision": "d72219a490a4c2e4c0bb6ea1fe5bb40be20468c2",
+      "protocol_sha256": "1de6c4fd08e1a0c4324d3d4b14c974690688c18ff637f6a416c9c85b5cbf0346",
+      "recovery_manifest_sha256": "e3150492080b6f03c497dd1bc44865b4bf095f130e261bda460d931ed45f0c89",
+      "cells": 18,
+      "execution_valid": 18,
+      "correctness_pass": 0,
+      "measurement_reach": 0,
+      "verified_positive": 0,
+      "use": "feasibility_only"
+    }
+  ]
+}

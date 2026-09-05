@@ -17,6 +17,7 @@ from benchmark.formal.run_campaign import (
     synthesize_applicability,
 )
 from benchmark.harness import conditions
+from benchmark.harness.public_preflight import validate_public_solution
 from core.acre.engine import AcreEngine
 from core.models import RelationSpec, RelationState, RuleSpec, RuleState
 from core.models import validate_identifier
@@ -208,6 +209,42 @@ def test_public_task_projection_does_not_copy_hidden_metadata(tmp_path: Path) ->
     materialize_agent_task(task, public)
     assert (public / "public_task.json").is_file()
     assert not (public / "task.yaml").exists()
+
+
+def test_public_task_projection_exposes_registered_callable_contract(tmp_path: Path) -> None:
+    task = tmp_path / "task"
+    (task / "workspace").mkdir(parents=True)
+    (task / "public_tests").mkdir()
+    (task / "task.yaml").write_text(
+        "task_id: T\ntitle: public\nrequires_cuda: false\ntime_budget_s: 1\n"
+        "workspace:\n  entrypoint: solution.py\n  api: train_loop_v1\n",
+        encoding="utf-8",
+    )
+    (task / "workspace" / "solution.py").write_text("x = 1\n", encoding="utf-8")
+    public = tmp_path / "public"
+    materialize_agent_task(task, public)
+    payload = json.loads((public / "public_task.json").read_text(encoding="utf-8"))
+
+    assert payload["api_contract"]["required_callables"] == {
+        "build_model": "build_model(fixtures) -> torch.nn.Module",
+        "train_step": "train_step(model, batch, optimizer) -> dict with at least 'loss' (tensor) and 'work_units' (dict of counters)",
+        "run_training": "run_training(fixtures, steps: int) -> dict with final metrics",
+    }
+@pytest.mark.parametrize(
+    "task_id",
+    ["CORE-DATALOADER-FANOUT-16R2", "CORE-KERNEL-FUSION-09R2"],
+)
+def test_s2_failure_tasks_have_replayable_public_baseline_contract(tmp_path: Path, task_id: str) -> None:
+    task_dir = Path(__file__).parents[1] / "tasks" / task_id
+    public = tmp_path / task_id
+    materialize_agent_task(task_dir, public)
+    public_task = json.loads((public / "public_task.json").read_text(encoding="utf-8"))
+    baseline = validate_public_solution(public / "workspace" / "solution.py", public_task)
+
+    assert baseline["status"] == "pass", baseline
+    assert public_task["api_contract"]["required_callables"]
+    assert (public / "public_tests").is_dir()
+
 
 
 def test_worker_extensions_cannot_override_scored_result(tmp_path: Path) -> None:

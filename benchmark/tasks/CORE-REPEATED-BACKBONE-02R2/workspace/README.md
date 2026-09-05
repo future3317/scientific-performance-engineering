@@ -3,8 +3,8 @@
 ## Goal
 Speed up the multi-head regression loop while preserving its mathematical output, including under a regime where the "fixed" input actually changes every step.
 
-## API
-Implement the `train_loop_v1` contract in `solution.py`:
+## API contract (fixed — `build_model_train_step_v1`)
+Implement the fixed PyTorch callable contract in `solution.py`:
 
 - `build_model(fixtures) -> torch.nn.Module`
 - `train_step(model, batch, optimizer) -> dict` with at least `'loss'` (tensor) and `'work_units'` (dict).

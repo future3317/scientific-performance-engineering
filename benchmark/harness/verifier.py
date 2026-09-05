@@ -526,6 +526,36 @@ def verify_task(
     result["sandbox_dir"] = str(sandbox)
     mark_stage("S0")
 
+    entrypoint_name = str(spec["workspace"]["entrypoint"])
+    baseline_path = task_dir / "workspace" / entrypoint_name
+    candidate_path = solution_dir / entrypoint_name
+    if not candidate_path.is_file():
+        candidates = sorted(solution_dir.rglob(entrypoint_name))
+        if candidates:
+            candidate_path = candidates[0]
+        else:
+            result["verdict"] = "error"
+            errors.append(f"candidate entrypoint {entrypoint_name} not found under {solution_dir}")
+            mark_stage("public_preflight")
+            return _finalize(result, started, out_path)
+
+    # Public contract checks happen before the hidden static scan so an
+    # agent-visible policy violation is reported as a contract error rather
+    # than as an opaque hidden-stage rejection.
+    from .public_preflight import validate_public_solution
+    public_preflight = validate_public_solution(candidate_path, spec, check_import=False)
+    result["public_preflight"] = public_preflight
+    if public_preflight["status"] != "pass":
+        result["verdict"] = "fail"
+        result["validity"] = "valid"
+        result["execution_validity"] = "valid"
+        result["efficacy_eligible"] = False
+        result["calibration_status"] = "blocked"
+        result["calibration_block_reason"] = "public contract preflight failed"
+        mark_stage("public_preflight")
+        return _finalize(result, started, out_path)
+    mark_stage("public_preflight")
+
     # --- S1: static scan ------------------------------------------------------
     oracle_dir = task_dir / "oracle"
     canaries = anticheat.load_canaries(oracle_dir)
@@ -540,29 +570,6 @@ def verify_task(
     mark_stage("S1")
 
     # --- S2/S3: correctness + scientific gates --------------------------------
-    device, usable = runner.select_device(bool(spec.get("requires_cuda")))
-    if not usable:
-        result["verdict"] = "inconclusive"
-        result["execution_validity"] = "resource_blocked"
-        result["verified_speedup"]["reason"] = "task requires CUDA; host has none"
-        mark_stage("S2")
-        return _finalize(result, started, out_path)
-
-    benchmark_module = runner.import_module_by_path(task_dir / "benchmark.py")
-    entrypoint_name = str(spec["workspace"]["entrypoint"])
-    baseline_path = task_dir / "workspace" / entrypoint_name
-    candidate_path = solution_dir / entrypoint_name
-    if not candidate_path.is_file():
-        candidates = sorted(solution_dir.rglob(entrypoint_name))
-        if candidates:
-            candidate_path = candidates[0]
-        else:
-            result["verdict"] = "error"
-            errors.append(f"candidate entrypoint {entrypoint_name} not found under {solution_dir}")
-            mark_stage("S2")
-            return _finalize(result, started, out_path)
-
-    from .public_preflight import validate_public_solution
     public_preflight = validate_public_solution(candidate_path, spec)
     result["public_preflight"] = public_preflight
     if public_preflight["status"] != "pass":
@@ -574,6 +581,16 @@ def verify_task(
         result["calibration_block_reason"] = "public contract preflight failed"
         mark_stage("S2")
         return _finalize(result, started, out_path)
+
+    device, usable = runner.select_device(bool(spec.get("requires_cuda")))
+    if not usable:
+        result["verdict"] = "inconclusive"
+        result["execution_validity"] = "resource_blocked"
+        result["verified_speedup"]["reason"] = "task requires CUDA; host has none"
+        mark_stage("S2")
+        return _finalize(result, started, out_path)
+
+    benchmark_module = runner.import_module_by_path(task_dir / "benchmark.py")
 
     runner.set_global_seeds(seed)
     try:

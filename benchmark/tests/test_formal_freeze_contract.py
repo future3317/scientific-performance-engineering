@@ -210,6 +210,66 @@ def test_campaign_config_accepts_repo_relative_and_absolute_same_manifest(tmp_pa
         raise AssertionError("different manifest path unexpectedly accepted")
 
 
+def test_nonformal_eligibility_keeps_diagnostic_tasks_in_schedule(tmp_path: Path, monkeypatch):
+    task_ids = [
+        "CORE-AUTOGRAD-VJP-SMALL-25R2",
+        "CORE-DATALOADER-FANOUT-16R2",
+        "CORE-KERNEL-FUSION-09R2",
+        "SCIML-EQUIV-LOWORDER-26R2",
+    ]
+    split = tmp_path / "pilot_split.yaml"
+    split.write_text(
+        "split_id: pilot\nphases:\n  - index: 1\n    name: calibration\n    tasks:\n"
+        + "".join(f"      - {task_id}\n" for task_id in task_ids),
+        encoding="utf-8",
+    )
+    skill_source = tmp_path / "skill"
+    skill_source.mkdir()
+    (skill_source / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+    eligibility_manifest = {
+        "efficacy_task_ids": task_ids[2:],
+        "diagnostic_task_ids": task_ids[:2],
+        "tasks": [
+            {"task_id": task_id, "role": "efficacy" if index >= 2 else "diagnostic"}
+            for index, task_id in enumerate(task_ids)
+        ],
+        "resource_domain_manifest_digest": None,
+    }
+    monkeypatch.setattr(run_campaign.eligibility, "load_manifest", lambda *args, **kwargs: eligibility_manifest)
+    monkeypatch.setattr(run_campaign.eligibility, "validate_runtime_contract", lambda *args, **kwargs: [])
+    monkeypatch.setattr(run_campaign.attest, "benchmark_revision", lambda _root: "b" * 40)
+
+    args = type("Args", (), {
+        "repo_root": ROOT,
+        "tasks_root": ROOT / "benchmark" / "tasks",
+        "split": split,
+        "skill_source": skill_source,
+        "skill_view": None,
+        "out": tmp_path / "out",
+        "conditions": "A",
+        "context_modes": "reset",
+        "outer_trials": 1,
+        "model_id": "test",
+        "agent_config": "{}",
+        "budgets": None,
+        "agent_command": None,
+        "population_manifest": ROOT / "benchmark" / "manifests" / "v1.0-50-slots.json",
+        "efficacy_eligibility": tmp_path / "eligibility.json",
+        "resource_domain_manifest": None,
+        "formal": False,
+        "resume": False,
+        "schedule_seed": 2000699898,
+        "claims": None,
+        "analysis_plan": None,
+        "campaign_config": None,
+    })()
+    args.efficacy_eligibility.write_text("{}\n", encoding="utf-8")
+
+    campaign = run_campaign.run_campaign(args)
+    assert campaign["schedule_size"] == len(task_ids)
+    assert campaign["task_order"] == task_ids
+
+
 def test_release_manifest_rejects_empty_executor_image(tmp_path: Path):
     paths = []
     for name in ("claims", "protocol", "campaign"):
