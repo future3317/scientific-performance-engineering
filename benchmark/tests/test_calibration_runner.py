@@ -496,11 +496,15 @@ def test_clean_exit_reports_clean_exit_without_cleanup():
 def test_forced_owned_worker_cleanup_is_reported_and_valid():
     from benchmark.harness.runner import run_python_subprocess
 
-    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)"
+    child_code = (
+        "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "print('ready', flush=True); time.sleep(5)"
+    )
     parent_code = (
         f"import subprocess,sys; "
-        f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
-        "import time; time.sleep(0.2); raise SystemExit(0)"
+        f"p = subprocess.Popen([sys.executable, '-c', {child_code!r}], stdout=subprocess.PIPE, text=True); "
+        "assert p.stdout.readline().strip() == 'ready'; "
+        "raise SystemExit(0)"
     )
     result = run_python_subprocess(snippet=parent_code, timeout=5.0)
 
