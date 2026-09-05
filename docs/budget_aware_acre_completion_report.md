@@ -12,7 +12,7 @@ or efficacy rescue was performed.
 
 The implementation source is the server repository
 `/home/workspace/lrh/CODE/scientific-performance-engineering`, on `main` at
-`f28e5e317a40b52e2c4a41012b25c53a89875caf`. The method/controller evidence
+`c5eb494d2ac9b17712c446a0b7b8eecc37d1d897`. The method/controller evidence
 freeze remains tagged at `097a36a0c49812ba20d626310040f7e84f2192b3`. This report is kept separate
 from the server runtime evidence. The local Windows checkout contains
 only user-local untracked materials in addition to this tracked source; those
@@ -81,8 +81,11 @@ On 2026-09-05, the final `main` full-suite verification at
 failed** in 1,659.11 s. The failure was the process-group cleanup assertion
 in `test_forced_owned_worker_cleanup_is_reported_and_valid`; the same test
 passed alone and the complete `test_calibration_runner.py` selection passed
-with **36 passed, 1 warning**. It is retained as a resource/order-sensitive
-test flake, not reported as a clean full-suite pass.
+with **36 passed, 1 warning**. The retained failure log identified a child-ready
+race: the parent exited after a fixed `0.2s` before the worker was guaranteed
+to have joined the process group. The regression now uses a child-ready
+handshake with no fixed sleep. The final `main` at
+`c5eb494d2ac9b17712c446a0b7b8eecc37d1d897` recorded **420 passed, 8 warnings**.
 
 The warnings are dependency/deprecation or fixture warnings; no test was skipped
 to hide a failure.
