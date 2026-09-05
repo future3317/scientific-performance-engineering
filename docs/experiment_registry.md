@@ -13,6 +13,9 @@ SEALED_C_D_STATUS = NOT_RUN
 RESULTS_CLAIMED = FALSE
 ```
 
+Freeze manifest: `docs/EVOSPE_EVIDENCE_FREEZE_20260905.json`
+Manifest SHA256: `b978c74f52b0f10a1b595d84c26c84f5ba5ab8278c161fea20d7bf80ad404b0c`
+
 ## Registered evidence
 
 | Evidence | Root or artifact | Revision identity | SHA256 / status | Paper use |
