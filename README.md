@@ -153,10 +153,12 @@ The authoritative cross-repository mapping is
 [`docs/EVOSPE_EVIDENCE_FREEZE_20260905.json`](docs/EVOSPE_EVIDENCE_FREEZE_20260905.json).
 The manifest SHA256 is
 `b978c74f52b0f10a1b595d84c26c84f5ba5ab8278c161fea20d7bf80ad404b0c`.
-The benchmark freeze tag targets the docs-inclusive `main` checkout; the
-manifest's `benchmark_commit` identifies the evidence-producing benchmark
-source commit. The controller and paper repositories have their own local
-freeze-tag targets, and the manifest is the cross-repository authority.
+The benchmark freeze tag captures the docs-inclusive `main` checkout at the
+freeze point; subsequent `main` commits here are documentation-only and do not
+change frozen evidence. The manifest's `benchmark_commit` identifies the
+evidence-producing benchmark source commit. The controller and paper
+repositories have their own local freeze-tag targets, and the manifest is the
+cross-repository authority.
 
 The current status is:
 

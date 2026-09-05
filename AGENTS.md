@@ -39,8 +39,9 @@ and paired-cell completeness remain hard validity invariants.
 
 ## Current repository and evidence boundary
 
-The canonical benchmark branch is server-side `main` at the cross-repository
-freeze tag `EVOSPE_EVIDENCE_FREEZE_20260905`. The authoritative mapping of
+The canonical benchmark branch is server-side `main`; the evidence freeze is
+anchored by the cross-repository tag `EVOSPE_EVIDENCE_FREEZE_20260905`.
+Documentation-only commits after that tag do not change frozen evidence. The authoritative mapping of
 benchmark, controller, paper, historical-formal, provider-free evidence, and
 paper-PDF identities is
 `docs/EVOSPE_EVIDENCE_FREEZE_20260905.json` on the server. Its manifest SHA256
