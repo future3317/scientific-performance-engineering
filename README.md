@@ -10,8 +10,8 @@ the executable SPE-EvoBench calibration harness.
 - [Quickstart](#quickstart)
 - [Repository map](#repository-map)
 - [Benchmark status](#benchmark-status)
-- [Recent execution evidence](#recent-execution-evidence)
-- [Documentation policy](#documentation-policy)
+- [Current freeze and execution evidence](#current-freeze-and-execution-evidence)
+- [Documentation and repository policy](#documentation-and-repository-policy)
 - [License](#license)
 
 ## What is current
@@ -40,19 +40,14 @@ applicability, relation truth, or replay outcomes.
 
 The canonical registry is intentionally small (`registry/rules.json` is empty
 until reviewed replay evidence exists). The checked-in v1.0-30 population is a
-structural/calibration pilot, not a formal A/B/C/D efficacy result. Formal-50
-and efficacy claims remain fail-closed until a preregistered population,
-independent calibration approval, and a valid external-executor receipt exist.
+structural/calibration pilot, not a formal A/B/C/D efficacy result. The
+cross-repository freeze is currently provider-free: hosted feasibility is
+insufficient, sealed C/D was not run, and no efficacy result is claimed.
 
-Performance-efficacy analysis uses a separate frozen, agent-blind eligibility
-manifest. It binds benchmark revision, population/protocol digests, task-package
-digests, runtime contract, paired measurement-session IDs, and baseline-only
-typical null noise before any A/B/C/D outcome is observed. The full pilot remains
-available for attrition, abstention, negative-transfer, poison, drift, and
-diagnostic evidence; only the pre-frozen measurement-eligible subset contributes
-to confirmatory performance estimands. The primary contrast is D-B, with D-C and
-B-A as secondary contrasts. Raw speedup is one performance coordinate, not the
-sole self-evolution endpoint.
+The historical formal campaign remains an immutable observation-boundary case.
+Its treatment-coupled missingness is analyzed with the registered
+partial-identification machinery; its incomplete cells are not relabeled as
+zero outcomes and are not used to claim D-B, D-C, or B-A efficacy.
 
 The target runtime is part of the estimand. Before calibration, a baseline-only
 resource-feasibility census freezes the executable population in
@@ -152,54 +147,57 @@ performs governed promotion and routing. Formal execution is invalid without a
 real no-network executor receipt. See [`benchmark/README.md`](benchmark/README.md)
 for the current calibration boundary and commands.
 
-## Recent execution evidence
+## Current freeze and execution evidence
 
-The latest server-side closure run used the `equivcompiler` environment and the
-real `ReferenceExecutor`/bubblewrap path on GPU 4. The executor attestation
-passed Python boot, network blocking, read-only task mounts, writable solution
-and result mounts, hidden host/repository paths, and process cleanup. Its
-digest was `af662c55cd85178a58da083220a9348c4a7d3c24333fd0bc7badb18c93392987`.
+The authoritative cross-repository mapping is
+[`docs/EVOSPE_EVIDENCE_FREEZE_20260905.json`](docs/EVOSPE_EVIDENCE_FREEZE_20260905.json).
+The manifest SHA256 is
+`b978c74f52b0f10a1b595d84c26c84f5ba5ab8278c161fea20d7bf80ad404b0c`.
+The benchmark freeze tag targets the docs-inclusive `main` checkout; the
+manifest's `benchmark_commit` identifies the evidence-producing benchmark
+source commit. The controller and paper repositories have their own local
+freeze-tag targets, and the manifest is the cross-repository authority.
 
-An eight-cell B/D smoke (`4 tasks × 2 conditions`, reset context) completed with
-8/8 execution-valid cells, valid receipts, no resource-blocked cells, and no
-surviving processes. The worker intentionally performed no optimization patch,
-so all scientific outcomes were `inconclusive`; this run validates execution,
-store-transition, and governance plumbing only.
+The current status is:
 
-A separate three-task D restart smoke completed two mutable tasks, was
-intentionally interrupted, and resumed from the contiguous prefix. The resumed
-campaign finished 3/3 execution-valid cells with 3/3 attested receipts and
-store digest transitions, while keeping `results_claimed=false`. These artifacts
-are operator-side evidence under `RESULTS/SPE`; they do not open the empirical
-calibration gate, generate formal-50, or support an ACRE-versus-baseline claim.
+```text
+HOSTED_EFFICACY_STATUS = UNSUPPORTED
+HOSTED_FEASIBILITY_STATUS = INSUFFICIENT
+SEALED_C_D_STATUS = NOT_RUN
+RESULTS_CLAIMED = FALSE
+```
 
-## Current calibration state
+The final server verification on the frozen benchmark path was `420 passed,
+8 warnings`. The earlier full-order cleanup flake was fixed with a
+child-ready handshake rather than a fixed sleep; the targeted cleanup
+regression passed 36 tests. This verifies the repository's test and evidence
+plumbing. It does not authorize a hosted run or create an efficacy claim.
 
-The measurement-protocol v2 revision is present in the server working tree but is not
-yet a release revision. It uses a label-symmetric log-ratio median/MAD estimator,
-separates cold_start_inclusive compiler timing from steady_state CUDA timing, keeps
-raw control pairs and runtime provenance, and reports maximum deviation only as a
-diagnostic. Estimator semantics, phase separation, and provenance passed the structural
-qualification checks.
-
-A 12-session baseline-only repeatability characterization on GPU2 is recorded outside
-the repository at
-/home/workspace/lrh/RESULTS/measurement-repeatability-be752e9-gpu2/.
-Typical-noise session values remain variable for graph and crystal workloads, so
-measurement repeatability is pending. Q3 and RC8 are NO-GO; no candidate/oracle result
-is being reinterpreted and no workload or scientific threshold is being changed.
+The latest hosted feasibility evidence remains diagnostic only: the registry
+records the v1/v2/v3 progression, with current hosted feasibility
+insufficient and no sealed C/D campaign. Provider calls for the current
+freeze are zero. Hosted failures remain separate from provider-free mechanism
+evidence and from the immutable historical formal observation-boundary case.
 
 Research-process evidence is maintained outside Git under
 /home/workspace/lrh/RESULTS/RESEARCH_LEDGER.md and
 /home/workspace/lrh/RESULTS/research_ledger.jsonl. The paper source is maintained
 separately outside this repository; paper prose is not benchmark evidence.
 
-## Documentation policy
+## Documentation and repository policy
 
 Normative specifications and active workload references stay at their stable
 paths. Superseded plans, resolved integration notes, and duplicate pilot
 README files are kept under the corresponding `archive/` directory so history
 remains recoverable without creating a second current source of truth.
+
+The freeze manifest, experiment registry, claim matrix, runtime contract, and
+revision history are the current documentation entry points. Do not create
+parallel `final`, `v2`, or date-suffixed summaries for the same state. Do
+not move or delete RESULTS, checkpoints, manifests, receipts, logs, or local
+agent state merely because they are ignored by Git. The Windows
+`local_analysis/` directory is private and excluded locally; it is not a
+benchmark source and must not be staged.
 
 ## License
 
