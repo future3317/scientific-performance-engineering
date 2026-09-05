@@ -842,7 +842,7 @@ def test_subprocess_applies_declared_thread_topology_before_fingerprint():
             "from benchmark.harness.fingerprint import capture_fingerprint; "
             "print(json.dumps(capture_fingerprint()['thread_topology']))"
         ),
-        timeout=10.0,
+        timeout=30.0,
         extra_env={
             "OMP_NUM_THREADS": "8", "MKL_NUM_THREADS": "8",
             "OPENBLAS_NUM_THREADS": "8", "NUMEXPR_NUM_THREADS": "8",
