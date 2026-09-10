@@ -175,6 +175,33 @@ def test_provider_free_reserve_stress_has_no_missing_scheduled_cells():
     assert report["pressure_levels"]["tight"]["abstentions"] >= report["pressure_levels"]["slack"]["abstentions"]
 
 
+def test_provider_free_no_reserve_control_reuses_schedule_and_can_lose_cells():
+    from scripts.run_pilot_surface_experiments import run_budget_aware_reserve_stress
+
+    reserve = run_budget_aware_reserve_stress(seed=17, schedule_count=128)
+    no_reserve = run_budget_aware_reserve_stress(
+        seed=17, schedule_count=128, reserve_enabled=False,
+    )
+
+    assert no_reserve["provider_calls"] == 0
+    assert no_reserve["reserve_enabled"] is False
+    assert no_reserve["schedule_count"] == reserve["schedule_count"] == 128
+    assert no_reserve["scheduled_cells"] == reserve["scheduled_cells"]
+    assert all(
+        no_reserve["pressure_levels"][level]["optional_query_opportunities"]
+        == reserve["pressure_levels"][level]["optional_query_opportunities"]
+        for level in reserve["pressure_levels"]
+    )
+    assert all(
+        reserve["pressure_levels"][level]["missing_scheduled_cells"] == 0
+        for level in reserve["pressure_levels"]
+    )
+    assert any(
+        no_reserve["pressure_levels"][level]["missing_scheduled_cells"] > 0
+        for level in no_reserve["pressure_levels"]
+    )
+
+
 def test_condition_blind_calibration_split_has_disjoint_ids():
     from benchmark.calibration.split import build_calibration_split
 
