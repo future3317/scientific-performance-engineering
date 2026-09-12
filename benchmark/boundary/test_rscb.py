@@ -50,4 +50,3 @@ def test_matched_threshold_uses_only_calibration_coverage_and_tie_breaks_high() 
     assert threshold in RSCBConfig.default().threshold_grid
     assert model.config.theta == 0.90
     assert matched_threshold(model, [row["context"] for row in rows], target_coverage=0.0) == 0.95
-

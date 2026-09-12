@@ -23,4 +23,3 @@ def test_frontier_reports_family_seed_cluster_units() -> None:
     summary = next(row for row in report["summaries"] if row["policy"] == "rscb_default")
     assert summary["cluster_keys"] == ["family", "seed"]
     assert summary["n_clusters"] == 2
-
