@@ -72,6 +72,31 @@ def test_positive_only_baseline_does_not_read_hidden_labels() -> None:
     assert predictions == {"same": True}
 
 
+def test_acre_policy_api_uses_observed_fields_not_hidden_applicability() -> None:
+    from benchmark.boundary.baselines import predict_applicability
+
+    visible = [
+        _observation("p", 2, positive=True),
+        _observation("n", 10, positive=False),
+    ]
+    heldout = [_observation("u", 3, positive=True)]
+
+    predictions = predict_applicability("acre_full", visible, heldout, family="compile")
+
+    assert set(predictions) == {"u"}
+    assert all(not hasattr(item, "expected_applicable") for item in visible + heldout)
+
+
+def test_oracle_separation_audit_blocks_hidden_labels_from_policy_api() -> None:
+    from scripts.audit_oracle_separation import run_oracle_separation_audit
+
+    report = run_oracle_separation_audit()
+
+    assert report["status"] == "PASS"
+    assert report["provider_calls"] == 0
+    assert all(check["passed"] for check in report["checks"].values())
+
+
 def test_acre_full_requires_a_certified_counterexample() -> None:
     from benchmark.boundary.baselines import predict_applicability
 
@@ -124,6 +149,76 @@ def test_provider_free_ablation_reports_common_contract_and_components() -> None
     assert "router" in report
     assert "lifecycle" in report
     assert len(report["lifecycle"]["episodes"]) == 3
+
+
+def test_support_boundary_package_keeps_calibration_and_evaluation_separate() -> None:
+    from scripts.run_pilot_surface_experiments import run_support_boundary_package
+
+    report = run_support_boundary_package(surface_count=12, seed=7, subset_seeds=2)
+
+    assert report["provider_calls"] == 0
+    assert report["family_count"] == 11
+    assert report["layers"][-1] == "full_acre"
+    assert all(
+        row["calibration_count"] > 0 and row["evaluation_count"] > 0
+        for row in report["family_rows"]
+    )
+    assert report["counterexample_dose"]["subset_seeds"] == 2
+    assert set(report["counterexample_dose"]["summary"]) == {"0.0", "0.25", "0.5", "1.0"}
+
+
+def test_support_boundary_replication_uses_frozen_policy_artifacts() -> None:
+    from scripts.run_pilot_surface_experiments import (
+        run_support_boundary_package,
+        run_support_boundary_replication,
+    )
+
+    frozen = run_support_boundary_package(surface_count=24, seed=7, subset_seeds=1)
+    report = run_support_boundary_replication(
+        frozen,
+        surface_count=24,
+        seeds=(8,),
+    )
+
+    assert report["provider_calls"] == 0
+    assert report["policy_source"] == "frozen_support_boundary_package"
+    assert report["fit_seeds"] == []
+    assert report["replications"][0]["seed"] == 8
+    assert set(report["replications"][0]["policies"]) >= {"matched_coverage", "full_acre"}
+    full_counts = report["replications"][0]["policies"]["full_acre"]["raw_counts"]
+    assert report["replications"][0]["evaluation_context_count"] == sum(full_counts.values())
+    assert set(report["aggregate_over_seeds"]) >= {"matched_coverage", "full_acre"}
+
+
+def test_counterexample_dose_reanalysis_reports_family_conditional_risk() -> None:
+    from scripts.reanalyze_counterexample_dose import reanalyze_counterexample_dose
+
+    def row(dose: str, tp: int, fp: int) -> dict[str, object]:
+        return {
+            "dose": float(dose), "subset_seed": 0, "counterexample_count": 1,
+            "tp": tp, "fp": fp, "fn": 1, "tn": 1,
+            "unsafe_generalization_rate": fp / 12,
+            "description_length": 3,
+        }
+
+    source = {
+        "seed": 7,
+        "counterexample_dose": {"subset_seeds": 1},
+        "family_rows": [{
+            "family": "fixture",
+            "counterexample_dose": {
+                dose: {"rows": [row(dose, 10 if dose != "0.25" else 9, 0 if dose != "0.25" else 1)]}
+                for dose in ("0.0", "0.25", "0.5", "1.0")
+            },
+        }],
+    }
+
+    report = reanalyze_counterexample_dose(source)
+
+    assert report["family_count"] == 1
+    assert report["risk_25_minus_risk_100"]["non_increasing_family_count"] == 1
+    assert report["families"][0]["doses"]["0.25"]["mean_coverage"] == 10 / 12
+    assert report["family_cluster_unsafe_rate_all_contexts"]["0.25"]["family_count"] == 1
 
 
 def test_relation_metrics_separate_coverage_from_resolved_accuracy() -> None:
