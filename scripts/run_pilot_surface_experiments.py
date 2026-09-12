@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import random
+import math
 from statistics import median
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from benchmark.boundary.families import family_cases, run_boundary_family
-from benchmark.boundary.baselines import predict_applicability
+from benchmark.boundary.baselines import (
+    _distance,
+    _grammar_for,
+    _shortest_positive_rule,
+    _workload,
+    predict_applicability,
+)
 from benchmark.boundary.evaluator import evaluate_applicability
 from benchmark.families import PILOT_FAMILIES, validate_cross_view_consistency
 from benchmark.harness.evolution import run_episode
@@ -27,6 +34,9 @@ from benchmark.interaction.factorial_bench import run_family_factorial_benchmark
 from benchmark.interaction.router_bench import run_router_benchmark
 from core.acre.acquisition import AcquisitionPolicy, AcquisitionQuery, evaluate_trajectory, run_acquisition
 from core.acre.decision_probe import decision_sensitivity_callback
+from core.acre.cegis import StatisticalCEGIS
+from core.acre.predicates import predicate_complexity
+from core.predicates import match_predicate
 
 
 METHOD_POLICIES = [
@@ -324,6 +334,401 @@ def run_budget_aware_ablation(*, root: Path | None = None, seed: int = 7) -> dic
     }
 
 
+def _zero_event_upper_95(n: int) -> float | None:
+    """One-sided exact 95% upper bound for zero events in ``n`` trials."""
+    return 1.0 - math.pow(0.05, 1.0 / n) if n else None
+
+
+def _support_split(family: str, *, surface_count: int, seed: int) -> dict[str, Any]:
+    pools = family_cases(family, surface_count=surface_count, seed=seed)
+    evidence = list(pools["representative_pool"]) + list(pools["active_query_pool"])
+    sealed = list(pools["sealed_boundary_pool"])
+    # The first half is a calibration context set used only to choose the
+    # matched-coverage threshold; the second half is never consulted until
+    # final policy evaluation.
+    calibration = sealed[::2]
+    evaluation = sealed[1::2]
+    return {
+        "evidence": evidence,
+        "calibration": calibration,
+        "evaluation": evaluation,
+    }
+
+
+def _positive_similarity(observation: Any, positives: list[Any]) -> float:
+    if not positives:
+        return 0.0
+    return max(
+        1.0 / (1.0 + _distance(_workload(anchor), _workload(observation)))
+        for anchor in positives
+    )
+
+
+def _matched_positive_threshold(
+    evidence: list[Any], calibration: list[Any], *, family: str,
+) -> tuple[float, float, dict[str, Any] | None]:
+    positives = [item for item in evidence if item.positive_anchor()]
+    full_calibration = predict_applicability(
+        "acre_full", evidence, calibration, family=family,
+    )
+    target_coverage = sum(full_calibration.values()) / len(calibration) if calibration else 0.0
+    scores = [_positive_similarity(item, positives) for item in calibration]
+    candidates = sorted(set(scores + [0.0, 1.0]))
+    threshold = min(
+        candidates,
+        key=lambda value: (
+            abs(sum(score >= value for score in scores) / len(scores) - target_coverage)
+            if scores else abs(target_coverage),
+            -value,
+        ),
+    )
+    return threshold, target_coverage, full_calibration
+
+
+def _matched_positive_predictions(
+    evidence: list[Any], contexts: list[Any], threshold: float,
+) -> dict[str, bool]:
+    positives = [item for item in evidence if item.positive_anchor()]
+    return {
+        item.observation_id: _positive_similarity(item, positives) >= threshold
+        for item in contexts
+    }
+
+
+def _synthesized_predicate(
+    positives: list[Any], counterexamples: list[Any], family: str,
+) -> tuple[dict[str, Any] | None, int | None]:
+    synthesis = StatisticalCEGIS(_grammar_for(family)).synthesize(
+        positive=positives,
+        counterexamples=counterexamples,
+        parent_predicate=None,
+    )
+    if synthesis.predicate is None:
+        return None, None
+    return synthesis.predicate, int(predicate_complexity(synthesis.predicate)["description_length"])
+
+
+def _family_cluster_mean(rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+    values = [float(row[key]) for row in rows if row[key] is not None]
+    return _bootstrap_mean(values, seed=7919 + len(key))
+
+
+def run_support_boundary_package(
+    *, surface_count: int = 100, seed: int = 7, subset_seeds: int = 10,
+) -> dict[str, Any]:
+    """Run provider-free evidence-layer, matched-coverage, and CE-dose analyses."""
+    if surface_count < 12:
+        raise ValueError("surface_count must be at least 12")
+    layers = {
+        "activation_only": "always_apply",
+        "global_utility_only": "shortest_without_counterexamples",
+        "typed_applicability_only": "untyped_positive_summary",
+        "positive_anchor_only_no_counterexample": "observed_positive_only",
+        "nearest_experience": "nearest_experience",
+        "full_acre": "acre_full",
+    }
+    layer_rows: dict[str, list[dict[str, Any]]] = {name: [] for name in layers}
+    family_rows: list[dict[str, Any]] = []
+    dose_rows: dict[str, list[dict[str, Any]]] = {str(dose): [] for dose in (0.0, 0.25, 0.5, 1.0)}
+
+    for family_index, family in enumerate(PILOT_FAMILIES):
+        split = _support_split(family, surface_count=surface_count, seed=seed)
+        evidence = split["evidence"]
+        calibration = split["calibration"]
+        evaluation = split["evaluation"]
+        truth = {item.observation_id: item.expected_applicable for item in evaluation}
+        family_record: dict[str, Any] = {
+            "family": family,
+            "evidence_count": len(evidence),
+            "calibration_count": len(calibration),
+            "evaluation_count": len(evaluation),
+            "layers": {},
+            "matched_coverage": {},
+            "counterexample_dose": {},
+            "frozen_policy": {},
+        }
+        for name, policy in layers.items():
+            predictions = predict_applicability(policy, evidence, evaluation, family=family)
+            metrics = evaluate_applicability(predictions, truth)
+            family_record["layers"][name] = metrics
+            layer_rows[name].append({"family": family, **metrics})
+
+        threshold, target_coverage, calibration_predictions = _matched_positive_threshold(
+            evidence, calibration, family=family,
+        )
+        matched_predictions = _matched_positive_predictions(evidence, evaluation, threshold)
+        matched_metrics = evaluate_applicability(matched_predictions, truth)
+        family_record["matched_coverage"] = {
+            "threshold": threshold,
+            "calibration_target_coverage": target_coverage,
+            "calibration_predicted_count": sum(calibration_predictions.values()),
+            "calibration_count": len(calibration),
+            "evaluation": matched_metrics,
+        }
+
+        positives = [item for item in evidence if item.positive_anchor()]
+        counterexamples = [item for item in evidence if item.certified_counterexample()]
+        full_synthesis = StatisticalCEGIS(_grammar_for(family)).synthesize(
+            positive=positives,
+            counterexamples=counterexamples,
+            parent_predicate=None,
+        )
+        global_predicate = _shortest_positive_rule(positives, family)
+        family_record["frozen_policy"] = {
+            "full_acre_predicate": full_synthesis.predicate,
+            "global_utility_predicate": global_predicate,
+            "matched_positive_threshold": threshold,
+            "positive_contexts": [dict(item.context) for item in positives],
+            "observed_contexts": [
+                {"context": dict(item.context), "positive": bool(item.positive_anchor())}
+                for item in evidence
+            ],
+        }
+        for dose in (0.0, 0.25, 0.5, 1.0):
+            per_family: list[dict[str, Any]] = []
+            for subset_seed in range(subset_seeds):
+                rng = random.Random(seed * 100000 + family_index * 1000 + subset_seed)
+                count = round(dose * len(counterexamples))
+                selected = sorted(
+                    rng.sample(counterexamples, count) if count else [],
+                    key=lambda item: item.observation_id,
+                )
+                predicate, description_length = _synthesized_predicate(
+                    positives, selected, family,
+                )
+                predictions = {
+                    item.observation_id: bool(predicate and match_predicate(predicate, item.context))
+                    for item in evaluation
+                }
+                metrics = evaluate_applicability(predictions, truth)
+                row = {
+                    "family": family,
+                    "subset_seed": subset_seed,
+                    "dose": dose,
+                    "counterexample_count": count,
+                    "description_length": description_length,
+                    **metrics,
+                }
+                per_family.append(row)
+                dose_rows[str(dose)].append(row)
+            family_record["counterexample_dose"][str(dose)] = {
+                "subset_seeds": subset_seeds,
+                "family_cluster": {
+                    metric: _family_cluster_mean(per_family, metric)
+                    for metric in ("unsafe_generalization_rate", "recall", "abstention_rate", "description_length")
+                },
+                "rows": per_family,
+            }
+        family_rows.append(family_record)
+
+    raw_counts: dict[str, Any] = {}
+    for name, rows in layer_rows.items():
+        raw_counts[name] = {
+            metric: sum(int(row[metric]) for row in rows)
+            for metric in ("tp", "fp", "fn", "tn")
+        }
+        counts = raw_counts[name]
+        total = sum(counts.values())
+        raw_counts[name].update({
+            "n": total,
+            "coverage_n": counts["tp"] + counts["fp"],
+            "unsupported_n": counts["fp"],
+            "unsupported_upper_95_if_zero": _zero_event_upper_95(counts["fp"] + counts["tp"]) if counts["fp"] == 0 else None,
+        })
+    dose_summary: dict[str, Any] = {}
+    for dose, rows in dose_rows.items():
+        pooled = {
+            metric: sum(int(row[metric]) for row in rows)
+            for metric in ("tp", "fp", "fn", "tn")
+        }
+        total = sum(pooled.values())
+        family_means = []
+        for family in PILOT_FAMILIES:
+            family_subset = [row for row in rows if row["family"] == family]
+            def mean_metric(metric: str) -> float | None:
+                values = [float(row[metric]) for row in family_subset if row[metric] is not None]
+                return sum(values) / len(values) if values else None
+            family_means.append({
+                "family": family,
+                **{
+                    metric: mean_metric(metric)
+                    for metric in ("unsafe_generalization_rate", "recall", "abstention_rate", "description_length")
+                },
+            })
+        dose_summary[dose] = {
+            "subset_seeds": subset_seeds,
+            "runs": len(rows),
+            "pooled_counts": {**pooled, "n": total, "coverage_n": pooled["tp"] + pooled["fp"], "unsupported_n": pooled["fp"]},
+            "pooled_unsupported_upper_95_if_zero": _zero_event_upper_95(pooled["tp"] + pooled["fp"]) if pooled["fp"] == 0 else None,
+            "family_cluster_means": {
+                metric: _bootstrap_mean(
+                    [row[metric] for row in family_means if row[metric] is not None],
+                    seed=9000 + len(metric),
+                )
+                for metric in ("unsafe_generalization_rate", "recall", "abstention_rate", "description_length")
+            },
+        }
+    return {
+        "schema_version": 1,
+        "provider_calls": 0,
+        "analysis": "context_indexed_support_boundary_mechanism",
+        "surface_count": surface_count,
+        "family_count": len(PILOT_FAMILIES),
+        "families": list(PILOT_FAMILIES),
+        "seed": seed,
+        "split": "family evidence and calibration contexts are used for fitting/threshold selection; untouched evaluation contexts are used for final metrics",
+        "layers": list(layers),
+        "raw_counts": raw_counts,
+        "layer_family_rows": layer_rows,
+        "family_rows": family_rows,
+        "matched_coverage": {
+            "baseline": "positive-anchor similarity using calibration-selected threshold",
+            "evaluation_family_cluster": {
+                metric: _bootstrap_mean(
+                    [row["matched_coverage"]["evaluation"][metric] for row in family_rows if row["matched_coverage"]["evaluation"][metric] is not None],
+                    seed=12000 + len(metric),
+                )
+                for metric in ("unsafe_generalization_rate", "recall", "abstention_rate")
+            },
+        },
+        "counterexample_dose": {
+            "doses": [0.0, 0.25, 0.5, 1.0],
+            "subset_seeds": subset_seeds,
+            "summary": dose_summary,
+        },
+        "interpretation": "provider-free mechanism evidence; no hosted efficacy claim",
+    }
+
+
+def _context_workload(context: dict[str, Any]) -> dict[str, Any]:
+    workload = context.get("workload")
+    return workload if isinstance(workload, dict) else context
+
+
+def _frozen_positive_similarity(context: dict[str, Any], positive_contexts: list[dict[str, Any]]) -> float:
+    if not positive_contexts:
+        return 0.0
+    return max(
+        1.0 / (1.0 + _distance(_context_workload(anchor), _context_workload(context)))
+        for anchor in positive_contexts
+    )
+
+
+def _replication_policy_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = sum(int(row["metrics"]["tp"]) + int(row["metrics"]["fp"]) + int(row["metrics"]["fn"]) + int(row["metrics"]["tn"]) for row in rows)
+    unsupported = sum(int(row["metrics"]["fp"]) for row in rows)
+    return {
+        "raw_counts": {
+            metric: sum(int(row["metrics"][metric]) for row in rows)
+            for metric in ("tp", "fp", "fn", "tn")
+        },
+        "unsupported_all": unsupported / total if total else 0.0,
+        "family_cluster": {
+            metric: _bootstrap_mean(
+                [float(row["metrics"][metric]) for row in rows if row["metrics"][metric] is not None],
+                seed=14000 + len(metric),
+            )
+            for metric in ("unsafe_generalization_rate", "recall", "abstention_rate")
+        },
+    }
+
+
+def run_support_boundary_replication(
+    frozen_package: dict[str, Any], *, surface_count: int = 100, seeds: tuple[int, ...] = (8, 9, 10, 11, 12),
+) -> dict[str, Any]:
+    """Evaluate frozen policies on new contexts without refitting or relabeling."""
+    if not seeds:
+        raise ValueError("at least one replication seed is required")
+    frozen_by_family = {row["family"]: row["frozen_policy"] for row in frozen_package["family_rows"]}
+    policies = ("activation", "global_utility_no_ce", "nearest", "matched_coverage", "full_acre")
+    replications: list[dict[str, Any]] = []
+    for seed in seeds:
+        family_rows: dict[str, list[dict[str, Any]]] = {policy: [] for policy in policies}
+        for family in PILOT_FAMILIES:
+            frozen = frozen_by_family[family]
+            sealed = family_cases(family, surface_count=surface_count, seed=seed)["sealed_boundary_pool"]
+            evaluation = sorted(
+                sealed[1::2],
+                key=lambda item: item.observation_id,
+            )
+            truth = {item.observation_id: item.expected_applicable for item in evaluation}
+            for policy in policies:
+                predictions: dict[str, bool] = {}
+                for item in evaluation:
+                    if policy == "activation":
+                        predictions[item.observation_id] = True
+                    elif policy == "global_utility_no_ce":
+                        predicate = frozen["global_utility_predicate"]
+                        predictions[item.observation_id] = bool(predicate and match_predicate(predicate, item.context))
+                    elif policy == "full_acre":
+                        predicate = frozen["full_acre_predicate"]
+                        predictions[item.observation_id] = bool(predicate and match_predicate(predicate, item.context))
+                    elif policy == "matched_coverage":
+                        predictions[item.observation_id] = _frozen_positive_similarity(
+                            item.context,
+                            frozen["positive_contexts"],
+                        ) >= float(frozen["matched_positive_threshold"])
+                    else:
+                        candidates = frozen["observed_contexts"]
+                        nearest = min(
+                            candidates,
+                            key=lambda candidate: (
+                                _distance(_context_workload(candidate["context"]), _context_workload(item.context)),
+                                json.dumps(candidate["context"], sort_keys=True),
+                            ),
+                        )
+                        predictions[item.observation_id] = bool(nearest["positive"])
+                family_rows[policy].append({
+                    "family": family,
+                    "seed": seed,
+                    "metrics": evaluate_applicability(predictions, truth),
+                })
+        replications.append({
+            "seed": seed,
+            "evaluation_context_count": sum(
+                int(row["metrics"]["tp"])
+                + int(row["metrics"]["fp"])
+                + int(row["metrics"]["fn"])
+                + int(row["metrics"]["tn"])
+                for row in family_rows["full_acre"]
+            ),
+            "policies": {
+                policy: _replication_policy_summary(rows)
+                for policy, rows in family_rows.items()
+            },
+            "family_rows": family_rows,
+        })
+    aggregate_over_seeds: dict[str, Any] = {}
+    for policy in policies:
+        raw_counts = {
+            metric: sum(
+                int(replication["policies"][policy]["raw_counts"][metric])
+                for replication in replications
+            )
+            for metric in ("tp", "fp", "fn", "tn")
+        }
+        total = sum(raw_counts.values())
+        seed_risks = [float(replication["policies"][policy]["unsupported_all"]) for replication in replications]
+        aggregate_over_seeds[policy] = {
+            "raw_counts": raw_counts,
+            "unsupported_all": raw_counts["fp"] / total if total else 0.0,
+            "seed_level_unsupported_all": _bootstrap_mean(seed_risks, seed=15000 + len(policy)),
+        }
+    return {
+        "schema_version": 1,
+        "provider_calls": 0,
+        "analysis": "frozen_support_boundary_replication",
+        "policy_source": "frozen_support_boundary_package",
+        "source_seed": frozen_package["seed"],
+        "fit_seeds": [],
+        "surface_count": surface_count,
+        "seeds": list(seeds),
+        "replications": replications,
+        "aggregate_over_seeds": aggregate_over_seeds,
+        "interpretation": "provider-free frozen-policy replication; no hosted efficacy claim",
+    }
+
+
 def run_budget_aware_reserve_stress(
     *, seed: int = 7, schedule_count: int = 256, reserve_enabled: bool = True,
 ) -> dict[str, Any]:
@@ -466,11 +871,15 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=root / "benchmark" / "pilot_surface_report.json")
     parser.add_argument("--method-efficacy-only", action="store_true")
     parser.add_argument("--component-ablation", action="store_true")
+    parser.add_argument("--support-boundary-package", action="store_true")
+    parser.add_argument("--support-boundary-replication", action="store_true")
+    parser.add_argument("--frozen-support-boundary", type=Path)
+    parser.add_argument("--replication-seeds", default="8,9,10,11,12")
     parser.add_argument("--budget-aware-ablation", action="store_true")
     parser.add_argument("--budget-aware-stress", action="store_true")
     parser.add_argument("--budget-aware-no-reserve", action="store_true")
     args = parser.parse_args()
-    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.budget_aware_ablation, args.budget_aware_stress, args.budget_aware_no_reserve))
+    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.support_boundary_package, args.support_boundary_replication, args.budget_aware_ablation, args.budget_aware_stress, args.budget_aware_no_reserve))
     if selected_modes > 1:
         parser.error("provider-free experiment modes are mutually exclusive")
     if args.budget_aware_stress:
@@ -481,6 +890,18 @@ def main() -> int:
         report = run_budget_aware_ablation(root=root, seed=args.seed)
     elif args.component_ablation:
         report = run_provider_free_ablation(root=root, surface_count=args.surface_count, seed=args.seed)
+    elif args.support_boundary_package:
+        report = run_support_boundary_package(surface_count=args.surface_count, seed=args.seed)
+    elif args.support_boundary_replication:
+        if args.frozen_support_boundary is None:
+            parser.error("--support-boundary-replication requires --frozen-support-boundary")
+        frozen = json.loads(args.frozen_support_boundary.read_text(encoding="utf-8"))
+        seeds = tuple(int(value) for value in args.replication_seeds.split(",") if value.strip())
+        report = run_support_boundary_replication(
+            frozen,
+            surface_count=args.surface_count,
+            seeds=seeds,
+        )
     elif args.method_efficacy_only:
         report = run_method_efficacy(surface_count=args.surface_count, seed=args.seed)
     else:
