@@ -41,4 +41,3 @@ def test_pairwise_conflict_rejects_superset_even_with_higher_order_flag() -> Non
     )
     assert len(decision.selected_rule_ids) < 3
     assert any("hard_conflict" in reasons for reasons in decision.rejected_reasons.values())
-

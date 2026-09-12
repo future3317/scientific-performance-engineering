@@ -28,4 +28,3 @@ def test_blocking_reason_has_registered_precedence() -> None:
     assert first_blocking_reason(["R", "S", "A"]) == "A"
     assert first_blocking_reason(["R", "S"]) == "S"
     assert first_blocking_reason([]) is None
-

@@ -33,4 +33,3 @@ def test_static_gate_never_reads_hidden_context_or_effect_fields() -> None:
         "expected_applicable": False,
     })
     assert contaminated == clean
-
