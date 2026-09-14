@@ -194,6 +194,23 @@ Research-process evidence is maintained outside Git under
 /home/workspace/lrh/RESULTS/research_ledger.jsonl. The paper source is maintained
 separately outside this repository; paper prose is not benchmark evidence.
 
+## Public ACRE treatment revision
+
+The revision `public-acre-treatment-20260915-v1` adds a pinned public fixed-skill
+audit and a bounded sequential ScienceWorld treatment. The audit covers 266
+held-out instances from ScienceWorld, Mind2Web, ToolBench, and MCP-Bench under
+one DeepSeek configuration. Global and semantic reuse cover all instances; the
+strict ACRE policy abstains because the generic intervention has no train-side
+positive-and-no-harm support group. This is an external boundary diagnostic,
+not SkillGen-generation efficacy.
+
+The sequential A/C/D calibration covers 24 ScienceWorld tasks and is
+observation-complete. C has mean gain `0.0908645` with 1/24 negative-transfer
+task; D has mean gain `0.1884443` with 0/24; paired D-C is `0.0975798` with
+bootstrap 95% interval `[0.0533120, 0.1434263]`. The result is bounded to this
+benchmark/model stream and does not open a sealed multi-benchmark efficacy
+claim. See [`docs/public_acre_treatment_completion_report.md`](docs/public_acre_treatment_completion_report.md).
+
 ## Documentation policy
 
 Normative specifications and active workload references stay at their stable
