@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import importlib.util
+import importlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -68,13 +69,11 @@ def grade_output(skillgen_root: str | Path, benchmark: str, output: str, instanc
     module_path = root / "benchmarks" / f"{benchmark}_grader.py"
     if not module_path.is_file():
         raise FileNotFoundError(f"SkillGen grader not found: {module_path}")
-    spec = importlib.util.spec_from_file_location(f"skillgen_{benchmark}_grader", module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load grader: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    root_text = str(root)
+    if root_text not in sys.path:
+        sys.path.insert(0, root_text)
+    module = importlib.import_module(f"benchmarks.{benchmark}_grader")
     function = getattr(module, f"evaluate_{benchmark}_output", None)
     if function is None:
         raise AttributeError(f"grader lacks evaluate_{benchmark}_output")
     return dict(function(output, instance.get("metadata") or {}))
-
