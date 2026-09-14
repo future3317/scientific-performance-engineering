@@ -15,6 +15,16 @@ def _decision(row: dict[str, Any], policy_name: str) -> dict[str, Any]:
     return dict(decisions[policy_name])
 
 
+def _executed(decision: dict[str, Any]) -> bool:
+    """Whether the condition produced an evaluated outcome.
+
+    Treatment controls such as A execute without reusing a skill; they carry
+    ``executed=true`` while ``reuse=false`` so deployment coverage is not
+    confused with control-arm observation coverage.
+    """
+    return bool(decision.get("executed", decision.get("reuse", False)))
+
+
 def _delta(row: dict[str, Any]) -> float:
     return float(row["skill_score"]) - float(row["baseline_score"])
 
@@ -34,15 +44,15 @@ def _bootstrap_mean(values: list[float], seed: int, reps: int) -> tuple[float, f
 
 def summarize_policy(rows: Iterable[dict[str, Any]], policy_name: str) -> dict[str, Any]:
     rows = list(rows)
-    deployed = [row for row in rows if bool(_decision(row, policy_name).get("reuse", False))]
+    deployed = [row for row in rows if _executed(_decision(row, policy_name))]
     unsupported = [row for row in deployed if _delta(row) < 0.0]
     repairs = [row for row in rows if _delta(row) > 0.0]
-    retained_repairs = [row for row in repairs if bool(_decision(row, policy_name).get("reuse", False))]
+    retained_repairs = [row for row in repairs if _executed(_decision(row, policy_name))]
     regret = []
     for row in rows:
         baseline = float(row["baseline_score"])
         skill = float(row["skill_score"])
-        chosen = skill if bool(_decision(row, policy_name).get("reuse", False)) else baseline
+        chosen = skill if _executed(_decision(row, policy_name)) else baseline
         regret.append(max(baseline, skill) - chosen)
     return {
         "policy": policy_name,
@@ -94,7 +104,7 @@ def evaluate_paired_rows(
         for row in rows:
             baseline = float(row["baseline_score"])
             skill = float(row["skill_score"])
-            chosen = skill if bool(_decision(row, policy_name).get("reuse", False)) else baseline
+            chosen = skill if _executed(_decision(row, policy_name)) else baseline
             regret_values.append(max(baseline, skill) - chosen)
         _, low, high = _bootstrap_mean(regret_values, bootstrap_seed, bootstrap_reps)
         overall["bootstrap"] = {"support_decision_regret": {"low": low, "high": high}}
@@ -110,4 +120,3 @@ def evaluate_paired_rows(
         "macro_cells": len(cells),
         "macro": {name: _macro(values) for name, values in cell_summaries.items()},
     }
-

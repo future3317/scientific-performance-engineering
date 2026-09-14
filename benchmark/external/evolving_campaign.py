@@ -136,7 +136,7 @@ def run_sequential_campaign(
             "baseline_score": baseline_score,
             "skill_score": condition_score,
             "measurement_reached": True,
-            "policy_decisions": {condition: decision.to_dict()},
+            "policy_decisions": {condition: {**decision.to_dict(), "executed": True}},
             "delta": delta,
         }
         rows.append(row)
