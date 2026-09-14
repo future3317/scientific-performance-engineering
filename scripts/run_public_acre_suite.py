@@ -146,6 +146,7 @@ def _make_decision(run_id: str, benchmark: str, index: int, instance: dict[str, 
 def run_benchmark(args: argparse.Namespace, benchmark: str, out_dir: Path) -> dict[str, Any]:
     root = Path(args.skillgen_root).resolve()
     skill_text = SKILLS[benchmark]
+    out_dir.mkdir(parents=True, exist_ok=True)
     skill_path = out_dir / f"{benchmark}.skill.txt"
     skill_path.write_text(skill_text + "\n", encoding="utf-8")
     train = _load(root / "data" / benchmark / "train.json", args.train_n, args.seed)
