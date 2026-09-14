@@ -58,7 +58,7 @@ def reproject_benchmark(args: argparse.Namespace, benchmark: str, out_dir: Path)
     source_rows = {str(row["instance_id"]): row for row in source["rows"]}
     test = _load(root / "data" / benchmark / "test.json", None, args.seed + 1)
     test = [row for row in test if str(row["instance_id"]) in source_rows]
-    train = _load(root / "data" / benchmark / "train.json", args.train_n, args.seed)
+    train = _load(root / "data" / benchmark / "train.json", None if args.all_train else args.train_n, args.seed)
     client = OpenAI(api_key=os.environ["MP_API_KEY"], base_url=os.environ["DEEPSEEK_BASE_URL"], timeout=120.0)
     skill_text = SKILLS[benchmark]
     train_deltas: dict[str, list[float]] = {}
@@ -112,6 +112,7 @@ def reproject_benchmark(args: argparse.Namespace, benchmark: str, out_dir: Path)
         "outcome_reuse": "paired held-out outcomes reused; only train-side support evidence reacquired",
         "skill_text_sha256": _digest(skill_text),
         "train_instances": [x["instance_id"] for x in train],
+        "train_calibration_mode": "full_split" if args.all_train else "subsample",
         "test_instances": [x["instance_id"] for x in test],
         "public_context_fields": source["public_context_fields"],
         "scoring_only_fields": sorted(SCORING_ONLY_FIELDS),
@@ -134,6 +135,7 @@ def main() -> int:
     parser.add_argument("--skillgen-commit", required=True)
     parser.add_argument("--model", default="deepseek-v4-flash")
     parser.add_argument("--train-n", type=int, default=12)
+    parser.add_argument("--all-train", action="store_true")
     parser.add_argument("--max-tokens", type=int, default=768)
     parser.add_argument("--seed", type=int, default=20260915)
     parser.add_argument("--revision", default="public-acre-skillgen-suite-20260915-v2")
@@ -150,6 +152,7 @@ def main() -> int:
         "skillgen_commit": args.skillgen_commit,
         "model": args.model,
         "train_n": args.train_n,
+        "train_calibration_mode": "full_split" if args.all_train else "subsample",
         "seed": args.seed,
         "max_tokens": args.max_tokens,
         "new_provider_calls": sum(r["provider_calls"] for r in reports.values()),
