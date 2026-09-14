@@ -47,3 +47,16 @@ support an external context-indexed support claim. It is not by itself a
 prospective hosted-agent efficacy result; an unavailable provider, incomplete
 skill verification, or missing held-out split produces `status=blocked` and no
 efficacy claim.
+
+## Calibration artifact (2026-09-14)
+
+The first provider-backed calibration uses DeepSeek `deepseek-v4-flash` with
+temperature `0` and provider thinking disabled so that the plan is returned in
+the public response channel. It uses the fixed intervention in
+`docs/skillgen_scienceworld_fixed_skill_v1.md`, 12 train instances, and 12
+disjoint test instances. The resulting artifact is
+`results/skillgen_external_calibration_20260914_r2.json` with its companion
+manifest. It is a protocol-readiness/calibration result, not the original
+SkillGen verification protocol, not a sealed treatment comparison, and not an
+efficacy claim. Its scoring uses deterministic key-action coverage; gold
+actions and outcomes are joined only after routing and paired plan generation.
