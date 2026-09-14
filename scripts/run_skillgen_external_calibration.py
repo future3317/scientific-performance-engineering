@@ -69,6 +69,7 @@ def _chat(client: OpenAI, model: str, prompt: str, *, max_tokens: int) -> tuple[
         ],
         temperature=0.0,
         max_tokens=max_tokens,
+        extra_body={"thinking": {"type": "disabled"}},
     )
     content = response.choices[0].message.content or ""
     usage = getattr(response, "usage", None)

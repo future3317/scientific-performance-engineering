@@ -46,7 +46,7 @@ def build_router_prompt(context: Mapping[str, Any], skill_text: str, router_vers
 
 
 class _OpenAICompatibleClient:
-    def __init__(self, api_key: str, base_url: str, timeout: float = 180.0):
+    def __init__(self, api_key: str, base_url: str, *, disable_thinking: bool = False, timeout: float = 180.0):
         try:
             from openai import OpenAI
         except ImportError as exc:  # pragma: no cover - environment-specific
@@ -56,9 +56,10 @@ class _OpenAICompatibleClient:
             api_key=api_key,
             timeout=float(timeout),
         )
+        self._disable_thinking = disable_thinking
 
     def decide(self, prompt: str, model: str) -> dict[str, Any]:
-        response = self._client.chat.completions.create(
+        request = dict(
             model=model,
             messages=[
                 {"role": "system", "content": "You are a deterministic semantic applicability router."},
@@ -67,6 +68,9 @@ class _OpenAICompatibleClient:
             temperature=0.0,
             response_format={"type": "json_object"},
         )
+        if self._disable_thinking:
+            request["extra_body"] = {"thinking": {"type": "disabled"}}
+        response = self._client.chat.completions.create(**request)
         raw = response.choices[0].message.content or "{}"
         result = json.loads(raw)
         usage = getattr(response, "usage", None)
@@ -120,7 +124,7 @@ class SemanticRouter:
             base_url = "https://openrouter.ai/api/v1"
         if not api_key:
             raise RuntimeError("provider credentials required for semantic router")
-        self.client = _OpenAICompatibleClient(api_key, base_url)
+        self.client = _OpenAICompatibleClient(api_key, base_url, disable_thinking=self.provider == "deepseek")
         return self.client
 
     def _save(self) -> None:
