@@ -9,10 +9,10 @@ from benchmark.boundary.typed_features import TypedFeatureSchema
 
 def _rows() -> tuple[list[dict], list[dict], TypedFeatureSchema]:
     contexts = [
-        {"workload": {"n": 1, "difficulty_tier": "easy"}},
-        {"workload": {"n": 2, "difficulty_tier": "easy"}},
-        {"workload": {"n": 8, "difficulty_tier": "hard"}},
-        {"workload": {"n": 9, "difficulty_tier": "hard"}},
+        {"workload": {"logical_steps": 64, "dynamic_shape_rate": 0.0, "graph_size": 64}},
+        {"workload": {"logical_steps": 128, "dynamic_shape_rate": 0.0, "graph_size": 128}},
+        {"workload": {"logical_steps": 192, "dynamic_shape_rate": 0.6, "graph_size": 256}},
+        {"workload": {"logical_steps": 192, "dynamic_shape_rate": 0.6, "graph_size": 320}},
     ]
     schema = TypedFeatureSchema.from_calibration("compile", contexts)
     synthesis = [
@@ -43,8 +43,8 @@ def test_tree_policy_is_deterministic_and_does_not_accept_evaluation_rows():
     first = fit_cart_policy(synthesis, calibration, schema, max_depth=2, seed=11)
     second = fit_cart_policy(synthesis, calibration, schema, max_depth=2, seed=11)
     contexts = [
-        {"workload": {"n": 1, "difficulty_tier": "easy"}},
-        {"workload": {"n": 9, "difficulty_tier": "hard"}},
+        {"workload": {"logical_steps": 64, "dynamic_shape_rate": 0.0, "graph_size": 64}},
+        {"workload": {"logical_steps": 192, "dynamic_shape_rate": 0.6, "graph_size": 320}},
     ]
     assert [first.decide(c) for c in contexts] == [second.decide(c) for c in contexts]
     with pytest.raises(TypeError):
