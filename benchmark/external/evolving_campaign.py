@@ -75,6 +75,7 @@ def run_sequential_campaign(
     agent_call: Callable[[str, dict[str, Any], str], tuple[str, dict[str, Any]]],
     score_call: Callable[[str, dict[str, Any]], float],
     minimum_effect: float = 0.05,
+    initial_skill_content: str | None = None,
 ) -> dict[str, Any]:
     condition = str(condition).upper()
     if condition not in {"A", "C", "D"}:
@@ -83,11 +84,21 @@ def run_sequential_campaign(
     out_dir = Path(out_dir)
     ledger = DecisionLedger(out_dir / "decision_ledger.jsonl")
     versions = SkillVersionStore(out_dir / "skill_versions.jsonl")
-    raw_experiences: list[str] = []
+    raw_experiences: list[str] = [str(initial_skill_content)] if initial_skill_content else []
     effects: list[float] = []
     rows: list[dict[str, Any]] = []
     usage: list[dict[str, Any]] = []
     current_skill: SkillVersion | None = None
+    if condition == "D" and initial_skill_content:
+        current_skill = versions.create(
+            parent_id=None,
+            task_index=-1,
+            content=str(initial_skill_content),
+            evidence_ids=("initial-verified-skill",),
+            certificate={"status": "verified_snapshot", "source": "protocol_input"},
+            provenance={"policy": "shared_v0", "revision": "public-acre-treatment-20260915-v1"},
+            version_id="skill-v0",
+        )
     for index, task in enumerate(tasks):
         context = dict(task.get("metadata") or {})
         decision = decision_for_condition(condition, context, raw_experiences, current_skill)
@@ -148,10 +159,15 @@ def run_sequential_campaign(
                 )
                 candidate_delta = float(score_call(candidate_output, task)) - baseline_score
                 usage.append(dict(candidate_usage, stage="evolution_acquisition"))
+            candidate_content = (
+                current_skill.content + "\n\n## Newly observed successful pattern\n" + condition_output[:1200]
+                if current_skill is not None
+                else baseline_output[:4000]
+            )
             candidate = promote_candidate(
                 versions,
                 task_index=index,
-                content=(current_skill.content if current_skill is not None else baseline_output[:4000]),
+                content=candidate_content,
                 evidence_ids=(record.decision_id,),
                 prior_effects=effects,
                 current_effect=candidate_delta,
