@@ -7,10 +7,10 @@ def test_repeated_observation_has_a_non_degenerate_interval() -> None:
     observation = repeated_observation(
         observation_id="x",
         context={"workload": {"x": 1}},
-        effect=0.4,
+        effect=0.9,
         gate_passed=True,
         seed=3,
-        repetitions=5,
+        repetitions=20,
         noise_scale=0.01,
         delta=0.05,
     )

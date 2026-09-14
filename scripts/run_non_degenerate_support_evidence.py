@@ -134,7 +134,7 @@ def run(*, surface_count: int, generator_seeds: tuple[int, ...], repetitions: in
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--surface-count", type=int, default=64)
-    parser.add_argument("--repetitions", type=int, default=5)
+    parser.add_argument("--repetitions", type=int, default=20)
     parser.add_argument("--noise-scale", type=float, default=0.01)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -147,4 +147,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
