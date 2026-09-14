@@ -48,6 +48,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             agent_call=agent_call,
             score_call=score_call,
             minimum_effect=args.minimum_effect,
+            initial_skill_content=args.initial_skill_content,
         )
         (condition_dir / "campaign.json").write_text(json.dumps(artifacts[condition], indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -86,6 +87,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", type=Path, required=True)
+    parser.add_argument("--initial-skill", type=Path, required=True)
     parser.add_argument("--skillgen-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--api-key", default=None)
@@ -102,6 +104,7 @@ def main() -> int:
     args.api_key = args.api_key or os.environ["MP_API_KEY"]
     args.base_url = args.base_url or os.environ["DEEPSEEK_BASE_URL"]
     args.out.mkdir(parents=True, exist_ok=True)
+    args.initial_skill_content = args.initial_skill.read_text(encoding="utf-8").strip()
     result = run(args)
     (args.out / "treatment_summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({"status": result["status"], "provider_calls": result["provider_calls"], "output": str(args.out / 'treatment_summary.json')}))
@@ -110,4 +113,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
