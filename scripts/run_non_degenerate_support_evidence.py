@@ -50,9 +50,15 @@ def _policy_predictions(name: str, family: str, synthesis: list, calibration: li
         calibration_rows = [{"context": dict(item.context), "unsupported": not item.positive_anchor()} for item in calibration]
         schema = __import__("benchmark.boundary.typed_features", fromlist=["TypedFeatureSchema"]).TypedFeatureSchema.from_calibration(family, [item.context for item in synthesis])
         if name == "cart_ltt":
-            return fit_cart_policy(schema_rows, calibration_rows, schema, max_depth=5, seed=0), None
+            try:
+                return fit_cart_policy(schema_rows, calibration_rows, schema, max_depth=5, seed=0), {"status": "complete"}
+            except Exception as exc:
+                return lambda _context: Decision("abstain", 0.0, 1.0, "baseline_not_applicable"), {"status": "not_applicable", "error_type": type(exc).__name__}
         if name == "catboost_ltt":
-            return fit_catboost_ltt_policy(schema_rows, calibration_rows, schema, depth=5, trees=300, learning_rate=0.05, seed=0), None
+            try:
+                return fit_catboost_ltt_policy(schema_rows, calibration_rows, schema, depth=5, trees=300, learning_rate=0.05, seed=0), {"status": "complete"}
+            except Exception as exc:
+                return lambda _context: Decision("abstain", 0.0, 1.0, "baseline_not_applicable"), {"status": "not_applicable", "error_type": type(exc).__name__}
         positives = [item for item in synthesis if item.positive_anchor()]
         counterexamples = [item for item in synthesis if item.certified_counterexample()]
         result = StatisticalCEGIS(_grammar_for(family)).synthesize(
