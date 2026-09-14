@@ -48,6 +48,9 @@ def analyze_treatment_artifacts(artifacts: dict[str, dict[str, Any]], *, bootstr
     paired = _ci(paired_deltas, bootstrap_seed + 10, bootstrap_reps)
     paired.update({
         "n": len(paired_deltas),
+        "mean_delta": paired["mean"],
+        "ci_low": paired["low"],
+        "ci_high": paired["high"],
         "negative_delta_count": sum(delta < 0.0 for delta in paired_deltas),
         "positive_delta_count": sum(delta > 0.0 for delta in paired_deltas),
         "deltas": paired_deltas,
@@ -61,4 +64,3 @@ def analyze_treatment_artifacts(artifacts: dict[str, dict[str, Any]], *, bootstr
             "equal_total_compute": {condition: {"provider_calls": summaries[condition]["provider_calls"], "total_tokens": summaries[condition]["total_tokens"]} for condition in summaries},
         },
     }
-
