@@ -112,6 +112,22 @@ def _load(path: Path, count: int | None, seed: int) -> list[dict[str, Any]]:
     return rows if count is None else rows[: int(count)]
 
 
+def _support_key(benchmark: str, instance: dict[str, Any]) -> str:
+    """Return a public, task-type key shared across train/test variants."""
+    metadata = instance.get("metadata") or {}
+    if benchmark == "scienceworld":
+        value: Any = ("task_id", metadata.get("task_id"))
+    elif benchmark == "mind2web":
+        value = ("web", metadata.get("domain"), metadata.get("subdomain"), metadata.get("website"), metadata.get("op"))
+    elif benchmark == "toolbench":
+        value = ("tool", metadata.get("subset"), metadata.get("split_source"))
+    elif benchmark == "mcp_bench":
+        value = ("mcp", metadata.get("combination_type"), tuple(sorted(metadata.get("servers") or [])))
+    else:
+        value = (benchmark,)
+    return _canonical(value)
+
+
 def _score(skillgen_root: Path, benchmark: str, output: str, instance: dict[str, Any]) -> float:
     result = grade_output(skillgen_root, benchmark, output, instance)
     for key in ("score", "coverage_rate", "overall_score", "reward", "success", "passed", "is_correct"):
@@ -162,13 +178,13 @@ def run_benchmark(args: argparse.Namespace, benchmark: str, out_dir: Path) -> di
         base, ub = _chat(client, args.model, _agent_prompt(item, None), max_tokens=args.max_tokens)
         skilled, us = _chat(client, args.model, _agent_prompt(item, skill_text), max_tokens=args.max_tokens)
         usage.extend([dict(ub, stage="train_baseline"), dict(us, stage="train_skill")])
-        group = str((item.get("metadata") or {}).get("task_name") or (item.get("metadata") or {}).get("category") or benchmark)
+        group = _support_key(benchmark, item)
         train_deltas[group].append(_score(root, benchmark, skilled, item) - _score(root, benchmark, base, item))
     support = {group: bool(values) and sum(values) / len(values) > 0 and min(values) >= 0 for group, values in train_deltas.items()}
     rows: list[dict[str, Any]] = []
     for index, item in enumerate(test):
         context = build_public_context(item)
-        group = str((item.get("metadata") or {}).get("task_name") or (item.get("metadata") or {}).get("category") or benchmark)
+        group = _support_key(benchmark, item)
         routed, router_reason, ur = _router_decision(client, args.model, context, skill_text)
         usage.append(dict(ur, stage="semantic_router"))
         exact_support = bool(support.get(group, False))
@@ -206,7 +222,7 @@ def run_benchmark(args: argparse.Namespace, benchmark: str, out_dir: Path) -> di
         "skill_text_sha256": _digest(skill_text),
         "train_instances": [x["instance_id"] for x in train],
         "test_instances": [x["instance_id"] for x in test],
-        "public_context_fields": ["benchmark", "task_id", "task_name", "fold", "task_description", "initial_observation", "category", "difficulty", "model_harness_identity"],
+        "public_context_fields": ["benchmark", "task_id", "task_name", "fold", "task_description", "initial_observation", "category", "difficulty", "model_harness_identity", "domain", "subdomain", "website", "operation", "subset", "split_source", "combination_type", "servers"],
         "scoring_only_fields": sorted(SCORING_ONLY_FIELDS),
         "provider_calls": len(usage),
         "usage": usage,

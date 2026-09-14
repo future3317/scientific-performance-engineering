@@ -50,6 +50,14 @@ def build_public_context(instance: dict[str, Any]) -> dict[str, Any]:
         "category": metadata.get("category") or metadata.get("domain"),
         "difficulty": metadata.get("difficulty"),
         "model_harness_identity": metadata.get("model_harness_identity"),
+        "domain": metadata.get("domain"),
+        "subdomain": metadata.get("subdomain"),
+        "website": metadata.get("website"),
+        "operation": metadata.get("op"),
+        "subset": metadata.get("subset"),
+        "split_source": metadata.get("split_source"),
+        "combination_type": metadata.get("combination_type"),
+        "servers": metadata.get("servers"),
     }
     return {key: value for key, value in context.items() if value is not None}
 
