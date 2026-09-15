@@ -8,7 +8,7 @@ from core.acre.cegis import BoundaryObservation, SynthesisResult, synthesize_bou
 from core.predicates import match_predicate
 from core.sequential_stats import paired_repetition_interval
 
-from .models import FALLBACK_TO_BASE_AGENT, SupportEvidence
+from .models import FALLBACK_TO_BASE_AGENT, PairedOutcome, PolicyDecision, SupportEvidence
 
 
 def evidence_budget_grid(available_extra: int | None) -> tuple[int, ...]:
@@ -25,6 +25,24 @@ def count_evidence_sources(evidence: Sequence[SupportEvidence]) -> dict[str, int
     for item in evidence:
         counts[item.evidence_source] += 1
     return counts
+
+
+def support_evidence_from_outcome(
+    outcome: PairedOutcome,
+    evidence_source: str,
+) -> SupportEvidence:
+    if not outcome.execution_valid:
+        raise ValueError("invalid paired outcomes cannot become support evidence")
+    return SupportEvidence(
+        task_id=outcome.task_id,
+        repeat_seed=outcome.repeat_seed,
+        baseline_score=outcome.baseline_score,
+        skill_score=outcome.skill_score,
+        baseline_success=outcome.baseline_success,
+        skill_success=outcome.skill_success,
+        effect=outcome.skill_score - outcome.baseline_score,
+        evidence_source=evidence_source,  # type: ignore[arg-type]
+    )
 
 
 @dataclass(frozen=True)
@@ -53,6 +71,27 @@ class SupportModel:
             "feature_fields": list(self.feature_fields),
         }
 
+
+def decide_policies(
+    support_model: SupportModel,
+    test_tasks: Sequence[Any],
+    *,
+    policy_name: str,
+    decision_timestamp: str,
+) -> list[PolicyDecision]:
+    decisions: list[PolicyDecision] = []
+    for task in test_tasks:
+        support = support_model.decide(task.public_context)
+        decisions.append(
+            PolicyDecision.create(
+                task_id=task.task_id,
+                policy_name=policy_name,
+                deploy=support.deploy,
+                reason=support.reason if support.deploy else FALLBACK_TO_BASE_AGENT,
+                decision_timestamp=decision_timestamp,
+            )
+        )
+    return decisions
 
 def _grammar(contexts: Sequence[Mapping[str, object]]) -> tuple[dict[str, object], tuple[str, ...]]:
     fields = sorted({str(key) for context in contexts for key in context})
