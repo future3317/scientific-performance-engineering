@@ -70,3 +70,17 @@ def test_hosted_audit_conserves_cells_and_preserves_unknowns(tmp_path: Path) -> 
     assert report["input_tokens"]["median"] == 30
     assert report["input_tokens"]["p90"] == 50
     assert report["invariants"]["status_count_equals_scheduled"] is True
+
+
+def test_hosted_audit_counts_raw_cell_records_without_derived_status(tmp_path: Path) -> None:
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    (campaign / "cell.json").write_text(
+        json.dumps({"task_id": "task-1", "outer_trial_id": "outer-000", "control_implementation": "baseline"}),
+        encoding="utf-8",
+    )
+
+    report = audit_hosted_campaign(campaign)
+
+    assert report["scheduled"] == 1
+    assert report["by_condition"]["unknown"]["unknown_status"] == 1
