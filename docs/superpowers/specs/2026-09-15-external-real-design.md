@@ -135,6 +135,13 @@ task fields is allowed only when available before execution. If parsing is
 needed, the parser prompt, model, temperature=0, schema, and parser revision
 are frozen in the protocol manifest.
 
+The ContextAdapter exposes two explicit modes: `native_structured`, which
+selects typed fields already present in the benchmark task record, and
+`raw_task_to_typed`, which requires a frozen parser model/version, prompt,
+schema, and parser revision. The latter is a P1 comparison and cannot be used
+to bypass the native ScienceWorld P0 smoke. Both modes run the same
+information-flow check before a policy sees the context.
+
 ## Splits and skill lifecycle
 
 Splits are assigned by canonical task ID and a fixed hash seed. When an official
