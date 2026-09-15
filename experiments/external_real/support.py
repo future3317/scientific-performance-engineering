@@ -42,6 +42,7 @@ def support_evidence_from_outcome(
         skill_success=outcome.skill_success,
         effect=outcome.skill_score - outcome.baseline_score,
         evidence_source=evidence_source,  # type: ignore[arg-type]
+        provenance={"task_id": outcome.task_id, "repeat_seed": outcome.repeat_seed},
     )
 
 

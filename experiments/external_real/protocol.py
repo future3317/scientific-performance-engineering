@@ -89,3 +89,20 @@ def assert_information_flow(policy_input: Mapping[str, object]) -> None:
     leaked = sorted(_keys(policy_input) & FORBIDDEN_POLICY_FIELDS)
     if leaked:
         raise ValueError(f"forbidden post-execution policy fields: {', '.join(leaked)}")
+
+
+def validate_acre_r_request(
+    *,
+    verified_skill: bool,
+    support_evidence_count: int,
+    strict_coverage: float,
+    alpha: float,
+) -> None:
+    if not verified_skill:
+        raise ValueError("ACRE-R requires a verified skill")
+    if support_evidence_count <= 0:
+        raise ValueError("ACRE-R requires adequate support evidence")
+    if not 0.0 <= strict_coverage < 0.10:
+        raise ValueError("ACRE-R requires strict ACRE coverage below 0.10")
+    if alpha not in {0.05, 0.10, 0.20}:
+        raise ValueError("ACRE-R alpha must be one of 0.05, 0.10, 0.20")
