@@ -168,3 +168,23 @@ def test_viability_selection_excludes_skill_synthesis_demonstrations():
     assert len(selected) == 20
     assert len(set(selected)) == 20
     assert not ({"episode-1", "episode-7"} & set(selected))
+
+
+def test_viability_candidates_require_already_compiled_game_files(tmp_path):
+    from experiments.external_real.alfworld_viability import _candidate_paths
+
+    missing = tmp_path / "missing"
+    missing.mkdir()
+    (missing / "traj_data.json").write_text(
+        '{"task_type": "pick_clean_then_place_in_recep"}', encoding="utf-8"
+    )
+    compiled = tmp_path / "compiled"
+    compiled.mkdir()
+    (compiled / "traj_data.json").write_text(
+        '{"task_type": "pick_clean_then_place_in_recep"}', encoding="utf-8"
+    )
+    (compiled / "game.tw-pddl").write_text("", encoding="utf-8")
+
+    assert _candidate_paths(tmp_path, "pick_clean_then_place_in_recep") == [
+        compiled / "traj_data.json"
+    ]
