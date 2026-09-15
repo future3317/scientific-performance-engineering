@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Mapping
 
 
@@ -46,6 +46,7 @@ class SupportEvidence:
     skill_success: bool
     effect: float
     evidence_source: EvidenceSource
+    provenance: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.evidence_source not in {"upstream_verification", "acre_additional_query"}:
