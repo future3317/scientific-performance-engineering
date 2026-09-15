@@ -45,3 +45,19 @@ called as `deepseek-flash` with thinking disabled.
 The existing 8-episode receipts remain immutable diagnostics. No skill
 synthesis, viability experiment, ACRE evidence collection, or held-out
 evaluation was started from them.
+
+## Fixed two-episode smoke
+
+At runner commit `c40f3721cff75c5380e4eb8727deed2bb2a0745a`, the smoke used
+model `deepseek-flash` with thinking disabled. The two-episode receipt is
+stored at `results/external_real/alfworld_smoke_2/` on the server.
+
+- provider output parsed: **2/2 episodes**;
+- invalid actions: **0**;
+- official environment steps: **120 total**;
+- complete trajectories persisted: **2/2**;
+- verified task success: **0/2** (not a runner pass criterion).
+
+Each persisted turn includes the raw provider fields, selected response field,
+parser input, parsed action, admissible commands, and the exact action argument
+passed to the batched environment.
