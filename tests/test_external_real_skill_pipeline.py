@@ -83,8 +83,6 @@ def test_global_verification_withholds_invalid_skill_before_acquisition() -> Non
 
     class Adapter:
         def run_pair(self, task, frozen_skill, seed):
-from experiments.external_real.models import PairedOutcome
-
             return PairedOutcome(task.task_id, seed, 1.0, 0.0, True, False, {}, True, "skill_failed")
 
     task = type("Task", (), {"task_id": "task-1"})()
