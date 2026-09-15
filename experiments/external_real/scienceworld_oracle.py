@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 
+def action_is_valid_before_step(action: str, valid_actions: Sequence[str]) -> bool:
+    return str(action) in {str(item) for item in valid_actions}
+
+
 def select_oracle_cases(
     split_cases: Mapping[str, Sequence[tuple[str, int]]],
     *,
@@ -67,16 +71,16 @@ def run_oracle(
             max_score = 0.0
             steps = 0
             for action in actions:
+                valid_actions_before_step = env.get_valid_action_object_combinations()
+                action_valid = action_is_valid_before_step(action, valid_actions_before_step)
                 _observation, _reward, completed, info = env.step(action)
                 steps += 1
                 score = float(info.get("score", score))
                 max_score = max(max_score, score)
-                valid_actions = info.get("valid", ())
-                if isinstance(valid_actions, Sequence) and not isinstance(valid_actions, (str, bytes)):
-                    if action in valid_actions:
-                        valid_action_count += 1
-                    else:
-                        invalid_action_count += 1
+                if action_valid:
+                    valid_action_count += 1
+                else:
+                    invalid_action_count += 1
                 if completed:
                     break
             rows.append({
