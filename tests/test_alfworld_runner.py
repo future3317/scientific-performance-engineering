@@ -35,6 +35,15 @@ def test_deepseek_client_uses_bounded_single_request(monkeypatch):
     class FakeOpenAI:
         def __init__(self, **kwargs):
             captured.update(kwargs)
+            self.chat = types.SimpleNamespace(
+                completions=types.SimpleNamespace(
+                    create=lambda **request: captured.update(request)
+                    or types.SimpleNamespace(
+                        choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="Action: look"))],
+                        usage=None,
+                    )
+                )
+            )
 
     monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
     from experiments.external_real.alfworld_runner import DeepSeekClient
@@ -42,3 +51,8 @@ def test_deepseek_client_uses_bounded_single_request(monkeypatch):
     DeepSeekClient("key", "https://api.deepseek.com", "deepseek-v4-flash")
     assert captured["timeout"] == 120.0
     assert captured["max_retries"] == 0
+
+    from experiments.external_real.alfworld_runner import DeepSeekClient
+
+    DeepSeekClient("key", "https://api.deepseek.com", "deepseek-v4-flash").choose_action("obs", ["look"], None)
+    assert captured["max_tokens"] == 64

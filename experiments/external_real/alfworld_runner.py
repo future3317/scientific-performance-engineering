@@ -87,6 +87,7 @@ class DeepSeekClient:
         response = self.client.chat.completions.create(
             model=self.model,
             temperature=self.temperature,
+            max_tokens=64,
             messages=[
                 {"role": "system", "content": "Follow the requested output format exactly."},
                 {"role": "user", "content": prompt},
