@@ -132,9 +132,9 @@
 - [ ] Implement the registered generation seed budget of at most three and persist every attempted seed.
 - [ ] Implement the viability report with both-pass, repair, regression, both-fail, effect distribution, and context-group counts.
 - [ ] Implement all registered policy baselines and full ACRE from training evidence only.
-- [ ] Gate every candidate through execution viability and global verification before freezing; record `WITHHOLD_SKILL` without invoking ACRE repair.
-- [ ] Convert contract-valid upstream verification pairs into `SupportEvidence(evidence_source="upstream_verification")` and label new ACRE queries separately.
-- [ ] Keep ACRE support identification train-side only; unresolved support falls back to the base agent.
+- [x] Gate every candidate through execution viability and global verification before freezing; record `WITHHOLD_SKILL` without invoking ACRE repair.
+- [x] Convert contract-valid upstream verification pairs into `SupportEvidence(evidence_source="upstream_verification")` and label new ACRE queries separately.
+- [x] Keep ACRE support identification train-side only; unresolved support falls back to the base agent.
 - [ ] Run focused tests with offline fixtures, not provider calls.
 
 ### Task 5A: Evidence-budget and fallback accounting
@@ -151,10 +151,10 @@
 - `score_policies(...)` reports `incremental_policy_utility`, `official_score`, and `fallback_rate`.
 - `evidence_budget_grid(available_extra: int | None) -> tuple[int, ...]`
 
-- [ ] Write failing tests for fallback selecting baseline score, exact zero utility at zero coverage, source-separated evidence counts, and fixed budget grids.
-- [ ] Run those focused tests on the server and verify they fail for the expected missing-contract reasons.
-- [ ] Implement the smallest source-tagged evidence and scorer changes without duplicating native execution.
-- [ ] Run focused tests and inspect metric denominators.
+- [x] Write failing tests for fallback selecting baseline score, exact zero utility at zero coverage, source-separated evidence counts, and fixed budget grids.
+- [x] Run those focused tests on the server and verify they fail for the expected missing-contract reasons.
+- [x] Implement the smallest source-tagged evidence and scorer changes without duplicating native execution.
+- [x] Run focused tests and inspect metric denominators.
 
 ### Task 6: ScienceWorld smoke protocol
 
@@ -187,10 +187,10 @@
 - `ContextAdapter(mode: Literal["native_structured", "raw_task_to_typed"], ...)`
 - `ContextAdapter.extract(task: ExternalTask) -> Mapping[str, object]`
 
-- [ ] Write failing tests for native structured extraction, parser metadata freeze, and evaluator-field rejection.
-- [ ] Implement native structured mode first; keep raw-task parsing unavailable until its model, prompt, schema, and revision are in the manifest.
-- [ ] Record the comparison as P1 and do not let it block the native ScienceWorld P0 smoke.
-- [ ] Add an explicit deferred ACRE-R manifest validator requiring verified skill, adequate support evidence, strict coverage `< 0.10`, and `alpha in {0.05, 0.10, 0.20}`.
+- [x] Write failing tests for native structured extraction, parser metadata freeze, and evaluator-field rejection.
+- [x] Implement native structured mode first; keep raw-task parsing unavailable until its model, prompt, schema, and revision are in the manifest.
+- [x] Record the comparison as P1 and do not let it block the native ScienceWorld P0 smoke.
+- [x] Add an explicit deferred ACRE-R manifest validator requiring verified skill, adequate support evidence, strict coverage `< 0.10`, and `alpha in {0.05, 0.10, 0.20}`.
 
 ### Task 7: Tables, figures, report, and paper boundary update
 
