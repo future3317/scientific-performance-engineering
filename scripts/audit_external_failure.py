@@ -113,8 +113,6 @@ def _benchmark_report(path: Path) -> dict[str, Any]:
         "both_pass": _nested_count(report, ("both_pass",)),
         "both_fail": _nested_count(report, ("both_fail",)),
     }
-    for counter in by_condition.values():
-        counter["scheduled"] = sum(counter.values())
     return {
         **values,
         "unique_context_feature_combinations": len(_contexts(rows)),
@@ -198,6 +196,8 @@ def audit_hosted_campaign(path: Path) -> dict[str, Any]:
     all_counts = Counter()
     for counter in by_condition.values():
         all_counts.update(counter)
+    for counter in by_condition.values():
+        counter["scheduled"] = sum(counter.values())
     return {
         "source": str(path),
         "scheduled": total,
