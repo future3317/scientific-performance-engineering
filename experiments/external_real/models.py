@@ -43,7 +43,6 @@ class PolicyDecision:
     @classmethod
     def create(
         cls,
-        *,
         task_id: str,
         policy_name: str,
         deploy: bool,
