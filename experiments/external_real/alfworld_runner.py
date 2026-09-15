@@ -70,7 +70,7 @@ class DeepSeekClient:
     def __init__(self, api_key: str, base_url: str, model: str, temperature: float = 0.0) -> None:
         from openai import OpenAI
 
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0, max_retries=0)
         self.model = model
         self.temperature = temperature
 
