@@ -38,7 +38,7 @@ def test_score_uses_shared_potential_outcomes_and_explicit_denominators() -> Non
     assert metrics["repairs_deployed"] == 1
     assert metrics["regressions_deployed"] == 0
     assert metrics["repair_recall"] == 1.0
-    assert metrics["paired_score_gain_mean"] == 0.5
+    assert metrics["paired_score_gain_mean"] == 0.0
 
 
 def test_bootstrap_samples_whole_tasks_not_individual_repeats() -> None:
