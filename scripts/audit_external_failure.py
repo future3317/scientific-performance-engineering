@@ -167,6 +167,8 @@ def _hosted_rows(path: Path) -> list[Mapping[str, Any]]:
             rows.extend(row for row in value if isinstance(row, Mapping))
         elif isinstance(value, Mapping) and isinstance(value.get("rows"), list):
             rows.extend(row for row in value["rows"] if isinstance(row, Mapping))
+        elif isinstance(value, Mapping) and ("task_id" in value or "cell_id" in value):
+            rows.append(value)
     return rows
 
 
