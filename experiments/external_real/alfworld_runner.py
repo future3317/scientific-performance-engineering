@@ -30,6 +30,8 @@ TASK_TYPE_NAMES = {
     "pick_two_obj_and_place": "pick_two_obj_and_place",
 }
 
+SMOKE_TASK_TYPE_IDS = [3, 4, 5]
+
 
 def task_family_name(task_type: int | str) -> str:
     """Return the stable family label for an official ALFWorld task type."""
@@ -223,11 +225,7 @@ def run_smoke(
     max_steps: int = 60,
     seed: int = 0,
 ) -> dict[str, Any]:
-    task_types = [
-        "pick_clean_then_place_in_recep",
-        "pick_heat_then_place_in_recep",
-        "pick_cool_then_place_in_recep",
-    ]
+    task_types = list(SMOKE_TASK_TYPE_IDS)
     from alfworld.agents.environment.alfred_tw_env import AlfredTWEnv
 
     config = _alfworld_config(data_root, task_types, max_steps)
