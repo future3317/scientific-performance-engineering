@@ -30,6 +30,7 @@ TASK_TYPE_NAMES = {
     "pick_two_obj_and_place": "pick_two_obj_and_place",
 }
 
+DEFAULT_MODEL = "deepseek-flash"
 SMOKE_TASK_TYPE_IDS = [3, 4, 5]
 
 
@@ -88,6 +89,7 @@ class DeepSeekClient:
             model=self.model,
             temperature=self.temperature,
             max_tokens=512,
+            extra_body={"thinking": {"type": "disabled"}},
             messages=[
                 {"role": "system", "content": "Follow the requested output format exactly."},
                 {"role": "user", "content": prompt},
@@ -97,9 +99,18 @@ class DeepSeekClient:
         message = response.choices[0].message
         content = message.content or ""
         reasoning = getattr(message, "reasoning_content", "") or ""
+        if content:
+            parser_input = content
+            response_field_used = "message.content"
+        else:
+            parser_input = reasoning
+            response_field_used = "message.reasoning_content"
         usage = getattr(response, "usage", None)
         return {
-            "raw_output": content or reasoning,
+            "provider_raw": {"content": content, "reasoning_content": reasoning},
+            "parser_input": parser_input,
+            "response_field_used": response_field_used,
+            "raw_output": parser_input,
             "reasoning_output": reasoning,
             "input_tokens": getattr(usage, "prompt_tokens", None),
             "output_tokens": getattr(usage, "completion_tokens", None),
@@ -171,15 +182,20 @@ def run_episode(environment: Any, client: DeepSeekClient, skill: str | None, max
 
     for step_index in range(max_steps):
         completion = client.choose_action(observation, admissible, skill)
-        action = extract_action(completion["raw_output"], admissible)
-        if action is None:
+        action = extract_action(completion["parser_input"], admissible)
+        if action is None or action not in admissible:
             termination_reason = "invalid_action"
             trajectory.append({
                 "step": step_index,
                 "observation": observation,
                 "admissible_actions": admissible,
                 "raw_model_output": completion["raw_output"],
+                "provider_raw": completion["provider_raw"],
+                "parser_input": completion["parser_input"],
+                "response_field_used": completion["response_field_used"],
+                "parsed_action": action,
                 "selected_action": None,
+                "action_argument_actually_passed_to_env": None,
                 "invalid_action": True,
                 "reward": None,
                 "done": True,
@@ -196,7 +212,12 @@ def run_episode(environment: Any, client: DeepSeekClient, skill: str | None, max
             "observation": observation,
             "admissible_actions": admissible,
             "raw_model_output": completion["raw_output"],
+            "provider_raw": completion["provider_raw"],
+            "parser_input": completion["parser_input"],
+            "response_field_used": completion["response_field_used"],
+            "parsed_action": action,
             "selected_action": action,
+            "action_argument_actually_passed_to_env": action,
             "invalid_action": False,
             "reward": rewards[0],
             "done": done,
@@ -291,7 +312,7 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=8)
     parser.add_argument("--max-steps", type=int, default=60)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--model", default=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"))
+    parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--base-url", default=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
     args = parser.parse_args()
     api_key = os.environ.get("DEEPSEEK_API_KEY")
