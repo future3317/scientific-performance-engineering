@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import argparse
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Mapping
@@ -234,3 +235,20 @@ def write_failure_audit(out_dir: Path, suite_paths: Mapping[str, Path], hosted_p
     if payload["hosted"] is not None:
         lines.extend(["", "## Hosted campaign", f"- scheduled rows: {payload['hosted']['scheduled']}"])
     (out_dir / "external_failure_audit.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--suite", action="append", type=Path, default=[])
+    parser.add_argument("--suite-name", action="append", default=[])
+    parser.add_argument("--hosted", type=Path)
+    parser.add_argument("--out-dir", type=Path, required=True)
+    args = parser.parse_args()
+    if len(args.suite) != len(args.suite_name):
+        parser.error("--suite and --suite-name must be supplied the same number of times")
+    write_failure_audit(args.out_dir, dict(zip(args.suite_name, args.suite)), args.hosted)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
