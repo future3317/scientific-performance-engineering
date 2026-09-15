@@ -58,7 +58,10 @@ def _load_frozen_skills(path: Path) -> dict[str, dict[str, Any]]:
 def _candidate_paths(train_root: Path, task_type: str) -> list[Path]:
     paths = []
     for path in train_root.rglob("traj_data.json"):
-        if json.loads(path.read_text(encoding="utf-8")).get("task_type") == task_type:
+        if (
+            json.loads(path.read_text(encoding="utf-8")).get("task_type") == task_type
+            and (path.parent / "game.tw-pddl").is_file()
+        ):
             paths.append(path)
     return sorted(paths)
 
