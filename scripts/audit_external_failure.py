@@ -93,7 +93,7 @@ def _benchmark_report(path: Path) -> dict[str, Any]:
         raise ValueError(f"benchmark report must be an object: {path}")
     rows = report.get("rows", [])
     rows = rows if isinstance(rows, list) else []
-    train_instances = report.get("train_instances", [])
+    train_instances = _first(report, "train_evidence", "train_instances") or []
     train_evidence = len(train_instances) if isinstance(train_instances, list) else _number(train_instances)
     reason = _first(report, "full_acre_reason", "acre_zero_reason")
     if reason is None:
@@ -113,6 +113,8 @@ def _benchmark_report(path: Path) -> dict[str, Any]:
         "both_pass": _nested_count(report, ("both_pass",)),
         "both_fail": _nested_count(report, ("both_fail",)),
     }
+    for counter in by_condition.values():
+        counter["scheduled"] = sum(counter.values())
     return {
         **values,
         "unique_context_feature_combinations": len(_contexts(rows)),
