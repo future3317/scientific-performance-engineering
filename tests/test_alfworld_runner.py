@@ -1,4 +1,6 @@
 from pathlib import Path
+import sys
+import types
 
 from experiments.external_real.alfworld_runner import (
     SMOKE_TASK_TYPE_IDS,
@@ -25,3 +27,18 @@ def test_task_family_name_uses_official_alfworld_ids():
 def test_alfworld_config_uses_official_numeric_task_ids():
     config = _alfworld_config(Path("/data/alfworld"), SMOKE_TASK_TYPE_IDS, 60)
     assert config["env"]["task_types"] == [3, 4, 5]
+
+
+def test_deepseek_client_uses_bounded_single_request(monkeypatch):
+    captured = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
+    from experiments.external_real.alfworld_runner import DeepSeekClient
+
+    DeepSeekClient("key", "https://api.deepseek.com", "deepseek-v4-flash")
+    assert captured["timeout"] == 120.0
+    assert captured["max_retries"] == 0
