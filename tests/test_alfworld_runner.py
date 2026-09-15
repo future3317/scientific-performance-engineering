@@ -188,3 +188,17 @@ def test_viability_candidates_require_already_compiled_game_files(tmp_path):
     assert _candidate_paths(tmp_path, "pick_clean_then_place_in_recep") == [
         compiled / "traj_data.json"
     ]
+
+
+def test_viability_rows_align_by_environment_returned_gamefile():
+    from experiments.external_real.alfworld_viability import _align_episode_rows
+
+    rows = [
+        {"gamefile": "game-b", "success": False},
+        {"gamefile": "game-a", "success": True},
+    ]
+
+    assert _align_episode_rows(rows, ["game-a", "game-b"]) == [
+        {"gamefile": "game-a", "success": True},
+        {"gamefile": "game-b", "success": False},
+    ]

@@ -103,6 +103,15 @@ def _summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _align_episode_rows(
+    rows: Sequence[dict[str, Any]], expected_game_files: Sequence[str]
+) -> list[dict[str, Any]]:
+    by_gamefile = {row["gamefile"]: row for row in rows}
+    if len(by_gamefile) != len(rows) or set(by_gamefile) != set(expected_game_files):
+        raise RuntimeError("environment did not return the selected gamefiles exactly once")
+    return [by_gamefile[gamefile] for gamefile in expected_game_files]
+
+
 def run_viability(
     data_root: Path,
     skill_results: Path,
@@ -122,10 +131,10 @@ def run_viability(
         excluded = frozen_skills[family]["demonstration_paths"]
         selected_traj = choose_viability_paths(candidates, excluded, episodes_per_family, seed)
         selected_games = [str(Path(path).parent / "game.tw-pddl") for path in selected_traj]
-        base_rows = _run_condition(
+        base_rows = _align_episode_rows(_run_condition(
             data_root, selected_games, FAMILY_TASK_IDS[family], client, None, max_steps, seed
-        )
-        skill_rows = _run_condition(
+        ), selected_games)
+        skill_rows = _align_episode_rows(_run_condition(
             data_root,
             selected_games,
             FAMILY_TASK_IDS[family],
@@ -133,11 +142,7 @@ def run_viability(
             frozen_skills[family]["skill_text"],
             max_steps,
             seed,
-        )
-        if [row["gamefile"] for row in base_rows] != selected_games:
-            raise RuntimeError(f"base gamefile order changed for {family}")
-        if [row["gamefile"] for row in skill_rows] != selected_games:
-            raise RuntimeError(f"skill gamefile order changed for {family}")
+        ), selected_games)
         families[family] = {
             "task_type": task_type,
             "skill_sha256": frozen_skills[family]["sha256"],
