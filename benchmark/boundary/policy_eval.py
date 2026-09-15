@@ -116,6 +116,7 @@ def evaluate_policy(
             "recall": None,
             "support_decision_regret": 0.0,
             "support_decision_regret_mean": None,
+            "incremental_policy_utility": 0.0,
             "correct_abstention": 0,
             "missed_supported_deployment": 0,
             "reason_counts": {},
@@ -131,6 +132,7 @@ def evaluate_policy(
     oracle_supported_count = 0
     supported_deployed = 0
     total_regret = 0.0
+    total_incremental_utility = 0.0
     correct_abstention = 0
     missed_supported = 0
     reason_counts: Counter[str] = Counter()
@@ -166,6 +168,8 @@ def evaluate_policy(
             if "ci_width" in score and score["ci_width"] is not None:
                 correct_ci_widths.append(float(score["ci_width"]))
         total_regret += support_decision_regret(selected.action, tau, scientific_gate, delta)
+        if selected.action == "reuse" and scientific_gate:
+            total_incremental_utility += tau
         reason_counts[selected.reason] += 1
         if selected.action == "abstain":
             abstention_reason_counts[selected.reason] += 1
@@ -194,6 +198,7 @@ def evaluate_policy(
         "recall": supported_deployed / oracle_supported_count if oracle_supported_count else None,
         "support_decision_regret": total_regret,
         "support_decision_regret_mean": total_regret / n,
+        "incremental_policy_utility": total_incremental_utility / n,
         "correct_abstention": correct_abstention,
         "missed_supported_deployment": missed_supported,
         "reason_counts": dict(sorted(reason_counts.items())),
