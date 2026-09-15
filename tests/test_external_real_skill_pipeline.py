@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import hashlib
 
+from experiments.external_real.models import PairedOutcome
 from experiments.external_real.skill_pipeline import FrozenSkill, freeze_skill, verify_skill
-from experiments.external_real.support import FALLBACK_TO_BASE_AGENT, SupportEvidence, count_evidence_sources, fit_support_model
+from experiments.external_real.support import (
+    FALLBACK_TO_BASE_AGENT,
+    SupportEvidence,
+    count_evidence_sources,
+    decide_policies,
+    fit_support_model,
+    support_evidence_from_outcome,
+)
 
 
 def _row(task_id: str, family: str, effect: float, seed: int) -> dict[str, object]:
@@ -62,12 +70,20 @@ def test_upstream_and_acre_evidence_are_counted_separately() -> None:
     }
 
 
+def test_valid_upstream_pair_is_converted_without_rerunning_it() -> None:
+    outcome = PairedOutcome("task-1", 3, 1.0, 1.5, True, True, {"official_score": 1.5}, True, None)
+
+    evidence = support_evidence_from_outcome(outcome, "upstream_verification")
+
+    assert evidence == SupportEvidence("task-1", 3, 1.0, 1.5, True, True, 0.5, "upstream_verification")
+
+
 def test_global_verification_withholds_invalid_skill_before_acquisition() -> None:
     skill = freeze_skill("body", (), (), "abstract", "scienceworld", 0)
 
     class Adapter:
         def run_pair(self, task, frozen_skill, seed):
-            from experiments.external_real.models import PairedOutcome
+from experiments.external_real.models import PairedOutcome
 
             return PairedOutcome(task.task_id, seed, 1.0, 0.0, True, False, {}, True, "skill_failed")
 
@@ -75,3 +91,14 @@ def test_global_verification_withholds_invalid_skill_before_acquisition() -> Non
     report = verify_skill(Adapter(), skill, [task])
 
     assert report.outcome == "WITHHOLD_SKILL"
+
+
+def test_policy_decision_falls_back_when_support_is_unresolved() -> None:
+    rows = [_row("positive", "navigation", 1.0, seed) for seed in range(4)]
+    model = fit_support_model(rows, {"positive": {"task_family": "navigation"}}, delta=0.05)
+    task = type("Task", (), {"task_id": "unseen", "public_context": {"task_family": "measurement"}})()
+
+    decisions = decide_policies(model, [task], policy_name="acre", decision_timestamp="2026-09-15T12:00:00+00:00")
+
+    assert decisions[0].deploy is False
+    assert decisions[0].reason == FALLBACK_TO_BASE_AGENT
