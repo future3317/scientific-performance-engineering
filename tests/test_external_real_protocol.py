@@ -11,7 +11,7 @@ from experiments.external_real.freeze import (
     assert_decision_before_scoring,
     freeze_decisions,
 )
-from experiments.external_real.models import PolicyDecision
+from experiments.external_real.models import FALLBACK_TO_BASE_AGENT, PolicyDecision
 from experiments.external_real.protocol import (
     ProtocolManifest,
     assign_split,
@@ -57,6 +57,27 @@ def test_decisions_are_hashed_and_frozen_before_scoring(tmp_path: Path) -> None:
     payload = json.loads(raw.decode("utf-8"))
     assert payload["decision_hash"]
     assert_decision_before_scoring(payload["decision_timestamp"], "2026-09-15T12:00:01+00:00")
+
+
+def test_non_deployed_policy_uses_explicit_base_agent_fallback() -> None:
+    decision = PolicyDecision.create(
+        task_id="task-002",
+        policy_name="acre",
+        deploy=False,
+        reason=FALLBACK_TO_BASE_AGENT,
+        decision_timestamp="2026-09-15T12:00:00+00:00",
+    )
+
+    assert decision.reason == FALLBACK_TO_BASE_AGENT
+
+
+def test_context_adapter_contract_is_explicit() -> None:
+    from experiments.external_real.context.adapter import ContextAdapter
+
+    adapter = ContextAdapter(mode="native_structured", public_fields=("task_family",))
+    task = type("Task", (), {"native_payload": {"task_family": "navigation"}})()
+
+    assert adapter.extract(task) == {"task_family": "navigation"}
 
 
 def test_decision_after_scoring_is_rejected() -> None:
