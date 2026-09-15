@@ -87,17 +87,20 @@ class DeepSeekClient:
         response = self.client.chat.completions.create(
             model=self.model,
             temperature=self.temperature,
-            max_tokens=64,
+            max_tokens=512,
             messages=[
                 {"role": "system", "content": "Follow the requested output format exactly."},
                 {"role": "user", "content": prompt},
             ],
         )
         latency = time.perf_counter() - started
-        message = response.choices[0].message.content or ""
+        message = response.choices[0].message
+        content = message.content or ""
+        reasoning = getattr(message, "reasoning_content", "") or ""
         usage = getattr(response, "usage", None)
         return {
-            "raw_output": message,
+            "raw_output": content or reasoning,
+            "reasoning_output": reasoning,
             "input_tokens": getattr(usage, "prompt_tokens", None),
             "output_tokens": getattr(usage, "completion_tokens", None),
             "latency_seconds": latency,
@@ -181,7 +184,7 @@ def run_episode(environment: Any, client: DeepSeekClient, skill: str | None, max
                 "reward": None,
                 "done": True,
                 "won": False,
-                **{key: completion[key] for key in ("input_tokens", "output_tokens", "latency_seconds")},
+                **{key: completion[key] for key in ("reasoning_output", "input_tokens", "output_tokens", "latency_seconds")},
             })
             break
 
@@ -198,7 +201,7 @@ def run_episode(environment: Any, client: DeepSeekClient, skill: str | None, max
             "reward": rewards[0],
             "done": done,
             "won": won,
-            **{key: completion[key] for key in ("input_tokens", "output_tokens", "latency_seconds")},
+            **{key: completion[key] for key in ("reasoning_output", "input_tokens", "output_tokens", "latency_seconds")},
         })
         if done:
             termination_reason = "success" if won else "environment_done"

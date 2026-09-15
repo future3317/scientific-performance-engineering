@@ -38,8 +38,12 @@ def test_deepseek_client_uses_bounded_single_request(monkeypatch):
             self.chat = types.SimpleNamespace(
                 completions=types.SimpleNamespace(
                     create=lambda **request: captured.update(request)
-                    or types.SimpleNamespace(
-                        choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="Action: look"))],
+                        or types.SimpleNamespace(
+                        choices=[
+                            types.SimpleNamespace(
+                                message=types.SimpleNamespace(content="", reasoning_content="Action: look")
+                            )
+                        ],
                         usage=None,
                     )
                 )
@@ -55,4 +59,4 @@ def test_deepseek_client_uses_bounded_single_request(monkeypatch):
     from experiments.external_real.alfworld_runner import DeepSeekClient
 
     DeepSeekClient("key", "https://api.deepseek.com", "deepseek-v4-flash").choose_action("obs", ["look"], None)
-    assert captured["max_tokens"] == 64
+    assert captured["max_tokens"] == 512
