@@ -157,3 +157,14 @@ def test_skill_demo_payload_keeps_expert_procedure_fields():
     assert payload["task_desc"] == "Clean and place an object"
     assert payload["high_descs"] == ["go to sink"]
     assert payload["discrete_actions"] == [{"action": "CleanObject", "args": ["kettle"]}]
+
+
+def test_viability_selection_excludes_skill_synthesis_demonstrations():
+    from experiments.external_real.alfworld_viability import choose_viability_paths
+
+    candidates = [f"episode-{index}" for index in range(35)]
+    selected = choose_viability_paths(candidates, {"episode-1", "episode-7"}, 20, seed=0)
+
+    assert len(selected) == 20
+    assert len(set(selected)) == 20
+    assert not ({"episode-1", "episode-7"} & set(selected))
