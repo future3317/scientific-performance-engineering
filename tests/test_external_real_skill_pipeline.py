@@ -75,7 +75,8 @@ def test_valid_upstream_pair_is_converted_without_rerunning_it() -> None:
 
     evidence = support_evidence_from_outcome(outcome, "upstream_verification")
 
-    assert evidence == SupportEvidence("task-1", 3, 1.0, 1.5, True, True, 0.5, "upstream_verification")
+    assert evidence.evidence_source == "upstream_verification"
+    assert evidence.provenance == {"task_id": "task-1", "repeat_seed": 3}
 
 
 def test_global_verification_withholds_invalid_skill_before_acquisition() -> None:

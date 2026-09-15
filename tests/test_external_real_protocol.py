@@ -16,6 +16,7 @@ from experiments.external_real.protocol import (
     ProtocolManifest,
     assign_split,
     assert_information_flow,
+    validate_acre_r_request,
 )
 
 
@@ -78,6 +79,20 @@ def test_context_adapter_contract_is_explicit() -> None:
     task = type("Task", (), {"native_payload": {"task_family": "navigation"}})()
 
     assert adapter.extract(task) == {"task_family": "navigation"}
+
+
+def test_raw_context_adapter_requires_frozen_parser_metadata() -> None:
+    from experiments.external_real.context.adapter import ContextAdapter
+
+    with pytest.raises(ValueError, match="frozen parser metadata"):
+        ContextAdapter(mode="raw_task_to_typed", public_fields=("task_family",), parser=lambda _: {})
+
+
+def test_acre_r_is_deferred_until_verified_skill_and_low_coverage() -> None:
+    with pytest.raises(ValueError, match="verified skill"):
+        validate_acre_r_request(verified_skill=False, support_evidence_count=10, strict_coverage=0.05, alpha=0.10)
+
+    validate_acre_r_request(verified_skill=True, support_evidence_count=10, strict_coverage=0.05, alpha=0.10)
 
 
 def test_decision_after_scoring_is_rejected() -> None:
