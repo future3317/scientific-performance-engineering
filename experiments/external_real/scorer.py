@@ -15,6 +15,7 @@ def _metrics(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
     regressions_deployed = sum(bool(row["regression"]) and bool(row["deploy"]) for row in valid)
     gains = [float(row["skill_score"]) - float(row["baseline_score"]) for row in valid]
     selected = [float(row["selected_score"]) for row in valid]
+    incremental = [float(row["selected_score"]) - float(row["baseline_score"]) for row in valid]
     coverage = len(deployed) / len(valid) if valid else None
     return {
         "n": len(valid),
@@ -26,9 +27,12 @@ def _metrics(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
         "repairs_retained": repairs_deployed,
         "regressions_deployed": regressions_deployed,
         "regression_rate_deployed": regressions_deployed / len(deployed) if deployed else None,
+        "fallback_rate": (len(valid) - len(deployed)) / len(valid) if valid else None,
         "repair_recall": repairs_deployed / repairs_all if repairs_all else None,
         "paired_score_gain_mean": sum(gains) / len(gains) if gains else None,
         "policy_utility_mean": sum(selected) / len(selected) if selected else None,
+        "incremental_policy_utility": sum(incremental) / len(incremental) if incremental else None,
+        "official_score_mean": sum(selected) / len(selected) if selected else None,
     }
 
 
