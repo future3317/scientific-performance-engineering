@@ -141,3 +141,19 @@ def test_saved_action_replays_through_online_path_and_env_step(monkeypatch, tmp_
     assert parsed_action in admissible_commands
     assert action_argument_actually_passed_to_env == parsed_action
     assert row["invalid_actions"] == 0
+
+
+def test_skill_demo_payload_keeps_expert_procedure_fields():
+    from experiments.external_real.alfworld_skill_synthesis import build_demo_payload
+
+    payload = build_demo_payload({
+        "task_type": "pick_clean_then_place_in_recep",
+        "pddl_params": {"object_target": "Kettle", "parent_target": "StoveBurner"},
+        "turk_annotations": {"anns": [{"task_desc": "Clean and place an object", "high_descs": ["go to sink"]}]},
+        "plan": {"high_pddl": [{"discrete_action": {"action": "CleanObject", "args": ["kettle"]}}]},
+    })
+
+    assert payload["task_type"] == "pick_clean_then_place_in_recep"
+    assert payload["task_desc"] == "Clean and place an object"
+    assert payload["high_descs"] == ["go to sink"]
+    assert payload["discrete_actions"] == [{"action": "CleanObject", "args": ["kettle"]}]
