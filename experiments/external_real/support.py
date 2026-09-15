@@ -1,11 +1,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 from typing import Any, Mapping, Sequence
 
 from core.acre.cegis import BoundaryObservation, SynthesisResult, synthesize_boundary
 from core.predicates import match_predicate
 from core.sequential_stats import paired_repetition_interval
+
+from .models import FALLBACK_TO_BASE_AGENT, SupportEvidence
+
+
+def evidence_budget_grid(available_extra: int | None) -> tuple[int, ...]:
+    """Return the preregistered absolute budget or its percentage fallback."""
+    if available_extra is None or available_extra >= 64:
+        return (0, 8, 16, 32, 64)
+    if available_extra < 0:
+        raise ValueError("available_extra must be non-negative")
+    return tuple(ceil(available_extra * fraction) for fraction in (0.0, 0.10, 0.25, 0.50, 1.0))
+
+
+def count_evidence_sources(evidence: Sequence[SupportEvidence]) -> dict[str, int]:
+    counts = {"upstream_verification": 0, "acre_additional_query": 0}
+    for item in evidence:
+        counts[item.evidence_source] += 1
+    return counts
 
 
 @dataclass(frozen=True)
@@ -22,10 +41,10 @@ class SupportModel:
 
     def decide(self, context: Mapping[str, object]) -> SupportDecision:
         if self.synthesis.status != "identified" or not self.synthesis.predicate:
-            return SupportDecision(False, self.synthesis.status)
+            return SupportDecision(False, FALLBACK_TO_BASE_AGENT)
         if match_predicate(self.synthesis.predicate, context):
             return SupportDecision(True, "identified_support")
-        return SupportDecision(False, "predicate_mismatch")
+        return SupportDecision(False, FALLBACK_TO_BASE_AGENT)
 
     def to_dict(self) -> dict[str, object]:
         return {

@@ -3,7 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
+
+
+WITHHOLD_SKILL = "WITHHOLD_SKILL"
+FALLBACK_TO_BASE_AGENT = "FALLBACK_TO_BASE_AGENT"
+EvidenceSource = Literal["upstream_verification", "acre_additional_query"]
 
 
 def _canonical(payload: Mapping[str, Any]) -> bytes:
@@ -32,6 +37,22 @@ class PairedOutcome:
 
 
 @dataclass(frozen=True)
+class SupportEvidence:
+    task_id: str
+    repeat_seed: int
+    baseline_score: float
+    skill_score: float
+    baseline_success: bool
+    skill_success: bool
+    effect: float
+    evidence_source: EvidenceSource
+
+    def __post_init__(self) -> None:
+        if self.evidence_source not in {"upstream_verification", "acre_additional_query"}:
+            raise ValueError(f"unknown support evidence source: {self.evidence_source}")
+
+
+@dataclass(frozen=True)
 class PolicyDecision:
     task_id: str
     policy_name: str
@@ -49,6 +70,8 @@ class PolicyDecision:
         reason: str,
         decision_timestamp: str,
     ) -> "PolicyDecision":
+        if not deploy and reason != FALLBACK_TO_BASE_AGENT:
+            raise ValueError("non-deployed policy decisions must use FALLBACK_TO_BASE_AGENT")
         payload = {
             "task_id": task_id,
             "policy_name": policy_name,
