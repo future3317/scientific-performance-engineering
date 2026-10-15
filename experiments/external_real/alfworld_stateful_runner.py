@@ -200,6 +200,8 @@ class SubgoalPlanner:
 
     @staticmethod
     def next_subgoal(state: EpisodeState, admissible_actions: Sequence[str]) -> str:
+        if "place_object" in state.completed_subgoals:
+            return "verify visible task completion; otherwise replan from the latest observation"
         visible_observation = state.last_observation.casefold().replace(state.goal.casefold(), "")
         held = state.target_object is not None and state.inventory is not None and any(
             _mentions(state.target_object, item) for item in state.inventory
