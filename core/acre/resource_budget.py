@@ -94,4 +94,108 @@ class ExecutionReserveBudget:
         }
 
 
-__all__ = ["EvolutionAdmission", "ExecutionReserveBudget"]
+@dataclass(frozen=True)
+class PairReservation:
+    """Separate task/evolution caps with an all-or-none paired-task reserve.
+
+    The task and evolution caps use their respective caller-defined units.
+    ``measured_pair_costs`` records actual task usage when known; ``None``
+    remains explicitly unknown.
+    """
+
+    task_execution_budget: float
+    evolution_search_budget: float
+    pair_costs: tuple[tuple[str, float], ...]
+    reserved: bool
+    reason: str
+    evolution_spent: float = 0.0
+    completed_pairs: tuple[str, ...] = ()
+    measured_pair_costs: tuple[tuple[str, float | None], ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.task_execution_budget < 0.0 or self.evolution_search_budget < 0.0:
+            raise ValueError("task and evolution budgets must be non-negative")
+        ids = [pair_id for pair_id, _ in self.pair_costs]
+        if len(ids) != len(set(ids)) or any(not pair_id for pair_id in ids):
+            raise ValueError("pair ids must be unique and non-empty")
+        if any(cost < 0.0 for _, cost in self.pair_costs):
+            raise ValueError("pair cost reservations must be non-negative")
+        if self.reserved and sum(cost for _, cost in self.pair_costs) > self.task_execution_budget + 1e-12:
+            raise ValueError("reserved pairs exceed task_execution_budget")
+        if self.evolution_spent < 0.0 or self.evolution_spent > self.evolution_search_budget + 1e-12:
+            raise ValueError("evolution spending exceeds its independent budget")
+        if any(pair_id not in ids for pair_id in self.completed_pairs):
+            raise ValueError("completed pair is not in the frozen reservation")
+        measured_ids = [pair_id for pair_id, _ in self.measured_pair_costs]
+        if len(measured_ids) != len(set(measured_ids)) or any(pair_id not in ids for pair_id in measured_ids):
+            raise ValueError("measured pair costs must reference unique reserved pairs")
+        if any(cost is not None and cost < 0.0 for _, cost in self.measured_pair_costs):
+            raise ValueError("measured pair costs must be non-negative or unknown")
+
+    @classmethod
+    def reserve_all_pairs(
+        cls,
+        pair_costs: tuple[tuple[str, float], ...],
+        *,
+        task_execution_budget: float,
+        evolution_search_budget: float,
+    ) -> "PairReservation":
+        """Reserve every matched pair, or reserve none of them."""
+        if task_execution_budget < 0.0 or evolution_search_budget < 0.0:
+            raise ValueError("task and evolution budgets must be non-negative")
+        required = sum(cost for _, cost in pair_costs)
+        fits = required <= task_execution_budget + 1e-12
+        return cls(
+            task_execution_budget=float(task_execution_budget),
+            evolution_search_budget=float(evolution_search_budget),
+            pair_costs=tuple((pair_id, float(cost)) for pair_id, cost in pair_costs),
+            reserved=fits,
+            reason="reserved" if fits else "task_execution_budget_insufficient",
+        )
+
+    @property
+    def evolution_available(self) -> float:
+        return max(0.0, self.evolution_search_budget - self.evolution_spent)
+
+    @property
+    def launch_allowed(self) -> bool:
+        return self.reserved
+
+    def record_evolution(self, cost: float) -> "PairReservation":
+        if cost < 0.0:
+            raise ValueError("evolution cost must be non-negative")
+        if cost > self.evolution_available + 1e-12:
+            raise ValueError("evolution_search_budget_insufficient")
+        return replace(self, evolution_spent=self.evolution_spent + float(cost))
+
+    def complete_pair(self, pair_id: str, measured_cost: float | None) -> "PairReservation":
+        if not self.reserved:
+            raise ValueError("cannot complete a pair before all pairs are reserved")
+        pair_ids = {item for item, _ in self.pair_costs}
+        if pair_id not in pair_ids:
+            raise ValueError("pair_id is not in the frozen reservation")
+        if pair_id in self.completed_pairs:
+            raise ValueError("pair is already complete")
+        if measured_cost is not None and measured_cost < 0.0:
+            raise ValueError("measured_cost must be non-negative or unknown")
+        return replace(
+            self,
+            completed_pairs=self.completed_pairs + (pair_id,),
+            measured_pair_costs=self.measured_pair_costs + ((pair_id, measured_cost),),
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "task_execution_budget": self.task_execution_budget,
+            "evolution_search_budget": self.evolution_search_budget,
+            "pair_costs": dict(self.pair_costs),
+            "reserved": self.reserved,
+            "reason": self.reason,
+            "evolution_spent": self.evolution_spent,
+            "evolution_available": self.evolution_available,
+            "completed_pairs": list(self.completed_pairs),
+            "measured_pair_costs": dict(self.measured_pair_costs),
+        }
+
+
+__all__ = ["EvolutionAdmission", "ExecutionReserveBudget", "PairReservation"]
