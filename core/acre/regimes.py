@@ -240,7 +240,18 @@ def classify_support_regime(
             for bounds in stratum_bounds.values()
         ):
             source_digest = hashlib.sha256(json.dumps({
-                "group_ids": sorted(group_ids),
+                "groups": [
+                    {
+                        "group_id": group.group_id,
+                        "context": group.context,
+                        "effect_lower": group.effect_lower,
+                        "effect_upper": group.effect_upper,
+                        "hard_gates_passed": group.hard_gates_passed,
+                        "stratum": group.stratum,
+                        "versions": group.versions,
+                    }
+                    for group in sorted(groups, key=lambda item: item.group_id)
+                ],
                 "scope": scope.population_id,
                 "delta": delta,
                 "min_groups": min_groups,

@@ -163,7 +163,7 @@ class PredicateGrammar:
             if expired():
                 return PredicateSearchResult((), True, 0, time.monotonic() - started, "")
             context_masks.append(sum(1 << index for index, context in enumerate(signature_contexts) if match_predicate(fragment, context)))
-        full_mask = (1 << len(contexts)) - 1
+        full_mask = (1 << len(signature_contexts)) - 1
         fragment_keys = [_key(fragment) for fragment in fragments]
         fragment_complexities = []
         for fragment in fragments:

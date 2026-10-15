@@ -279,11 +279,8 @@ class StatisticalCEGIS:
             provenance["certificate"] = cert.to_dict()
             return SynthesisResult("unsynthesizable_boundary", None, counterexample_ids, anchor_ids, provenance=provenance, certificate=cert)
         contexts = [item.context for item in anchors] + [item.context for item in certified]
-        # The finite vocabulary is rebuilt from the complete observed
-        # decision context set on every call.  This is an explicit sequential
-        # expansion policy: a newly observed boundary value can introduce a
-        # new threshold instead of being filtered against a stale first-round
-        # hypothesis space.
+        # Rebuild the vocabulary on every call so new evidence can introduce
+        # thresholds without reusing a stale first-round hypothesis space.
         # Evaluation/decision contexts define where hypotheses are compared,
         # not which thresholds are available. Transductive callers must opt
         # in by passing those contexts explicitly as vocabulary_contexts.

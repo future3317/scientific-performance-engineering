@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+
 from experiments.skill_evolution.qualification import (
     qualification_config,
     required_evolution_search_budget,
     required_task_execution_budget,
     run_qualification_study,
 )
+from experiments.skill_evolution import qualification
 from experiments.skill_evolution.study import (
     HYPOTHESES,
     PREDEFINED_SEEDS,
@@ -107,7 +110,7 @@ def test_learned_qualification_uses_disjoint_splits_and_current_acre_decisions()
     assert report["provider_calls"] == 0
     assert report["pre_frozen_config"]["train_evaluation_overlap"] is False
     assert report["pre_frozen_config"]["confidence_allocation"]["family_alpha"] == 0.05
-    assert report["pre_frozen_config"]["confidence_allocation"]["measurement_comparisons"] == 480
+    assert report["pre_frozen_config"]["confidence_allocation"]["measurement_comparisons"] == 720
     assert report["pre_frozen_config"]["confidence_allocation"]["measurement_alpha"] == 0.025
     assert report["pre_frozen_config"]["confidence_allocation"]["regime_classifier_alpha"] == 0.0125
     assert report["pre_frozen_config"]["confidence_allocation"]["cegis_certificate_alpha"] == 0.0125
@@ -120,6 +123,12 @@ def test_learned_qualification_uses_disjoint_splits_and_current_acre_decisions()
     assert broad["training"]["support_regime"] == "GLOBAL_VERIFIED"
     assert selective["evaluation"]["activation_rate"]["old_selective"]["estimate"] == 0.5
     assert selective["evaluation"]["activation_rate"]["new_regime"]["estimate"] == 0.5
+    assert selective["new_regime_routing"]["api"] == "AcreEngine.route"
+    assert selective["new_regime_routing"]["selected_by_stratum"] == {
+        "supported": True,
+        "unsupported": False,
+    }
+    assert selective["new_regime_routing"]["canonical_promotion_claim"] is False
     assert selective["evaluation"]["by_stratum"]["supported"]["activation_rate"]["new_regime"]["estimate"] == 1.0
     assert selective["evaluation"]["by_stratum"]["unsupported"]["negative_transfer_rate"]["new_regime"]["estimate"] == 0.0
     assert selective["evaluation"]["by_stratum"]["unsupported"]["negative_transfer_rate"]["global"]["estimate"] > 0.0
@@ -152,7 +161,7 @@ def test_qualification_cli_writes_frozen_config_before_running_study(tmp_path, m
     def run_after_preregistration(*, task_execution_budget=None):
         assert preregistration.exists()
         assert not output.exists()
-        assert __import__("json").loads(preregistration.read_text()) == qualification_config()
+        assert json.loads(preregistration.read_text()) == qualification_config()
         return {"synthetic_only": True, "results": []}
 
     monkeypatch.setattr(cli, "run_qualification_study", run_after_preregistration)
@@ -166,5 +175,31 @@ def test_qualification_config_freezes_confidence_allocation_and_phase_i_status()
 
     assert allocation["family_alpha"] == 0.05
     assert allocation["measurement_alpha"] + allocation["regime_classifier_alpha"] + allocation["cegis_certificate_alpha"] == 0.05
-    assert allocation["measurement_comparisons"] == 480
+    assert allocation["measurement_comparisons"] == 720
+    assert config["groups_per_stratum_per_seed"] == 60
+    assert config["repetitions_per_group"] == 1024
+    assert allocation["minimum_repetitions_for_radius_target"] <= config["repetitions_per_group"]
+    assert allocation["planned_worst_case_radius"] <= allocation["planned_radius_target"]
     assert config["real_phase_i"]["status"] == "NOT_RUN"
+    assert config["synthetic_rule"]["routing_api"].startswith("AcreEngine.route")
+    assert config["synthetic_rule"]["state"] == "canonical synthetic fixture only"
+    assert config["synthetic_rule"]["canonical_promotion_claim"] is False
+
+
+def test_low_repetition_broad_fixture_remains_uncertain(monkeypatch):
+    monkeypatch.setattr(qualification, "REPETITIONS_PER_GROUP", 80)
+    groups, synthesis = qualification._train_regime("broad_benefit")
+    decision = qualification.classify_support_regime(
+        groups,
+        scope=qualification.SUPPORT_SCOPE,
+        target_context={"domain": "skillstudy"},
+        runtime_versions=qualification.RUNTIME_VERSIONS,
+        selective=synthesis,
+        fixed_time_complete=True,
+        delta=qualification.REGIME_ALPHA,
+        min_groups=qualification.MIN_GROUPS_FOR_GLOBAL,
+        min_net_benefit=0.0,
+        max_harm_probability=0.10,
+    )
+
+    assert decision.regime.value == "UNCERTAIN"
