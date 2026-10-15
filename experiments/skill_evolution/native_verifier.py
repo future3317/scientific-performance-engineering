@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import json
 from pathlib import Path
 import sys
@@ -200,7 +200,7 @@ def main() -> None:
         "provider_calls": 0, "environment_config": config,
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     with (args.output_dir / "official_environment.log").open("x", encoding="utf-8") as log:
-        with redirect_stdout(log):
+        with redirect_stdout(log), redirect_stderr(log):
             result = run_official_train_teacher(args.data_root, args.gamefile, max_steps=args.max_steps)
     (args.output_dir / "results.json").write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8",

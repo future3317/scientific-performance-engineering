@@ -39,11 +39,13 @@ def viability_gate(receipts: list[dict[str, Any]]) -> dict[str, Any]:
 def readiness_manifest(plan: dict[str, Any], *, controller_commit: str,
                        run_id: str, max_input_per_request: int | None = None,
                        max_completion_per_request: int | None = None,
-                       split_manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+                       split_manifest: dict[str, Any] | None = None,
+                       live_output_dir: str | None = None) -> dict[str, Any]:
     steps = plan["config"]["max_steps"]
     episodes = len(plan["episodes"])
     return {"study_id": "skill_evolution_real_v2", "run_id": run_id,
             "stage": "train_viability", "controller_commit": controller_commit,
+            "output_dir": live_output_dir,
             "model": "deepseek-flash", "thinking": "enabled", "native_api_tools": False,
             "split": "train_inner", "plan_sha256": manifest_digest(plan),
             "split_manifest": split_manifest,
@@ -75,14 +77,18 @@ def resource_plan(manifest: dict[str, Any], pricing: dict[str, Any] | None = Non
             "blockers": ["explicit scope and hard-budget approval"] +
                         ([] if inp and out else ["task-grounded finite request caps"])
                         + ([] if manifest.get("split_manifest") else ["template-level split manifest"])
+                        + ([] if manifest.get("output_dir") else ["one fixed fresh live output directory"])
                         + ([] if pricing else ["verified execution-time pricing snapshot"])}
 
 
 def prepare_live(manifest: dict[str, Any], plan: dict[str, Any], approval: dict[str, Any],
-                 pricing: dict[str, Any], *, revision: str, base_url: str) -> ApprovedProviderBudget:
+                 pricing: dict[str, Any], *, revision: str, base_url: str,
+                 output_dir: Path | None = None) -> ApprovedProviderBudget:
     """All guards run before credentials, SDK import, reset or network I/O."""
     if manifest.get("controller_commit") != revision or manifest.get("plan_sha256") != manifest_digest(plan):
         raise ProviderBudgetExceeded("run_revision_or_plan_mismatch")
+    if output_dir is None or not manifest.get("output_dir") or output_dir.resolve() != Path(manifest["output_dir"]).resolve():
+        raise ProviderBudgetExceeded("run_output_directory_mismatch")
     split = manifest.get("split_manifest")
     if not isinstance(split, dict) or manifest.get("split_manifest_sha256") != manifest_digest(split):
         raise ProviderBudgetExceeded("split_manifest_required_or_mismatch")
@@ -125,6 +131,7 @@ def main() -> None:
     parser.add_argument("--pricing", type=Path)
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--live-output-dir", type=Path, help="freeze one future live directory, distinct from dry-run output")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -140,7 +147,8 @@ def main() -> None:
         manifest = readiness_manifest(plan, controller_commit=revision, run_id=args.run_id,
                                       max_input_per_request=args.max_input_per_request,
                                       max_completion_per_request=args.max_completion_per_request,
-                                      split_manifest=split)
+                                      split_manifest=split,
+                                      live_output_dir=str(args.live_output_dir.resolve()) if args.live_output_dir else None)
     else:
         parser.error("--manifest or --plan is required")
     pricing = json.loads(args.pricing.read_text()) if args.pricing else None
@@ -160,7 +168,8 @@ def main() -> None:
         raise RuntimeError("live execution requires a clean committed checkout")
     approval = json.loads(args.approval.read_text())
     base_url = "https://api.deepseek.com"
-    budget = prepare_live(manifest, plan, approval, pricing, revision=revision, base_url=base_url)
+    budget = prepare_live(manifest, plan, approval, pricing, revision=revision, base_url=base_url,
+                          output_dir=args.output)
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY is required at runtime")
@@ -178,6 +187,14 @@ def main() -> None:
     import inspect
     runner_source = Path(inspect.getfile(DeepSeekStatefulClient)).read_bytes()
     prompt_source = inspect.getsource(DeepSeekStatefulClient.choose_action).encode("utf-8")
+    configuration_sha = manifest_digest({
+        "agent_source": hashlib.sha256(runner_source).hexdigest(),
+        "prompt_source": hashlib.sha256(prompt_source).hexdigest(),
+        "model": manifest["model"], "thinking": "enabled", "max_steps": manifest["max_steps"],
+        "max_input_per_request": manifest["max_input_per_request"],
+        "max_completion_per_request": manifest["max_completion_per_request"],
+    })
+    client.run_manifest = manifest
     client.receipt_metadata = {"study_id": manifest["study_id"], "run_id": manifest["run_id"],
                                "split": "train_inner",
                                "arm": "V1_stateful_no_skill", "evidence_origin": "REAL_AGENT",
@@ -185,6 +202,7 @@ def main() -> None:
                                "agent_revision": revision, "benchmark_revision": revision,
                                "agent_revision_sha256": hashlib.sha256(runner_source).hexdigest(),
                                "prompt_template_sha256": hashlib.sha256(prompt_source).hexdigest(),
+                               "configuration_sha": configuration_sha,
                                "model_request_name": manifest["model"],
                                "split_manifest_sha256": manifest["split_manifest_sha256"],
                                "approval_reference": approval["approval_reference"]}

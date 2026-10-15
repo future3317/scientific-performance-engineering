@@ -15,6 +15,7 @@ from experiments.external_real.alfworld_runner import (
     _scalar,
     _select_game_files,
     extract_action,
+    task_family_name,
 )
 
 
@@ -617,6 +618,8 @@ def run_smoke(
         "max_completion_tokens": getattr(client, "max_completion_tokens", _DEEPSEEK_MAX_TOKENS),
         "provider_budget": budget.as_dict() if budget is not None else None,
         "readiness_plan": dict(plan) if plan is not None else None,
+        "run_manifest": getattr(client, "run_manifest", None),
+        "approval_scope": budget.approval if isinstance(budget, ApprovedProviderBudget) else None,
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     from alfworld.agents.environment.alfred_tw_env import AlfredTWEnv
 
@@ -653,6 +656,7 @@ def run_smoke(
                     raise ValueError("duplicate native reset in the frozen readiness batch")
                 planned_task = next(item for item in plan["episodes"] if item["gamefile"] == row["gamefile"])
                 row.update(task_id=task_id, template_id=template, cluster_id=planned_task["cluster_id"],
+                           task_family=task_family_name(planned_task["task_type"]),
                            trial_id=f"{metadata['run_id']}:{len(rows)}", seed=seed)
                 row["receipt_sha256"] = manifest_digest(row)
             rows.append(row)

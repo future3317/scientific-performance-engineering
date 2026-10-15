@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from experiments.skill_evolution.split_manifest import create_split_manifest, render_overlap_report
 
@@ -136,3 +137,27 @@ def test_template_grouping_uses_structured_target_relation_not_task_wording(tmp_
     del metadata["pddl_params"]["parent_target"]
     metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     assert _task_metadata(second)["identity_status"] == "UNKNOWN_IDENTITY"
+
+
+def test_split_cli_writes_revision_manifest_and_overlap_report(monkeypatch, tmp_path):
+    import sys
+    from experiments.skill_evolution import split_manifest as module
+    data_root, history, probe = _inputs(tmp_path)
+    output = tmp_path / "split.json"
+    monkeypatch.setattr(sys, "argv", ["split_manifest", "--data-root", str(data_root),
+                                     "--history", *(str(path) for path in history),
+                                     "--native-probe-results", str(probe), "--output", str(output)])
+    monkeypatch.setattr(module.subprocess, "check_output",
+                        lambda args, **kwargs: "abc123\n" if args[1] == "rev-parse" else "")
+    module.main()
+    assert json.loads(output.read_text())["revision"] == "abc123"
+    assert (tmp_path / "SPLIT_OVERLAP_REPORT.md").is_file()
+
+
+def test_demonstration_provenance_does_not_require_a_compiled_game(tmp_path):
+    data_root, history, probe = _inputs(tmp_path)
+    first = json.loads(history[0].read_text())["episodes"][0]["gamefile"]
+    Path(first).unlink()
+    result = create_split_manifest(data_root=data_root, history_paths=history,
+                                   native_probe_results=probe, untouched_eval_ids=[], revision="abc123")
+    assert result["qualification_status"] == "PARTITIONS_READY_FOR_REVIEW"

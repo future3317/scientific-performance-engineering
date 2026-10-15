@@ -496,11 +496,11 @@ def test_clean_exit_reports_clean_exit_without_cleanup():
 def test_forced_owned_worker_cleanup_is_reported_and_valid():
     from benchmark.harness.runner import run_python_subprocess
 
-    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)"
+    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready', flush=True); time.sleep(5)"
     parent_code = (
         f"import subprocess,sys; "
-        f"subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
-        "import time; time.sleep(0.2); raise SystemExit(0)"
+        f"child=subprocess.Popen([sys.executable, '-c', {child_code!r}], stdout=subprocess.PIPE, text=True); "
+        "assert child.stdout.readline().strip() == 'ready'; raise SystemExit(0)"
     )
     result = run_python_subprocess(snippet=parent_code, timeout=5.0)
 
@@ -712,8 +712,12 @@ def test_cleaned_noise_control_residual_is_valid(tmp_path, monkeypatch):
 def test_sigkill_escalates_for_term_resistant_descendant():
     from benchmark.harness.runner import run_python_subprocess
 
-    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(5)"
-    parent_code = f"import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', {child_code!r}]); time.sleep(0.2); raise SystemExit(3)"
+    child_code = "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready', flush=True); time.sleep(5)"
+    parent_code = (
+        f"import subprocess,sys; child=subprocess.Popen([sys.executable, '-c', {child_code!r}], "
+        "stdout=subprocess.PIPE, text=True); "
+        "assert child.stdout.readline().strip() == 'ready'; raise SystemExit(3)"
+    )
     result = run_python_subprocess(snippet=parent_code, timeout=5.0)
 
     assert result["exit_code"] == 3
