@@ -179,6 +179,8 @@ class PairedEvidence:
     hard_gates_passed: bool
     utility_interval: tuple[float, float]
     assessment_status: str
+    split: str = "train"
+    alpha: float = 0.05
 
     @property
     def point_gain_smoke(self) -> bool:
@@ -190,23 +192,31 @@ class PairedEvidence:
         return tuple(sorted({trial for pair in self.pairs for trial in (pair.off_trial_id, pair.on_trial_id)}))
 
 
-def verify_training_pairs(
+def _verify_paired_receipts(
     contract: SkillContract,
     receipts: Sequence[PairReceipt],
     *,
+    split: str,
+    alpha: float,
     forbidden_trial_ids: Sequence[str] = (),
+    forbidden_task_ids: Sequence[str] = (),
 ) -> PairedEvidence:
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be strictly between 0 and 1")
     if not receipts:
         raise ValueError("paired verifier requires receipts")
     by_pair: dict[str, dict[str, PairReceipt]] = {}
     seen_trials: set[str] = set()
-    seen_independent_groups: set[tuple[str, int]] = set()
-    forbidden = set(forbidden_trial_ids) | set(contract.source_trial_ids)
+    seen_tasks: set[str] = set()
+    forbidden = set(forbidden_trial_ids) | set(contract.source_trial_ids) | set(contract.verification_trial_ids)
+    forbidden_tasks = set(forbidden_task_ids)
     for receipt in receipts:
-        if receipt.split != "train":
-            raise ValueError("paired verification accepts train split only")
+        if receipt.split != split:
+            if split == "train":
+                raise ValueError("paired verification accepts train split only")
+            raise ValueError(f"paired verification requires {split} split")
         if receipt.trial_id in seen_trials or receipt.trial_id in forbidden:
-            raise ValueError("trial evidence reused across mining and verification")
+            raise ValueError("trial evidence reused across mining or verification splits")
         seen_trials.add(receipt.trial_id)
         if receipt.verifier_status != "verified":
             raise ValueError("paired receipt lacks independent verifier status")
@@ -228,10 +238,9 @@ def verify_training_pairs(
             on.task_id, on.seed, on.agent_revision, on.benchmark_revision
         ):
             raise ValueError("paired arms differ in task, seed, agent, or benchmark contract")
-        independent_group = (off.task_id, off.seed)
-        if independent_group in seen_independent_groups:
-            raise ValueError("duplicate independent task and seed group")
-        seen_independent_groups.add(independent_group)
+        if off.task_id in seen_tasks or off.task_id in forbidden_tasks:
+            raise ValueError("duplicate independent task and seed group; task ids cannot repeat across seeds or evidence splits")
+        seen_tasks.add(off.task_id)
         results.append(PairResult(pair_id, off.trial_id, on.trial_id, off.success, on.success, off.utility, on.utility,
                                   off.task_id, off.seed, off.agent_revision, off.benchmark_revision))
     repairs = sum(not row.off_success and row.on_success for row in results)
@@ -240,7 +249,7 @@ def verify_training_pairs(
     # Hoeffding interval for paired utility deltas, each bounded to [-2, 2].
     # It intentionally remains wide for small samples; point gain alone is not acceptance.
     import math
-    radius = 4.0 * math.sqrt(math.log(40.0) / (2 * len(results)))
+    radius = 4.0 * math.sqrt(math.log(2.0 / alpha) / (2 * len(results)))
     interval = (max(-2.0, utility_delta - radius), min(2.0, utility_delta + radius))
     hard_gates_passed = all(arms["off"].hard_gates_passed and arms["on"].hard_gates_passed for arms in by_pair.values())
     assessment = "REJECTED" if not hard_gates_passed or regressions or interval[1] < 0 else (
@@ -255,7 +264,57 @@ def verify_training_pairs(
         hard_gates_passed,
         interval,
         assessment,
+        split,
+        alpha,
     )
+
+
+def verify_training_pairs(
+    contract: SkillContract,
+    receipts: Sequence[PairReceipt],
+    *,
+    forbidden_trial_ids: Sequence[str] = (),
+) -> PairedEvidence:
+    """Compatibility entry point for the original train-only, 95% verifier."""
+    return _verify_paired_receipts(
+        contract, receipts, split="train", alpha=0.05,
+        forbidden_trial_ids=forbidden_trial_ids,
+    )
+
+
+def approve_outer_validation(
+    contract: SkillContract,
+    frozen_candidate_digest: str,
+    inner_evidence: PairedEvidence,
+    outer_receipts: Sequence[PairReceipt],
+    *,
+    split: str,
+    alpha: float,
+) -> PairedEvidence:
+    """Assess a pre-frozen candidate against held-out evidence without promotion."""
+    if split not in {"calibration", "sealed"}:
+        raise ValueError("outer validation requires calibration or sealed split")
+    if contract.digest != frozen_candidate_digest:
+        raise ValueError("candidate differs from its frozen digest")
+    if inner_evidence.skill_digest != frozen_candidate_digest:
+        raise ValueError("inner evidence refers to a different frozen candidate")
+    inner_trial_ids = inner_evidence.evidence_trial_ids
+    inner_task_ids = tuple(pair.task_id for pair in inner_evidence.pairs)
+    outer = _verify_paired_receipts(
+        contract,
+        outer_receipts,
+        split=split,
+        alpha=alpha,
+        forbidden_trial_ids=inner_trial_ids,
+        forbidden_task_ids=inner_task_ids,
+    )
+    if inner_evidence.assessment_status == "REJECTED" or outer.assessment_status == "REJECTED":
+        assessment = "REJECTED"
+    elif inner_evidence.assessment_status != "CANDIDATE_ACCEPTED" or outer.assessment_status != "CANDIDATE_ACCEPTED":
+        assessment = "UNDECIDED"
+    else:
+        assessment = "CANDIDATE_ACCEPTED"
+    return replace(outer, assessment_status=assessment)
 
 
 class SkillPatchOptimizer:
@@ -388,6 +447,45 @@ class SkillEvolutionStore:
     def record_evidence(self, contract: SkillContract, evidence: PairedEvidence) -> None:
         if evidence.skill_digest != contract.digest:
             raise ValueError("evidence refers to a different skill contract")
+        if evidence.assessment_status not in {"CANDIDATE_ACCEPTED", "UNDECIDED", "REJECTED"}:
+            raise ValueError("unknown paired evidence assessment")
+        if evidence.split not in {"train", "calibration", "sealed"}:
+            raise ValueError("unknown paired evidence split")
+        if not evidence.pairs:
+            raise ValueError("cannot persist empty paired evidence")
+        existing_ids: set[str] = set()
+        existing_trial_ids: set[str] = set()
+        existing_task_ids: set[str] = set()
+        if self.events_path.exists():
+            for line in self.events_path.read_text(encoding="utf-8").splitlines():
+                event = json.loads(line)
+                if "event_id" in event:
+                    existing_ids.add(event["event_id"])
+                    artifacts = event.get("artifacts", {})
+                    existing_trial_ids.update(
+                        trial_id for trial_id in (artifacts.get("off_trial_id"), artifacts.get("on_trial_id"))
+                        if trial_id is not None
+                    )
+                    task_id = event.get("context", {}).get("task_id")
+                    if task_id is not None and event.get("versions", {}).get("skill") == contract.digest:
+                        existing_task_ids.add(task_id)
+        new_trial_ids = [trial_id for pair in evidence.pairs for trial_id in (pair.off_trial_id, pair.on_trial_id)]
+        new_task_ids = [pair.task_id for pair in evidence.pairs]
+        if len(set(new_trial_ids)) != len(new_trial_ids) or existing_trial_ids.intersection(new_trial_ids):
+            raise ValueError("paired trial evidence already recorded")
+        if len(set(new_task_ids)) != len(new_task_ids) or existing_task_ids.intersection(new_task_ids):
+            raise ValueError("paired independent task already recorded")
+        new_ids = {
+            f"{contract.skill_id}.v{contract.version}.{evidence.split}.{pair.pair_id}"
+            for pair in evidence.pairs
+        }
+        if evidence.split == "train":
+            new_ids.update(
+                f"{contract.skill_id}.v{contract.version}.{pair.pair_id}"
+                for pair in evidence.pairs
+            )
+        if existing_ids.intersection(new_ids):
+            raise ValueError("paired evidence event already recorded")
         self._ensure_genesis()
         self.events_path.parent.mkdir(parents=True, exist_ok=True)
         old_digest = hashlib.sha256(self.events_path.read_bytes()).hexdigest() if self.events_path.exists() else ""
@@ -395,9 +493,10 @@ class SkillEvolutionStore:
             for pair in evidence.pairs:
                 event = EvidenceEvent(
                     schema_version=2,
-                    event_id=f"{contract.skill_id}.v{contract.version}.{pair.pair_id}",
+                    event_id=f"{contract.skill_id}.v{contract.version}.{evidence.split}.{pair.pair_id}",
                     context={"task_id": pair.task_id, "seed": pair.seed, "task_family": contract.task_family, "skill_digest": contract.digest},
-                    assignment={"interventions": {contract.skill_id: 1}, "propensity": 0.5, "design_id": "matched-train-skill-v1"},
+                    assignment={"interventions": {contract.skill_id: 1}, "propensity": 0.5,
+                                "design_id": f"matched-{evidence.split}-skill-v1"},
                     outcome_vector={"utility": (pair.on_utility - pair.off_utility) / 2.0},
                     scientific_gates={"independent_verifier": True, "hard_gates": evidence.hard_gates_passed},
                     artifacts={"off_trial_id": pair.off_trial_id, "on_trial_id": pair.on_trial_id,
@@ -412,14 +511,15 @@ class SkillEvolutionStore:
                     query_id=pair.pair_id,
                     trust_zone="local",
                     attacker_controlled_fields=[],
-                    evidence_role="synthesis",
+                    evidence_role="synthesis" if evidence.split == "train" else "validation",
                 )
                 handle.write(json.dumps(event.to_dict(), sort_keys=True, ensure_ascii=False) + "\n")
         digest = hashlib.sha256(self.events_path.read_bytes()).hexdigest()
         self.journal.append(
             "add_evidence", contract.skill_id, version=contract.version,
             artifact_path=str(self.events_path.relative_to(self.root)).replace("\\", "/"),
-            digest=digest, old_digest=old_digest or None, operation_detail="train_only_paired_verification",
+            digest=digest, old_digest=old_digest or None,
+            operation_detail=f"{evidence.split}_paired_verification",
         )
 
     def record_rejection(self, contract: SkillContract, reason: str, *, evidence_ids: Sequence[str] = ()) -> None:
@@ -431,6 +531,10 @@ class SkillEvolutionStore:
         self._append_decision(contract, "rejected", reason, evidence_ids)
 
     def record_acceptance(self, contract: SkillContract, evidence: PairedEvidence) -> None:
+        if evidence.skill_digest != contract.digest:
+            raise ValueError("evidence refers to a different skill contract")
+        if evidence.assessment_status != "CANDIDATE_ACCEPTED":
+            raise ValueError("only candidate-accepted evidence can record acceptance")
         self.record_evidence(contract, evidence)
         self._append_decision(contract, "verified_candidate", "bounded_interval_above_zero", evidence.evidence_trial_ids)
 

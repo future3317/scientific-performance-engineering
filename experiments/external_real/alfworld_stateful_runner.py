@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from core.acre.resource_budget import ProviderBudgetExceeded, ProviderUsageBudget
 from experiments.external_real.alfworld_runner import (
     DEFAULT_MODEL,
     _alfworld_config,
@@ -24,6 +25,17 @@ POLICY_REVISION = "alfworld-stateful-visible-thinking"
 _TRANSFORMATIONS = ("clean", "heat", "cool")
 _STATE_HISTORY_LIMIT = 12
 _SEEN_ENTITY_LIMIT = 32
+_DEEPSEEK_MAX_TOKENS = 8192
+
+
+def _prompt_token_bound(messages: Sequence[Mapping[str, str]]) -> int:
+    """Bound this exact prompt by UTF-8 content bytes plus chat framing.
+
+    This is accounting, not a tokenizer: it assumes content tokenization uses
+    no more tokens than UTF-8 bytes and reserves 16 tokens per message plus 3
+    for the provider's chat framing/assistant prefix.
+    """
+    return sum(len(message["content"].encode("utf-8")) + 16 for message in messages) + 3
 
 
 def _goal_from_observation(observation: str) -> str:
@@ -265,12 +277,20 @@ class ExecutionGuard:
 class DeepSeekStatefulClient:
     """Small provider adapter; construction is explicit and never done by fixtures."""
 
-    def __init__(self, api_key: str, base_url: str, model: str, temperature: float = 0.0) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        temperature: float = 0.0,
+        budget: ProviderUsageBudget | None = None,
+    ) -> None:
         from openai import OpenAI
 
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0, max_retries=0)
         self.model = model
         self.temperature = temperature
+        self.budget = budget
 
     def choose_action(
         self,
@@ -291,29 +311,50 @@ class DeepSeekStatefulClient:
             "Admissible commands:\n" + "\n".join(f"- {item}" for item in admissible_actions)
             + "\nReply only as Action: <exact command>."
         )
+        messages = [
+            {"role": "system", "content": "Follow the action format exactly."},
+            {"role": "user", "content": prompt},
+        ]
+        if self.budget is not None:
+            self.budget.reserve(_prompt_token_bound(messages), _DEEPSEEK_MAX_TOKENS)
         started = time.perf_counter()
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=8192,
-            extra_body={"thinking": {"type": "enabled"}},
-            messages=[
-                {"role": "system", "content": "Follow the action format exactly."},
-                {"role": "user", "content": prompt},
-            ],
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=_DEEPSEEK_MAX_TOKENS,
+                extra_body={"thinking": {"type": "enabled"}},
+                messages=messages,
+            )
+        except Exception:
+            if self.budget is not None:
+                self.budget.mark_unknown("provider_exception_usage_unknown")
+            raise
         latency = time.perf_counter() - started
+        try:
+            usage = getattr(response, "usage", None)
+            input_tokens = getattr(usage, "prompt_tokens", None)
+            output_tokens = getattr(usage, "completion_tokens", None)
+            if self.budget is not None:
+                if (isinstance(input_tokens, int) and isinstance(output_tokens, int)
+                        and input_tokens >= 0 and output_tokens >= 0):
+                    self.budget.record_usage(input_tokens, output_tokens)
+                else:
+                    self.budget.mark_unknown()
+        except Exception:
+            if self.budget is not None:
+                self.budget.mark_unknown()
+            raise
         message = response.choices[0].message
         content = message.content or ""
         reasoning = getattr(message, "reasoning_content", "") or ""
         parser_input = content
-        usage = getattr(response, "usage", None)
         return {
             "raw_output": parser_input,
             "provider_raw": {"content": content, "reasoning_content": reasoning},
             "response_field_used": "message.content",
-            "input_tokens": getattr(usage, "prompt_tokens", None),
-            "output_tokens": getattr(usage, "completion_tokens", None),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", None),
             "cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", None),
             "reasoning_tokens": getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
@@ -348,6 +389,14 @@ def run_episode(
         progress, chars = compressor.render(state, history)
         try:
             completion = client.choose_action(state, admissible, skill, progress, replan_reason)
+        except ProviderBudgetExceeded as exc:
+            termination_reason = "provider_budget_exhausted"
+            progress_events.append({
+                "step": step_index,
+                "kind": "provider_budget_exhausted",
+                "reason": str(exc),
+            })
+            break
         except Exception as exc:  # external client errors are terminal evidence, not hidden retries
             termination_reason = "policy_error"
             trajectory.append({"step": step_index, "observation": observation,
@@ -428,7 +477,9 @@ def run_episode(
         "schema_version": 2,
         "policy_revision": POLICY_REVISION,
         "split": "train",
-        "success": None if termination_reason in {"policy_error", "environment_error"} else won,
+        "success": None if termination_reason in {
+            "policy_error", "environment_error", "provider_budget_exhausted"
+        } else won,
         "steps": len(trajectory),
         "env_steps": sum("reward" in row for row in trajectory),
         "skill_version": skill_version,

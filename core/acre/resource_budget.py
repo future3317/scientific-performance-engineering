@@ -10,6 +10,97 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 
+class ProviderBudgetExceeded(RuntimeError):
+    """A provider request cannot be admitted under the frozen usage budget."""
+
+
+class ProviderUsageBudget:
+    """Call and total-token caps with one in-flight request reservation.
+
+    ``max_total_tokens`` counts provider-reported input plus completion tokens.
+    An unknown usage result freezes the budget because the remaining allowance
+    can no longer be established.
+    """
+
+    def __init__(self, max_calls: int, max_total_tokens: int) -> None:
+        if max_calls < 0 or max_total_tokens < 0:
+            raise ValueError("provider usage caps must be non-negative")
+        self.max_calls = int(max_calls)
+        self.max_total_tokens = int(max_total_tokens)
+        self.calls_reserved = 0
+        self.tokens_used = 0
+        self.tokens_unknown = False
+        self.bound_violation = False
+        self.stop_reason: str | None = None
+        self._reservation: dict[str, int | str] | None = None
+        self._stopped = False
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopped
+
+    def reserve(self, input_token_bound: int, max_completion_tokens: int) -> None:
+        """Reserve a complete request; never lower its requested output cap."""
+        if input_token_bound < 0 or max_completion_tokens < 0:
+            raise ValueError("provider token reservations must be non-negative")
+        if self._stopped:
+            raise ProviderBudgetExceeded("provider_usage_unknown_or_over_budget")
+        if self._reservation is not None:
+            raise RuntimeError("a provider request reservation is already in flight")
+        if self.calls_reserved >= self.max_calls:
+            raise ProviderBudgetExceeded("provider_call_cap")
+        required = int(input_token_bound) + int(max_completion_tokens)
+        if self.tokens_used + required > self.max_total_tokens:
+            raise ProviderBudgetExceeded("provider_token_cap")
+        self.calls_reserved += 1
+        self._reservation = {
+            "input_token_bound": int(input_token_bound),
+            "max_completion_tokens": int(max_completion_tokens),
+            "total_token_reserve": required,
+            "status": "in_flight",
+        }
+
+    def record_usage(self, input_tokens: int, completion_tokens: int) -> None:
+        """Commit actual provider usage and release the request reservation."""
+        if self._reservation is None or self._reservation["status"] != "in_flight":
+            raise RuntimeError("no provider request reservation is in flight")
+        if input_tokens < 0 or completion_tokens < 0:
+            self.mark_unknown()
+            return
+        self.tokens_used += int(input_tokens) + int(completion_tokens)
+        input_bound = int(self._reservation["input_token_bound"])
+        self._reservation = None
+        if input_tokens > input_bound:
+            self.bound_violation = True
+            self._stopped = True
+            self.stop_reason = "input_token_bound_violation"
+        elif self.tokens_used > self.max_total_tokens:
+            self._stopped = True
+            self.stop_reason = "provider_token_cap_exceeded_by_actual_usage"
+
+    def mark_unknown(self, reason: str = "provider_usage_unknown") -> None:
+        """Keep the reservation charged and stop all later provider calls."""
+        if self._reservation is not None:
+            self._reservation["status"] = "usage_unknown"
+        self.tokens_unknown = True
+        self._stopped = True
+        self.stop_reason = reason
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a JSON-serializable accounting snapshot for receipts."""
+        return {
+            "max_calls": self.max_calls,
+            "max_total_tokens": self.max_total_tokens,
+            "calls_reserved": self.calls_reserved,
+            "tokens_used_known": self.tokens_used,
+            "tokens_unknown": self.tokens_unknown,
+            "reservations": None if self._reservation is None else dict(self._reservation),
+            "bound_violation": self.bound_violation,
+            "stopped": self._stopped,
+            "stop_reason": self.stop_reason,
+        }
+
+
 @dataclass(frozen=True)
 class EvolutionAdmission:
     accepted: bool
@@ -199,4 +290,10 @@ class PairReservation:
         }
 
 
-__all__ = ["EvolutionAdmission", "ExecutionReserveBudget", "PairReservation"]
+__all__ = [
+    "EvolutionAdmission",
+    "ExecutionReserveBudget",
+    "PairReservation",
+    "ProviderBudgetExceeded",
+    "ProviderUsageBudget",
+]
