@@ -201,6 +201,61 @@ provider supports it, not context length or reasoning/output token usage.
 
 ## Remaining real-study work
 
+### Continued MD implementation: executable readiness and outer validation
+
+Following the original October action plan (not merely the manuscript-only
+minimum), the next implementation increment closes three concrete gaps:
+
+- `core/acre/resource_budget.py` now provides a per-request provider ledger:
+  reserve the full declared input allowance plus completion cap before calling,
+  charge actual input/completion usage, and stop on unknown usage or an input
+  reservation violation. Cache hits do not reduce total-token accounting.
+  UTF-8 bytes plus chat framing are an explicitly assumed allowance, not an
+  exact DeepSeek tokenizer or a provider-guaranteed input bound. Currency
+  prices and a hard money cap are still unresolved; no paid batch is approved.
+- `core/skills/evolution.py` adds `approve_outer_validation`: bind a candidate
+  digest before independent calibration, keep source/inner/outer trials apart,
+  reject repeated task IDs across seeds, expose split/alpha, and require both
+  inner and outer acceptance. Existing train/95% verification is preserved.
+  Evidence writes reject replayed trial IDs, retain calibration as `validation`
+  rather than synthesis evidence, and never promote to the canonical registry.
+  Source task/template metadata is absent from the current contract; callers
+  still must establish source/holdback template separation via task manifests.
+- `experiments/skill_evolution/readiness.py` selects a deterministic new train
+  batch excluding entire templates appearing in supplied historical smoke,
+  viability, synthesis and native-probe receipts. The plan contains no result,
+  launches no provider, and explicitly lists remaining launch blockers.
+
+At `532a95b`, the first targeted test run reported 63 passed / 3 failed. The
+failures were new fixture errors (flat instead of batched action lists, editing
+only one arm of a duplicate-task pair, and an inaccurate error-string match).
+After fixture correction at `ab7306a`, all **66 targeted tests passed in
+15.95 s (exit 0)**. The adjacent governed retrieval, regime semantics and full
+lifecycle E2E tests also passed: **16 tests in 4.90 s (exit 0)**. These are not
+a new full-suite result.
+
+New server artifacts, separate from all previous outputs:
+`/home/workspace/lrh/RESULTS/skill-evolution-readiness-ab7306a/`.
+The readiness plan consumed seven historical train records and excluded 88
+task-template directories. The official environment reset and accepted one
+admissible batched action on each of the three new planned tasks; returned
+game IDs exactly covered the plan. Provider calls: 0. This is environment
+connectivity, not agent success or statistical independence of similar goals.
+
+The extended evolution replay writes its config before outcomes and exercises
+five synthetic cases. Positive inner/outer evidence accepts a candidate;
+inner regression skips outer; inner low power stays undecided; outer regression
+rejects/rolls back; outer low power stays undecided. Every journal/store replay
+check passed. No canonical Skill was installed and no real efficacy is claimed.
+
+The stateful CLI now requires an explicit fresh-task plan and call/token caps.
+It creates a fresh output directory and writes configuration before provider
+work, saves completed episodes incrementally, records budget snapshots, and
+marks remaining episodes nonlaunched after budget exhaustion. This persists
+completed episodes, not a guarantee of recovery from termination mid-turn.
+The three-episode cap is readiness-only and does not replace the plan's later
+Skill-content and regime-comparison work; those remain staged real-study work.
+
 The supplied plan is a multi-stage research program. It has not been completed
 as real-task research. The current paper-driven order is maintained in
 `experiments/skill_evolution/PROTOCOL.md`. The former six-pair legacy/stateful

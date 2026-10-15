@@ -491,6 +491,7 @@ def run_episode(
         "subgoal_followed": None,
         "invalid_actions": sum(int(row["invalid_action"]) for row in trajectory),
         "termination_reason": termination_reason,
+        "provider_budget": client.budget.as_dict() if getattr(client, "budget", None) is not None else None,
         "state": asdict(state),
         "progress_events": progress_events,
         "trajectory": trajectory,
@@ -501,22 +502,49 @@ def run_smoke(
     data_root: Path,
     output_dir: Path,
     client: Any,
-    episodes: int = 8,
+    episodes: int = 3,
     max_steps: int = 60,
     seed: int = 0,
     task_types: Sequence[int] = (3, 4, 5),
+    *,
+    plan: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=False)
+    budget = getattr(client, "budget", None)
+    (output_dir / "config.json").write_text(json.dumps({
+        "benchmark": "ALFWorld", "split": "train", "policy_revision": POLICY_REVISION,
+        "episodes": episodes, "max_steps": max_steps, "seed": seed,
+        "task_types": list(task_types), "model": getattr(client, "model", None),
+        "temperature": getattr(client, "temperature", None), "thinking": "enabled",
+        "max_completion_tokens": _DEEPSEEK_MAX_TOKENS,
+        "provider_budget": budget.as_dict() if budget is not None else None,
+        "readiness_plan": dict(plan) if plan is not None else None,
+    }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     from alfworld.agents.environment.alfred_tw_env import AlfredTWEnv
 
     config = _alfworld_config(data_root, task_types, max_steps)
     alfred = AlfredTWEnv(config, train_eval="train")
-    selected = _select_game_files(alfred.game_files, episodes, seed)
+    if plan is not None:
+        from experiments.skill_evolution.native_probe import probe_game_files
+        selected = probe_game_files(alfred.game_files, dict(plan))
+        if len(selected) != episodes:
+            raise ValueError("episode count differs from the frozen readiness plan")
+    else:
+        selected = _select_game_files(alfred.game_files, episodes, seed)
     alfred.game_files = selected
     alfred.num_games = len(selected)
     environment = alfred.init_env(batch_size=1)
     environment.seed(seed)
+    rows = []
     try:
-        rows = [run_episode(environment, client, max_steps=max_steps) for _ in range(episodes)]
+        for _ in range(episodes):
+            rows.append(run_episode(environment, client, max_steps=max_steps))
+            (output_dir / "results.json").write_text(json.dumps({
+                "benchmark": "ALFWorld", "split": "train", "status": "IN_PROGRESS",
+                "episodes": rows, "provider_budget": budget.as_dict() if budget is not None else None,
+            }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            if rows[-1]["termination_reason"] == "provider_budget_exhausted" or (budget is not None and budget.stopped):
+                break
     finally:
         environment.close()
     result = {
@@ -525,6 +553,9 @@ def run_smoke(
         "split": "train",
         "policy_revision": POLICY_REVISION,
         "episodes": rows,
+        "scheduled_episodes": episodes,
+        "nonlaunched_episodes": episodes - len(rows),
+        "provider_budget": budget.as_dict() if budget is not None else None,
         "summary": {
             "episode_count": len(rows),
             "success_rate": (sum(row["success"] is True for row in rows) / len(rows)
@@ -538,14 +569,7 @@ def run_smoke(
             },
         },
     }
-    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "results.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (output_dir / "config.json").write_text(json.dumps({
-        "benchmark": "ALFWorld", "split": "train", "policy_revision": POLICY_REVISION,
-        "episodes": episodes, "max_steps": max_steps, "seed": seed,
-        "task_types": list(task_types), "model": getattr(client, "model", None),
-        "temperature": getattr(client, "temperature", None),
-    }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
 
 
@@ -553,17 +577,20 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--episodes", type=int, default=8)
-    parser.add_argument("--max-steps", type=int, default=60)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--plan", type=Path, required=True, help="fresh three-episode train readiness plan")
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--max-calls", type=int, required=True)
+    parser.add_argument("--max-total-tokens", type=int, required=True)
     parser.add_argument("--base-url", default=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
     args = parser.parse_args()
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY is required at runtime")
-    client = DeepSeekStatefulClient(api_key, args.base_url, args.model)
-    run_smoke(args.data_root, args.output_dir, client, args.episodes, args.max_steps, args.seed)
+    budget = ProviderUsageBudget(args.max_calls, args.max_total_tokens)
+    client = DeepSeekStatefulClient(api_key, args.base_url, args.model, budget=budget)
+    run_smoke(args.data_root, args.output_dir, client, len(plan["episodes"]),
+              plan["config"]["max_steps"], plan["selection_seed"], plan=plan)
 
 
 if __name__ == "__main__":
