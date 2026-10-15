@@ -137,16 +137,23 @@ no deployment lattice was declared. Explicit-lattice identification still uses
 that complete declared comparison domain. The new agent also detects alternating
 navigation cycles rather than only identical consecutive observations.
 
-Latest focused verification at `f63ec84`: **50 new tests passed in 15.93 s,
-exit 0**. The full suite at this same revision is **IN_PROGRESS**, not passed:
-server PID 689281, log `full-suite-bounded.txt`. The 120 s faulthandler output
-is a diagnostic stack dump, not a test timeout verdict. The scheduled thread
-follow-up `evospe` checks this actual job and will record the terminal result.
+Focused verification at `f63ec84`: **50 new tests passed in 15.93 s,
+exit 0**. The completed full suite at this same revision reports **473 passed,
+8 warnings in 674.31 s** in `full-suite-bounded.txt`; PID 689281 has exited.
+Its shell exit status was not separately persisted, so none is reconstructed
+from the pipeline. The terminal pytest summary confirms no test failures.
+The 120 s faulthandler output was a diagnostic stack dump, not a test failure.
+This full-suite result applies to `f63ec84`, not subsequent API-client changes;
+those have separate focused verification below.
 
 The dry-run manifest writer consumes the executable study's own preregistration
-as its input, avoiding a second split/budget config. Its final command check
-remains pending until the running suite finishes and server source can be
-synchronized without changing revisions mid-run.
+as its input, avoiding a second split/budget config. After the suite ended and
+the clean server checkout was synchronized, its command completed with exit 0
+at `c3e3e7e`, creating `next-study-dryrun.json` with status
+`DRY_RUN_NOT_EXECUTED`, provider calls 0, and results claimed false. This
+consumes the synthetic qualification preregistration; it is not a real-provider
+execution authorization. Both this file and the complete full-suite log were
+copied to `E:/DATA/EvoSPE/skill-evolution-study-20261015/` for local review.
 
 `qualification-scoped.json` and `evolution-scoped/` record the follow-up at
 `2a9355d`, with the same frozen synthetic parameters and all three expected
@@ -207,8 +214,9 @@ real rollouts. Preserve separation of agent improvement, skill-content changes,
 and routing. Dense retrieval, learned acquisition, joint-system ablations and
 cross-environment/model efficacy are not implemented empirical results.
 
-No long training/provider job is running. A 30-minute thread follow-up was
-created only after confirming the long full-suite validation process was live;
-it may inspect validation results and finish documentation, but cannot start
-provider work. It will be paused when this validation is complete. Historical
+No long training/provider job is running. The 30-minute follow-up `evospe` has
+finished the zero-provider validation closeout and is being paused. This
+closeout made no provider calls and did not read credentials. The two later
+user-authorized connectivity probes are documented separately above and are
+not a Phase I experiment; real-study status remains `NOT_RUN`. Historical
 paper results and efficacy statuses are unchanged.
