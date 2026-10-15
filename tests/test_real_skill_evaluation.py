@@ -168,6 +168,20 @@ def test_missing_pairs_get_itt_bounds_and_zero_deployment_harm_is_undefined():
     assert gate["harm_deployed_status"] == "UNDEFINED_ZERO_OBSERVED_DEPLOYMENT"
 
 
+def test_shared_arm_policy_identity_is_zero_even_when_no_outcome_was_observed():
+    plan = _plan(count=2)
+    decisions = _decisions(plan, deploy_original=lambda _task: False, deploy_regime=lambda _task: True)
+    report, _ = evaluate_fixed_skill(plan, decisions, [])
+    abstain = report["gate_contrasts"]["original_acre_fixed_skill"]
+    assert abstain["incremental_success_over_base"]["complete_case"]["value"] == 0
+    assert abstain["incremental_success_over_base"]["planned_itt_bounds"]["upper"] == 0
+    assert abstain["harm_all"]["planned_itt_bounds"] == {"lower": 0, "upper": 0}
+    assert abstain["harm_deployed"] is None
+    reuse = report["gate_contrasts"]["regime_acre_fixed_skill"]
+    assert reuse["paired_delta_vs_global"]["complete_case"]["value"] == 0
+    assert report["content_contrast"]["paired_counts"]["missing"] == 2
+
+
 def test_agent_policy_loop_stop_is_observed_failure_not_missing():
     plan = _plan(count=1)
     receipts = _paired_receipts(plan, [(False, True)])
