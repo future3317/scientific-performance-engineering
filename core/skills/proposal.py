@@ -142,6 +142,8 @@ class ModelSkillProposer:
         self.calls = 0
         if not mock_mode and not isinstance(getattr(completion_client, "budget", None), ApprovedProviderBudget):
             raise ValueError("real proposals require a client guarded by ApprovedProviderBudget")
+        if isinstance(getattr(completion_client, "budget", None), ApprovedProviderBudget) and completion_client.budget.stage != "skill_evolution":
+            raise ValueError("Skill proposals require an explicitly approved skill_evolution stage")
 
     def propose_initial(
         self,

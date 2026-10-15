@@ -8,7 +8,7 @@ budget before the provider client or environment is created.
 from __future__ import annotations
 
 import argparse
-from dataclasses import fields
+from dataclasses import fields, replace
 import json
 import os
 from pathlib import Path
@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 from collections.abc import Callable
 
 from core.acre.resource_budget import ApprovedProviderBudget, ProviderBudgetExceeded, manifest_digest
+from .evaluation import receipt_outcome
 from core.skills import (
     EvidenceBundle,
     ModelSkillProposer,
@@ -54,15 +55,6 @@ def _rows(payload: Any, key: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _resolved_outcome(row: Mapping[str, Any]) -> bool | None:
-    status, won = row.get("status"), row.get("environment_won")
-    if status == "VERIFIED_SUCCESS" and won is True:
-        return True
-    if status in {"VERIFIED_FAILURE", "AGENT_POLICY_FAILURE"} and won is False:
-        return False
-    return None
-
-
 def validate_learning_inputs(
     manifest: Mapping[str, Any],
     split_manifest: Mapping[str, Any],
@@ -96,11 +88,11 @@ def validate_learning_inputs(
     if b_gate["status"] != "B-VIABLE-TRAIN-ONLY":
         raise ProviderBudgetExceeded("B_viability_gate_not_satisfied")
     b_successes = [row for row in viability_receipts if (
-        _resolved_outcome(row) is True
+        receipt_outcome(row) is True
         and row.get("evidence_origin") == "REAL_AGENT" and not row.get("teacher_only_source", False)
     )]
     b_failures = [row for row in viability_receipts if (
-        _resolved_outcome(row) is False
+        receipt_outcome(row) is False
         and row.get("evidence_origin") == "REAL_AGENT" and not row.get("teacher_only_source", False)
     )]
     win_clusters = {row.get("cluster_id") for row in b_successes}
@@ -117,7 +109,7 @@ def validate_learning_inputs(
         raise ValueError("train_inner source receipt IDs must be unique")
     if set(evidence.source_trace_ids) != set(source_by_id):
         raise ValueError("evidence trace IDs do not match the frozen source receipt set")
-    if any(row.get("split") != "train_inner" or _resolved_outcome(row) is None
+    if any(row.get("split") != "train_inner" or receipt_outcome(row) is None
            or row.get("evidence_origin") != "REAL_AGENT" or row.get("teacher_only_source", False)
            for row in source_receipts):
         raise ValueError("proposal sources must be autonomous, verifier-resolved train_inner receipts")
@@ -138,7 +130,7 @@ def validate_learning_inputs(
     ))
     if len(source_hashes) != len(source_receipts) or source_hashes != tuple(sorted(evidence.source_trace_hashes)):
         raise ValueError("source receipt hashes do not match the frozen evidence bundle")
-    if any(_resolved_outcome(row) is None for row in source_receipts):
+    if any(receipt_outcome(row) is None for row in source_receipts):
         raise ValueError("source verifier labels conflict with environment_won")
     frozen_tasks = split_manifest.get("task_membership")
     if not isinstance(frozen_tasks, list):
@@ -209,7 +201,7 @@ def validate_learning_inputs(
         row.get("task_family") or family_by_type.get(split_by_task[row["task_id"]].get("task_type"))
         for row in source_receipts
     }
-    if source_families != {evidence.task_family} or {_resolved_outcome(row) for row in source_receipts} != {True, False}:
+    if source_families != {evidence.task_family} or {receipt_outcome(row) for row in source_receipts} != {True, False}:
         raise ValueError("source receipts do not provide a same-family verified success/failure contrast")
 
     max_steps = manifest.get("max_steps")
@@ -378,7 +370,15 @@ def run_live_learning(
         max_skill_characters=manifest.get("max_skill_characters", 1800),
         on_completion=persist_proposal,
     )
-    patch_proposal = proposer.propose_patch(parent, evidence)
+    try:
+        patch_proposal = proposer.propose_patch(parent, evidence)
+    except (ValueError, ProviderBudgetExceeded) as exc:
+        status = "REJECTED_PROPOSAL" if isinstance(exc, ValueError) else "BUDGET_EXHAUSTED"
+        persist_proposal({"status": status, "reason": str(exc)})
+        report = {"status": status, "reason": str(exc), "provider_calls": budget.calls_reserved,
+                  "provider_budget": budget.as_dict(), "canonical_promotion": False, "results_claimed": False}
+        (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return report
     persist_proposal({
         "status": "validated",
         "patch": {"operation": patch_proposal.patch.operation, "index": patch_proposal.patch.index,
@@ -444,7 +444,7 @@ def run_live_learning(
                     "arm": arm, "skill_digest": candidate.digest if arm == "on" else None,
                     "agent_revision": manifest["agent_revision"],
                     "benchmark_revision": manifest["benchmark_revision"],
-                    "success": _resolved_outcome(row),
+                    "success": receipt_outcome(row),
                     "status": row["status"], "steps": row["steps"],
                     "provider_budget": row["provider_budget"], "evidence_origin": "REAL_AGENT",
                 }
@@ -526,11 +526,12 @@ def run_live_learning(
         result.candidate, result.candidate.digest, result.evidence, outer_receipts,
         split="train_outer", alpha=manifest.get("alpha", 0.05),
     )
+    outer_accepted = evolution.store.record_outer_assessment(result.candidate, parent, outer_evidence)
     report = {
         "status": outer_evidence.assessment_status,
         "inner_status": result.assessment_status,
         "outer_status": outer_evidence.assessment_status,
-        "accepted_for_further_review": result.accepted,
+        "accepted_for_further_review": outer_accepted,
         "canonical_promotion": False,
         "candidate_digest": result.candidate.digest if result.candidate else None,
         "proposal_prompt_sha256": patch_proposal.prompt_sha256,
@@ -539,6 +540,7 @@ def run_live_learning(
         "paired_receipts": receipt_rows,
         "inner_pair_count": len(result.evidence.pairs) if result.evidence else 0,
         "outer_pair_count": len(outer_evidence.pairs),
+        "outer_evidence_ids": list(outer_evidence.evidence_trial_ids),
         "inner_repairs": result.evidence.repairs if result.evidence else None,
         "inner_regressions": result.evidence.regressions if result.evidence else None,
         "inner_utility_delta": result.evidence.utility_delta if result.evidence else None,
@@ -550,9 +552,11 @@ def run_live_learning(
         "provider_budget": budget.as_dict(),
         "results_claimed": False,
     }
-    if outer_evidence.assessment_status == "CANDIDATE_ACCEPTED":
+    if outer_accepted:
         export_skill_pack(
-            result.candidate, output / "skill-pack",
+            replace(result.candidate, verification_trial_ids=tuple(sorted(
+                set(result.candidate.verification_trial_ids) | set(outer_evidence.evidence_trial_ids)))),
+            output / "skill-pack",
             agent_revision=manifest["agent_revision"], model_identity=patch_proposal.model_identity,
             verifier_revision=manifest["verifier_revision"], task_population=manifest["task_population"],
         )
