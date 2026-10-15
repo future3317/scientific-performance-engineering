@@ -222,6 +222,13 @@ over base (repairs) is explicitly separated from headroom over global reuse
 precision target, task/template clustering and affordable cost, not a call
 quota. Optional Skill editing/joint studies are deferred, not claimed complete.
 
+At `5632584`, the server's three targeted tests passed (10 deselected, 2.63 s):
+the readiness proposal is three stateful episodes with a derived 180-call
+ceiling and unset spending limits; qualification retains `NOT_RUN`; the
+provider-free CLI remains provider-free. No provider request was made for
+this redesign. Manuscript numerical claims and historical artifacts were not
+changed.
+
 Before real execution: finalize the clean train slice excluding old diagnostic
 episodes; operationally enforce actual call/token/money caps; add the provider
 proposal/independent outer-validation path and confirm activation telemetry on
