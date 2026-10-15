@@ -42,9 +42,9 @@ def _goal_from_observation(observation: str) -> str:
 
 
 def _goal_entities(goal: str) -> tuple[str | None, str | None]:
-    task = re.sub(r"^\s*put\s+(?:a|an|the)\s+", "", goal, flags=re.I)
-    task = re.sub(r"^(?:clean|heated?|cooled?)\s+", "", task, flags=re.I)
-    object_match = re.search(r"(?:pick up|take|clean|heat|cool)\s+(?:the\s+)?([\w -]+?)(?:\s+(?:and|then|in|on|with|using)\b|[,.]|$)", goal, re.I)
+    task = re.sub(r"^\s*put\s+(?:a|an|the|some)\s+", "", goal, flags=re.I)
+    task = re.sub(r"^(?:clean(?:ed)?|heat(?:ed)?|cool(?:ed)?|hot|cold)\s+", "", task, flags=re.I)
+    object_match = re.search(r"(?:pick up|take|clean|heat|cool)\s+(?:(?:a|an|the|some)\s+)?([\w -]+?)(?:\s+(?:and|then|in|on|with|using)\b|[,.]|$)", goal, re.I)
     if not object_match and task != goal:
         object_match = re.search(r"^([\w -]+?)(?:\s+(?:in|inside|on|onto)\b|[,.]|$)", task, re.I)
     destination_match = re.search(r"\b(?:in|inside|on|onto)\s+(?:the\s+)?([\w -]+?)(?:\s+\d+)?(?:[,.]|$)", goal, re.I)
@@ -66,7 +66,9 @@ def _visible_inventory(observation: str) -> tuple[str, ...] | None:
 
 def _transformation_from_goal(goal: str) -> str | None:
     lowered = goal.casefold()
-    return next((action for action in _TRANSFORMATIONS if re.search(rf"\b{action}(?:ed|ing)?\b", lowered)), None)
+    return next((action for action in _TRANSFORMATIONS if re.search(
+        rf"\b{action}(?:ed|ing)?\b" + (r"|\bhot\b" if action == "heat" else r"|\bcold\b" if action == "cool" else ""),
+        lowered)), None)
 
 
 def _mentions(entity: str, text: str) -> bool:
@@ -155,9 +157,10 @@ class EpisodeState:
             self.completed_subgoals.append("locate_object")
             self.progress_markers.append("subgoal_observed:locate_object")
         transform = self.required_transformation
-        transform_observed = transform and re.search(
-            rf"\byou\s+{transform}(?:ed)?\b|\b(?:is|now)\s+{transform}(?:ed)?\b", visible
-        )
+        descriptor = {"clean": r"clean(?:ed)?", "heat": r"(?:heat(?:ed)?|hot)",
+                      "cool": r"(?:cool(?:ed)?|cold)"}.get(transform, "")
+        transform_observed = (transform and self.target_object and _mentions(self.target_object, visible)
+                              and re.search(rf"\byou\s+{transform}(?:ed)?\b|\b(?:is|now)\s+(?:(?:a|an)\s+)?{descriptor}\b", visible))
         if transform_observed and transform not in self.completed_subgoals:
             self.completed_subgoals.append(transform)
             self.progress_markers.append(f"subgoal_observed:{transform}")
@@ -196,7 +199,7 @@ class EpisodeState:
                 self.progress_markers.append(f"subgoal_acknowledged:{transformation}")
                 self.fact_sources[transformation] = {"status": "known", "step": self.observation_step}
 
-        placement = re.match(r"(?:put|place)\s+(?:the\s+)?([\w -]+?)\s+(?:in/on|in|inside|on|onto)\s+(.+)$", action)
+        placement = re.match(r"(?:put|place|move)\s+(?:the\s+)?([\w -]+?)\s+(?:in/on|in|inside|on|onto|to)\s+(.+)$", action)
         if (
             placement and self.target_object and self.target_receptacle
             and _mentions(self.target_object, placement.group(1))
@@ -204,7 +207,7 @@ class EpisodeState:
         ):
             item, destination = placement.group(1).strip(), placement.group(2).strip()
             acknowledged = re.search(
-                rf"\byou\s+(?:put|place)\s+(?:the\s+)?{re.escape(item)}\s+(?:in/on|in|inside|on|onto)\s+{re.escape(destination)}\b",
+                rf"\byou\s+(?:put|place|move)\s+(?:the\s+)?{re.escape(item)}\s+(?:in/on|in|inside|on|onto|to)\s+{re.escape(destination)}\b",
                 text,
             )
             if acknowledged:

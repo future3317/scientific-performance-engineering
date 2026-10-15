@@ -610,6 +610,25 @@ class SkillEvolutionStore:
         self.record_evidence(contract, evidence)
         self._append_decision(contract, "verified_candidate", "bounded_interval_above_zero", evidence.evidence_trial_ids)
 
+    def record_outer_assessment(self, candidate: SkillContract, parent: SkillContract,
+                                evidence: PairedEvidence) -> bool:
+        """Persist independent validation; inner acceptance cannot hide outer failure."""
+        if evidence.split not in {"train_outer", "calibration", "sealed"}:
+            raise ValueError("outer assessment requires independent validation evidence")
+        if candidate.parent_digest != parent.digest:
+            raise ValueError("outer assessment parent differs from candidate lineage")
+        if evidence.assessment_status == "CANDIDATE_ACCEPTED":
+            self.record_acceptance(candidate, evidence)
+            return True
+        self.record_evidence(candidate, evidence)
+        if evidence.assessment_status == "REJECTED":
+            self.rollback(candidate, parent, "independent_outer_validation_failed",
+                          evidence_ids=evidence.evidence_trial_ids)
+        else:
+            self._append_decision(candidate, "outer_undecided", "independent_outer_validation_insufficient",
+                                  evidence.evidence_trial_ids)
+        return False
+
     def _append_decision(self, contract: SkillContract, outcome: str, reason: str, evidence_ids: Sequence[str]) -> None:
         old_digest = hashlib.sha256(self.events_path.read_bytes()).hexdigest() if self.events_path.exists() else ""
         self.events_path.parent.mkdir(parents=True, exist_ok=True)

@@ -21,6 +21,7 @@ def learning_fixture():
             "cluster_id": f"source-cluster-{index}",
             "split": "train_inner",
             "status": status,
+            "termination_reason": "success" if outcome else "agent_policy_failure",
             "environment_won": outcome,
             "environment_done": outcome,
             "success": outcome,

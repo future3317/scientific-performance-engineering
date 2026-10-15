@@ -247,7 +247,7 @@ def _validate_decisions(
     return decisions
 
 
-def _receipt_outcome(row: Mapping[str, Any]) -> bool | None:
+def receipt_outcome(row: Mapping[str, Any]) -> bool | None:
     status = row.get("status")
     success, won = row.get("success"), row.get("environment_won")
     done = row.get("environment_done", row.get("done"))
@@ -466,7 +466,7 @@ def evaluate_fixed_skill(
         if status not in allowed_status:
             raise ValueError("receipt status is not a recognized lifecycle/outcome enum")
         if status in TERMINAL_STATUSES:
-            _receipt_outcome(row)
+            receipt_outcome(row)
         elif row.get("success") is not None:
             raise ValueError("nonterminal and not-launched receipts cannot carry an outcome")
         by_trial[trial_id] = row
@@ -489,7 +489,7 @@ def evaluate_fixed_skill(
         trial_rows = {arm: by_trial.get(task["trial_ids"][arm]) for arm in ARMS}
         arm_outcomes = {}
         for arm, row in trial_rows.items():
-            outcome = _receipt_outcome(row) if row and row.get("status") in TERMINAL_STATUSES else None
+            outcome = receipt_outcome(row) if row and row.get("status") in TERMINAL_STATUSES else None
             outcomes[(task_id, arm)] = outcome
             arm_outcomes[arm] = outcome
         pair = (arm_outcomes["off"], arm_outcomes["on"]) if all(type(arm_outcomes[arm]) is bool for arm in ARMS) else None

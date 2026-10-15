@@ -168,6 +168,7 @@ class ApprovedProviderBudget(ProviderUsageBudget):
         if not self.max_usd.is_finite() or self.max_usd <= 0:
             raise ProviderBudgetExceeded("approval_invalid_cap:max_total_usd")
         self.approval, self.pricing = dict(approval), dict(pricing)
+        self.stage = stage
         self.started = time.monotonic()
         self.input_used = self.output_used = 0
         self.usd_used = Decimal(0)

@@ -393,3 +393,27 @@ def test_skill_body_and_contract_changes_invalidate_version_identity():
     })
     assert changed.digest != parent.digest
     assert changed.body_digest != parent.body_digest
+
+
+@pytest.mark.parametrize("case", ["accepted", "rejected", "undecided"])
+def test_outer_assessment_is_persisted_and_rejection_retires_inner_accepted_candidate(tmp_path, case):
+    parent = _parent()
+    candidate, _ = SkillPatchOptimizer().apply(parent, [Patch("ADD_STEP", 1, "Check visible progress.")])
+    inner = verify_training_pairs(candidate, _many_receipts(candidate))
+    receipts = _outer_receipts(candidate, count=40 if case == "accepted" else 1)
+    if case == "rejected":
+        receipts = [replace(row, success=not row.success, utility=float(not row.success)) for row in receipts]
+    outer = approve_outer_validation(candidate, candidate.digest, inner, receipts, split="calibration", alpha=0.05)
+    store = SkillEvolutionStore(tmp_path)
+    store.save_candidate(parent)
+    store.save_candidate(candidate)
+    store.record_acceptance(candidate, inner)
+    accepted = store.record_outer_assessment(candidate, parent, outer)
+    assert accepted is (case == "accepted")
+    state = store.state_store.load("rule", candidate.skill_id, candidate.version)
+    assert (state.status == "retired") is (case == "rejected")
+    events = [json.loads(line) for line in store.events_path.read_text().splitlines()]
+    expected = {"accepted": "verified_candidate", "rejected": "rejected", "undecided": "outer_undecided"}[case]
+    assert events[-1]["outcome"] == expected
+    assert set(events[-1]["evidence_trial_ids"]) == set(outer.evidence_trial_ids)
+    MutationJournal(tmp_path / "evolution" / "mutation_journal.jsonl").verify_against_store_diff(tmp_path)

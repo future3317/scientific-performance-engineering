@@ -187,3 +187,14 @@ def test_real_path_shaped_task_ids_are_metadata_not_governance_identifiers():
         "source_template_ids": ["template"], "source_cluster_ids": ["semantic-cluster"],
     })
     assert contract.source_task_ids == ("template/trial_0042",)
+
+
+def test_viability_only_approval_cannot_authorize_a_skill_proposal():
+    from types import SimpleNamespace
+    from core.acre.resource_budget import ApprovedProviderBudget
+    class ViabilityBudget(ApprovedProviderBudget):
+        def __init__(self):
+            self.stage = "train_viability"
+    client = SimpleNamespace(budget=ViabilityBudget(), max_completion_tokens=100)
+    with pytest.raises(ValueError, match="skill_evolution stage"):
+        ModelSkillProposer(client, max_completion_calls=1)

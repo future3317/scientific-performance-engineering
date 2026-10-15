@@ -100,3 +100,27 @@ def test_viability_requires_two_semantic_clusters_and_independent_failure():
     assert viability_gate(independent)["status"] == "B-VIABLE-TRAIN-ONLY"
     independent[0]["evidence_origin"] = "SYNTHETIC_FIXTURE"
     assert viability_gate(independent)["status"] == "VIABLE_BUT_NOT_QUALIFIED"
+
+
+@pytest.mark.parametrize("verb,object_name,destination", [("clean", "lettuce", "fridge"),
+                                                           ("heat", "mug", "coffeemachine"),
+                                                           ("cool", "lettuce", "diningtable")])
+def test_saved_native_probe_goal_grammar_does_not_make_some_part_of_target(verb, object_name, destination):
+    from experiments.external_real.alfworld_stateful_runner import EpisodeState
+    state = EpisodeState.start(f"Your task is to: {verb} some {object_name} and put it in {destination}.", 60)
+    assert state.target_object == object_name
+    assert state.target_receptacle == destination
+    assert state.required_transformation == verb
+    state.observe(f"You pick up the {object_name} 1 from the countertop 1.", f"take {object_name} 1 from countertop 1")
+    assert state.inventory == (f"{object_name} 1",)
+    state.observe(f"You move the {object_name} 1 to the {destination} 1.", f"move {object_name} 1 to {destination} 1")
+    assert state.inventory == () and "place_object" in state.completed_subgoals
+
+
+def test_visible_transformation_evidence_must_refer_to_the_goal_object():
+    from experiments.external_real.alfworld_stateful_runner import EpisodeState
+    state = EpisodeState.start("Your task is to: heat some mug and put it in coffeemachine.", 60)
+    state.observe("You heat the potato 1 using the microwave 1.", "heat potato 1 with microwave 1")
+    assert "heat" not in state.completed_subgoals
+    state.observe("This is a hot mug 1.")
+    assert "heat" in state.completed_subgoals
