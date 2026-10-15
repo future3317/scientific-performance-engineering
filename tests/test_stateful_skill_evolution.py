@@ -344,6 +344,26 @@ def test_acceptance_checks_digest_and_assessment_and_evidence_is_not_double_coun
     assert store.events_path.read_text(encoding="utf-8") == original
 
 
+def test_different_skills_can_share_identical_base_draw_but_not_conflicting_outcomes(tmp_path):
+    first = _parent()
+    second = replace(first, skill_id="alfworld.other-clean")
+    store = SkillEvolutionStore(tmp_path)
+    first_rows = _receipts(first)
+    store.record_evidence(first, verify_training_pairs(first, first_rows))
+    second_rows = _receipts(second)
+    second_rows[1] = replace(second_rows[1], trial_id="other-skill-on")
+    store.record_evidence(second, verify_training_pairs(second, second_rows))
+    events = [json.loads(line) for line in store.events_path.read_text().splitlines()]
+    assert len(events) == 2
+    assert events[0]["artifacts"]["off_trial_id"] == events[1]["artifacts"]["off_trial_id"]
+    third = replace(first, skill_id="alfworld.third-clean")
+    third_rows = _receipts(third)
+    third_rows[0] = replace(third_rows[0], utility=0.5)
+    third_rows[1] = replace(third_rows[1], trial_id="third-skill-on")
+    with pytest.raises(ValueError, match="conflicting outcome"):
+        store.record_evidence(third, verify_training_pairs(third, third_rows))
+
+
 def test_regression_is_rejected_retired_and_rolls_back_to_parent(tmp_path):
     parent = _parent()
     patch = Patch("ADD_STEP", 1, "Use a visible-state check before each transformation.")
