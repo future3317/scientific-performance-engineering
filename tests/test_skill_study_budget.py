@@ -11,11 +11,24 @@ from experiments.skill_evolution.qualification import (
 from experiments.skill_evolution import qualification
 from experiments.skill_evolution.study import (
     HYPOTHESES,
+    PHASE_I_CONFIG,
     PREDEFINED_SEEDS,
     required_fixture_task_execution_budget,
     run_fixture_study,
 )
 from core.acre.resource_budget import PairReservation
+
+
+def test_real_readiness_is_three_episode_diagnostic_not_legacy_efficacy_study():
+    config = PHASE_I_CONFIG
+    assert config["status"] == "NOT_RUN"
+    assert config["arms"] == ("stateful",)
+    assert config["episodes"] == config["episodes_per_family"] * len(config["families"]) == 3
+    assert config["provider_call_cap"] == config["episodes"] * config["max_steps"] == 180
+    assert "matched_pairs" not in config
+    assert config["thinking"] == "enabled"
+    assert config["token_cap"] is None
+    assert config["budget_status"] == "not_ready_pending_measured_cost_and_spending_cap"
 
 
 def test_pair_reservation_is_atomic_when_task_budget_cannot_cover_every_pair():

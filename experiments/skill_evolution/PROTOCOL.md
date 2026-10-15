@@ -54,40 +54,156 @@ The three-unit estimate is a fixture planning unit, not tokens, wall time, GPU
 time, or money. Fixture execution records pair completion but measured runtime
 and token usage remain explicitly unknown.
 
-## Proposed real Phase I: agent viability only
+## Paper-driven real-study order
 
-Phase I proposes six matched train-only task/game pairs, two each from the
-`clean`, `heat`, and `cool` families, comparing `legacy_stateless` with
-`stateful` on DeepSeek Flash with thinking disabled. It is matched by task/game
-and environment seed. Pair order is randomized or counterbalanced with
-the same schedule for both policies. The verifier and success definition,
-maximum action budget, tool/API contract, model configuration, prompts, and
-environment version are frozen before the first call. This comparison
-estimates an agent/harness change; it is not evidence for Skill generation or
-ACRE.
+The manuscript's present question is when a fixed reusable intervention needs
+a context gate. Its controlled selective-support result and frozen 80-pair
+LogicBench broad-support result already exist. New ALFWorld work must address
+the missing native-agent selective-support evidence, not silently turn this
+paper into a Skill generator or agent-memory comparison. No new result is
+asserted here. Historical outputs remain read-only.
 
-The proposed config is serialized in `PHASE_I_CONFIG` in `study.py`. The
-60-step ceiling follows the current ALFWorld runner contract. The proposed
-upper bounds are 720 provider calls total (12 episodes × 60 steps), 2,000,000
-tokens total, and zero retries. These bounds, six pairs, the fixed verifier,
-and thinking-disabled model setting still require budget approval and a
-server-side resource contract; none authorizes or triggers execution.
+The former 720-call proposal was 6 tasks x 2 agents x 60 actions: a worst-case
+engineering allowance for legacy/stateful comparison, not 720 independent
+observations or a power calculation. That comparison is removed from the
+default path. Restore it only for a concrete unresolved harness diagnosis or
+a separately approved agent-improvement claim, not as a prerequisite to ACRE.
 
-Readiness is currently `NOT_RUN`. Before a real run, the operator must show:
+| Order | Question and design | Provider work | Role in the paper |
+| --- | --- | --- | --- |
+| Existing | Controlled paired support, counterexample dose, sensitivity; frozen LogicBench boundary | Reuse existing evidence, no reruns | Current core evidence |
+| Readiness | Three stateful train episodes, one clean/heat/cool, at most 60 actions each | At most 180 calls, not a target | Engineering and cost diagnostic only |
+| Development | Fixed train-derived skills; base/skill pairs on disjoint train contexts | One base rollout per unique task/seed/config and one rollout per task/skill treatment | Admission, headroom, representation and cost estimates, not final efficacy |
+| Frozen evaluation | Disjoint native held-out tasks, fixed agent/skills/features/policies | Shared paired base/skill outcomes, not new rollouts per gate | One targeted external treatment study if prerequisites hold |
+| Conditional extension | Skill-content editing or learned regime selection | Separate independent validation and budget | Separate estimands; not required to complete this manuscript |
 
-1. A server-side repository/commit/clean-worktree/interpreter check and the
-   declared resource contract, under the `AGENTS.md` server-only rule.
-2. A new benchmark/controller revision, distinct evidence identity, approved
-   train-only task manifest, and a fresh results root.
-3. Executable stateful and legacy policies with a shared, deterministic
-   verifier; matched pair IDs and a complete reservation for every pair.
-4. A fixed provider/model configuration with thinking disabled, a call/token
-   cap, provider retry accounting, and explicit cost fields. Unknown tokens,
-   wall time, or failed-call usage remain `unknown`; they are never imputed as
-   zero.
-5. A predeclared viability decision based on verifier reach and nonzero
-   success events. If both policies remain at a success floor, stop and
-   diagnose the harness before any Skill-effect study.
+## Proposed real Phase I: three-episode readiness diagnostic
+
+`PHASE_I_CONFIG` in `study.py` proposes one train episode from each of `clean`,
+`heat`, and `cool`, using only the stateful policy. The maximum remains 60
+actions per episode: reducing it merely to lower cost would change the task
+horizon. A finished episode stops immediately. The 180-call ceiling is not a
+spending authorization and the diagnostic cannot establish a success rate or
+stateful-vs-legacy advantage. No replacement episodes are selected because of
+poor outcomes. Previously used episodes are development-only.
+
+DeepSeek Flash thinking is enabled. The current 8,192 completion-token cap
+(reasoning plus final answer) is uncalibrated, not a scientific default justified
+by two trivial connectivity requests. Before episode execution, fix and enforce
+a paid diagnostic budget; token/money limits are currently unset, which blocks
+launch rather than meaning unlimited use. Readiness must record actual prompt,
+cache-hit/miss, reasoning and answer/completion tokens, finish reasons, invalid
+actions, native steps, verifier reach, official success and terminal reason.
+Unavailable counters remain unknown. Examine navigation, state transformation
+and failure recovery separately when those decisions actually occur; three
+episodes need not cover all of them. A cap-induced incomplete answer is not
+evidence that a larger cap improves task utility.
+
+The three-episode diagnostic is not a sample-size calibration experiment. If
+interaction fails or all episodes fail, diagnose once without launching the
+next phase; do not automatically expand tasks or tune until success. If it
+works, it only establishes that train-side development is executable.
+
+Before any real stage: verify the supported server revision, clean worktree,
+interpreter and CPU/resource contract; fix the exact train manifest, prompts,
+model/thinking settings, horizons, no-retry behavior, and a fresh output root.
+The current config is a proposal and remains `NOT_RUN`.
+
+## Train-side development and final-design freeze
+
+Use the existing fixed-procedure synthesis path, not a new Skill-generation
+framework. If the clean/heat/cool skill cohort is newly synthesized, use the
+preselected train demonstrations and one synthesis request per family; record
+all three, including unhelpful skills. Do not regenerate until a positive skill
+appears. Keep synthesis demonstrations, support-fitting contexts, calibration
+contexts and final tasks disjoint. Old studied tasks cannot become clean final
+evidence. Any skill selection is train-side and explicit; the held-out claim
+concerns the selected fixed intervention, not average skill-generation efficacy.
+
+Plan development as a fixed balanced task batch chosen before outcomes, with
+per-skill and source/cross-family reporting. Its size and spending ceiling are
+not yet approved; do not replace the discarded 720-call allowance with another
+arbitrary campaign number. Freeze the batch size, splits and stopping rule
+before its calls. Treat the current typed pre-execution vocabulary as the
+initial representation; do not expose hidden task plans or evaluation labels.
+
+For every task/skill pair, report repair (0,1), regression (1,0), both correct
+(1,1), both wrong (0,0), and official task success. Admission, average utility,
+and support learning are separate questions. On binary paired outcomes:
+
+- realized oracle-over-base headroom = repairs;
+- realized oracle-over-global headroom = regressions;
+- global-minus-base gain = repairs minus regressions.
+
+The first does not measure the gain available to gating over global reuse.
+These are realized paired-outcome ceilings, not a deployable or noise-free
+oracle for expected treatment effect. Repeated runs of one task are not new
+independent tasks. A broad/no-harm skill may support global reuse but does not
+by itself provide an informative test of selective gating. If training shows
+no meaningful interventions, insufficient negative transfer, or no observable
+boundary, report that development result and stop this external study; do not
+search new benchmarks or alter the final cohort to manufacture heterogeneity.
+
+Freeze only five deployable policies: global reuse, task-type semantic gate,
+nearest evidence, CatBoost, and Full ACRE. The common base is the fallback and
+reference; a pairwise oracle is a scoring-only ceiling. Learn each skill's
+support separately, with any pooling explicitly declared rather than silently
+fitting one cross-skill coarse rule. Train-only validation determines features,
+thresholds and any admitted skill; all policies use the same visible features
+and the same held-out task pool. Hyperparameter search costs belong to total
+cost. Do not add extra baseline families or a joint evolution ablation now.
+
+Before final outcomes, choose the task count from a declared minimum detectable
+paired success difference, train-side discordance and power/precision target,
+not from an API-call quota or observed final significance. As an illustrative
+independent-task approximation, two-sided alpha .05, power .80, discordance
+.20 and a 10-point difference require about 157 tasks using
+`(1.96 + .84)^2 * .20 / .10^2`; five points need about 628. These are not fixed
+sample sizes: gate-vs-global discordance can differ, clustering increases the
+requirement, and rare-harm precision or multiple primary contrasts may dominate.
+Choose one primary contrast (Full ACRE vs global reuse); other policy contrasts
+are secondary with multiplicity handling declared. Derive the final design
+before outcomes, with a fixed task batch and no unregistered efficacy looks.
+If affordable sample size cannot support that claim, label a feasibility study
+instead of treating a tiny cohort as confirmatory efficacy.
+
+## Shared outcome evaluation and cost
+
+For a fixed agent and skill, every frozen gate uses the same task-level
+potential-outcome draws: `Y_pi = g_pi(x)*Y1 + (1-g_pi(x))*Y0`. Serialize decisions
+using pre-execution context before joining outcomes. Base outcomes may be
+shared only for identical task, environment seed, agent/model and decoding
+configuration; never reuse them across a changed agent or tuned configuration.
+Treatment outcomes remain skill-version-specific. Report this as a frozen
+paired policy evaluation, not prospective evidence that a live controller
+actually skipped execution. No answer memoization across stochastic replicates.
+
+With N tasks and K skills sharing one base rollout per task, outcome collection
+needs N*(K+1) episodes, not 2*N*K per policy and certainly not another set per
+gate. If each skill uses disjoint tasks, it instead needs twice the number of
+task/skill pairs. With a 60-action horizon these are worst-case call ceilings;
+actual calls are the sum of executed decisions, plus synthesis/editing calls.
+Baseline breadth should mostly cost local evaluation, not more provider runs.
+
+The primary outcome is official success and the primary contrast is paired
+incremental success of Full ACRE over global reuse. Report success, coverage,
+harm/deployed, repair recall and incremental success over base for every policy;
+also report repair/regression counts and uncertainty at the declared independent
+task/template unit. Three task families alone are too few clusters for a
+credible cluster bootstrap; identify independent templates or restrict inference
+to the finite cohort. Zero deployment implies zero incremental success and
+undefined harm/deployed, not zero conditional risk. Do not score missing
+executions as task failures or drop them silently; report ITT bounds where needed.
+
+Keep prompt/skill prefixes byte-stable ahead of variable state without padding
+the prompt to chase cache hits. Provider caching changes billed input costs,
+not total context tokens or reasoning costs. The connectivity probe observed
+zero hits; no savings are assumed. Persist measured usage and price schedules
+with currency/date; compute monetary estimates only from actual applicable
+rates. A per-call output cap is not a whole-episode budget. Before launching a
+fixed paid batch, reserve completion capacity for the scheduled paired units
+and enforce total calls, all input/completion tokens, money and wall limits.
+Do not let an unpaired prefix of an underfunded campaign become efficacy evidence.
 
 The fixture mode invokes no provider, ALFWorld environment, or real evidence
 path. Neither synthetic mode can mark Phase I ready or change its `NOT_RUN`
@@ -164,8 +280,10 @@ remain separate units.
 
 ## Future phases and estimands
 
-Only after Phase I viability, later phases may separately study fixed-agent
-Skill acquisition, frozen-Skill routing, and the joint system. Keep model,
+Only after readiness and train-side development may the targeted external
+fixed-Skill routing evaluation proceed. Skill-content optimization and the
+joint system are separate, optional studies rather than manuscript prerequisites.
+Keep model,
 harness, task split, Skill body, and verifier fixed within each causal
 contrast. The same Skill version must be used across global, semantic,
 original ACRE, and regime-aware routing comparisons. Skill generation,

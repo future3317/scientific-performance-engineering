@@ -202,10 +202,25 @@ provider supports it, not context length or reasoning/output token usage.
 ## Remaining real-study work
 
 The supplied plan is a multi-stage research program. It has not been completed
-as real-task research. Phase I proposes 6 matched train-only legacy/stateful
-pairs, 60 steps, DeepSeek `deepseek-flash`, thinking enabled, no retries, at
-most 720 calls and 2M total tokens. This is a planning ceiling, not a spending
-approval. The user asked to prioritize zero-API work, so provider calls remain 0.
+as real-task research. The current paper-driven order is maintained in
+`experiments/skill_evolution/PROTOCOL.md`. The former six-pair legacy/stateful
+comparison (720 worst-case calls) is superseded by a three-episode stateful
+readiness proposal (180 worst-case calls). Neither number is a target or an
+efficacy sample size. The old 2M-token allowance is not carried forward as if
+it guaranteed completion; diagnostic token/money caps remain unset, which
+blocks execution. Thinking is enabled with an uncalibrated 8,192 completion
+cap, zero retries, and the unchanged 60-action native horizon. Real-study calls
+remain zero; the two connectivity requests above are separate.
+
+The manuscript needs targeted held-out fixed-intervention routing evidence,
+not a new agent-memory or Skill-generation superiority claim. Train-side
+paired outcomes must first establish both intervention utility and relevant
+gate-over-global headroom. Frozen gates then share the same base/skill draws;
+additional gates do not require another provider campaign. Regret/headroom
+over base (repairs) is explicitly separated from headroom over global reuse
+(regressions). Final sample size follows the declared paired effect and
+precision target, task/template clustering and affordable cost, not a call
+quota. Optional Skill editing/joint studies are deferred, not claimed complete.
 
 Before real execution: finalize the clean train slice excluding old diagnostic
 episodes; operationally enforce actual call/token/money caps; add the provider
