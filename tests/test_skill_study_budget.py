@@ -137,6 +137,14 @@ def test_learned_qualification_uses_disjoint_splits_and_current_acre_decisions()
     assert report["reservation"]["evolution_search_budget"] == required_evolution_search_budget()
     assert report["reservation"]["evolution_spent"] <= required_evolution_search_budget()
     assert selective["training"]["cegis_certificate_valid"] is True
+    metrics = selective["evaluation"]["policy_metrics"]
+    assert metrics["base"]["coverage"] == 0
+    assert metrics["base"]["harm_among_deployed"] is None
+    assert metrics["base"]["incremental_success_rate"] == 0
+    assert metrics["new_regime"]["coverage"] == .5
+    assert metrics["new_regime"]["repair_recall"] == 1
+    assert metrics["global"]["harms"] > 0
+    assert metrics["new_regime"]["harms"] == 0
     assert len(report["predicate_stress"]["rows"]) == 4
     assert all(row["candidate_cap"] <= 1000 for row in report["predicate_stress"]["rows"])
     assert all(row["search_status"] in {"exact", "truncated"} for row in report["predicate_stress"]["rows"])

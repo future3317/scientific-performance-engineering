@@ -252,10 +252,14 @@ class PredicateGrammar:
         contexts: list[Mapping[str, Any]],
         parent_predicate: dict[str, Any] | None = None,
         *,
-        max_candidates: int = 100_000,
-        max_wall_time: float = 5.0,
+        max_candidates: int | None = None,
+        max_wall_time: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Return complete candidates or fail explicitly when the search is bounded out."""
+        """Enumerate exactly for existing inspection callers, or honor explicit caps.
+
+        Production synthesis uses ``search_candidates`` with mandatory limits.
+        This original exact-enumeration API never returns a truncated set.
+        """
         result = self.search_candidates(
             contexts,
             parent_predicate,

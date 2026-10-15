@@ -252,6 +252,8 @@ def _interval(values: list[float]) -> dict[str, float | int]:
 
 
 def _evaluate_regime(regime: str, decisions: dict[str, Any]) -> dict[str, Any]:
+    counts = {arm: {"successes": 0, "deployed": 0, "harms": 0, "repairs_retained": 0} for arm in ARMS}
+    total = available_repairs = pairwise_oracle_successes = 0
     clusters: dict[str, list[float]] = {arm: [] for arm in ARMS if arm != "base"}
     harms: dict[str, list[float]] = {arm: [] for arm in ARMS if arm != "base"}
     activation: dict[str, list[float]] = {arm: [] for arm in ARMS if arm != "base"}
@@ -287,6 +289,11 @@ def _evaluate_regime(regime: str, decisions: dict[str, Any]) -> dict[str, Any]:
                 for _ in range(REPETITIONS_PER_GROUP):
                     draw = rng.random()
                     base_success = float(draw < base_probability)
+                    skill_success = float(draw < skill_probability)
+                    total += 1
+                    available_repairs += int(skill_success > base_success)
+                    pairwise_oracle_successes += int(max(base_success, skill_success))
+                    counts["base"]["successes"] += int(base_success)
                     policies = {
                         "global": True,
                         "old_selective": old_use,
@@ -294,7 +301,11 @@ def _evaluate_regime(regime: str, decisions: dict[str, Any]) -> dict[str, Any]:
                         "oracle": truth_use,
                     }
                     for arm, use_skill in policies.items():
-                        success = float(draw < skill_probability) if use_skill else base_success
+                        success = skill_success if use_skill else base_success
+                        counts[arm]["successes"] += int(success)
+                        counts[arm]["deployed"] += int(use_skill)
+                        counts[arm]["harms"] += int(success < base_success)
+                        counts[arm]["repairs_retained"] += int(success > base_success)
                         group_differences[arm].append(success - base_success)
                         group_harms[arm].append(float(base_success > success))
                 for arm in clusters:
@@ -332,6 +343,21 @@ def _evaluate_regime(regime: str, decisions: dict[str, Any]) -> dict[str, Any]:
             "canonical_promotion_claim": False,
         },
         "evaluation": {
+            "paired_outcome_count": total,
+            "available_repairs": available_repairs,
+            "pairwise_oracle_successes": pairwise_oracle_successes,
+            "policy_metrics": {
+                arm: {**values,
+                      "success_rate": values["successes"] / total,
+                      "coverage": values["deployed"] / total,
+                      "harm_among_deployed": values["harms"] / values["deployed"] if values["deployed"] else None,
+                      "harm_among_all": values["harms"] / total,
+                      "repair_recall": values["repairs_retained"] / available_repairs if available_repairs else None,
+                      "incremental_success_count": values["successes"] - counts["base"]["successes"],
+                      "incremental_success_rate": (values["successes"] - counts["base"]["successes"]) / total,
+                      "regret_vs_pairwise_oracle": (pairwise_oracle_successes - values["successes"]) / total}
+                for arm, values in counts.items()
+            },
             "seeds": list(EVALUATION_SEEDS),
             "groups_per_stratum": len(EVALUATION_SEEDS) * GROUPS_PER_STRATUM_PER_SEED,
             "contrasts_vs_base": {arm: _interval(values) for arm, values in clusters.items()},
