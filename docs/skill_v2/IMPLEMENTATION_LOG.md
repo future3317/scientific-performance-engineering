@@ -263,6 +263,8 @@ review also retained the shared-control design: different frozen skills may
 reference the identical base trial only when outcome, task, seed and runtime
 identity agree. Replayed within-skill evidence and reused treatment trials
 remain rejected; a shared control is not a new independent observation.
+This shared-control correction passed **28 verifier/provider-budget tests in
+0.30 s (exit 0)** on the server at `d7ddd47`.
 
 The supplied plan is a multi-stage research program. It has not been completed
 as real-task research. The current paper-driven order is maintained in
