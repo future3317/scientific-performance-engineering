@@ -76,7 +76,7 @@ def validate_learning_inputs(
     if manifest.get("thinking") != "enabled" or manifest.get("max_retries") != 0:
         raise ProviderBudgetExceeded("unsupported_provider_configuration")
     agent_sha = manifest.get("agent_revision_sha256") or manifest.get("agent_sha")
-    prompt_identity = manifest.get("prompt_template_sha256") or manifest.get("configuration_sha")
+    prompt_identity = manifest.get("configuration_sha")
     if not all(isinstance(value, str) and value.strip() for value in (
         agent_sha, prompt_identity, manifest.get("model_request_name"), manifest.get("source_commit"),
     )):
@@ -88,6 +88,8 @@ def validate_learning_inputs(
     if manifest.get("viability_receipts_sha256") is None or manifest.get("source_receipts_sha256") is None:
         raise ProviderBudgetExceeded("frozen_source_receipt_hashes_required")
     evidence.validate()
+    if evidence.agent_hash != agent_sha:
+        raise ValueError("source evidence belongs to a different frozen agent")
 
     from .real_study import viability_gate
     b_gate = viability_gate(list(viability_receipts))
@@ -119,6 +121,11 @@ def validate_learning_inputs(
            or row.get("evidence_origin") != "REAL_AGENT" or row.get("teacher_only_source", False)
            for row in source_receipts):
         raise ValueError("proposal sources must be autonomous, verifier-resolved train_inner receipts")
+    if any(row.get("agent_revision_sha256", row.get("agent_sha")) != agent_sha for row in source_receipts):
+        raise ValueError("source receipts belong to a different frozen agent")
+    if any(row.get("configuration_sha", row.get("prompt_template_sha256")) != prompt_identity
+           or row.get("model_request_name") != manifest["model_request_name"] for row in source_receipts):
+        raise ValueError("source receipts belong to a different frozen provider configuration")
     if set(evidence.source_task_ids) != {row.get("task_id") for row in source_receipts}:
         raise ValueError("source task IDs do not match the frozen receipt set")
     if set(evidence.source_template_ids) != {row.get("template_id") for row in source_receipts}:
@@ -161,6 +168,9 @@ def validate_learning_inputs(
             if (not isinstance(task_id, str) or not isinstance(template_id, str) or frozen is None
                     or frozen.get("split") != split or frozen.get("template_id") != template_id):
                 raise ValueError(f"paired task does not match the frozen {split} split manifest")
+            from .readiness import _train_identity
+            if pair.get("gamefile") != frozen.get("gamefile") or _train_identity(str(pair.get("gamefile")))[1] != task_id:
+                raise ValueError("paired gamefile does not match its frozen native task identity")
             if frozen.get("identity_status") != "IDENTIFIED" or frozen.get("confirmatory_eligible") is not True:
                 raise ValueError(f"{split} pair is not confirmatory-eligible in the frozen split manifest")
             cluster_id = frozen.get("cluster_id")
@@ -244,6 +254,8 @@ def prepare_skill_learning(
 ) -> ApprovedProviderBudget:
     if manifest.get("controller_commit") != revision:
         raise ProviderBudgetExceeded("run_revision_mismatch")
+    if manifest.get("max_steps", 0) > approval.get("per_episode_max_steps", 0):
+        raise ProviderBudgetExceeded("episode_horizon_outside_approval")
     plan = validate_learning_inputs(manifest, split_manifest, viability_receipts, source_receipts, evidence)
     budget = ApprovedProviderBudget(
         manifest, approval, pricing,
@@ -569,6 +581,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.output.exists():
         raise FileExistsError("live output path must be new")
+    if not manifest.get("output_dir") or args.output.resolve() != Path(manifest["output_dir"]).resolve():
+        raise ProviderBudgetExceeded("run_output_directory_mismatch")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     if subprocess.check_output(["git", "status", "--porcelain"], text=True).strip():
         raise RuntimeError("live execution requires a clean committed checkout")

@@ -29,6 +29,8 @@ def learning_fixture():
             "provider_budget": {"tokens_unknown": False},
             "evidence_origin": "REAL_AGENT",
             "task_family": "clean_place",
+            "agent_revision_sha256": "a" * 64,
+            "configuration_sha": "e" * 64, "model_request_name": "deepseek-flash",
         }
         row["receipt_sha256"] = manifest_digest(row)
         receipts.append(row)
@@ -41,14 +43,15 @@ def learning_fixture():
     pairs = []
     for split, suffix in (("train_inner", "inner"), ("train_outer", "outer")):
         task_id = f"{suffix}-template/trial_1"
-        row = {"task_id": task_id, "template_id": f"{suffix}-template",
+        gamefile = f"/data/json_2.1.1/train/{task_id}/game.tw-pddl"
+        row = {"task_id": task_id, "template_id": f"{suffix}-template", "gamefile": gamefile,
                "cluster_id": f"{suffix}-cluster", "split": split,
                "identity_status": "IDENTIFIED", "confirmatory_eligible": True}
         membership.append(row)
         pairs.append({
             "pair_id": f"pair-{suffix}", "task_id": task_id, "template_id": row["template_id"],
             "cluster_id": row["cluster_id"], "split": split, "task_type_id": 3,
-            "gamefile": f"/frozen/{suffix}/game.tw-pddl", "seed": 19, "arm_order": ["off", "on"],
+            "gamefile": gamefile, "seed": 19, "arm_order": ["off", "on"],
         })
 
     split_manifest = {"task_membership": membership}
@@ -71,7 +74,7 @@ def learning_fixture():
         source_trace_ids=tuple(row["trial_id"] for row in receipts),
         source_trace_hashes=tuple(row["receipt_sha256"] for row in receipts),
         train_split_manifest_sha256=manifest["split_manifest_sha256"],
-        task_family="clean_place", agent_hash="agent-r1",
+        task_family="clean_place", agent_hash=manifest["agent_sha"],
         successful_trajectory_summaries=("Verified visible completion.",),
         failed_trajectory_summaries=("Frozen agent reached a policy loop; environment did not report a win.",),
         redaction_report_sha256="d" * 64,
@@ -114,3 +117,70 @@ def test_inner_outer_semantic_cluster_overlap_is_rejected_even_with_distinct_tem
     evidence = replace(evidence, train_split_manifest_sha256=manifest["split_manifest_sha256"])
     with pytest.raises(ValueError, match="inner and outer"):
         validate_learning_inputs(manifest, split, viability, sources, evidence)
+
+
+def test_wrong_native_gamefile_cannot_be_labeled_as_a_different_planned_task():
+    manifest, split, viability, sources, evidence = learning_fixture()
+    manifest["plan"]["pairs"][0]["gamefile"] = "/data/json_2.1.1/train/other/trial_1/game.tw-pddl"
+    manifest["plan_sha256"] = manifest_digest(manifest["plan"])
+    with pytest.raises(ValueError, match="gamefile"):
+        validate_learning_inputs(manifest, split, viability, sources, evidence)
+
+
+def test_old_agent_source_evidence_cannot_be_used_as_current_agent_evidence():
+    manifest, split, viability, sources, evidence = learning_fixture()
+    with pytest.raises(ValueError, match="different frozen agent"):
+        validate_learning_inputs(manifest, split, viability, sources, replace(evidence, agent_hash="old"))
+
+
+def test_real_pair_adapter_uses_production_episode_and_persists_both_arms(monkeypatch, tmp_path):
+    import sys
+    from types import SimpleNamespace
+    from experiments.skill_evolution.real_learning import _run_one_pair
+    manifest, _, _, _, _ = learning_fixture()
+    pair = manifest["plan"]["pairs"][0]
+    closed, persisted, insertions = [], [], []
+
+    class Environment:
+        def seed(self, seed):
+            assert seed == pair["seed"]
+
+        def reset(self):
+            return ["Your task is to: inspect the room."], {
+                "extra.gamefile": [pair["gamefile"]], "extra.expert_plan": [["EXPERT_SECRET"]],
+                "admissible_commands": [["look", "inventory"]]}
+
+        def step(self, actions):
+            assert type(actions) is list and len(actions) == 1
+            return ["Visible result."], [0], [True], {"won": [actions[0] == "look"]}
+
+        def close(self):
+            closed.append(True)
+
+    class Owner:
+        def __init__(self, config, train_eval):
+            assert train_eval == "train"
+
+        def init_env(self, batch_size):
+            assert batch_size == 1
+            return Environment()
+
+    class Client:
+        budget = None
+        def choose_action(self, state, admissible, skill, progress, reason):
+            assert "EXPERT_SECRET" not in repr(state) + progress
+            insertions.append(skill)
+            return {"raw_output": "Action: look" if skill else "Action: inventory",
+                    "input_tokens": 10, "output_tokens": 3}
+
+    monkeypatch.setitem(sys.modules, "alfworld.agents.environment.alfred_tw_env", SimpleNamespace(AlfredTWEnv=Owner))
+    candidate = SimpleNamespace(body="Verify visible outcomes.", digest="f" * 64, version=1)
+    off, on = _run_one_pair(tmp_path, Client(), pair, candidate, split="train_inner", max_steps=2,
+                           run_id="fixture", agent_revision="agent", benchmark_revision="benchmark",
+                           provenance=manifest, on_arm=lambda arm, row: persisted.append((arm, row)))
+    assert off["success"] is False and on["success"] is True
+    assert [arm for arm, _ in persisted] == ["off", "on"]
+    assert insertions == [None, candidate.body]
+    assert len(closed) == 2
+    assert on["skill_version_sha256"] == candidate.digest
+    assert on["split"] == "train_inner" and on["trajectory"][0]["selected_action"] == "look"

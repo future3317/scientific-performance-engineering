@@ -7,6 +7,7 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 from typing import Any, Iterable
 
 
@@ -292,8 +293,8 @@ def _read_exposures(
     exposed_keys: set[str] = set()
     for template_id, source in sorted(historical.items()):
         metadata = []
-        for gamefile in sorted((train_root / template_id).glob("trial_*/game.tw-pddl")):
-            metadata.append(_task_metadata(gamefile))
+        for metadata_file in sorted((train_root / template_id).glob("trial_*/traj_data.json")):
+            metadata.append(_task_metadata(metadata_file))
         keys = {row["possible_overlap_key"] for row in metadata if row.get("possible_overlap_key")}
         identity_unknown = not metadata or any(row["identity_status"] != "IDENTIFIED" for row in metadata)
         exposed_keys.update(keys)
@@ -323,8 +324,8 @@ def _read_exposures(
         row["exposure"] = "native_probe_exposed"
         row["source_task_ids"] = [row["task_id"]]
         metadata = []
-        for gamefile in sorted((train_root / row["template_id"]).glob("trial_*/game.tw-pddl")):
-            metadata.append(_task_metadata(gamefile))
+        for metadata_file in sorted((train_root / row["template_id"]).glob("trial_*/traj_data.json")):
+            metadata.append(_task_metadata(metadata_file))
         keys = {item["possible_overlap_key"] for item in metadata if item.get("possible_overlap_key")}
         identity_unknown = not metadata or any(item["identity_status"] != "IDENTIFIED" for item in metadata)
         row["possible_overlap_keys"] = sorted(keys)
