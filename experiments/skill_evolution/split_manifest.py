@@ -185,7 +185,7 @@ def _overlap_status(left: dict[str, Any], right: dict[str, Any]) -> str:
         return "TEMPLATE_COLLISION"
     if left.get("template_digest") and left.get("template_digest") == right.get("template_digest"):
         return "TEMPLATE_COLLISION"
-    if left.get("possible_overlap_key") == right.get("possible_overlap_key"):
+    if left.get("possible_overlap_key") and left.get("possible_overlap_key") == right.get("possible_overlap_key"):
         return "POSSIBLE_TEMPLATE_OVERLAP"
     if not left.get("template_digest") or not right.get("template_digest"):
         return "UNKNOWN_IDENTITY"
