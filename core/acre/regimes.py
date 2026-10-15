@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 from core.predicates import match_predicate
 from core.sequential_stats import bounded_mean_interval, mixture_lower_bound
 
-from .cegis import SynthesisResult, synthesis_certificate_valid
+from .cegis import SynthesisResult, context_in_decision_lattice, synthesis_certificate_valid
 
 
 class SupportRegime(str, Enum):
@@ -75,6 +75,8 @@ class SupportRegimeDecision:
     source_certificate_digest: str | None = None
     certificate_scope_digest: str | None = None
     certificate_digest: str | None = None
+    decision_features: tuple[str, ...] = ()
+    decision_contexts: tuple[Mapping[str, Any], ...] = ()
 
     def certificate_is_scope_bound(self) -> bool:
         if not (self.source_certificate_digest and self.certificate_scope_digest and self.certificate_digest):
@@ -84,6 +86,7 @@ class SupportRegimeDecision:
             self.source_certificate_digest, scope_digest, self.regime, self.action,
             self.reason_code, self.predicate, self.independent_groups,
             self.net_benefit_lcb, self.harm_ucb, self.stratum_bounds,
+            self.decision_features, self.decision_contexts,
         )
         return self.certificate_scope_digest == scope_digest and self.certificate_digest == expected
 
@@ -96,6 +99,7 @@ class SupportRegimeDecision:
             self.regime == SupportRegime.SELECTIVE_IDENTIFIED
             and self.action == "reuse"
             and self.predicate is not None
+            and context_in_decision_lattice(context, self.decision_features, self.decision_contexts)
             and match_predicate(self.predicate, context)
         )
 
@@ -121,6 +125,8 @@ def _decision_certificate_digest(
     net_benefit_lcb: float | None,
     harm_ucb: float | None,
     stratum_bounds: Mapping[str, Mapping[str, float]] | None,
+    decision_features: Sequence[str] = (),
+    decision_contexts: Sequence[Mapping[str, Any]] = (),
 ) -> str:
     payload = {
         "source_digest": source_digest,
@@ -133,6 +139,8 @@ def _decision_certificate_digest(
         "net_benefit_lcb": net_benefit_lcb,
         "harm_ucb": harm_ucb,
         "stratum_bounds": stratum_bounds,
+        "decision_features": list(decision_features),
+        "decision_contexts": [dict(context) for context in decision_contexts],
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
@@ -150,6 +158,7 @@ def _bound_decision(
         source_certificate_digest, scope_digest, regime, action, reason_code,
         kwargs.get("predicate"), kwargs.get("independent_groups", 0),
         kwargs.get("net_benefit_lcb"), kwargs.get("harm_ucb"), kwargs.get("stratum_bounds"),
+        kwargs.get("decision_features", ()), kwargs.get("decision_contexts", ()),
     )
     return SupportRegimeDecision(
         regime, action, reason_code, scope,
@@ -279,6 +288,8 @@ def classify_support_regime(
             SupportRegime.SELECTIVE_IDENTIFIED, "reuse", "identified_selective_support", scope,
             source_digest, predicate=selective.predicate, independent_groups=len(groups),
             net_benefit_lcb=net_lcb, harm_ucb=harm_ucb,
+            decision_features=selective.certificate.decision_features,
+            decision_contexts=selective.certificate.decision_contexts,
         )
     reason = "global_support_not_certified" if groups else "insufficient_evidence"
     return SupportRegimeDecision(

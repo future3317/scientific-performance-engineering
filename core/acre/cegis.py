@@ -16,6 +16,13 @@ from .predicates import PredicateGrammar, SYNTHESIZER_VERSION, _key, predicate_c
 from .budget import StatisticalBudget
 
 
+def _context_feature_value(context: Mapping[str, Any], path: str) -> Any:
+    value: Any = context
+    for part in path.split("."):
+        value = value.get(part) if isinstance(value, Mapping) else None
+    return value
+
+
 @dataclass(frozen=True)
 class BoundaryObservation:
     observation_id: str
@@ -105,6 +112,8 @@ class SynthesisResult:
                 synthesizer_version=str(raw_certificate.get("synthesizer_version", value.get("synthesizer_version", "acre-predicate-synth-v2"))),
                 support_scope_digest=raw_certificate.get("support_scope_digest"),
                 evidence_contexts=tuple(dict(item) for item in raw_certificate.get("evidence_contexts", ())),
+                decision_features=tuple(str(item) for item in raw_certificate.get("decision_features", ())),
+                decision_contexts=tuple(dict(item) for item in raw_certificate.get("decision_contexts", ())),
             )
         return cls(
             status=str(value.get("status", "unavailable")),
@@ -141,6 +150,8 @@ class SynthesisCertificate:
     synthesizer_version: str = SYNTHESIZER_VERSION
     support_scope_digest: str | None = None
     evidence_contexts: tuple[Mapping[str, Any], ...] = ()
+    decision_features: tuple[str, ...] = ()
+    decision_contexts: tuple[Mapping[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         value = {
@@ -155,6 +166,8 @@ class SynthesisCertificate:
             "alpha_budget": self.alpha_budget,
             "practical_threshold": self.practical_threshold,
             "synthesizer_version": self.synthesizer_version,
+            "decision_features": list(self.decision_features),
+            "decision_contexts": [dict(context) for context in self.decision_contexts],
         }
         if self.support_scope_digest is not None:
             value["support_scope_digest"] = self.support_scope_digest
@@ -184,6 +197,20 @@ def synthesis_certificate_valid(result: SynthesisResult) -> bool:
     ).hexdigest()
     return digest == certificate.version_space_digest
 
+
+def context_in_decision_lattice(
+    context: Mapping[str, Any],
+    decision_features: tuple[str, ...],
+    decision_contexts: tuple[Mapping[str, Any], ...],
+) -> bool:
+    if not decision_features or not decision_contexts:
+        return False
+    projected = {
+        path: _context_feature_value(context, path)
+        for path in decision_features
+    }
+    return projected in decision_contexts
+
 class StatisticalCEGIS:
     def __init__(
         self,
@@ -192,18 +219,18 @@ class StatisticalCEGIS:
         epsilon_true: float = 0.0,
         epsilon_false: float = 0.0,
         delta: float = 0.05,
-        max_candidates: int = 100_000,
-        max_wall_time: float = 5.0,
+        max_candidates: int | None = None,
+        max_wall_time: float = 30.0,
     ) -> None:
         self.grammar = grammar
         self.epsilon_true = epsilon_true
         self.epsilon_false = epsilon_false
         if not 0.0 < float(delta) < 1.0:
             raise ValueError("delta must be in (0, 1)")
-        if max_candidates < 1 or max_wall_time <= 0:
+        if (max_candidates is not None and max_candidates < 1) or max_wall_time <= 0:
             raise ValueError("search limits must be positive")
         self.delta = float(delta)
-        self.max_candidates = int(max_candidates)
+        self.max_candidates = int(max_candidates) if max_candidates is not None else None
         self.max_wall_time = float(max_wall_time)
 
     def _certificate(
@@ -229,6 +256,11 @@ class StatisticalCEGIS:
             "feature_vocabulary_contexts": list(vocabulary_contexts or []),
         }
         digest = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+        decision_features = tuple(str(feature["path"]) for feature in self.grammar.features)
+        projected_decision_contexts = tuple(
+            {path: _context_feature_value(context, path) for path in decision_features}
+            for context in decision_contexts or []
+        )
         return SynthesisCertificate(
             status=status,
             predicate=predicate,
@@ -239,7 +271,10 @@ class StatisticalCEGIS:
                 if item not in set(anchors) and item not in set(counterexamples)
             ),
             grammar_digest=digest(grammar_payload),
-            decision_lattice_digest=digest(list(decision_contexts or [])),
+            decision_lattice_digest=digest({
+                "features": decision_features,
+                "contexts": projected_decision_contexts,
+            }),
             version_space_digest=digest(list(version_space)),
             alpha_budget=self.delta,
             practical_threshold=max(float(self.epsilon_true), float(self.epsilon_false)),
@@ -247,6 +282,8 @@ class StatisticalCEGIS:
                 digest(certificate_scope) if certificate_scope is not None else None
             ),
             evidence_contexts=evidence_contexts if certificate_scope is not None else (),
+            decision_features=decision_features,
+            decision_contexts=projected_decision_contexts,
         )
 
     def synthesize(
@@ -380,8 +417,8 @@ def synthesize_boundary(
     statistical_budget: StatisticalBudget | None = None,
     epsilon_true: float = 0.0,
     epsilon_false: float = 0.0,
-    max_candidates: int = 100_000,
-    max_wall_time: float = 5.0,
+    max_candidates: int | None = None,
+    max_wall_time: float = 30.0,
     vocabulary_contexts: list[Mapping[str, Any]] | None = None,
     certificate_scope: Mapping[str, Any] | None = None,
 ) -> SynthesisResult:
@@ -429,8 +466,8 @@ def synthesize_applicability(
     epsilon_true: float = 0.0,
     epsilon_false: float = 0.0,
     require_identified: bool = False,
-    max_candidates: int = 100_000,
-    max_wall_time: float = 5.0,
+    max_candidates: int | None = None,
+    max_wall_time: float = 30.0,
     certificate_scope: Mapping[str, Any] | None = None,
 ) -> SynthesisResult:
     """Core-owned CEGIS adapter over verifier-produced paired cases."""
