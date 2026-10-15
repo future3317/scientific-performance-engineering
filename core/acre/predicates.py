@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -138,8 +139,8 @@ class PredicateGrammar:
         contexts: list[Mapping[str, Any]],
         parent_predicate: dict[str, Any] | None = None,
         *,
-        max_candidates: int | None = 100_000,
-        max_wall_time: float | None = 5.0,
+        max_candidates: int | None = None,
+        max_wall_time: float | None = 30.0,
         comparison_contexts: list[Mapping[str, Any]] | None = None,
         preserve_distinct: bool = False,
     ) -> PredicateSearchResult:
@@ -157,6 +158,13 @@ class PredicateGrammar:
         if expired():
             return PredicateSearchResult((), True, 0, time.monotonic() - started, "")
         fragments = atoms + [{"not": atom} for atom in atoms]
+        if max_candidates is None:
+            # Bound default work by the grammar's complete combination count;
+            # explicit caller caps remain unchanged.
+            max_candidates = sum(
+                math.comb(len(fragments), width)
+                for width in range(1, min(self.max_literals, len(fragments)) + 1)
+            )
         signature_contexts = contexts + list(comparison_contexts or [])
         context_masks = []
         for fragment in fragments:

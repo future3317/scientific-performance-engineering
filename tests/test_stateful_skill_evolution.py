@@ -201,6 +201,20 @@ def test_save_candidate_is_idempotent_and_preserves_original_state_timestamp(tmp
     assert repeated == original
 
 
+def test_evidence_preserves_unclipped_delta_and_real_receipt_revisions(tmp_path):
+    contract = _parent()
+    receipts = _receipts(contract, on_utility=1.0, off_utility=-1.0)
+    evidence = verify_training_pairs(contract, receipts)
+    store = SkillEvolutionStore(tmp_path)
+    store.save_candidate(contract)
+    store.record_evidence(contract, evidence)
+    event = json.loads(store.events_path.read_text().splitlines()[0])
+    assert event["artifacts"]["raw_paired_delta"] == 2.0
+    assert event["outcome_vector"]["utility"] == 1.0
+    assert event["versions"]["agent"] == "agent-r1"
+    assert event["versions"]["benchmark"] == "bench-r1"
+
+
 def test_regression_is_rejected_retired_and_rolls_back_to_parent(tmp_path):
     parent = _parent()
     patch = Patch("ADD_STEP", 1, "Use a visible-state check before each transformation.")

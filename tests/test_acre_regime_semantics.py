@@ -157,6 +157,46 @@ def test_hard_gate_failure_rejects_and_selective_support_stays_local() -> None:
     assert transplanted.regime == SupportRegime.UNCERTAIN
 
 
+def test_identified_reuse_is_limited_to_projected_decision_lattice() -> None:
+    synthesis = _identified_result()
+    assert synthesis.predicate is not None
+    outside_numeric = {"domain": "compile", "workload": {"x": 100}}
+    assert match_predicate(synthesis.predicate, outside_numeric)
+    assert decision_from_synthesis(synthesis, outside_numeric).action == "abstain"
+    assert decision_from_synthesis(
+        synthesis, {"domain": "compile", "workload": {"x": 1}, "annotation": "ignored"},
+    ).action == "reuse"
+
+    selected = classify_support_regime(
+        [], scope=SCOPE, target_context={"domain": "compile"},
+        runtime_versions=VERSIONS, selective=synthesis,
+    )
+    assert selected.regime == SupportRegime.SELECTIVE_IDENTIFIED
+    assert not selected.allows_reuse(outside_numeric, VERSIONS)
+    assert selected.allows_reuse(
+        {"domain": "compile", "workload": {"x": 1}, "annotation": "ignored"}, VERSIONS,
+    )
+
+    categorical = PredicateGrammar.from_dict({
+        "schema_version": 1,
+        "features": [
+            {"path": "x", "type": "numeric"},
+            {"path": "stratum", "type": "categorical"},
+        ],
+    })
+    positive = BoundaryObservation("cat-p", {"x": 1, "stratum": "seen"}, 0.5, True, 0.2, 0.8)
+    negative = BoundaryObservation("cat-n", {"x": -1, "stratum": "seen"}, -0.5, True, -0.8, -0.2)
+    categorical_result = StatisticalCEGIS(categorical).synthesize(
+        positive=[positive], counterexamples=[negative], parent_predicate=None,
+        decision_contexts=[positive.context, negative.context],
+    )
+    unseen = {"x": 1, "stratum": "unseen"}
+    assert categorical_result.status == "identified"
+    assert categorical_result.predicate is not None
+    assert match_predicate(categorical_result.predicate, unseen)
+    assert decision_from_synthesis(categorical_result, unseen).action == "abstain"
+
+
 def test_candidate_search_exhaustion_cannot_be_identified_or_deployed() -> None:
     grammar = PredicateGrammar.from_dict({
         "schema_version": 1,
@@ -331,6 +371,10 @@ def test_synthesis_serialization_is_compact_and_reads_legacy_full_space() -> Non
     assert compact["candidates_examined"] == result.candidates_examined
     assert compact["version_space_size"] == len(result.version_space)
     assert compact["version_space_digest"]
+    assert compact["certificate"]["decision_features"] == ["workload.x"]
+    assert compact["certificate"]["decision_contexts"] == [
+        {"workload.x": 1}, {"workload.x": -1},
+    ]
     assert "version_space" not in compact
     assert "version_space" not in (compact["provenance"] or {})
 
@@ -338,6 +382,9 @@ def test_synthesis_serialization_is_compact_and_reads_legacy_full_space() -> Non
     assert debug["version_space"] == list(result.version_space)
     assert "version_space" not in (debug["provenance"] or {})
 
+    legacy_certificate = result.certificate.to_dict()
+    legacy_certificate.pop("decision_features")
+    legacy_certificate.pop("decision_contexts")
     legacy = {
         "status": result.status,
         "predicate": result.predicate,
@@ -347,8 +394,13 @@ def test_synthesis_serialization_is_compact_and_reads_legacy_full_space() -> Non
         "provenance": {"version_space": list(result.version_space)},
         "version_space_size": len(result.version_space),
         "version_space": list(result.version_space),
-        "certificate": None,
+        "certificate": legacy_certificate,
     }
     restored = SynthesisResult.from_dict(legacy)
     assert restored.version_space == result.version_space
     assert restored.synthesizer_version == "acre-predicate-synth-v2"
+    assert restored.certificate is not None
+    assert restored.certificate.decision_contexts == ()
+    assert decision_from_synthesis(
+        restored, {"domain": "compile", "workload": {"x": 1}},
+    ).action == "abstain"

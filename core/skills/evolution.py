@@ -165,6 +165,8 @@ class PairResult:
     on_utility: float
     task_id: str
     seed: int
+    agent_revision: str
+    benchmark_revision: str
 
 
 @dataclass(frozen=True)
@@ -231,7 +233,7 @@ def verify_training_pairs(
             raise ValueError("duplicate independent task and seed group")
         seen_independent_groups.add(independent_group)
         results.append(PairResult(pair_id, off.trial_id, on.trial_id, off.success, on.success, off.utility, on.utility,
-                                  off.task_id, off.seed))
+                                  off.task_id, off.seed, off.agent_revision, off.benchmark_revision))
     repairs = sum(not row.off_success and row.on_success for row in results)
     regressions = sum(row.off_success and not row.on_success for row in results)
     utility_delta = sum(row.on_utility - row.off_utility for row in results) / len(results)
@@ -394,12 +396,15 @@ class SkillEvolutionStore:
                 event = EvidenceEvent(
                     schema_version=2,
                     event_id=f"{contract.skill_id}.v{contract.version}.{pair.pair_id}",
-                    context={"task_id": pair.pair_id, "task_family": contract.task_family, "skill_digest": contract.digest},
+                    context={"task_id": pair.task_id, "seed": pair.seed, "task_family": contract.task_family, "skill_digest": contract.digest},
                     assignment={"interventions": {contract.skill_id: 1}, "propensity": 0.5, "design_id": "matched-train-skill-v1"},
-                    outcome_vector={"utility": max(-1.0, min(1.0, pair.on_utility - pair.off_utility))},
+                    outcome_vector={"utility": (pair.on_utility - pair.off_utility) / 2.0},
                     scientific_gates={"independent_verifier": True, "hard_gates": evidence.hard_gates_passed},
-                    artifacts={"off_trial_id": pair.off_trial_id, "on_trial_id": pair.on_trial_id},
-                    versions={"skill": contract.digest, "agent": "paired-receipt", "benchmark": "paired-receipt"},
+                    artifacts={"off_trial_id": pair.off_trial_id, "on_trial_id": pair.on_trial_id,
+                               "off_utility": pair.off_utility, "on_utility": pair.on_utility,
+                               "raw_paired_delta": pair.on_utility - pair.off_utility,
+                               "utility_scale": "raw_paired_delta_divided_by_2"},
+                    versions={"skill": contract.digest, "agent": pair.agent_revision, "benchmark": pair.benchmark_revision},
                     source_id=pair.on_trial_id,
                     independence_group=pair.pair_id,
                     timestamp=datetime.now(timezone.utc).isoformat(),

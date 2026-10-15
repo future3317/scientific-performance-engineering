@@ -7,7 +7,11 @@ from typing import Any, Mapping
 
 from core.predicates import match_predicate
 
-from .cegis import SynthesisResult, synthesis_certificate_valid
+from .cegis import (
+    SynthesisResult,
+    context_in_decision_lattice,
+    synthesis_certificate_valid,
+)
 from .regimes import SupportRegime, SupportRegimeDecision
 
 
@@ -41,6 +45,10 @@ def decision_from_synthesis(
         )
     if not synthesis_certificate_valid(result):
         return GateDecision("abstain", "underidentified_or_uncertified", False, matched, mode)
+    if not context_in_decision_lattice(
+        context, result.certificate.decision_features, result.certificate.decision_contexts,
+    ):
+        return GateDecision("abstain", "outside_decision_lattice", False, matched, mode)
     return GateDecision("reuse" if matched else "abstain", "identified_match" if matched else "outside_predicate", matched, matched, mode)
 
 
