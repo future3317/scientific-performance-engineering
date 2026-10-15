@@ -298,6 +298,7 @@ def test_outer_validation_rejects_same_task_across_seeds_and_source_trials():
     inner = verify_training_pairs(contract, _many_receipts(contract))
     outer = _outer_receipts(contract, count=2)
     outer[2] = replace(outer[2], task_id="outer-task-000", seed=999)
+    outer[3] = replace(outer[3], task_id="outer-task-000", seed=999)
     with pytest.raises(ValueError, match="duplicate independent task"):
         approve_outer_validation(
             contract, contract.digest, inner, outer, split="calibration", alpha=0.05,
@@ -326,7 +327,7 @@ def test_acceptance_checks_digest_and_assessment_and_evidence_is_not_double_coun
     contract = _parent()
     evidence = verify_training_pairs(contract, _many_receipts(contract))
     store = SkillEvolutionStore(tmp_path)
-    with pytest.raises(ValueError, match="assessment"):
+    with pytest.raises(ValueError, match="candidate-accepted"):
         store.record_acceptance(contract, replace(evidence, assessment_status="UNDECIDED"))
     with pytest.raises(ValueError, match="different skill contract"):
         store.record_acceptance(contract, replace(evidence, skill_digest="wrong-digest"))

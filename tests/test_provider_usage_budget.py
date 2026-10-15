@@ -178,11 +178,11 @@ class _Environment:
         self.steps = 0
 
     def reset(self):
-        return ["Your task is to: look."], {"admissible_commands": ["look"]}
+        return ["Your task is to: look."], {"admissible_commands": [["look"]]}
 
     def step(self, actions):
         self.steps += 1
-        return ["Still here."], [0.0], [False], {"won": [False], "admissible_commands": ["look"]}
+        return ["Still here."], [0.0], [False], {"won": [False], "admissible_commands": [["look"]]}
 
 
 def test_episode_reports_budget_termination_and_keeps_prior_trajectory():
