@@ -155,11 +155,28 @@ preserves raw off/on utility and the untruncated paired delta, records the actua
 agent/benchmark revisions, and explicitly normalizes the Rule OS utility field
 by a factor of two to respect its [-1,1] range.
 
+## Provider configuration update
+
+The user enabled thinking for subsequent `deepseek-flash` action calls and
+approved an 8,192-token per-call completion ceiling (reasoning plus answer).
+Both legacy and stateful action clients use this setting; prior receipts are
+unchanged. The stateful prompt now places the fixed skill before changing
+progress/state fields, preserving an identical prefix for provider-side prompt
+caching. Responses persist cache-hit/miss tokens, reasoning tokens and finish
+reason. Missing provider counters remain unknown, not zero. Only final content
+is executable; private reasoning is never parsed as an action. No local answer
+cache is used, and paired arms still make independent requests. Cache savings
+must be measured from provider usage, not assumed from prefix ordering.
+
+The Phase I proposal reflects the new thinking/output setting. Its total
+call/token ceilings remain unchanged; this configuration change does not launch
+that experiment or authorize an unbounded campaign.
+
 ## Remaining real-study work
 
 The supplied plan is a multi-stage research program. It has not been completed
 as real-task research. Phase I proposes 6 matched train-only legacy/stateful
-pairs, 60 steps, DeepSeek `deepseek-flash`, thinking disabled, no retries, at
+pairs, 60 steps, DeepSeek `deepseek-flash`, thinking enabled, no retries, at
 most 720 calls and 2M total tokens. This is a planning ceiling, not a spending
 approval. The user asked to prioritize zero-API work, so provider calls remain 0.
 

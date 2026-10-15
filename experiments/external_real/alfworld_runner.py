@@ -88,8 +88,8 @@ class DeepSeekClient:
         response = self.client.chat.completions.create(
             model=self.model,
             temperature=self.temperature,
-            max_tokens=512,
-            extra_body={"thinking": {"type": "disabled"}},
+            max_tokens=8192,
+            extra_body={"thinking": {"type": "enabled"}},
             messages=[
                 {"role": "system", "content": "Follow the requested output format exactly."},
                 {"role": "user", "content": prompt},
@@ -99,12 +99,8 @@ class DeepSeekClient:
         message = response.choices[0].message
         content = message.content or ""
         reasoning = getattr(message, "reasoning_content", "") or ""
-        if content:
-            parser_input = content
-            response_field_used = "message.content"
-        else:
-            parser_input = reasoning
-            response_field_used = "message.reasoning_content"
+        parser_input = content
+        response_field_used = "message.content"
         usage = getattr(response, "usage", None)
         return {
             "provider_raw": {"content": content, "reasoning_content": reasoning},
@@ -114,6 +110,10 @@ class DeepSeekClient:
             "reasoning_output": reasoning,
             "input_tokens": getattr(usage, "prompt_tokens", None),
             "output_tokens": getattr(usage, "completion_tokens", None),
+            "cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", None),
+            "cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", None),
+            "reasoning_tokens": getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
+            "finish_reason": getattr(response.choices[0], "finish_reason", None),
             "latency_seconds": latency,
         }
 
@@ -200,7 +200,7 @@ def run_episode(environment: Any, client: DeepSeekClient, skill: str | None, max
                 "reward": None,
                 "done": True,
                 "won": False,
-                **{key: completion[key] for key in ("reasoning_output", "input_tokens", "output_tokens", "latency_seconds")},
+                **{key: completion[key] for key in ("reasoning_output", "input_tokens", "output_tokens", "latency_seconds", "cache_hit_tokens", "cache_miss_tokens", "reasoning_tokens", "finish_reason")},
             })
             break
 
@@ -222,7 +222,7 @@ def run_episode(environment: Any, client: DeepSeekClient, skill: str | None, max
             "reward": rewards[0],
             "done": done,
             "won": won,
-            **{key: completion[key] for key in ("reasoning_output", "input_tokens", "output_tokens", "latency_seconds")},
+            **{key: completion[key] for key in ("reasoning_output", "input_tokens", "output_tokens", "latency_seconds", "cache_hit_tokens", "cache_miss_tokens", "reasoning_tokens", "finish_reason")},
         })
         if done:
             termination_reason = "success" if won else "environment_done"
