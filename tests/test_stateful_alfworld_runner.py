@@ -149,6 +149,15 @@ def test_unknown_inventory_does_not_claim_acquisition():
     assert "acquire_object" not in state.completed_subgoals
 
 
+def test_guard_detects_alternating_navigation_cycle():
+    guard = ExecutionGuard(repeat_limit=3)
+    state = EpisodeState.start("Your task is to: put a clean apple in fridge.", 60)
+    for _ in range(2):
+        assert guard.observe_result(state, "at fridge", "at cabinet", "go to cabinet 1") is None
+        assert guard.observe_result(state, "at cabinet", "at fridge", "go to fridge 1") is None
+    assert guard.observe_result(state, "at fridge", "at cabinet", "go to cabinet 1") == "repeated_state_action"
+
+
 def test_failed_placement_does_not_advance_until_native_success_acknowledgement():
     state = EpisodeState.start("Your task is to: put a clean apple in fridge.", remaining_steps=4)
     state.observe("You cannot put the apple in fridge 1.", "put apple in fridge 1")

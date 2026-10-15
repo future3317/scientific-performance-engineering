@@ -142,7 +142,6 @@ class PredicateGrammar:
         max_candidates: int | None = None,
         max_wall_time: float | None = 30.0,
         comparison_contexts: list[Mapping[str, Any]] | None = None,
-        preserve_distinct: bool = False,
     ) -> PredicateSearchResult:
         if max_candidates is not None and max_candidates < 1:
             raise ValueError("max_candidates must be positive")
@@ -186,10 +185,9 @@ class PredicateGrammar:
                 return
             vocabulary_hasher.update(candidate_key.encode("utf-8") + b"\n")
             priority = (len(candidate_key), depth, literals, candidate_key)
-            representative_key: Any = candidate_key if preserve_distinct else signature
-            current = representatives.get(representative_key)
+            current = representatives.get(signature)
             if current is None or priority < current[0]:
-                representatives[representative_key] = (priority, candidate)
+                representatives[signature] = (priority, candidate)
 
         if parent_predicate is not None:
             parent_key = _key(parent_predicate)

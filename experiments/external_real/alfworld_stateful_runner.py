@@ -254,11 +254,11 @@ class ExecutionGuard:
 
     def observe_result(self, state: EpisodeState, previous_observation: str, observation: str, action: str) -> str | None:
         signature = (observation, action.casefold())
-        if observation == previous_observation:
-            self._signature_counts[signature] = self._signature_counts.get(signature, 0) + 1
-            state.stuck_counter = self._signature_counts[signature]
-        else:
-            state.stuck_counter = 0
+        self._signature_counts[signature] = self._signature_counts.get(signature, 0) + 1
+        count = self._signature_counts[signature]
+        # Returning to the same observed state/action is also a loop, even
+        # when each navigation step changes the observation (A -> B -> A).
+        state.stuck_counter = count if observation == previous_observation or count > 1 else 0
         return "repeated_state_action" if state.stuck_counter >= self.repeat_limit else None
 
 

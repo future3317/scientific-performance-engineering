@@ -328,7 +328,6 @@ class StatisticalCEGIS:
             max_candidates=self.max_candidates,
             max_wall_time=self.max_wall_time,
             comparison_contexts=decision_contexts,
-            preserve_distinct=decision_contexts is None,
         )
         provenance["search_exhausted"] = search.search_exhausted
         provenance["candidates_examined"] = search.candidates_examined
@@ -380,9 +379,12 @@ class StatisticalCEGIS:
         # observable decision contexts.  The sealed pool is deliberately not
         # accepted here; it is an offline score only.
         if decision_contexts is None:
+            # Evidence-equivalent predicates are represented once. Agreement
+            # only on evidence cannot identify an undeclared deployment domain.
             status = "underidentified"
             provenance["decision_context_count"] = 0
             provenance["decision_equivalence_classes"] = len(consistent)
+            provenance["identification_reason"] = "decision_lattice_not_declared"
         else:
             signatures = {
                 tuple(bool(match_predicate(candidate, context)) for context in decision_contexts)
