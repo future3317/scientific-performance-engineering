@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -13,7 +14,7 @@ from core.skills import (
     TraceContrastMiner,
     TrialTrace,
 )
-from core.skills.evolution import verify_training_pairs
+from core.skills.evolution import approve_outer_validation, verify_training_pairs
 from core.mutation_journal import MutationJournal
 
 
@@ -44,6 +45,20 @@ def _many_receipts(contract, count=40):
             PairReceipt(f"off-{index:03d}", pair_id, task_id, index, "off", "train", None,
                         "agent-r1", "bench-r1", False, 0.0),
             PairReceipt(f"on-{index:03d}", pair_id, task_id, index, "on", "train", contract.digest,
+                        "agent-r1", "bench-r1", True, 1.0),
+        ))
+    return receipts
+
+
+def _outer_receipts(contract, count=40):
+    receipts = []
+    for index in range(count):
+        pair_id = f"outer-pair-{index:03d}"
+        task_id = f"outer-task-{index:03d}"
+        receipts.extend((
+            PairReceipt(f"outer-off-{index:03d}", pair_id, task_id, index, "off", "calibration", None,
+                        "agent-r1", "bench-r1", False, 0.0),
+            PairReceipt(f"outer-on-{index:03d}", pair_id, task_id, index, "on", "calibration", contract.digest,
                         "agent-r1", "bench-r1", True, 1.0),
         ))
     return receipts
@@ -213,6 +228,119 @@ def test_evidence_preserves_unclipped_delta_and_real_receipt_revisions(tmp_path)
     assert event["outcome_vector"]["utility"] == 1.0
     assert event["versions"]["agent"] == "agent-r1"
     assert event["versions"]["benchmark"] == "bench-r1"
+
+
+def test_outer_validation_requires_frozen_digest_and_independent_calibration_evidence(tmp_path):
+    contract = _parent()
+    inner = verify_training_pairs(contract, _many_receipts(contract))
+    store = SkillEvolutionStore(tmp_path)
+    store.save_candidate(contract)
+
+    outer = approve_outer_validation(
+        contract, contract.digest, inner, _outer_receipts(contract), split="calibration", alpha=0.05,
+    )
+
+    assert outer.assessment_status == "CANDIDATE_ACCEPTED"
+    assert outer.split == "calibration"
+    assert outer.alpha == 0.05
+    assert outer.skill_digest == contract.digest
+    store.record_acceptance(contract, outer)
+    event = json.loads(store.events_path.read_text(encoding="utf-8").splitlines()[0])
+    assert event["assignment"]["design_id"] == "matched-calibration-skill-v1"
+    assert event["evidence_role"] == "validation"
+    assert not (tmp_path / "registry" / "rules.json").exists()
+
+
+@pytest.mark.parametrize("alpha", [0.0, 1.0, -0.1, 1.1])
+def test_outer_validation_rejects_invalid_alpha(alpha):
+    contract = _parent()
+    inner = verify_training_pairs(contract, _many_receipts(contract))
+    with pytest.raises(ValueError, match="alpha"):
+        approve_outer_validation(
+            contract, contract.digest, inner, _outer_receipts(contract, count=1),
+            split="calibration", alpha=alpha,
+        )
+
+
+def test_outer_validation_rejects_wrong_frozen_digest_and_inner_reuse():
+    contract = _parent()
+    inner = verify_training_pairs(contract, _many_receipts(contract))
+    with pytest.raises(ValueError, match="frozen digest"):
+        approve_outer_validation(
+            contract, "wrong-digest", inner, _outer_receipts(contract, count=1),
+            split="calibration", alpha=0.05,
+        )
+    modified = replace(contract, intent="A posthoc modified candidate.")
+    with pytest.raises(ValueError, match="frozen digest"):
+        approve_outer_validation(
+            modified, contract.digest, inner, _outer_receipts(modified, count=1),
+            split="calibration", alpha=0.05,
+        )
+
+    reused = _outer_receipts(contract, count=1)
+    reused[0] = replace(reused[0], trial_id=inner.pairs[0].off_trial_id)
+    with pytest.raises(ValueError, match="reused"):
+        approve_outer_validation(
+            contract, contract.digest, inner, reused, split="calibration", alpha=0.05,
+        )
+
+    duplicate_outer_trial = _outer_receipts(contract, count=2)
+    duplicate_outer_trial[2] = replace(duplicate_outer_trial[2], trial_id=duplicate_outer_trial[0].trial_id)
+    with pytest.raises(ValueError, match="reused"):
+        approve_outer_validation(
+            contract, contract.digest, inner, duplicate_outer_trial,
+            split="calibration", alpha=0.05,
+        )
+
+
+def test_outer_validation_rejects_same_task_across_seeds_and_source_trials():
+    contract = _parent()
+    inner = verify_training_pairs(contract, _many_receipts(contract))
+    outer = _outer_receipts(contract, count=2)
+    outer[2] = replace(outer[2], task_id="outer-task-000", seed=999)
+    with pytest.raises(ValueError, match="duplicate independent task"):
+        approve_outer_validation(
+            contract, contract.digest, inner, outer, split="calibration", alpha=0.05,
+        )
+
+    source_reused = _outer_receipts(contract, count=1)
+    source_reused[0] = replace(source_reused[0], trial_id=contract.source_trial_ids[0])
+    with pytest.raises(ValueError, match="reused"):
+        approve_outer_validation(
+            contract, contract.digest, inner, source_reused, split="calibration", alpha=0.05,
+        )
+
+
+def test_outer_validation_small_sample_is_undecided():
+    contract = _parent()
+    inner = verify_training_pairs(contract, _many_receipts(contract))
+    outer = approve_outer_validation(
+        contract, contract.digest, inner, _outer_receipts(contract, count=1),
+        split="calibration", alpha=0.05,
+    )
+    assert outer.assessment_status == "UNDECIDED"
+    assert outer.utility_interval[0] < 0 < outer.utility_interval[1]
+
+
+def test_acceptance_checks_digest_and_assessment_and_evidence_is_not_double_counted(tmp_path):
+    contract = _parent()
+    evidence = verify_training_pairs(contract, _many_receipts(contract))
+    store = SkillEvolutionStore(tmp_path)
+    with pytest.raises(ValueError, match="assessment"):
+        store.record_acceptance(contract, replace(evidence, assessment_status="UNDECIDED"))
+    with pytest.raises(ValueError, match="different skill contract"):
+        store.record_acceptance(contract, replace(evidence, skill_digest="wrong-digest"))
+
+    store.record_evidence(contract, evidence)
+    original = store.events_path.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="already recorded"):
+        store.record_evidence(contract, evidence)
+    replay_with_new_pair_id = replace(
+        evidence, pairs=(replace(evidence.pairs[0], pair_id="new-pair-id"),),
+    )
+    with pytest.raises(ValueError, match="already recorded"):
+        store.record_evidence(contract, replay_with_new_pair_id)
+    assert store.events_path.read_text(encoding="utf-8") == original
 
 
 def test_regression_is_rejected_retired_and_rolls_back_to_parent(tmp_path):

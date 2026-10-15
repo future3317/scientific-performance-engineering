@@ -10,20 +10,38 @@ import time
 from experiments.external_real.alfworld_runner import _alfworld_config, _select_game_files
 
 
+def probe_game_files(available: list[str], plan: dict | None = None) -> list[str]:
+    if plan is None:
+        return _select_game_files(available, 3, 0)
+    if plan.get("status") != "DRY_RUN_NOT_EXECUTED" or plan.get("provider_calls") != 0:
+        raise ValueError("expected an unexecuted provider-free readiness plan")
+    selected = [row["gamefile"] for row in plan["episodes"]]
+    if len(selected) != 3 or len(set(selected)) != 3:
+        raise ValueError("readiness probe requires three distinct planned episodes")
+    if not set(selected).issubset(available):
+        raise ValueError("planned episodes are not in the official train environment")
+    return selected
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--plan", type=Path, help="use the fresh episodes selected by skill_evolution.readiness")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
+    plan = json.loads(args.plan.read_text()) if args.plan else None
     config = _alfworld_config(args.data_root, [3, 4, 5], 60)
-    (args.output / "config.json").write_text(json.dumps(config, indent=2) + "\n")
+    (args.output / "config.json").write_text(json.dumps({
+        "environment": config, "readiness_plan": str(args.plan) if args.plan else None,
+        "readiness_revision": plan.get("code_revision") if plan else None,
+    }, indent=2) + "\n")
     from alfworld.agents.environment.alfred_tw_env import AlfredTWEnv
     official = AlfredTWEnv(config, train_eval="train")
-    official.game_files = _select_game_files(official.game_files, 3, 0)
+    official.game_files = probe_game_files(official.game_files, plan)
     official.num_games = len(official.game_files)
     env = official.init_env(batch_size=1)
-    env.seed(0)
+    env.seed(plan["selection_seed"] if plan else 0)
     rows = []
     started = time.monotonic()
     try:
@@ -46,6 +64,8 @@ def main() -> None:
                   "episodes": rows, "wall_seconds": time.monotonic() - started,
                   "interpretation": "Environment integration only; no agent or skill efficacy."}
         (args.output / "results.json").write_text(json.dumps(result, indent=2) + "\n")
+    if plan is not None and {row["gamefile"] for row in rows} != set(official.game_files):
+        raise ValueError("native resets did not cover exactly the three planned train episodes")
     (args.output / "REPORT.md").write_text(
         f"# Native ALFWorld integration\n\n{len(rows)} resets and batched legal steps completed.\n"
         "Provider calls: 0. This probe makes no success-rate claim.\n")
