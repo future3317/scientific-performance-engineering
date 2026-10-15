@@ -8,6 +8,19 @@ the portion of compute reserved for future scheduled cells?
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from decimal import Decimal
+import hashlib
+import json
+import time
+from typing import Any, Mapping
+
+
+def manifest_digest(value: Mapping[str, Any]) -> str:
+    """Identity of a frozen run/split, excluding its optional self reference."""
+    payload = {k: v for k, v in value.items() if k != "manifest_sha256"}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
 
 class ProviderBudgetExceeded(RuntimeError):
@@ -86,6 +99,11 @@ class ProviderUsageBudget:
         self._stopped = True
         self.stop_reason = reason
 
+    def stop(self, reason: str) -> None:
+        """Stop a run whose identity/contract changed without inventing charges."""
+        self._stopped = True
+        self.stop_reason = reason
+
     def as_dict(self) -> dict[str, object]:
         """Return a JSON-serializable accounting snapshot for receipts."""
         return {
@@ -99,6 +117,130 @@ class ProviderUsageBudget:
             "stopped": self._stopped,
             "stop_reason": self.stop_reason,
         }
+
+
+class ApprovedProviderBudget(ProviderUsageBudget):
+    """One run's explicitly approved call/token/USD/time envelope.
+
+    Approval is supplied by the human operator, never inferred from an API key.
+    Prices are an attributed snapshot, not a claim about the provider's bill.
+    Cache discounts are charged only when both counters reconcile with input.
+    """
+
+    def __init__(self, manifest: Mapping[str, Any], approval: Mapping[str, Any],
+                 pricing: Mapping[str, Any], *, controller_commit: str,
+                 stage: str, model: str, base_url: str) -> None:
+        if approval.get("provider_enabled") is not True:
+            raise ProviderBudgetExceeded("APPROVAL_REQUIRED")
+        for key, expected in (("controller_commit", controller_commit), ("model", model),
+                              ("study_id", manifest.get("study_id")),
+                              ("run_id", manifest.get("run_id")),
+                              ("approved_manifest_sha256", manifest_digest(manifest)),
+                              ("approved_split_manifest_sha256", manifest.get("split_manifest_sha256"))):
+            if not expected or approval.get(key) != expected:
+                raise ProviderBudgetExceeded(f"approval_scope_mismatch:{key}")
+        if stage not in approval.get("permitted_stages", []) or stage != manifest.get("stage"):
+            raise ProviderBudgetExceeded("approval_stage_mismatch")
+        if base_url.rstrip("/") not in approval.get("api_base_allowlist", []):
+            raise ProviderBudgetExceeded("approval_api_base_mismatch")
+        for key in ("approved_by", "approval_reference", "approved_at_utc", "expiration_utc"):
+            if not approval.get(key):
+                raise ProviderBudgetExceeded(f"approval_missing:{key}")
+        self.expiration = datetime.fromisoformat(str(approval["expiration_utc"]).replace("Z", "+00:00"))
+        if self.expiration.tzinfo is None or self.expiration <= datetime.now(timezone.utc):
+            raise ProviderBudgetExceeded("approval_expired")
+        for key in ("max_provider_calls", "max_input_tokens", "max_completion_tokens",
+                    "per_episode_max_steps", "per_request_max_completion_tokens", "max_wall_seconds"):
+            if type(approval.get(key)) is not int or approval[key] <= 0:
+                raise ProviderBudgetExceeded(f"approval_invalid_cap:{key}")
+        if approval.get("max_failed_retries") != 0:
+            raise ProviderBudgetExceeded("only_zero_retries_supported")
+        if pricing.get("currency") != "USD" or pricing.get("model") != model:
+            raise ValueError("pricing snapshot must match model and USD")
+        for key in ("pricing_source_url", "checked_at_utc", "price_period", "estimate_quality"):
+            if not pricing.get(key):
+                raise ValueError(f"pricing snapshot missing {key}")
+        self.rates = {key: Decimal(str(pricing[key])) for key in
+                      ("input_hit_per_million", "input_miss_per_million", "output_per_million")}
+        if any(not rate.is_finite() or rate < 0 for rate in self.rates.values()):
+            raise ValueError("pricing rates must be finite and nonnegative")
+        self.max_usd = Decimal(str(approval.get("max_total_usd", 0)))
+        if not self.max_usd.is_finite() or self.max_usd <= 0:
+            raise ProviderBudgetExceeded("approval_invalid_cap:max_total_usd")
+        self.approval, self.pricing = dict(approval), dict(pricing)
+        self.started = time.monotonic()
+        self.input_used = self.output_used = 0
+        self.usd_used = Decimal(0)
+        self.pending_usd = Decimal(0)
+        super().__init__(approval["max_provider_calls"],
+                         approval["max_input_tokens"] + approval["max_completion_tokens"])
+
+    def _cost(self, inputs: int, outputs: int, hits: int = 0) -> Decimal:
+        return ((inputs - hits) * self.rates["input_miss_per_million"]
+                + hits * self.rates["input_hit_per_million"]
+                + outputs * self.rates["output_per_million"]) / Decimal(1_000_000)
+
+    @property
+    def remaining_wall_seconds(self) -> float:
+        return min(self.approval["max_wall_seconds"] - (time.monotonic() - self.started),
+                   (self.expiration - datetime.now(timezone.utc)).total_seconds())
+
+    def ensure_capacity(self, calls: int, input_tokens: int, completion_tokens: int) -> None:
+        """Admit a whole episode/pair before starting its first arm."""
+        if self.stopped or datetime.now(timezone.utc) >= self.expiration:
+            raise ProviderBudgetExceeded("approval_expired_or_budget_stopped")
+        if time.monotonic() - self.started >= self.approval["max_wall_seconds"]:
+            raise ProviderBudgetExceeded("provider_wall_cap")
+        if self.calls_reserved + calls > self.max_calls:
+            raise ProviderBudgetExceeded("provider_call_cap")
+        if self.input_used + input_tokens > self.approval["max_input_tokens"]:
+            raise ProviderBudgetExceeded("provider_input_cap")
+        if self.output_used + completion_tokens > self.approval["max_completion_tokens"]:
+            raise ProviderBudgetExceeded("provider_completion_cap")
+        worst_input_rate = max(self.rates["input_hit_per_million"], self.rates["input_miss_per_million"])
+        cost = (input_tokens * worst_input_rate + completion_tokens * self.rates["output_per_million"]) / Decimal(1_000_000)
+        if self.usd_used + cost > self.max_usd:
+            raise ProviderBudgetExceeded("provider_usd_cap")
+
+    def reserve(self, input_token_bound: int, max_completion_tokens: int) -> None:
+        if max_completion_tokens > self.approval["per_request_max_completion_tokens"]:
+            raise ProviderBudgetExceeded("per_request_completion_cap")
+        self.ensure_capacity(1, input_token_bound, max_completion_tokens)
+        super().reserve(input_token_bound, max_completion_tokens)
+        self.pending_usd = max(self._cost(input_token_bound, max_completion_tokens),
+                               self._cost(input_token_bound, max_completion_tokens, input_token_bound))
+
+    def record_usage(self, input_tokens: int, completion_tokens: int, *,
+                     cache_hit_tokens: int | None = None, cache_miss_tokens: int | None = None) -> None:
+        reservation = self._reservation
+        if reservation is None:
+            raise RuntimeError("no provider request reservation is in flight")
+        if type(input_tokens) is not int or type(completion_tokens) is not int or min(input_tokens, completion_tokens) < 0:
+            self.mark_unknown()
+            return
+        reconciled = (type(cache_hit_tokens) is int and type(cache_miss_tokens) is int
+                      and min(cache_hit_tokens, cache_miss_tokens) >= 0
+                      and cache_hit_tokens + cache_miss_tokens == input_tokens)
+        charge = (self._cost(input_tokens, completion_tokens, cache_hit_tokens) if reconciled
+                  else max(self._cost(input_tokens, completion_tokens),
+                           self._cost(input_tokens, completion_tokens, input_tokens)))
+        self.input_used += input_tokens
+        self.output_used += completion_tokens
+        self.usd_used += charge
+        self.pending_usd = Decimal(0)
+        output_bound = int(reservation["max_completion_tokens"])
+        super().record_usage(input_tokens, completion_tokens)
+        if completion_tokens > output_bound or self.usd_used > self.max_usd:
+            self._stopped = True
+            self.stop_reason = "provider_actual_usage_exceeds_reservation"
+
+    def as_dict(self) -> dict[str, object]:
+        return {**super().as_dict(), "input_tokens_known": self.input_used,
+                "completion_tokens_known": self.output_used,
+                "estimated_usd_known": str(self.usd_used),
+                "reserved_usd": str(self.pending_usd), "max_total_usd": str(self.max_usd),
+                "billing_status": "BILLING_UNKNOWN" if self.tokens_unknown else "ESTIMATE_NOT_BILL",
+                "approval_reference": self.approval["approval_reference"], "pricing": self.pricing}
 
 
 @dataclass(frozen=True)
@@ -296,4 +438,6 @@ __all__ = [
     "PairReservation",
     "ProviderBudgetExceeded",
     "ProviderUsageBudget",
+    "ApprovedProviderBudget",
+    "manifest_digest",
 ]

@@ -54,7 +54,43 @@ The three-unit estimate is a fixture planning unit, not tokens, wall time, GPU
 time, or money. Fixture execution records pair completion but measured runtime
 and token usage remain explicitly unknown.
 
-## Paper-driven real-study order
+## Current Phase2 execution boundary
+
+The October 16 Phase2 taskbook supersedes the earlier manuscript-only choice
+to defer model-driven Skill editing. It authorizes implementation, not paid
+execution. Stage A reconciles the current tree, template/exposure separation
+and official scorer. Stage B first requires complete autonomous train-side
+rollouts. At least two independently grouped verified wins plus a real failure
+are required to request Stage C. Zero wins stops paid Skill optimization;
+one win is viable-but-not-qualified. Stage C separates proposal/patch selection,
+new matched inner rollouts and frozen-candidate independent outer rollouts.
+Stage D separates Skill-content utility from fixed-content routing utility.
+No earlier synthetic qualification is rerun or counted as real evidence.
+
+`python -m experiments.skill_evolution.real_study --plan <plan>` is provider-free
+by default. Request input/completion caps stay unset until task-grounded
+calibration and approval. `--live` requires an exact run/split/revision/model/
+stage approval, attributed prices and finite call/input/completion/USD/wall
+caps. The disabled template is `approval.example.json`; copying or editing it
+does not itself create user authorization. The complete readiness envelope is
+admitted before the first episode, with no retries. A crash leaves its in-flight
+budget journal charged/unknown; fresh-output semantics disallow silent resume.
+Native API tools are not used: reasoning-content tool replay is not claimed.
+Completion includes reasoning; missing cache counters use conservative prices,
+not assumed discounts. Provider costs are estimates, never actual billed USD.
+
+The stateful CLI now enters this same approval path; it no longer offers a
+separate live entry with only token/call flags. Existing library mocks remain
+usable without network. Historical legacy code is retained as a versioned
+reference, not an approved Phase2 paid launch path. H1 remains untested until
+new matched legacy-current/stateful observations exist.
+
+All real stages are `NOT_RUN` until authorized receipts exist. New outputs are
+under `/home/workspace/lrh/RESULTS/skill-evolution-phase2-20261016`, separate
+from the historical campaign and October 15 synthetic roots. No historical
+formal/sealed/C-D run or manuscript statistic is modified.
+
+## Earlier paper-driven real-study order (planning history)
 
 The manuscript's present question is when a fixed reusable intervention needs
 a context gate. Its controlled selective-support result and frozen 80-pair

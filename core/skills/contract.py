@@ -28,13 +28,23 @@ class SkillContract:
     source_trial_ids: tuple[str, ...]
     verification_trial_ids: tuple[str, ...] = ()
     source_split: str = "train"
+    source_task_ids: tuple[str, ...] = ()
+    source_template_ids: tuple[str, ...] = ()
+    source_cluster_ids: tuple[str, ...] = ()
+    source_trace_hashes: tuple[str, ...] = ()
+    train_split_manifest_sha256: str | None = None
+    generator_provider: str | None = None
+    model_identity: str | None = None
+    proposal_prompt_sha256: str | None = None
+    proposal_output_sha256: str | None = None
+    runtime_agent_sha: str | None = None
     parent_digest: str | None = None
     parent_version: int | None = None
     status: str = "candidate"
 
     def __post_init__(self) -> None:
         validate_identifier(self.skill_id, "skill_id")
-        if self.version < 1 or self.source_split != "train" or self.status not in {"candidate", "rejected"}:
+        if self.version < 1 or self.source_split not in {"train", "train_inner"} or self.status not in {"candidate", "rejected"}:
             raise ValueError("skill candidates require a positive version, train provenance, and candidate/rejected status")
         if self.parent_digest is not None and (not self.parent_version or self.parent_version >= self.version):
             raise ValueError("child skill revisions require an earlier parent version")
@@ -49,6 +59,20 @@ class SkillContract:
             raise ValueError("required procedure steps must exist in the procedure")
         for trial_id in self.source_trial_ids + self.verification_trial_ids:
             validate_identifier(trial_id, "trial_id")
+        for task_id in self.source_task_ids:
+            if not isinstance(task_id, str) or not task_id.strip():
+                raise ValueError("source task IDs must be nonempty metadata strings")
+        if len(set(self.source_template_ids)) != len(self.source_template_ids):
+            raise ValueError("source template identifiers must be unique")
+        if len(set(self.source_cluster_ids)) != len(self.source_cluster_ids):
+            raise ValueError("source semantic cluster identifiers must be unique")
+        for digest in self.source_trace_hashes:
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError("source trace hashes must be lowercase SHA256 digests")
+        for name in ("train_split_manifest_sha256", "proposal_prompt_sha256", "proposal_output_sha256"):
+            digest = getattr(self, name)
+            if digest is not None and not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError(f"{name} must be a lowercase SHA256 digest")
 
     @property
     def body(self) -> str:
@@ -71,19 +95,43 @@ class SkillContract:
         payload = asdict(self)
         payload.pop("verification_trial_ids")
         payload.pop("status")
+        if not self._has_extended_provenance:
+            for key in (
+                "source_task_ids", "source_template_ids", "source_cluster_ids", "source_trace_hashes",
+                "train_split_manifest_sha256", "generator_provider", "model_identity",
+                "proposal_prompt_sha256", "proposal_output_sha256", "runtime_agent_sha",
+            ):
+                payload.pop(key)
         payload = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @property
+    def _has_extended_provenance(self) -> bool:
+        return self.source_split != "train" or any((
+            self.source_task_ids, self.source_template_ids, self.source_cluster_ids, self.source_trace_hashes,
+            self.train_split_manifest_sha256, self.generator_provider, self.model_identity,
+            self.proposal_prompt_sha256, self.proposal_output_sha256, self.runtime_agent_sha,
+        ))
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "SkillContract":
         return cls(**{key: tuple(item) if key in {
             "applicability", "procedure", "preconditions", "postconditions",
             "procedure_step_ids", "required_procedure_step_ids", "protected_semantics",
-            "source_trial_ids", "verification_trial_ids",
+            "source_trial_ids", "verification_trial_ids", "source_task_ids",
+            "source_template_ids", "source_cluster_ids", "source_trace_hashes",
         } else item for key, item in value.items()})
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        value = asdict(self)
+        if not self._has_extended_provenance:
+            for key in (
+                "source_task_ids", "source_template_ids", "source_cluster_ids", "source_trace_hashes",
+                "train_split_manifest_sha256", "generator_provider", "model_identity",
+                "proposal_prompt_sha256", "proposal_output_sha256", "runtime_agent_sha",
+            ):
+                value.pop(key)
+        return value
 
     def to_rule_spec(self) -> RuleSpec:
         parent = RevisionRef(self.skill_id, self.parent_version, self.parent_digest) if self.parent_version and self.parent_digest else None
@@ -126,8 +174,17 @@ def validate_skill_text(contract: SkillContract, *, max_characters: int) -> list
         errors.append("skill_too_long")
     if _ENTITY_NUMBER.search(scanned_text):
         errors.append("instance_specific_entity")
-    if re.search(r"(?i)(?:api[_ -]?key|password|secret|private key|\.env|gamefile|traj_data|test answer)", scanned_text):
+    if re.search(
+        r"(?i)(?:api[_ -]?key|password|secret|private key|\.env|gamefile|traj_data|"
+        r"test answer|expert action|hidden state|oracle|high_pddl|pddl plan)",
+        scanned_text,
+    ):
         errors.append("secret_or_oracle_reference")
+    if re.search(r"(?i)(?:\b[A-Z]:\\|/(?:home|Users|mnt|private|tmp)/)[^\s,;]*", body):
+        errors.append("private_path")
+    if any(source_id and source_id.casefold() in body.casefold()
+           for source_id in contract.source_task_ids + contract.source_trial_ids):
+        errors.append("source_instance_reference")
     if re.search(r"(?i)\b(?:ignore safety|ignore previous instructions|exfiltrate|curl\s|wget\s|rm\s+-rf|os\.system|subprocess)\b", scanned_text):
         errors.append("unsafe_instruction")
     return errors
