@@ -269,12 +269,14 @@ def _verify_paired_receipts(
             raise ValueError("semantic cluster identity is required when source clusters are recorded")
         if off.cluster_id is not None:
             if off.cluster_id in forbidden_clusters:
-                raise ValueError("paired task cluster overlaps source or prior verification clusters")
+                raise ValueError("paired semantic cluster overlaps source or prior verification clusters")
             if off.cluster_id in seen_clusters:
                 raise ValueError("duplicate independent semantic cluster across paired evidence")
             seen_clusters.add(off.cluster_id)
-        if off.task_id in seen_tasks or off.task_id in forbidden_tasks:
-            raise ValueError("duplicate independent task or source task; task ids cannot repeat across seeds or evidence splits")
+        if off.task_id in seen_tasks:
+            raise ValueError("duplicate independent task and seed group; task ids cannot repeat across seeds")
+        if off.task_id in forbidden_tasks:
+            raise ValueError("paired task overlaps source or prior verification tasks")
         seen_tasks.add(off.task_id)
         results.append(PairResult(pair_id, off.trial_id, on.trial_id, off.success, on.success, off.utility, on.utility,
                                   off.task_id, off.seed, off.agent_revision, off.benchmark_revision, off.template_id,
