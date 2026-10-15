@@ -172,6 +172,15 @@ The Phase I proposal reflects the new thinking/output setting. Its total
 call/token ceilings remain unchanged; this configuration change does not launch
 that experiment or authorize an unbounded campaign.
 
+Verification at `09819a6`: 23 action-runner tests passed on the server. Two
+real requests through `DeepSeekStatefulClient` both returned an admissible
+`look` action in final content, with thinking present and finish reason `stop`.
+Each used 161 input tokens; completion usage was 60 and 49 tokens, including
+56 and 45 reasoning tokens. Both reported 0 cache-hit tokens and 161 cache-miss
+tokens. Thus connectivity/thinking/action extraction are verified, but this
+short immediate-repeat probe does not demonstrate a cache benefit. No episode
+or provider experiment was started. API keys were never printed.
+
 ## Remaining real-study work
 
 The supplied plan is a multi-stage research program. It has not been completed
