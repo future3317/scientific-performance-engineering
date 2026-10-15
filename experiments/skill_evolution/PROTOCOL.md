@@ -109,6 +109,21 @@ interpreter and CPU/resource contract; fix the exact train manifest, prompts,
 model/thinking settings, horizons, no-retry behavior, and a fresh output root.
 The current config is a proposal and remains `NOT_RUN`.
 
+Executable preparation is `python -m experiments.skill_evolution.readiness
+--data-root <official-data> --history <all-known-train-receipts> --output
+<new-plan.json>`. It selects three compiled train tasks after excluding whole
+historically used template directories, without importing a provider. Run
+`python -m experiments.skill_evolution.native_probe --data-root <official-data>
+--plan <new-plan.json> --output <fresh-directory>` to check these exact tasks
+with admissible commands and zero model calls. This use burns the selected
+tasks for final evidence; they are readiness/development-only thereafter.
+
+The stateful runner CLI requires `--plan`, `--max-calls` and
+`--max-total-tokens`. It enforces per-request reservations and records actual
+usage before parsing the provider answer. Unknown usage freezes further
+requests. This implements token/call accounting, not approval or monetary
+enforcement. No paid command is authorized by these preparation steps.
+
 ## Train-side development and final-design freeze
 
 Use the existing fixed-procedure synthesis path, not a new Skill-generation

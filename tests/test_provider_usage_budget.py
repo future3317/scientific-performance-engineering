@@ -204,3 +204,47 @@ def test_episode_reports_budget_termination_and_keeps_prior_trajectory():
     assert result["trajectory"][0]["selected_action"] == "look"
     assert result["env_steps"] == 1
     assert result["progress_events"][-1]["kind"] == "provider_budget_exhausted"
+
+
+def test_smoke_persists_budget_before_calls_and_does_not_launch_after_exhaustion(monkeypatch, tmp_path):
+    import json
+    import sys
+    from experiments.external_real import alfworld_stateful_runner as runner
+
+    output = tmp_path / "new-run"
+    budget = ProviderUsageBudget(0, 0)
+    client = SimpleNamespace(budget=budget, model="deepseek-flash", temperature=0.0)
+    calls = []
+
+    class Environment:
+        def seed(self, seed):
+            pass
+
+        def close(self):
+            calls.append("closed")
+
+    class Official:
+        def __init__(self, config, train_eval):
+            self.game_files = ["a", "b", "c"]
+
+        def init_env(self, batch_size):
+            return Environment()
+
+    monkeypatch.setitem(sys.modules, "alfworld.agents.environment.alfred_tw_env", SimpleNamespace(AlfredTWEnv=Official))
+    monkeypatch.setattr(runner, "_select_game_files", lambda *args: ["a", "b", "c"])
+
+    def episode(*args, **kwargs):
+        config = json.loads((output / "config.json").read_text())
+        assert config["provider_budget"]["max_calls"] == 0
+        calls.append("episode")
+        return {"success": None, "invalid_actions": 0, "termination_reason": "provider_budget_exhausted"}
+
+    monkeypatch.setattr(runner, "run_episode", episode)
+    result = runner.run_smoke(tmp_path, output, client)
+    assert calls == ["episode", "closed"]
+    assert result["scheduled_episodes"] == 3
+    assert result["nonlaunched_episodes"] == 2
+    assert result["provider_budget"]["calls_reserved"] == 0
+    assert json.loads((output / "results.json").read_text()) == result
+    with pytest.raises(FileExistsError):
+        runner.run_smoke(tmp_path, output, client)
