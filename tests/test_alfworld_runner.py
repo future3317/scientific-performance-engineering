@@ -59,8 +59,8 @@ def test_deepseek_client_uses_bounded_single_request(monkeypatch):
 
     DeepSeekClient("key", "https://api.deepseek.com", "deepseek-flash").choose_action("obs", ["look"], None)
     assert captured["model"] == "deepseek-flash"
-    assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
-    assert captured["max_tokens"] == 512
+    assert captured["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert captured["max_tokens"] == 8192
 
 
 def test_saved_action_replays_through_online_path_and_env_step(monkeypatch, tmp_path):

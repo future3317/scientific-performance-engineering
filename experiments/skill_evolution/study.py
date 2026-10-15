@@ -29,7 +29,8 @@ HYPOTHESES = {
 PHASE_I_CONFIG = {
     "status": "NOT_RUN",
     "model": "deepseek-flash",
-    "thinking": "disabled",
+    "thinking": "enabled",
+    "max_completion_tokens_per_call": 8192,
     "arms": ("legacy_stateless", "stateful"),
     "split": "train_only",
     "matching_keys": ("task_or_game_id", "environment_seed"),

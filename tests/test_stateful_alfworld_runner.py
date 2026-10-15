@@ -6,6 +6,67 @@ from experiments.external_real.alfworld_stateful_runner import (
 )
 
 
+def test_thinking_request_caches_stable_prefix_and_preserves_usage(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
+    from experiments.external_real.alfworld_runner import DeepSeekClient
+
+    requests = []
+
+    def create(**request):
+        requests.append(request)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content="Action: look", reasoning_content="Action: invalid"),
+                finish_reason="stop",
+            )],
+            usage=SimpleNamespace(
+                prompt_tokens=400, completion_tokens=60,
+                prompt_cache_hit_tokens=256, prompt_cache_miss_tokens=144,
+                completion_tokens_details=SimpleNamespace(reasoning_tokens=50),
+            ),
+        )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(
+        OpenAI=lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
+    ))
+    client = DeepSeekStatefulClient("key", "https://api.deepseek.com", "deepseek-flash")
+    state = EpisodeState.start("Your task is to: put a clean apple in fridge.", 60)
+    first = client.choose_action(state, ["look"], "Inspect first.", "progress one", None)
+    state.remaining_steps = 59
+    client.choose_action(state, ["look"], "Inspect first.", "progress two", "retry")
+    prefix = requests[0]["messages"][1]["content"].split("progress one")[0]
+    assert "Inspect first." in prefix
+    assert requests[1]["messages"][1]["content"].startswith(prefix)
+    assert requests[0]["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert requests[0]["max_tokens"] == 8192
+    assert first["raw_output"] == "Action: look"
+    assert first["cache_hit_tokens"] == 256
+    assert first["cache_miss_tokens"] == 144
+    assert first["reasoning_tokens"] == 50
+    assert first["finish_reason"] == "stop"
+    legacy = DeepSeekClient("key", "https://api.deepseek.com", "deepseek-flash")
+    row = legacy.choose_action("Observation", ["look"], "Inspect first.")
+    assert row["parser_input"] == "Action: look"
+    assert row["cache_hit_tokens"] == 256
+    assert requests[-1]["max_tokens"] == 8192
+    assert requests[-1]["extra_body"] == {"thinking": {"type": "enabled"}}
+
+    # A truncated thinking response must not execute a command from private reasoning.
+    def reasoning_only(**request):
+        return SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content="", reasoning_content="Action: look"),
+            finish_reason="length",
+        )], usage=None)
+
+    client.client.chat.completions.create = reasoning_only
+    row = client.choose_action(state, ["look"], None, "progress", None)
+    assert row["raw_output"] == ""
+    assert row["finish_reason"] == "length"
+    assert row["cache_hit_tokens"] is None
+
+
 class ReplayClient:
     def __init__(self, actions):
         self.actions = list(actions)

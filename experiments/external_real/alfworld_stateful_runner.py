@@ -20,7 +20,7 @@ from experiments.external_real.alfworld_runner import (
 )
 
 
-POLICY_REVISION = "alfworld-stateful-visible-v1"
+POLICY_REVISION = "alfworld-stateful-visible-thinking"
 _TRANSFORMATIONS = ("clean", "heat", "cool")
 _STATE_HISTORY_LIMIT = 12
 _SEEN_ENTITY_LIMIT = 32
@@ -283,10 +283,10 @@ class DeepSeekStatefulClient:
         skill_text = skill or "No reusable skill is provided."
         prompt = (
             "Choose exactly one command from the admissible list. Never invent commands or infer hidden state.\n"
+            f"Reusable skill: {skill_text}\n"
             f"Goal: {state.goal}\n{progress}\n"
             f"Current subgoal: {SubgoalPlanner.next_subgoal(state, admissible_actions)}\n"
             f"Replan note: {replan_reason or 'none'}\n"
-            f"Reusable skill: {skill_text}\n"
             f"Current observation: {state.last_observation}\n"
             "Admissible commands:\n" + "\n".join(f"- {item}" for item in admissible_actions)
             + "\nReply only as Action: <exact command>."
@@ -295,8 +295,8 @@ class DeepSeekStatefulClient:
         response = self.client.chat.completions.create(
             model=self.model,
             temperature=self.temperature,
-            max_tokens=512,
-            extra_body={"thinking": {"type": "disabled"}},
+            max_tokens=8192,
+            extra_body={"thinking": {"type": "enabled"}},
             messages=[
                 {"role": "system", "content": "Follow the action format exactly."},
                 {"role": "user", "content": prompt},
@@ -306,14 +306,18 @@ class DeepSeekStatefulClient:
         message = response.choices[0].message
         content = message.content or ""
         reasoning = getattr(message, "reasoning_content", "") or ""
-        parser_input = content or reasoning
+        parser_input = content
         usage = getattr(response, "usage", None)
         return {
             "raw_output": parser_input,
             "provider_raw": {"content": content, "reasoning_content": reasoning},
-            "response_field_used": "message.content" if content else "message.reasoning_content",
+            "response_field_used": "message.content",
             "input_tokens": getattr(usage, "prompt_tokens", None),
             "output_tokens": getattr(usage, "completion_tokens", None),
+            "cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", None),
+            "cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", None),
+            "reasoning_tokens": getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
+            "finish_reason": getattr(response.choices[0], "finish_reason", None),
             "latency_seconds": latency,
         }
 
