@@ -63,7 +63,8 @@ def test_contrast_miner_extracts_train_only_general_steps_and_excludes_ineligibl
     assert contrasts[0].missing_steps == ("transform_clean",)
 
     contract = TraceContrastMiner().extract_subskill("alfworld.clean_place", traces)
-    assert "transform_clean" in " ".join(contract.procedure).casefold()
+    assert "transform_clean" in contract.procedure_step_ids
+    assert any("clean" in step.casefold() for step in contract.procedure)
     assert "apple" not in contract.body.casefold()
     assert "sinkbasin 3" not in contract.body.casefold()
     assert contract.source_trial_ids == ("train-failure-1", "train-success-1")
@@ -151,9 +152,14 @@ def test_single_pair_point_gain_is_smoke_only_and_remains_undecided(tmp_path):
     assert result.current == parent
     assert result.candidate.digest == preview.digest
     assert result.candidate.to_rule_spec().provenance_policy["source_split"] == "train"
+    candidate_state = store.state_store.load("rule", result.candidate.skill_id, result.candidate.version)
+    assert candidate_state.status == "candidate"
     registry = tmp_path / "registry" / "rules.json"
     assert not registry.exists()  # verification creates a candidate, never canonical promotion
-    assert len((tmp_path / "evolution" / "skill_evolution.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+    lifecycle = (tmp_path / "evolution" / "skill_evolution.jsonl").read_text(encoding="utf-8")
+    assert '"outcome": "undecided"' in lifecycle
+    assert '"outcome": "verified_candidate"' not in lifecycle
+    assert len(lifecycle.splitlines()) == 2
     MutationJournal(tmp_path / "evolution" / "mutation_journal.jsonl").verify_against_store_diff(tmp_path)
 
 

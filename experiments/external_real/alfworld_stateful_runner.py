@@ -323,6 +323,7 @@ def run_episode(
     max_steps: int = 60,
     *,
     repeat_limit: int = 3,
+    skill_version: str | None = None,
 ) -> dict[str, Any]:
     observations, infos = environment.reset()
     observation = str(observations[0])
@@ -343,6 +344,10 @@ def run_episode(
             completion = client.choose_action(state, admissible, skill, progress, replan_reason)
         except Exception as exc:  # external client errors are terminal evidence, not hidden retries
             termination_reason = "policy_error"
+            trajectory.append({"step": step_index, "observation": observation,
+                               "selected_action": None, "invalid_action": False,
+                               "failure_stage": "provider", "exception_type": type(exc).__name__,
+                               "input_tokens": None, "output_tokens": None})
             progress_events.append({"step": step_index, "kind": "policy_error", "error": type(exc).__name__})
             break
         action, invalid_reason = guard.select(str(completion.get("raw_output", "")), admissible)
@@ -365,6 +370,10 @@ def run_episode(
             next_observations, rewards, dones, next_infos = environment.step([action])
         except Exception as exc:
             termination_reason = "environment_error"
+            trajectory.append({"step": step_index, "observation": observation,
+                               "admissible_actions": admissible, "selected_action": action,
+                               "invalid_action": False, "failure_stage": "environment",
+                               "exception_type": type(exc).__name__, **completion})
             progress_events.append({"step": step_index, "kind": "environment_error", "error": type(exc).__name__})
             break
         next_observation = str(next_observations[0])
@@ -413,8 +422,16 @@ def run_episode(
         "schema_version": 2,
         "policy_revision": POLICY_REVISION,
         "split": "train",
-        "success": won,
+        "success": None if termination_reason in {"policy_error", "environment_error"} else won,
         "steps": len(trajectory),
+        "env_steps": sum("reward" in row for row in trajectory),
+        "skill_version": skill_version,
+        "skill_proposed": None,
+        "skill_retrieved": None,
+        "skill_rendered": skill is not None,
+        "skill_read_or_used": "unknown",
+        "activation_source": "prompt_rendering" if skill else None,
+        "subgoal_followed": None,
         "invalid_actions": sum(int(row["invalid_action"]) for row in trajectory),
         "termination_reason": termination_reason,
         "state": asdict(state),
@@ -453,7 +470,10 @@ def run_smoke(
         "episodes": rows,
         "summary": {
             "episode_count": len(rows),
-            "success_rate": sum(row["success"] for row in rows) / len(rows) if rows else None,
+            "success_rate": (sum(row["success"] is True for row in rows) / len(rows)
+                             if rows and all(row["success"] is not None for row in rows) else None),
+            "known_successes": sum(row["success"] is True for row in rows),
+            "missing_outcomes": sum(row["success"] is None for row in rows),
             "invalid_actions": sum(row["invalid_actions"] for row in rows),
             "termination_reasons": {
                 reason: sum(row["termination_reason"] == reason for row in rows)

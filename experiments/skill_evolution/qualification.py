@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 import time
 import tracemalloc
@@ -11,8 +12,11 @@ from typing import Any
 
 from core.acre.cegis import BoundaryObservation, StatisticalCEGIS, synthesis_certificate_valid
 from core.acre.predicates import PredicateGrammar
-from core.acre.regimes import SupportGroup, SupportRegime, SupportScope, classify_support_regime
-from core.acre.typed_gate import decision_from_regime, decision_from_synthesis
+from core.acre.regimes import SupportGroup, SupportScope, classify_support_regime
+from core.acre.typed_gate import decision_from_synthesis
+from core.acre.engine import AcreEngine
+from core.acre.router import _semantic_spec_digest
+from core.models import RuleSpec, RuleState
 from core.sequential_stats import paired_repetition_interval
 from core.acre.resource_budget import PairReservation
 from .study import PHASE_I_CONFIG, power_table
@@ -22,8 +26,7 @@ TRAIN_SEEDS = (101, 211)
 EVALUATION_SEEDS = (307, 401)
 REGIME_GRID = ("broad_benefit", "selective_transfer", "null_effect")
 STRATA = ("supported", "unsupported")
-GROUPS_PER_STRATUM_PER_SEED = 40
-REPETITIONS_PER_GROUP = 80
+GROUPS_PER_STRATUM_PER_SEED = 60
 FAMILY_ALPHA = 0.05
 MEASUREMENT_ALPHA = 0.025
 REGIME_ALPHA = 0.0125
@@ -32,13 +35,53 @@ TRAINING_GROUP_COUNT = (
     len(REGIME_GRID) * len(TRAIN_SEEDS) * len(STRATA) * GROUPS_PER_STRATUM_PER_SEED
 )
 PER_GROUP_MEASUREMENT_ALPHA = MEASUREMENT_ALPHA / TRAINING_GROUP_COUNT
+PLANNED_MEASUREMENT_RADIUS_TARGET = 0.15
+MIN_REPETITIONS_FOR_RADIUS = math.ceil(
+    2.0 * math.log(2.0 / PER_GROUP_MEASUREMENT_ALPHA)
+    / PLANNED_MEASUREMENT_RADIUS_TARGET**2
+)
+REPETITIONS_PER_GROUP = 1 << (MIN_REPETITIONS_FOR_RADIUS - 1).bit_length()
+PLANNED_MEASUREMENT_RADIUS = math.sqrt(
+    2.0 * math.log(2.0 / PER_GROUP_MEASUREMENT_ALPHA) / REPETITIONS_PER_GROUP
+)
 MIN_GROUPS_FOR_GLOBAL = 40
 MAX_CANDIDATES = 1000
 MAX_CEGIS_SECONDS = 2.0
 STRESS_CARDINALITIES = (8, 16, 32, 64)
 EVOLUTION_SEARCH_BUDGET = MAX_CANDIDATES * (len(REGIME_GRID) + len(STRESS_CARDINALITIES))
 ARMS = ("base", "global", "old_selective", "new_regime", "oracle")
-RUNTIME_VERSIONS = {"environment": "synthetic-skillstudy-v1", "agent": "fixed-agent-v1"}
+SYNTHETIC_RULE_SPEC = RuleSpec(
+    rule_id="RULE-SYNTHETIC-SKILLSTUDY",
+    version=1,
+    parent=None,
+    applicability={"all": []},
+    intervention={"kind": "skill", "action": "synthetic_skill_reuse"},
+    expected_mechanism="synthetic qualification fixture only",
+    evidence_requirements=["synthetic train-only support evidence"],
+    scientific_invariants=[],
+    abstain_conditions={},
+    relations={},
+    runtime_cost={"tokens": 1},
+    provenance_policy={"required": True},
+    domain="skillstudy",
+)
+SYNTHETIC_SKILL_DIGEST = _semantic_spec_digest(SYNTHETIC_RULE_SPEC)
+SYNTHETIC_RULE_STATE = RuleState(
+    rule_id=SYNTHETIC_RULE_SPEC.rule_id,
+    version=SYNTHETIC_RULE_SPEC.version,
+    status="canonical",
+    effect={"lower_utility": 1.0},
+    retrieval_utility=1.0,
+)
+SYNTHETIC_ENGINE = AcreEngine(
+    rule_specs=(SYNTHETIC_RULE_SPEC,),
+    rule_states={SYNTHETIC_RULE_SPEC.rule_id: SYNTHETIC_RULE_STATE},
+)
+RUNTIME_VERSIONS = {
+    "environment": "synthetic-skillstudy-v1",
+    "agent": "fixed-agent-v1",
+    "skill_digest": SYNTHETIC_SKILL_DIGEST,
+}
 SUPPORT_SCOPE = SupportScope(
     population_id="skillstudy-synthetic-v1",
     population_predicate={"equals": {"domain": "skillstudy"}},
@@ -61,11 +104,16 @@ def required_evolution_search_budget() -> float:
     return float(EVOLUTION_SEARCH_BUDGET)
 
 
-def qualification_config() -> dict[str, Any]:
+def qualification_config(*, task_execution_budget: float | None = None) -> dict[str, Any]:
     """Return the complete frozen design, without generating study outcomes."""
     return {
         "study_kind": "synthetic_learned_acre_qualification",
         "synthetic_only": True,
+        "task_execution_budget": (
+            required_task_execution_budget()
+            if task_execution_budget is None
+            else task_execution_budget
+        ),
         "train_seeds": list(TRAIN_SEEDS),
         "independent_evaluation_seeds": list(EVALUATION_SEEDS),
         "regimes": list(REGIME_GRID),
@@ -79,6 +127,9 @@ def qualification_config() -> dict[str, Any]:
             "measurement_method": "Bonferroni simultaneous two-sided paired-repetition intervals across every predeclared training group in all three regimes",
             "measurement_comparisons": TRAINING_GROUP_COUNT,
             "per_group_measurement_alpha": PER_GROUP_MEASUREMENT_ALPHA,
+            "planned_radius_target": PLANNED_MEASUREMENT_RADIUS_TARGET,
+            "planned_worst_case_radius": PLANNED_MEASUREMENT_RADIUS,
+            "minimum_repetitions_for_radius_target": MIN_REPETITIONS_FOR_RADIUS,
             "regime_classifier_alpha": REGIME_ALPHA,
             "cegis_certificate_alpha": CEGIS_ALPHA,
             "group_bound_interpretation": "synthetic only; simultaneous group intervals feed selection, while classifier and CEGIS certificate budgets are prospectively separated within the family alpha",
@@ -93,12 +144,21 @@ def qualification_config() -> dict[str, Any]:
         "support_maximum_harm_probability": 0.10,
         "support_minimum_groups": MIN_GROUPS_FOR_GLOBAL,
         "evaluation_arms": list(ARMS),
+        "synthetic_rule": {
+            "rule_id": SYNTHETIC_RULE_SPEC.rule_id,
+            "version": SYNTHETIC_RULE_SPEC.version,
+            "state": "canonical synthetic fixture only",
+            "skill_digest": SYNTHETIC_SKILL_DIGEST,
+            "routing_api": "AcreEngine.route(support_regimes=..., runtime_versions=...)",
+            "canonical_promotion_claim": False,
+        },
         "predicate_stress_cardinalities": list(STRESS_CARDINALITIES),
         "train_evaluation_overlap": False,
         "multiplicity_claim": "descriptive synthetic comparisons; no confirmatory real-study claim",
         "real_phase_i": {
             **PHASE_I_CONFIG,
             "arms": list(PHASE_I_CONFIG["arms"]),
+            "matching_keys": list(PHASE_I_CONFIG["matching_keys"]),
             "families": list(PHASE_I_CONFIG["families"]),
         },
     }
@@ -202,14 +262,20 @@ def _evaluate_regime(regime: str, decisions: dict[str, Any]) -> dict[str, Any]:
         }
         for stratum in STRATA
     }
+    engine_selected_by_stratum: dict[str, bool] = {}
     for seed in EVALUATION_SEEDS:
         for stratum in STRATA:
             base_probability, skill_probability = _probabilities(regime, stratum)
             context = {"domain": "skillstudy", "stratum": stratum}
             old_use = decision_from_synthesis(decisions["synthesis"], context).action == "reuse"
-            new_use = decision_from_regime(
-                decisions["regime"], context, RUNTIME_VERSIONS
-            ).action == "reuse"
+            routed = SYNTHETIC_ENGINE.route(
+                context,
+                support_regimes={SYNTHETIC_RULE_SPEC.rule_id: decisions["regime"]},
+                runtime_versions=RUNTIME_VERSIONS,
+                candidate_ids=(SYNTHETIC_RULE_SPEC.rule_id,),
+            )
+            new_use = SYNTHETIC_RULE_SPEC.rule_id in routed.selected_rule_ids
+            engine_selected_by_stratum[stratum] = new_use
             truth_use = (
                 regime == "broad_benefit"
                 or (regime == "selective_transfer" and stratum == "supported")
@@ -256,6 +322,14 @@ def _evaluate_regime(regime: str, decisions: dict[str, Any]) -> dict[str, Any]:
             "cegis_search_exhausted": decisions["synthesis"].search_exhausted,
             "support_regime": decisions["regime"].regime.value,
             "support_reason": decisions["regime"].reason_code,
+        },
+        "new_regime_routing": {
+            "api": "AcreEngine.route",
+            "rule_id": SYNTHETIC_RULE_SPEC.rule_id,
+            "rule_state": "canonical synthetic fixture only",
+            "skill_digest": SYNTHETIC_SKILL_DIGEST,
+            "selected_by_stratum": engine_selected_by_stratum,
+            "canonical_promotion_claim": False,
         },
         "evaluation": {
             "seeds": list(EVALUATION_SEEDS),
@@ -374,7 +448,7 @@ def run_qualification_study(*, task_execution_budget: float | None = None) -> di
         "synthetic_only": True,
         "qualification_status": "SYNTHETIC_FIXTURE_COMPLETE",
         "provider_calls": 0,
-        "pre_frozen_config": qualification_config(),
+        "pre_frozen_config": qualification_config(task_execution_budget=budget),
         "hypotheses": {
             "H4_BROAD_GLOBAL": "Train-only CEGIS and support classification permit broad reuse only when the classifier certifies the frozen population; otherwise the new regime policy abstains.",
             "H5_SELECTIVE_LEARNED": "Train-only CEGIS identifies the supported stratum, and new regime decisions reduce unsupported harm versus global reuse on independent evaluation groups.",

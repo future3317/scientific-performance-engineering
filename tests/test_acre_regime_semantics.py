@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from core.acre.cegis import BoundaryObservation, StatisticalCEGIS, SynthesisResult
 from core.acre.predicates import PredicateGrammar
 from core.acre.regimes import (
@@ -36,13 +38,14 @@ def _group(group_id: str, effect: float, *, stratum: str = "small") -> SupportGr
 
 
 def _identified_result(scope: SupportScope = SCOPE) -> SynthesisResult:
+    domain = scope.population_predicate.get("equals", {}).get("domain", "runtime")
     grammar = PredicateGrammar.from_dict({
         "schema_version": 1,
         "features": [{"path": "workload.x", "type": "numeric"}],
         "threshold_universe": {"workload.x": [0.0]},
     })
-    positive = BoundaryObservation("p", {"domain": "runtime", "workload": {"x": 1}}, 0.5, True, 0.2, 0.8)
-    negative = BoundaryObservation("n", {"domain": "runtime", "workload": {"x": -1}}, -0.5, True, -0.8, -0.2)
+    positive = BoundaryObservation("p", {"domain": domain, "workload": {"x": 1}}, 0.5, True, 0.2, 0.8)
+    negative = BoundaryObservation("n", {"domain": domain, "workload": {"x": -1}}, -0.5, True, -0.8, -0.2)
     return StatisticalCEGIS(grammar).synthesize(
         positive=[positive],
         counterexamples=[negative],
@@ -140,6 +143,8 @@ def test_hard_gate_failure_rejects_and_selective_support_stays_local() -> None:
     assert decision_from_regime(
         selected, {"domain": "compile", "workload": {"x": -1}}, VERSIONS,
     ).action == "abstain"
+    tampered = replace(selected, predicate={"all": []})
+    assert not tampered.allows_reuse({"domain": "compile", "workload": {"x": 1}}, VERSIONS)
 
     changed_scope = SupportScope(
         "compile-v2", SCOPE.population_predicate,

@@ -116,7 +116,8 @@ class PairReservation:
         if self.task_execution_budget < 0.0 or self.evolution_search_budget < 0.0:
             raise ValueError("task and evolution budgets must be non-negative")
         ids = [pair_id for pair_id, _ in self.pair_costs]
-        if len(ids) != len(set(ids)) or any(not pair_id for pair_id in ids):
+        id_set = set(ids)
+        if len(ids) != len(id_set) or any(not pair_id for pair_id in ids):
             raise ValueError("pair ids must be unique and non-empty")
         if any(cost < 0.0 for _, cost in self.pair_costs):
             raise ValueError("pair cost reservations must be non-negative")
@@ -124,10 +125,10 @@ class PairReservation:
             raise ValueError("reserved pairs exceed task_execution_budget")
         if self.evolution_spent < 0.0 or self.evolution_spent > self.evolution_search_budget + 1e-12:
             raise ValueError("evolution spending exceeds its independent budget")
-        if any(pair_id not in ids for pair_id in self.completed_pairs):
+        if any(pair_id not in id_set for pair_id in self.completed_pairs):
             raise ValueError("completed pair is not in the frozen reservation")
         measured_ids = [pair_id for pair_id, _ in self.measured_pair_costs]
-        if len(measured_ids) != len(set(measured_ids)) or any(pair_id not in ids for pair_id in measured_ids):
+        if len(measured_ids) != len(set(measured_ids)) or any(pair_id not in id_set for pair_id in measured_ids):
             raise ValueError("measured pair costs must reference unique reserved pairs")
         if any(cost is not None and cost < 0.0 for _, cost in self.measured_pair_costs):
             raise ValueError("measured pair costs must be non-negative or unknown")

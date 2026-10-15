@@ -109,15 +109,31 @@ CEGIS, operational new regime-aware ACRE, and synthetic oracle applicability.
 The oracle is an upper-bound reference only. The output reports the learned
 CEGIS status, support-regime classification, activation, paired effects,
 negative transfer, and independent-cluster intervals by generating regime.
+The learned regime arm passes through `AcreEngine.route` with one frozen
+synthetic canonical `RuleSpec`/`RuleState`; the scope's
+`versions.skill_digest` is the same semantic digest that the engine derives for
+that rule. This synthetic canonical fixture exercises the production routing
+gate only. It does not imply canonical promotion of any real Skill or rule.
 
-The pre-frozen training seeds are `101, 211`; independent evaluation seeds are
-`307, 401`. Each seed/regime has 40 groups per stratum and 80 paired binary
-repetitions per group. CEGIS uses the categorical `stratum` feature and the
-fixed two-context decision lattice. The support classifier uses alpha 0.05,
-minimum 40 independent groups, net-benefit threshold 0, and maximum harm
-probability 0.10. The named hypotheses H4_BROAD_GLOBAL, H5_SELECTIVE_LEARNED,
-and H6_NULL_ABSTENTION are emitted in the report. Comparisons remain synthetic
-qualification checks, not confirmatory claims.
+The frozen training seeds are `101, 211`; independent evaluation seeds are
+`307, 401`. Each seed/regime has 60 groups per stratum and 1,024 paired binary
+repetitions per group. This yields 120 independent groups per stratum for each
+regime, enough for the predeclared classifier harm bound in the broad positive
+control; a separate 80-repetition development fixture is expected to remain
+`UNCERTAIN`. CEGIS uses the categorical `stratum` feature, a fixed
+two-context decision lattice, and a certificate bound to `SUPPORT_SCOPE`. The
+family alpha is 0.05: 0.025 is allocated to simultaneous two-sided training
+group measurement intervals using Bonferroni across all 720 predeclared
+training groups (0.025/720 per group), 0.0125 to support-regime classification,
+and 0.0125 to CEGIS certification. This is the frozen synthetic confidence
+allocation; its planned Hoeffding radius is
+`sqrt(2*log(2/(0.025/720))/1024) ≈ 0.147`, within the frozen 0.15 target.
+It is not a claim that the synthetic group-bound model establishes real-world
+coverage. The support classifier also uses minimum 40 independent
+groups, net-benefit threshold 0, and maximum harm probability 0.10. The named
+hypotheses H4_BROAD_GLOBAL, H5_SELECTIVE_LEARNED, and H6_NULL_ABSTENTION are
+emitted in the report. Comparisons remain synthetic qualification checks, not
+confirmatory claims.
 
 The qualification mode also stresses predicate cardinalities 8, 16, 32, and
 64 using the real CEGIS search with `max_candidates=1000` and a 2 second wall
@@ -133,8 +149,13 @@ Suggested server command:
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -m experiments.skill_evolution --qualification --output /home/workspace/lrh/RESULTS/skill-evolution-qualification-NEW/report.json
 ```
 
-As with the fixture command, create and verify a fresh output directory first.
-All 480 independent evaluation-group blocks are reserved for all five arms
+Qualification requires a fresh output path. Before calling the study routine or
+generating any synthetic outcomes, the CLI writes the complete frozen config to
+the sibling `report.preregistration.json` with exclusive-create semantics. The
+report is then written exclusively as `report.json`. Create and verify a fresh
+output directory first; if either file already exists, choose a new results
+root rather than replacing it.
+All 720 independent evaluation-group blocks are reserved for all five arms
 before any synthetic evaluation outcome is generated. The separate CEGIS
 search budget is frozen at 7,000 candidate evaluations total (1,000 per each
 of three training fits and four stress calls); actual examined candidates are

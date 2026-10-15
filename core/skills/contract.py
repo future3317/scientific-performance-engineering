@@ -118,14 +118,16 @@ _ENTITY_NUMBER = re.compile(r"\b(?:cabinet|drawer|countertop|table|sinkbasin|sto
 
 def validate_skill_text(contract: SkillContract, *, max_characters: int) -> list[str]:
     """Check size and concrete unsafe/source-leak patterns in the rendered skill."""
-    body = contract.body + "\n" + json.dumps(contract.to_dict(), ensure_ascii=False, sort_keys=True)
+    body = contract.body
+    metadata = json.dumps(contract.to_dict(), ensure_ascii=False, sort_keys=True)
+    scanned_text = body + "\n" + metadata
     errors: list[str] = []
     if len(body) > max_characters:
         errors.append("skill_too_long")
-    if _ENTITY_NUMBER.search(body):
+    if _ENTITY_NUMBER.search(scanned_text):
         errors.append("instance_specific_entity")
-    if re.search(r"(?i)(?:api[_ -]?key|password|secret|private key|\.env|gamefile|traj_data|test answer)", body):
+    if re.search(r"(?i)(?:api[_ -]?key|password|secret|private key|\.env|gamefile|traj_data|test answer)", scanned_text):
         errors.append("secret_or_oracle_reference")
-    if re.search(r"(?i)\b(?:ignore safety|ignore previous instructions|exfiltrate|curl\s|wget\s|rm\s+-rf|os\.system|subprocess)\b", body):
+    if re.search(r"(?i)\b(?:ignore safety|ignore previous instructions|exfiltrate|curl\s|wget\s|rm\s+-rf|os\.system|subprocess)\b", scanned_text):
         errors.append("unsafe_instruction")
     return errors

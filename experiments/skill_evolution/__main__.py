@@ -29,7 +29,11 @@ def main(argv: list[str] | None = None) -> int:
         preregistration_path = args.output.with_name(f"{args.output.stem}.preregistration.json")
         if args.output.exists() or preregistration_path.exists():
             parser.error("qualification report and preregistration paths must both be new")
-        preregistration = json.dumps(qualification_config(), indent=2, sort_keys=True) + "\n"
+        preregistration = json.dumps(
+            qualification_config(task_execution_budget=args.task_budget),
+            indent=2,
+            sort_keys=True,
+        ) + "\n"
         with preregistration_path.open("x", encoding="utf-8") as stream:
             stream.write(preregistration)
         report = run_qualification_study(task_execution_budget=args.task_budget)

@@ -28,7 +28,7 @@ HYPOTHESES = {
 
 PHASE_I_CONFIG = {
     "status": "NOT_RUN",
-    "model": "DeepSeek Flash",
+    "model": "deepseek-flash",
     "thinking": "disabled",
     "arms": ("legacy_stateless", "stateful"),
     "split": "train_only",

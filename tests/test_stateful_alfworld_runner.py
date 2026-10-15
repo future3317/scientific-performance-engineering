@@ -40,6 +40,20 @@ class ReplayEnvironment:
         }
 
 
+def test_environment_failure_preserves_provider_usage_and_unknown_outcome():
+    class BrokenEnvironment(ReplayEnvironment):
+        def step(self, commands):
+            raise RuntimeError("environment unavailable")
+
+    env = BrokenEnvironment(["Your task is to: put a clean apple in fridge."], [["look"]])
+    row = run_episode(env, ReplayClient(["look"]), skill="Inspect visible state", max_steps=1)
+    assert row["success"] is None
+    assert row["env_steps"] == 0
+    assert row["trajectory"][0]["selected_action"] == "look"
+    assert "input_tokens" in row["trajectory"][0]
+    assert row["skill_rendered"] and row["skill_read_or_used"] == "unknown"
+
+
 def test_visible_state_tracks_goal_inventory_transform_and_progress_without_gamefile():
     state = EpisodeState.start(
         "You are in kitchen. Your task is to: put a clean apple in fridge.",
@@ -97,6 +111,7 @@ def test_episode_runs_visible_subgoals_and_only_passes_admissible_actions():
     assert result["state"]["required_transformation"] == "clean"
     assert "clean" in result["state"]["completed_subgoals"]
     assert "place_object" in result["state"]["completed_subgoals"]
+    assert result["trajectory"][6]["subgoal"].startswith("verify visible task completion")
     assert "acquire_object" not in result["trajectory"][1]["completed_subgoals"]
     assert "acquire_object" in result["trajectory"][2]["completed_subgoals"]
     assert result["state"]["completed_subgoals"][-1] == "environment_verified_completion"
