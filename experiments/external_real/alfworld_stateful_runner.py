@@ -207,7 +207,7 @@ class EpisodeState:
         ):
             item, destination = placement.group(1).strip(), placement.group(2).strip()
             acknowledged = re.search(
-                rf"\byou\s+(?:put|place|move)\s+(?:the\s+)?{re.escape(item)}\s+(?:in/on|in|inside|on|onto|to)\s+{re.escape(destination)}\b",
+                rf"\byou\s+(?:put|place|move)\s+(?:the\s+)?{re.escape(item)}\s+(?:in/on|in|inside|on|onto|to)\s+(?:the\s+)?{re.escape(destination)}\b",
                 text,
             )
             if acknowledged:

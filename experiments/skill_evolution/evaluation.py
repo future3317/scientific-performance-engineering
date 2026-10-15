@@ -554,9 +554,13 @@ def evaluate_fixed_skill(
             global_outcome = arm_outcomes["on"]
             gate_data[policy]["pairs"].append((global_outcome, gate_outcome)
                                                 if type(global_outcome) is bool and type(gate_outcome) is bool else None)
-            if type(arm_outcomes["off"]) is bool and type(gate_outcome) is bool:
+            if not deployed:
+                gate_data[policy]["delta_base"].append((0, task))
+            elif type(arm_outcomes["off"]) is bool and type(gate_outcome) is bool:
                 gate_data[policy]["delta_base"].append((int(gate_outcome) - int(arm_outcomes["off"]), task))
-            if type(global_outcome) is bool and type(gate_outcome) is bool:
+            if deployed:
+                gate_data[policy]["delta_global"].append((0, task))
+            elif type(global_outcome) is bool and type(gate_outcome) is bool:
                 gate_data[policy]["delta_global"].append((int(gate_outcome) - int(global_outcome), task))
             gate_data[policy]["rows"].append((deployed, arm_outcomes["off"], arm_outcomes["on"], gate_outcome))
 
@@ -605,14 +609,16 @@ def evaluate_fixed_skill(
             "false_abstentions": false_abstentions,
             "harm_all": {
                 "events": harm,
-                "complete_case": harm / observed_pairs if observed_pairs else None,
+                "complete_case": 0.0 if not deployed else harm / observed_pairs if observed_pairs else None,
+                "structural_zero_no_deployment": not deployed,
                 "n_complete_pairs": observed_pairs,
                 "planned_itt_bounds": {"lower": harm / task_count,
-                                        "upper": (harm + task_count - observed_pairs) / task_count},
+                                        "upper": (harm + deployed - observed_deployed) / task_count},
             },
             "n_deployed_observed": observed_deployed,
             "harm_deployed": harm / observed_deployed if observed_deployed else None,
             "harm_deployed_status": "MEASURED" if observed_deployed else "UNDEFINED_ZERO_OBSERVED_DEPLOYMENT",
+            "contrast_identification": "Shared-arm contrasts are exactly zero by policy identity; other contrasts require both arm outcomes. Raw missing pairs remain missing.",
             "semantic_cluster_interval_vs_global": _cluster_interval(
                 global_diffs, [str(task["cluster_id"]) for task in global_tasks],
                 selection_count=int(plan.get("candidate_selection_count", 1)),
