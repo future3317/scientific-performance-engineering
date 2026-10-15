@@ -456,21 +456,38 @@ class SkillEvolutionStore:
         existing_ids: set[str] = set()
         existing_trial_ids: set[str] = set()
         existing_task_ids: set[str] = set()
+        shared_base: dict[str, tuple] = {}
         if self.events_path.exists():
             for line in self.events_path.read_text(encoding="utf-8").splitlines():
                 event = json.loads(line)
                 if "event_id" in event:
                     existing_ids.add(event["event_id"])
                     artifacts = event.get("artifacts", {})
-                    existing_trial_ids.update(
-                        trial_id for trial_id in (artifacts.get("off_trial_id"), artifacts.get("on_trial_id"))
-                        if trial_id is not None
-                    )
+                    same_skill = event.get("versions", {}).get("skill") == contract.digest
+                    on_id, off_id = artifacts.get("on_trial_id"), artifacts.get("off_trial_id")
+                    if on_id is not None:
+                        existing_trial_ids.add(on_id)
+                    if off_id is not None:
+                        if same_skill:
+                            existing_trial_ids.add(off_id)
+                        shared_base[off_id] = (
+                            event["context"].get("task_id"), event["context"].get("seed"),
+                            event["versions"].get("agent"), event["versions"].get("benchmark"),
+                            artifacts.get("off_utility"), artifacts.get("off_success"),
+                        )
                     task_id = event.get("context", {}).get("task_id")
                     if task_id is not None and event.get("versions", {}).get("skill") == contract.digest:
                         existing_task_ids.add(task_id)
         new_trial_ids = [trial_id for pair in evidence.pairs for trial_id in (pair.off_trial_id, pair.on_trial_id)]
         new_task_ids = [pair.task_id for pair in evidence.pairs]
+        for pair in evidence.pairs:
+            if pair.on_trial_id in shared_base:
+                raise ValueError("a base trial cannot be reused as a skill-treatment trial")
+            if pair.off_trial_id in shared_base and shared_base[pair.off_trial_id] != (
+                pair.task_id, pair.seed, pair.agent_revision, pair.benchmark_revision,
+                pair.off_utility, pair.off_success,
+            ):
+                raise ValueError("shared base trial has conflicting outcome or execution identity")
         if len(set(new_trial_ids)) != len(new_trial_ids) or existing_trial_ids.intersection(new_trial_ids):
             raise ValueError("paired trial evidence already recorded")
         if len(set(new_task_ids)) != len(new_task_ids) or existing_task_ids.intersection(new_task_ids):
@@ -501,6 +518,7 @@ class SkillEvolutionStore:
                     scientific_gates={"independent_verifier": True, "hard_gates": evidence.hard_gates_passed},
                     artifacts={"off_trial_id": pair.off_trial_id, "on_trial_id": pair.on_trial_id,
                                "off_utility": pair.off_utility, "on_utility": pair.on_utility,
+                               "off_success": pair.off_success, "on_success": pair.on_success,
                                "raw_paired_delta": pair.on_utility - pair.off_utility,
                                "utility_scale": "raw_paired_delta_divided_by_2"},
                     versions={"skill": contract.digest, "agent": pair.agent_revision, "benchmark": pair.benchmark_revision},

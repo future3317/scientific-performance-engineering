@@ -256,6 +256,14 @@ completed episodes, not a guarantee of recovery from termination mid-turn.
 The three-episode cap is readiness-only and does not replace the plan's later
 Skill-content and regime-comparison work; those remain staged real-study work.
 
+At `7dbbdd6`, the final CLI/persistence-related subset passed **25 tests in
+0.14 s (exit 0)**. The new artifacts were copied to
+`E:/DATA/EvoSPE/skill-evolution-readiness-ab7306a/`. A subsequent integration
+review also retained the shared-control design: different frozen skills may
+reference the identical base trial only when outcome, task, seed and runtime
+identity agree. Replayed within-skill evidence and reused treatment trials
+remain rejected; a shared control is not a new independent observation.
+
 The supplied plan is a multi-stage research program. It has not been completed
 as real-task research. The current paper-driven order is maintained in
 `experiments/skill_evolution/PROTOCOL.md`. The former six-pair legacy/stateful
