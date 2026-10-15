@@ -15,3 +15,12 @@ estimands. A rewritten skill invalidates its former support certificate.
 
 Sources: historical manifest/registry/claim matrix at Git `6282c0d`; archived
 paper `results/formal_failure_audit.json`; raw root recorded in baseline.
+
+## Phase2 readiness
+
+See [PHASE2_EXECUTION_REPORT.md](PHASE2_EXECUTION_REPORT.md) for actual server
+evidence and exact test revisions. Train teacher controls demonstrate scorer
+reachability, not autonomous Agent success. Real Agent/Skill/held-out/routing
+experiments remain NOT_RUN pending staged approval. Budget guards and portable
+packs are engineering results, not efficacy. Prior synthetic qualification is
+not rerun or added to real denominators; manuscript statistics are unchanged.

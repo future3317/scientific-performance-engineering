@@ -1,5 +1,14 @@
 # Skill-evolution implementation and zero-provider study
 
+## October 16 Phase2 continuation
+
+The current continuation is [PHASE2_EXECUTION_REPORT.md](PHASE2_EXECUTION_REPORT.md).
+It records the complete `54ccec5` suite (570 passed, exit 0), final `d03cf90`
+affected-path verification (175 passed, exit 0), actual template-level splits,
+official teacher controls and the explicit B approval request. The older
+October 15 entries below remain historical checkpoints, not current efficacy.
+Phase2 made no new provider calls and did not change manuscript results.
+
 Date: 2026-10-15. Source action plan was read in full. The user's subsequent
 direction is to establish provider-free behavior before any new API experiment.
 Three Luna work packages covered agent/skills, ACRE semantics, and budget/study;

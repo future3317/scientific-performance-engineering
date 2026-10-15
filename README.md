@@ -24,6 +24,12 @@ It preserves the September evidence and separates agent, skill-content, and
 routing effects. Its synthetic qualification is implementation evidence;
 real-task efficacy requires the independent staged study described there.
 
+The current Phase2 execution/approval boundary is recorded in
+[`PHASE2_EXECUTION_REPORT.md`](docs/skill_v2/PHASE2_EXECUTION_REPORT.md).
+The train-only entry is `python -m experiments.skill_evolution.real_study`;
+it is provider-free by default and requires exact staged approval for `--live`.
+Official teacher success is not autonomous Agent or Skill efficacy.
+
 The production path is:
 
 ```text
