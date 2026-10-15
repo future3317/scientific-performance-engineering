@@ -227,12 +227,41 @@ class AcreEngine:
             self.relation_states[subject_id] = updated
         return decision
 
-    def route(self, context: TaskContext | Mapping[str, Any], token_budget: int | None = None, higher_order_evidence: Mapping[str, float] | None = None) -> RoutingDecision:
+    def route(self, context: TaskContext | Mapping[str, Any], token_budget: int | None = None, higher_order_evidence: Mapping[str, float] | None = None,
+              *, support_regimes: Mapping[str, Any] | None = None,
+              runtime_versions: Mapping[str, str] | None = None,
+              candidate_ids: Sequence[str] | None = None) -> RoutingDecision:
         budget = token_budget if token_budget is not None else (context.token_budget if isinstance(context, TaskContext) else 4096)
-        return ConservativeCausalRouter(token_budget=budget).route(
-            self.rule_specs, self.rule_states, self.relation_specs, self.relation_states, context,
+        specs = self.rule_specs
+        if candidate_ids is not None:
+            candidates = set(candidate_ids)
+            specs = tuple(spec for spec in specs if spec.rule_id in candidates)
+        excluded = {}
+        if support_regimes is not None:
+            from .typed_gate import decision_from_regime
+            from .router import _semantic_spec_digest
+            context_map = context.to_dict() if isinstance(context, TaskContext) else context
+            eligible = []
+            for spec in specs:
+                regime = support_regimes.get(spec.rule_id)
+                # Bind permission to the actual loaded intervention, not just a
+                # caller-supplied version string. Existing canonical/scientific
+                # gates still run in the ordinary router below.
+                digest = spec.intervention.get("contract_digest") or _semantic_spec_digest(spec)
+                versions = {**dict(runtime_versions or {}), "skill_digest": digest}
+                if regime is not None and decision_from_regime(regime, context_map, versions).deployable:
+                    eligible.append(spec)
+                else:
+                    excluded[spec.rule_id] = ("support_regime_not_deployable",)
+            specs = tuple(eligible)
+        decision = ConservativeCausalRouter(token_budget=budget).route(
+            specs, self.rule_states, self.relation_specs, self.relation_states, context,
             higher_order_evidence, self.higher_order_certificates, True,
         )
+        if excluded:
+            from dataclasses import replace
+            decision = replace(decision, rejected_reasons={**decision.rejected_reasons, **excluded})
+        return decision
 
     def register_higher_order_certificate(self, certificate: Mapping[str, Any]) -> str:
         """Register one typed three-rule certificate for same-pass routing."""
