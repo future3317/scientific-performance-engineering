@@ -18,11 +18,15 @@ def main() -> None:
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     if subprocess.check_output(["git", "status", "--porcelain"], text=True).strip():
         raise ValueError("commit study code before generating its execution identity")
-    required = ("experiment_id", "model", "split", "resource_contract", "budget", "seeds")
+    # Consume the executable study's own preregistration, rather than maintain
+    # a second hand-written copy of its split and budget configuration.
+    required = ("study_kind", "train_seeds", "independent_evaluation_seeds", "task_execution_budget", "synthetic_only")
     if any(key not in config for key in required):
         raise ValueError(f"config requires {required}")
+    config_digest = hashlib.sha256(raw).hexdigest()
     value = {"schema_version": 2, "status": "DRY_RUN_NOT_EXECUTED", "code_revision": revision,
-             "config_sha256": hashlib.sha256(raw).hexdigest(), "config": config,
+             "experiment_revision": f"{config['study_kind']}-{revision[:8]}-{config_digest[:8]}",
+             "config_sha256": config_digest, "config": config,
              "provider_calls": 0, "results_claimed": False}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x") as stream:

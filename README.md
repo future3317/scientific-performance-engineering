@@ -16,6 +16,14 @@ the executable SPE-EvoBench calibration harness.
 
 ## What is current
 
+The October skill-evolution development study is documented in
+[`docs/skill_v2/IMPLEMENTATION_LOG.md`](docs/skill_v2/IMPLEMENTATION_LOG.md), with
+the executable provider-free protocol at
+[`experiments/skill_evolution/PROTOCOL.md`](experiments/skill_evolution/PROTOCOL.md).
+It preserves the September evidence and separates agent, skill-content, and
+routing effects. Its synthetic qualification is implementation evidence;
+real-task efficacy requires the independent staged study described there.
+
 The production path is:
 
 ```text
