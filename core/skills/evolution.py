@@ -152,6 +152,9 @@ class PairReceipt:
     utility: float
     verifier_status: str = "verified"
     hard_gates_passed: bool = True
+    template_id: str | None = None
+    cluster_id: str | None = None
+    receipt_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,10 @@ class PairResult:
     seed: int
     agent_revision: str
     benchmark_revision: str
+    template_id: str | None = None
+    cluster_id: str | None = None
+    off_receipt_sha256: str | None = None
+    on_receipt_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +207,8 @@ def _verify_paired_receipts(
     alpha: float,
     forbidden_trial_ids: Sequence[str] = (),
     forbidden_task_ids: Sequence[str] = (),
+    forbidden_template_ids: Sequence[str] = (),
+    forbidden_cluster_ids: Sequence[str] = (),
 ) -> PairedEvidence:
     if not 0.0 < alpha < 1.0:
         raise ValueError("alpha must be strictly between 0 and 1")
@@ -208,11 +217,15 @@ def _verify_paired_receipts(
     by_pair: dict[str, dict[str, PairReceipt]] = {}
     seen_trials: set[str] = set()
     seen_tasks: set[str] = set()
+    seen_templates: set[str] = set()
+    seen_clusters: set[str] = set()
     forbidden = set(forbidden_trial_ids) | set(contract.source_trial_ids) | set(contract.verification_trial_ids)
-    forbidden_tasks = set(forbidden_task_ids)
+    forbidden_tasks = set(forbidden_task_ids) | set(contract.source_task_ids)
+    forbidden_templates = set(forbidden_template_ids) | set(contract.source_template_ids)
+    forbidden_clusters = set(forbidden_cluster_ids) | set(contract.source_cluster_ids)
     for receipt in receipts:
         if receipt.split != split:
-            if split == "train":
+            if split in {"train", "train_inner"}:
                 raise ValueError("paired verification accepts train split only")
             raise ValueError(f"paired verification requires {split} split")
         if receipt.trial_id in seen_trials or receipt.trial_id in forbidden:
@@ -220,6 +233,8 @@ def _verify_paired_receipts(
         seen_trials.add(receipt.trial_id)
         if receipt.verifier_status != "verified":
             raise ValueError("paired receipt lacks independent verifier status")
+        if receipt.receipt_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", receipt.receipt_sha256):
+            raise ValueError("paired receipt hash must be a lowercase SHA256 digest")
         if not -1.0 <= receipt.utility <= 1.0:
             raise ValueError("paired utility must be in [-1, 1]")
         expected_digest = contract.digest if receipt.arm == "on" else None
@@ -238,11 +253,32 @@ def _verify_paired_receipts(
             on.task_id, on.seed, on.agent_revision, on.benchmark_revision
         ):
             raise ValueError("paired arms differ in task, seed, agent, or benchmark contract")
+        if off.template_id != on.template_id:
+            raise ValueError("paired arms differ in task template")
+        if contract.source_template_ids and off.template_id is None:
+            raise ValueError("template identity is required when source templates are recorded")
+        if off.template_id is not None:
+            if off.template_id in forbidden_templates:
+                raise ValueError("paired task template overlaps source or prior verification templates")
+            if off.template_id in seen_templates:
+                raise ValueError("duplicate independent task template across paired evidence")
+            seen_templates.add(off.template_id)
+        if off.cluster_id != on.cluster_id:
+            raise ValueError("paired arms differ in semantic task cluster")
+        if contract.source_cluster_ids and off.cluster_id is None:
+            raise ValueError("semantic cluster identity is required when source clusters are recorded")
+        if off.cluster_id is not None:
+            if off.cluster_id in forbidden_clusters:
+                raise ValueError("paired task cluster overlaps source or prior verification clusters")
+            if off.cluster_id in seen_clusters:
+                raise ValueError("duplicate independent semantic cluster across paired evidence")
+            seen_clusters.add(off.cluster_id)
         if off.task_id in seen_tasks or off.task_id in forbidden_tasks:
-            raise ValueError("duplicate independent task and seed group; task ids cannot repeat across seeds or evidence splits")
+            raise ValueError("duplicate independent task or source task; task ids cannot repeat across seeds or evidence splits")
         seen_tasks.add(off.task_id)
         results.append(PairResult(pair_id, off.trial_id, on.trial_id, off.success, on.success, off.utility, on.utility,
-                                  off.task_id, off.seed, off.agent_revision, off.benchmark_revision))
+                                  off.task_id, off.seed, off.agent_revision, off.benchmark_revision, off.template_id,
+                                  off.cluster_id, off.receipt_sha256, on.receipt_sha256))
     repairs = sum(not row.off_success and row.on_success for row in results)
     regressions = sum(row.off_success and not row.on_success for row in results)
     utility_delta = sum(row.on_utility - row.off_utility for row in results) / len(results)
@@ -282,6 +318,16 @@ def verify_training_pairs(
     )
 
 
+def verify_inner_pairs(
+    contract: SkillContract,
+    receipts: Sequence[PairReceipt],
+    *,
+    alpha: float = 0.05,
+) -> PairedEvidence:
+    """Verify new train_inner pairs against the proposal's source provenance."""
+    return _verify_paired_receipts(contract, receipts, split="train_inner", alpha=alpha)
+
+
 def approve_outer_validation(
     contract: SkillContract,
     frozen_candidate_digest: str,
@@ -292,14 +338,16 @@ def approve_outer_validation(
     alpha: float,
 ) -> PairedEvidence:
     """Assess a pre-frozen candidate against held-out evidence without promotion."""
-    if split not in {"calibration", "sealed"}:
-        raise ValueError("outer validation requires calibration or sealed split")
+    if split not in {"train_outer", "calibration", "sealed"}:
+        raise ValueError("outer validation requires train_outer, calibration, or sealed split")
     if contract.digest != frozen_candidate_digest:
         raise ValueError("candidate differs from its frozen digest")
     if inner_evidence.skill_digest != frozen_candidate_digest:
         raise ValueError("inner evidence refers to a different frozen candidate")
     inner_trial_ids = inner_evidence.evidence_trial_ids
     inner_task_ids = tuple(pair.task_id for pair in inner_evidence.pairs)
+    inner_template_ids = tuple(pair.template_id for pair in inner_evidence.pairs if pair.template_id is not None)
+    inner_cluster_ids = tuple(pair.cluster_id for pair in inner_evidence.pairs if pair.cluster_id is not None)
     outer = _verify_paired_receipts(
         contract,
         outer_receipts,
@@ -307,6 +355,8 @@ def approve_outer_validation(
         alpha=alpha,
         forbidden_trial_ids=inner_trial_ids,
         forbidden_task_ids=inner_task_ids,
+        forbidden_template_ids=inner_template_ids,
+        forbidden_cluster_ids=inner_cluster_ids,
     )
     if inner_evidence.assessment_status == "REJECTED" or outer.assessment_status == "REJECTED":
         assessment = "REJECTED"
@@ -449,7 +499,7 @@ class SkillEvolutionStore:
             raise ValueError("evidence refers to a different skill contract")
         if evidence.assessment_status not in {"CANDIDATE_ACCEPTED", "UNDECIDED", "REJECTED"}:
             raise ValueError("unknown paired evidence assessment")
-        if evidence.split not in {"train", "calibration", "sealed"}:
+        if evidence.split not in {"train", "train_inner", "train_outer", "calibration", "sealed"}:
             raise ValueError("unknown paired evidence split")
         if not evidence.pairs:
             raise ValueError("cannot persist empty paired evidence")
@@ -496,7 +546,7 @@ class SkillEvolutionStore:
             f"{contract.skill_id}.v{contract.version}.{evidence.split}.{pair.pair_id}"
             for pair in evidence.pairs
         }
-        if evidence.split == "train":
+        if evidence.split in {"train", "train_inner"}:
             new_ids.update(
                 f"{contract.skill_id}.v{contract.version}.{pair.pair_id}"
                 for pair in evidence.pairs
@@ -517,6 +567,8 @@ class SkillEvolutionStore:
                     outcome_vector={"utility": (pair.on_utility - pair.off_utility) / 2.0},
                     scientific_gates={"independent_verifier": True, "hard_gates": evidence.hard_gates_passed},
                     artifacts={"off_trial_id": pair.off_trial_id, "on_trial_id": pair.on_trial_id,
+                               "off_receipt_sha256": pair.off_receipt_sha256,
+                               "on_receipt_sha256": pair.on_receipt_sha256,
                                "off_utility": pair.off_utility, "on_utility": pair.on_utility,
                                "off_success": pair.off_success, "on_success": pair.on_success,
                                "raw_paired_delta": pair.on_utility - pair.off_utility,
@@ -529,7 +581,7 @@ class SkillEvolutionStore:
                     query_id=pair.pair_id,
                     trust_zone="local",
                     attacker_controlled_fields=[],
-                    evidence_role="synthesis" if evidence.split == "train" else "validation",
+                    evidence_role="synthesis" if evidence.split in {"train", "train_inner"} else "validation",
                 )
                 handle.write(json.dumps(event.to_dict(), sort_keys=True, ensure_ascii=False) + "\n")
         digest = hashlib.sha256(self.events_path.read_bytes()).hexdigest()
@@ -602,13 +654,45 @@ class SkillEvolution:
         receipts: Sequence[PairReceipt],
         *,
         iteration: int = 1,
+        split: str = "train",
+        source_trial_ids: Sequence[str] = (),
+        source_task_ids: Sequence[str] = (),
+        source_template_ids: Sequence[str] = (),
+        source_cluster_ids: Sequence[str] = (),
+        source_trace_hashes: Sequence[str] = (),
+        train_split_manifest_sha256: str | None = None,
+        generator_provider: str | None = None,
+        model_identity: str | None = None,
+        proposal_prompt_sha256: str | None = None,
+        proposal_output_sha256: str | None = None,
+        runtime_agent_sha: str | None = None,
     ) -> EvolutionResult:
+        if split not in {"train", "train_inner"}:
+            raise ValueError("candidate refinement accepts train or train_inner evidence only")
         candidate, errors = self.optimizer.apply(parent, patches, iteration=iteration)
         if candidate is None:
             self.store._append_decision(parent, "rejected_patch", ";".join(errors), ())
             return EvolutionResult(False, parent, None, errors, None, "REJECTED")
+        if any((source_trial_ids, source_task_ids, source_template_ids, source_cluster_ids, source_trace_hashes,
+                train_split_manifest_sha256, generator_provider, model_identity,
+                proposal_prompt_sha256, proposal_output_sha256, runtime_agent_sha)):
+            candidate = replace(
+                candidate,
+                source_split="train_inner" if split == "train_inner" else parent.source_split,
+                source_trial_ids=tuple(sorted(set(parent.source_trial_ids) | set(source_trial_ids))),
+                source_task_ids=tuple(sorted(set(parent.source_task_ids) | set(source_task_ids))),
+                source_template_ids=tuple(sorted(set(parent.source_template_ids) | set(source_template_ids))),
+                source_cluster_ids=tuple(sorted(set(parent.source_cluster_ids) | set(source_cluster_ids))),
+                source_trace_hashes=tuple(sorted(set(parent.source_trace_hashes) | set(source_trace_hashes))),
+                train_split_manifest_sha256=train_split_manifest_sha256 or parent.train_split_manifest_sha256,
+                generator_provider=generator_provider or parent.generator_provider,
+                model_identity=model_identity or parent.model_identity,
+                proposal_prompt_sha256=proposal_prompt_sha256 or parent.proposal_prompt_sha256,
+                proposal_output_sha256=proposal_output_sha256 or parent.proposal_output_sha256,
+                runtime_agent_sha=runtime_agent_sha or parent.runtime_agent_sha,
+            )
         try:
-            evidence = verify_training_pairs(candidate, receipts)
+            evidence = verify_inner_pairs(candidate, receipts) if split == "train_inner" else verify_training_pairs(candidate, receipts)
         except ValueError as exc:
             self.store.save_candidate(candidate)
             self.store.rollback(candidate, parent, str(exc))

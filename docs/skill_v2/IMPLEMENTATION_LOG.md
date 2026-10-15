@@ -37,7 +37,11 @@ were not staged or discarded; the separate dirty server worktree was untouched.
 | P3 | All-or-none pair reservations, separate evolution cap; raw missing costs stay unknown; lexical/BM25 body ranking ends in AcreEngine.route | Dense/cross-encoder retrieval and learned VOI acquisition remain future empirical work |
 | P4 | Frozen synthetic train/evaluation protocol, paired outcomes, cluster uncertainty, explicit denominators, prospective confidence allocation, search stress; concrete train-only Phase-I proposal | Real Phase I and all later real phases remain NOT_RUN |
 
-The existing stateless runner and one-shot synthesis file were not edited.
+At the initial zero-provider implementation checkpoint the stateless runner
+and one-shot synthesis file were not edited. Later authorized thinking/parser
+and usage changes modified the stateless runner, as recorded below; the
+one-shot synthesis file remains unchanged. Current legacy is not the original
+historical baseline.
 The optional new regime filter runs before the existing canonical/stable-state
 router; it cannot promote a candidate or bypass governed routing.
 
@@ -294,12 +298,13 @@ provider-free CLI remains provider-free. No provider request was made for
 this redesign. Manuscript numerical claims and historical artifacts were not
 changed.
 
-Before real execution: finalize the clean train slice excluding old diagnostic
-episodes; operationally enforce actual call/token/money caps; add the provider
-proposal/independent outer-validation path and confirm activation telemetry on
-real rollouts. Preserve separation of agent improvement, skill-content changes,
-and routing. Dense retrieval, learned acquisition, joint-system ablations and
-cross-environment/model efficacy are not implemented empirical results.
+At the end of the October 15 work, readiness selection and the outer-validation
+API existed; complete template/source provenance, monetary approval enforcement,
+model-driven proposals and real activation evidence remained unfinished.
+The October 16 Phase2 increment addresses these gaps under the same separation
+of Agent, Skill-content and routing estimands. Dense retrieval, learned
+acquisition, joint-system ablations and cross-environment/model efficacy are
+not implemented empirical results.
 
 No long training/provider job is running. The 30-minute follow-up `evospe` has
 finished the zero-provider validation closeout and is being paused. This
