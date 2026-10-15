@@ -43,7 +43,7 @@ PHASE_I_CONFIG = {
     "retries": 0,
     "verifier": "same deterministic task verifier in both arms; executable readiness pending",
     "budget_status": "proposed_not_approved",
-    "budget_note": "upper bounds do not authorize provider execution; pair-level reservation and provider resource approval are still required",
+    "budget_note": "8192 is an uncalibrated engineering completion cap, not a validated task requirement; calibrate on representative train-only decisions and reconcile input plus reasoning plus answer usage with pair-level reservation before execution; upper bounds do not authorize provider execution",
 }
 
 
