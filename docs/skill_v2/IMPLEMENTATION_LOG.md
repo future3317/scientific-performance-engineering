@@ -158,7 +158,9 @@ by a factor of two to respect its [-1,1] range.
 ## Provider configuration update
 
 The user enabled thinking for subsequent `deepseek-flash` action calls and
-approved an 8,192-token per-call completion ceiling (reasoning plus answer).
+requested a task-grounded reassessment of the completion ceiling. The current
+8,192-token setting (reasoning plus answer) is an uncalibrated engineering cap,
+not an approved formal-study operating point.
 Both legacy and stateful action clients use this setting; prior receipts are
 unchanged. The stateful prompt now places the fixed skill before changing
 progress/state fields, preserving an identical prefix for provider-side prompt
@@ -180,6 +182,15 @@ Each used 161 input tokens; completion usage was 60 and 49 tokens, including
 tokens. Thus connectivity/thinking/action extraction are verified, but this
 short immediate-repeat probe does not demonstrate a cache benefit. No episode
 or provider experiment was started. API keys were never printed.
+
+These trivial `look` requests cannot calibrate complex decisions. At the
+proposed 720-call maximum, an 8,192-token completion cap permits 5,898,240 output
+tokens alone, exceeding the proposed 2M total-token ceiling before input usage.
+The two ceilings can coexist only as independently enforced limits, not as a
+guarantee that every scheduled pair can finish. Representative train-only
+planning/recovery decisions must inform cap selection; paired completion must
+be budgeted before a campaign starts. Cache hits reduce billing where the
+provider supports it, not context length or reasoning/output token usage.
 
 ## Remaining real-study work
 
