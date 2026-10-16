@@ -56,9 +56,27 @@ No candidate was admitted, no inner/patch/outer/final rollout was launched,
 and the USD0.0047073 estimate remains in the raw journal. The frozen T2
 manifest's STOP_NO_RETRY is honored; the proposal is not trimmed, reclassified
 or rerun. Subsequent code explicitly discloses the existing length contract
-and persists available proposal cache counters; it has not been paid-tested.
-A future real attempt needs a new explicit study identity and must account
-for this rejected proposal as part of the development/search history.
+and persists available proposal cache counters. This historical rejection is
+included in the development/search history of the separate amendment below.
+
+The user subsequently requested an empirical assessment of the arbitrary
+character cutoff. Before any inner outcome, the length-policy amendment
+explicitly set max_skill_characters=null while retaining input/output, call,
+USD, time, source and protected-step checks. The original 16 inner clusters,
+arm orders and selector were reused unchanged, not resampled. One additional
+proposal and one feedback patch were permitted, with no retry after rejection.
+At 9b3f626, the new T2 generated a valid 2,580-character v1 and completed
+all eight A pairs (both successful in every pair). Its single real patch
+replaced a model-marked required step and was rejected by the frozen exact-step
+guard. There is no v2, B rollout or T3-selected candidate. Status is
+STOP_PATCH_REJECTED, not scientific completion or independent Skill efficacy.
+The new run consumed 135 calls / estimated USD0.149532972, exit0; no outstanding
+reservation or provider process remains. See the Phase4 consolidated report
+and docs/skill_v2/IMPLEMENTATION_LOG.md for exact identities and cost accounting.
+No retry, guard relaxation, candidate promotion, B/outer or final execution is
+authorized by this stopped manifest. A future explicit study must preserve A's
+exposure and distinguish required semantic invariants from permitted text edits
+before any new outcome; this is not permission to bypass the current guard.
 
 ### Phase3 registered preparation
 
