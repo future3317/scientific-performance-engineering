@@ -9,7 +9,7 @@ from core.acre.resource_budget import manifest_digest
 from core.skills import SkillContract
 from experiments.skill_evolution.attribution import (
     ARMS, LENGTH_CONTROL, arm_fingerprints, arm_texts, diagnose_failure,
-    episode_metrics, main, run_attribution, summarize_attribution, validate_manifest,
+    episode_metrics, main, run_attribution, summarize_attribution, summarize_spooled, validate_manifest,
 )
 
 
@@ -208,3 +208,15 @@ def test_explicit_approval_denial_precedes_sdk_and_environment(tmp_path):
     with pytest.raises(ProviderBudgetExceeded,match="APPROVAL_REQUIRED"):
         run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
                         client_factory=never,environment_factory=never)
+
+
+def test_offline_partial_stop_summary_keeps_missing_outcomes_without_provider(tmp_path):
+    manifest,_,_,_,pricing=live_fixture(tmp_path)
+    (tmp_path/"spool").mkdir();(tmp_path/"output").mkdir()
+    events=[{"event":"COMPLETED","trial_id":"trial-0-OFF","episode":receipt()},
+            {"event":"STOP","reason":"UNKNOWN_ARM"}]
+    (tmp_path/"spool/episodes.jsonl").write_text("\n".join(json.dumps(e)for e in events)+"\n")
+    result=summarize_spooled(manifest,pricing)
+    assert result["status"]=="STOP_UNKNOWN_ARM"and result["missing_arms"]==2
+    assert result["comparisons"]["OFF_vs_SKILL"]["missing"]==1
+    assert result["comparisons"]["OFF_vs_SKILL"]["00"]==0
