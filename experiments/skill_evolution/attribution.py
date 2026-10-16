@@ -207,6 +207,35 @@ def summarize_attribution(plan: Sequence[Mapping[str, Any]], rows: Sequence[Mapp
             "interaction_status": "NOT_IDENTIFIABLE_WITH_THREE_ARMS", "evaluation_scope": "train_inner attribution, not independent outer"}
 
 
+def select_conditional_plan(parent, excluded_clusters, excluded_templates, *, seed):
+    """Outcome-free E1 allocation using the existing stdlib split RNG convention."""
+    from experiments.external_real.alfworld_runner import TASK_TYPE_NAMES
+    rng=random.Random(seed)
+    plan=[]
+    seen_clusters=set(excluded_clusters); seen_templates=set(excluded_templates)
+    for family in TASK_TYPE_NAMES:
+        pool=sorted((r for r in parent["task_membership"] if r["split"]=="train_inner"
+            and r.get("identity_status")=="IDENTIFIED" and r.get("confirmatory_eligible") is True
+            and r["task_type"]==family),key=lambda r:r["task_id"])
+        rng.shuffle(pool)
+        selected=0
+        for row in pool:
+            if row["cluster_id"] in seen_clusters or row["template_id"] in seen_templates:
+                continue
+            plan.append({k:row[k] for k in ("task_id","cluster_id","template_id","gamefile")} |
+                        {"family":family,"seed":seed})
+            seen_clusters.add(row["cluster_id"]);seen_templates.add(row["template_id"])
+            selected+=1
+            if selected==2:
+                break
+        if selected!=2:
+            raise ValueError("insufficient fresh inner clusters for " + family)
+    rng.shuffle(plan)
+    for i,row in enumerate(plan):
+        row["arm_order"]=list(E1_ARMS if i%2==0 else reversed(E1_ARMS))
+    return plan
+
+
 def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], skill: SkillContract) -> None:
     if manifest.get("stage") != "skill_attribution" or manifest.get("split") != "train_inner":
         raise ValueError("attribution requires approved inner stage")

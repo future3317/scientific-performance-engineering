@@ -9,7 +9,7 @@ from core.acre.resource_budget import manifest_digest
 from core.skills import SkillContract
 from experiments.skill_evolution.attribution import (
     ARMS, E1_ARMS, LENGTH_CONTROL, arm_fingerprints, arm_texts, diagnose_failure, conditional_increment_decision,
-    episode_metrics, main, run_attribution, summarize_attribution, summarize_spooled, validate_manifest,
+    episode_metrics, main, run_attribution, summarize_attribution, summarize_spooled, validate_manifest, select_conditional_plan,
 )
 
 
@@ -39,6 +39,24 @@ def test_e1_decision_quality_missing_and_cache_sensitivity():
     assert conditional_increment_decision(plan,rows,PRICING)["status"]=="E1_COMPLETED_NEGATIVE_EXPLORATORY"
     rows[-1]=receipt("V1_PLUS_LENGTH",True,i=11);rows[-2]=receipt("LENGTH",False,i=11)
     assert conditional_increment_decision(plan,rows,PRICING)["quality_gain_cost_ranking_suspended"]
+
+
+def test_e1_selection_freshness_balance_and_validation():
+    from experiments.external_real.alfworld_runner import TASK_TYPE_NAMES
+    members=[{**task(i*3+j),"task_type":f,"split":"train_inner","confirmatory_eligible":True,"identity_status":"IDENTIFIED"}
+             for i,f in enumerate(TASK_TYPE_NAMES) for j in range(3)]
+    parent={"task_membership":members}
+    plan=select_conditional_plan(parent,{"c0"},{"p4"},seed=1)
+    assert plan==select_conditional_plan(parent,{"c0"},{"p4"},seed=1)
+    assert len(plan)==12 and not {r["cluster_id"]for r in plan}&{"c0","c4"}
+    s=skill();m={"stage":"skill_attribution","design":"conditional_increment","split":"train_inner",
+        "split_manifest_sha256":manifest_digest(parent),"skill_digest":s.digest,"skill_body_sha256":s.body_digest,
+        "arms":list(E1_ARMS),"treatments":arm_texts(s,design="conditional_increment"),
+        "excluded_clusters":["c0"],"excluded_templates":["p4"],"plan":plan,"seed":1,"thinking":"enabled","max_retries":0}
+    validate_manifest(m,parent,s)
+    m["plan"][1]["arm_order"]=m["plan"][0]["arm_order"]
+    with pytest.raises(ValueError,match="balanced"):
+        validate_manifest(m,parent,s)
 
 
 def skill():
