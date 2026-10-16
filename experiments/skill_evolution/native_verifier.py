@@ -36,6 +36,28 @@ def _native_bool(value: Any) -> bool | None:
     return None
 
 
+def make_selected_environment(gamefile: str, *, max_steps: int, seed: int) -> Any:
+    """Official native wrappers for exactly one frozen game, without a train scan.
+
+    AlfredTWEnv.__init__ collects metadata for the entire train population.
+    Registering the selected game directly keeps reserved task files unopened.
+    The wrappers/infos/horizon match its dqn init_env path, with no expert.
+    """
+    _train_parts(gamefile)
+    import textworld
+    import textworld.gym
+    from alfworld.agents.environment.alfred_tw_env import AlfredDemangler, AlfredInfos
+
+    env_id = textworld.gym.register_games(
+        [gamefile], textworld.EnvInfos(won=True, admissible_commands=True, extras=["gamefile"]),
+        batch_size=1, asynchronous=True, max_episode_steps=max_steps,
+        wrappers=[AlfredDemangler(shuffle=False), AlfredInfos],
+    )
+    environment = textworld.gym.make(env_id)
+    environment.seed(seed)
+    return environment
+
+
 def score_official_episode(
     *,
     done: Any,

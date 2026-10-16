@@ -312,6 +312,7 @@ class DeepSeekStatefulClient:
         self.max_completion_tokens = max_completion_tokens
         self.persist_budget = persist_budget
         self.response_identity: tuple[Any, Any] | None = None
+        self.response_ids: set[str] = set()
 
     def choose_action(
         self,
@@ -393,7 +394,18 @@ class DeepSeekStatefulClient:
         finally:
             if self.budget is not None and self.persist_budget is not None:
                 self.persist_budget(self.budget.as_dict())
+        if self.budget is not None and self.budget.stopped:
+            raise ProviderBudgetExceeded(self.budget.stop_reason or "provider_budget_stopped")
         message = response.choices[0].message
+        response_id = getattr(response, "id", None)
+        if response_id is not None:
+            if response_id in self.response_ids:
+                if self.budget is not None:
+                    self.budget.stop("duplicate_provider_response_id")
+                    if self.persist_budget is not None:
+                        self.persist_budget(self.budget.as_dict())
+                raise RuntimeError("duplicate provider response id")
+            self.response_ids.add(response_id)
         identity = (getattr(response, "model", None), getattr(response, "system_fingerprint", None))
         if self.response_identity is not None and identity != self.response_identity:
             if self.budget is not None:
@@ -409,6 +421,7 @@ class DeepSeekStatefulClient:
             "prompt_sha256": manifest_digest({"messages": messages}),
             "provider_raw": {"content": content},
             "model_response_identity": getattr(response, "model", None),
+            "provider_response_id": response_id,
             "system_fingerprint": getattr(response, "system_fingerprint", None),
             "response_field_used": "message.content",
             "input_tokens": input_tokens,

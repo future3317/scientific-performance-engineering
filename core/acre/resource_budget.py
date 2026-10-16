@@ -130,7 +130,8 @@ class ApprovedProviderBudget(ProviderUsageBudget):
     def __init__(self, manifest: Mapping[str, Any], approval: Mapping[str, Any],
                  pricing: Mapping[str, Any], *, controller_commit: str,
                  stage: str, model: str, base_url: str) -> None:
-        if approval.get("provider_enabled") is not True:
+        if (approval.get("provider_enabled") is not True or approval.get("execute", True) is not True
+                or approval.get("approval_status") == "APPROVAL_REQUIRED"):
             raise ProviderBudgetExceeded("APPROVAL_REQUIRED")
         for key, expected in (("controller_commit", controller_commit), ("model", model),
                               ("study_id", manifest.get("study_id")),
@@ -173,6 +174,7 @@ class ApprovedProviderBudget(ProviderUsageBudget):
         self.input_used = self.output_used = 0
         self.usd_used = Decimal(0)
         self.pending_usd = Decimal(0)
+        self.episode_limits: dict[str, Any] | None = None
         super().__init__(approval["max_provider_calls"],
                          approval["max_input_tokens"] + approval["max_completion_tokens"])
 
@@ -183,8 +185,12 @@ class ApprovedProviderBudget(ProviderUsageBudget):
 
     @property
     def remaining_wall_seconds(self) -> float:
-        return min(self.approval["max_wall_seconds"] - (time.monotonic() - self.started),
-                   (self.expiration - datetime.now(timezone.utc)).total_seconds())
+        remaining = min(self.approval["max_wall_seconds"] - (time.monotonic() - self.started),
+                        (self.expiration - datetime.now(timezone.utc)).total_seconds())
+        if self.episode_limits is not None:
+            remaining = min(remaining, self.episode_limits["max_wall_seconds"]
+                            - (time.monotonic() - self.episode_limits["started"]))
+        return remaining
 
     def ensure_capacity(self, calls: int, input_tokens: int, completion_tokens: int) -> None:
         """Admit a whole episode/pair before starting its first arm."""
@@ -204,12 +210,38 @@ class ApprovedProviderBudget(ProviderUsageBudget):
             raise ProviderBudgetExceeded("provider_usd_cap")
 
     def reserve(self, input_token_bound: int, max_completion_tokens: int) -> None:
+        if self.episode_limits is not None:
+            limits = self.episode_limits
+            if time.monotonic() - limits["started"] >= limits["max_wall_seconds"]:
+                raise ProviderBudgetExceeded("episode_wall_cap")
+            if self.calls_reserved - limits["initial_calls"] >= limits["max_calls"]:
+                raise ProviderBudgetExceeded("episode_call_cap")
+            cost = max(self._cost(input_token_bound, max_completion_tokens),
+                       self._cost(input_token_bound, max_completion_tokens, input_token_bound))
+            if self.usd_used - limits["initial_usd"] + cost > limits["max_usd"]:
+                raise ProviderBudgetExceeded("episode_usd_cap")
         if max_completion_tokens > self.approval["per_request_max_completion_tokens"]:
             raise ProviderBudgetExceeded("per_request_completion_cap")
         self.ensure_capacity(1, input_token_bound, max_completion_tokens)
         super().reserve(input_token_bound, max_completion_tokens)
         self.pending_usd = max(self._cost(input_token_bound, max_completion_tokens),
                                self._cost(input_token_bound, max_completion_tokens, input_token_bound))
+
+    def begin_episode(self, *, max_usd: str | float, max_calls: int, max_wall_seconds: int) -> None:
+        """Activate an explicitly approved per-episode ceiling on the same ledger."""
+        if self._reservation is not None:
+            raise RuntimeError("cannot begin an episode with an in-flight request")
+        cap = Decimal(str(max_usd))
+        approved = self.approval
+        if (not cap.is_finite() or cap <= 0 or type(max_calls) is not int or max_calls <= 0
+                or type(max_wall_seconds) is not int or max_wall_seconds <= 0
+                or cap > Decimal(str(approved.get("max_usd_per_episode", 0)))
+                or max_calls > approved.get("max_calls_per_episode", 0)
+                or max_wall_seconds > approved.get("max_episode_wall_seconds", 0)):
+            raise ProviderBudgetExceeded("episode_limits_not_approved")
+        self.episode_limits = {"started": time.monotonic(), "initial_calls": self.calls_reserved,
+                               "initial_usd": self.usd_used, "max_usd": cap,
+                               "max_calls": max_calls, "max_wall_seconds": max_wall_seconds}
 
     def record_usage(self, input_tokens: int, completion_tokens: int, *,
                      cache_hit_tokens: int | None = None, cache_miss_tokens: int | None = None) -> None:
@@ -231,6 +263,9 @@ class ApprovedProviderBudget(ProviderUsageBudget):
         self.pending_usd = Decimal(0)
         output_bound = int(reservation["max_completion_tokens"])
         super().record_usage(input_tokens, completion_tokens)
+        if cache_hit_tokens is not None and cache_miss_tokens is not None and not reconciled:
+            self._stopped = True
+            self.stop_reason = "cache_telemetry_inconsistent"
         if completion_tokens > output_bound or self.usd_used > self.max_usd:
             self._stopped = True
             self.stop_reason = "provider_actual_usage_exceeds_reservation"

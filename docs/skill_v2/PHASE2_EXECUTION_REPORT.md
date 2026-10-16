@@ -50,9 +50,11 @@ compiled game. The corrected CLI resolves them; the blocked artifact is kept.
 
 ## 3. Real Agent viability
 
-`NOT_RUN: APPROVAL_REQUIRED`. No new provider calls are authorized by the
-taskbook. Native teacher diagnostics, if successful, are environment/scorer
-controls only. They cannot establish autonomous Agent viability.
+Completed under the user's separate B approval: three real autonomous train
+episodes at `713bd65`, all official successes, 56 provider requests, exit 0.
+Section 9 contains the exact receipts and cost. The taskbook alone did not
+authorize those calls. C/D remain NOT_RUN. Native teacher diagnostics below
+are separate environment/scorer controls, not autonomous Agent evidence.
 
 Three already-exposed train tasks completed with the official handcoded teacher:
 **9 / 22 / 12 steps**, all `won=True`, provider calls **0**. See
