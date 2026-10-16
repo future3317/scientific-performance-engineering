@@ -13,7 +13,8 @@ untracked files were preserved and excluded from these changes.
 Runtime: `/home/workspace/lrh/CODE/scientific-performance-engineering`,
 `/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python`, via `dbcloud`.
 CPU only, CUDA hidden; OMP/MKL/OpenBLAS/NumExpr/Inductor/SPE intra-op/inter-op
-thread counts all one. No GPU job or credential access is needed here.
+thread counts all one. The approved B run used the server credential without
+printing it; no GPU job was started.
 
 New evidence root:
 `/home/workspace/lrh/RESULTS/skill-evolution-phase2-20261016`.
@@ -26,7 +27,7 @@ does not relabel any test as having run on that commit.
 | Package | Delivered implementation | Execution status |
 |---|---|---|
 | A | `split_manifest.py`, extended `readiness.py`, `native_verifier.py`; semantic-cluster separation, exposure ledger, official scorer | Server-tested; actual partition and native controls produced |
-| B | Stateful runner, `real_study.py`, `ApprovedProviderBudget`; visible state/native grammar and scope/expiry/call/token/USD/wall guards | READY_FOR_APPROVAL; real model episodes NOT_RUN |
+| B | Stateful runner, `real_study.py`, `ApprovedProviderBudget`; visible state/native grammar and scope/expiry/call/token/USD/wall guards | Completed approved readiness: 3/3 official wins; VIABLE_BUT_NOT_QUALIFIED |
 | C | `core/skills/proposal.py`, contract/evolution extensions, `real_learning.py`; JSON proposal/patch, matched inner/outer, rejected proposals and outer rollback | Interfaces and regression tested; real optimization NOT_RUN |
 | D | `core/skills/pack.py`, `evaluation.py`; standard pack/readback, canonical routing decisions, paired analysis and CSV/JSON/report output | Offline contracts tested; real content/gating benefit NOT_RUN |
 
@@ -66,8 +67,8 @@ Saved native observations exposed actual Agent bugs before paid work:
 regressions. Inventory/transformation facts require visible acknowledgment of
 the goal object. Private reasoning/expert-plan fields never become actions.
 
-Proposed B: three independent train_inner source tasks, clean/heat/cool, no
-Skill, unchanged 60-action horizon, at most 180 requests. None started. Source
+Executed B: three independent train_inner source tasks, clean/heat/cool, no
+Skill, unchanged 60-action horizon, at most 180 requests. All three completed. Source
 tasks can never serve as their own validation pairs. This is engineering
 viability, not an efficacy sample-size design.
 
@@ -118,11 +119,14 @@ held-out benefit have not been demonstrated.
 
 ## 6. Total cost and budgets
 
-Phase2 new provider calls: **0**. Input/completion/reasoning/cache usage from
-provider experiments: **not measured**, not fabricated zeros. Provider spend
-incurred by this phase: none. This does not estimate Codex/subagent costs.
+Phase2 approved B provider requests: **56**, all with known usage. Input:
+**69,393**; completion: **60,203**, including **59,720 reasoning tokens**.
+Cache hit/miss: **256 / 69,137** input tokens. Estimated cost at the retained
+peak USD snapshot: **0.092986236**, not a provider bill. This excludes
+Codex/subagent costs. There was no additional provider call during closeout.
 
-Approval has not been supplied for an exact run/manifest with a hard USD cap.
+The user approved this exact B manifest with a hard USD 4 cap, one hour,
+180 calls and zero retries; `approval/user_approved_readiness.json` records it.
 The old two connectivity calls do not extend authorization. The completion
 cap is not calibrated by those calls. Cache savings are not assumed.
 The disabled approval example is not permission to spend; prices must be
@@ -175,7 +179,8 @@ were unchanged; original assertions remain. Both tests and the full suite pass
 at `54ccec5`. The later native-acknowledgment failures exposed the destination
 article bug and were fixed, not waived.
 
-No new Agent-success, Skill-benefit or ACRE-efficacy claim is supported yet.
+The three B receipts demonstrate train-side autonomous Agent task success,
+not Agent superiority, Skill benefit or ACRE efficacy.
 The manuscript and its numerical evidence are unchanged.
 
 ## 8. Artifacts and no-overwrite proof
@@ -196,7 +201,43 @@ sync, binding the exact current revision. `prepared-54ccec5/` is an older,
 non-active preparation. Local mirror:
 `E:/DATA/EvoSPE/skill-evolution-phase2-20261016/`.
 
-**Scientific status:** B **READY_FOR_APPROVAL**; real autonomous Agent viability,
-automatic Skill benefit, independent content efficacy and real ACRE efficacy
-all **NOT_RUN / UNSUPPORTED**. The manuscript/statistics remain unchanged.
-No long provider/GPU job or new monitor was started.
+## 9. Approved real B execution and decision
+
+Runtime commit: `713bd65027873e7d121642c2d2e1d9d3936bd1a2`.
+Manifest: `639d108719117f35916225965f0455cc705f411e94e2def03891693703d9048c`.
+Output: `live-readiness-713bd65/`; disabled proposal remains unchanged.
+PID **1952418**, UTC **2026-10-16 02:45:52.524746** to
+**02:53:20.058652**, elapsed **447.53 s**, recorded **exit 0**.
+Scheduled/started/completed/nonlaunched: **3 / 3 / 3 / 0**.
+Model request/response: `deepseek-flash`; thinking enabled; no Skill injected.
+
+| Family | Official won/done | Decision turns | Environment steps | Invalid turns | Termination |
+|---|---|---:|---:|---:|---|
+| Clean & Place | true / true | 21 | 21 | 0 | success |
+| Cool & Place | true / true | 12 | 12 | 0 | success |
+| Heat & Place | true / true | 23 | 22 | 1 | success |
+
+All receipts are `REAL_AGENT / VERIFIED_SUCCESS`, distinct frozen semantic
+clusters. Journal request count and trajectory count both equal **56** in
+this run; generally trajectory length alone is not proof of billed requests.
+All usage is known; no pending reservation or budget-bound violation remains.
+Finish reasons: **55 stop / 1 length**. Heat turn 15 reached the 8,192-token
+completion cap with empty final content, yielding `selected_action=null` and
+`action_not_admissible`; it was not passed to the environment. The next
+decision recovered without an API retry, and the episode eventually won.
+Maximum completion was **8,192**, maximum input **1,562**. The truncation is
+an observed cap limitation, not a failure episode or evidence for increasing
+the cap without approval. Cache hits were only 256 tokens; substantial cache
+savings were not observed and are not claimed.
+
+Gate: **VIABLE_BUT_NOT_QUALIFIED**, **3 independent win clusters / 0 independent
+failure clusters**, action **STOP_PAID_SKILL_OPTIMIZATION**. Real task success
+is established for these three train tasks, but the prescribed success/failure
+contrast for C is absent. No source collection, Skill proposal, C/D or held-out
+evaluation is authorized by this result. Further train-only contrast collection
+requires a new bounded plan and approval. No parameter or prompt was modified
+after observing outcomes; all original trajectories and budget journal remain.
+
+The follow-up monitor is paused after closeout. Automatic Skill benefit,
+independent content efficacy and real ACRE efficacy remain **NOT_RUN /
+UNSUPPORTED**. The manuscript and historical numerical evidence are unchanged.

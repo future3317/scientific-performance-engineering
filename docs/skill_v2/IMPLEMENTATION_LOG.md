@@ -321,3 +321,29 @@ closeout made no provider calls and did not read credentials. The two later
 user-authorized connectivity probes are documented separately above and are
 not a Phase I experiment; real-study status remains `NOT_RUN`. Historical
 paper results and efficacy statuses are unchanged.
+
+### Phase2 approved B readiness — October 16 closeout
+
+This supersedes the preceding NOT_RUN status for B only. At committed runtime
+`713bd65027873e7d121642c2d2e1d9d3936bd1a2`, the user-approved three frozen
+train_inner no-Skill tasks completed on dbcloud/equivcompiler, CPU only:
+clean 21/21, cool 12/12, heat 23/22 decision/environment steps. All three have
+official won=true/done=true and VERIFIED_SUCCESS. PID1952418 ran UTC
+02:45:52.524746–02:53:20.058652, exit0, 447.53 seconds. No source changed
+during execution. Output is `skill-evolution-phase2-20261016/live-readiness-713bd65/`.
+
+56 requests consumed 69,393 input and 60,203 completion tokens, including
+59,720 reasoning tokens; cache hit/miss 256/69,137. Retained peak-price estimate
+USD0.092986236 is not a provider bill. No unknown usage, pending request or
+budget violation remains. One heat turn hit the 8,192 completion cap, produced
+no action and was rejected before env.step; the next decision recovered.
+This was not a retry or a failure cluster. No cap/prompt/model changes or
+replacement tasks were made.
+
+The frozen gate returns VIABLE_BUT_NOT_QUALIFIED: three independent successes
+but no independent failure contrast, hence STOP_PAID_SKILL_OPTIMIZATION.
+No Skill optimization, C/D or held-out execution followed. These are real
+train-side Agent successes, not Skill-content or ACRE treatment effects.
+Full results and cost/termination details are in PHASE2_EXECUTION_REPORT.md.
+Original artifacts are retained and mirrored locally; follow-up is paused
+after reporting. No new tests were needed for this documentation-only closeout.
