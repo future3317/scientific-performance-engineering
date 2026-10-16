@@ -38,6 +38,7 @@ class MockCompletion:
 
     def complete_text(self, messages):
         self.calls += 1
+        self.messages = messages
         return {
             "raw_output": json.dumps(self.response),
             "reasoning_content": "must never be parsed as proposal text",
@@ -95,6 +96,11 @@ def test_initial_proposal_uses_final_content_and_binds_train_inner_provenance():
     assert skill.proposal_prompt_sha256 and skill.proposal_output_sha256
     assert skill.model_identity == "mock-model-v1"
     assert "reasoning" not in skill.body
+    assert "source_trace_ids field must cite" in client.messages[0]["content"]
+    assert all(trace not in skill.body for trace in evidence().source_trace_ids)
+    assert skill.proposal_prompt_sha256 == hashlib.sha256(json.dumps(
+        client.messages, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
 
 
 @pytest.mark.parametrize("changes, message", [
@@ -140,8 +146,10 @@ def test_patch_rejects_out_of_bundle_source_and_protected_step_deletion():
                                   on_completion=recorded.append)
     with pytest.raises(ValueError, match="outside its train_inner"):
         proposer.propose_patch(parent(), evidence(source_split="train_inner"))
-    assert recorded[0]["status"] == "received_unvalidated"
-    assert json.loads(recorded[0]["raw_output"])["source_trace_ids"] == ["outside-trace"]
+    assert [record["status"] for record in recorded] == ["request_prepared", "received_unvalidated"]
+    assert recorded[0]["messages"] == client.messages
+    assert recorded[0]["prompt_sha256"] == recorded[1]["prompt_sha256"]
+    assert json.loads(recorded[1]["raw_output"])["source_trace_ids"] == ["outside-trace"]
 
     poisoned["source_trace_ids"] = ["trace-source-1"]
     client = MockCompletion(poisoned)
