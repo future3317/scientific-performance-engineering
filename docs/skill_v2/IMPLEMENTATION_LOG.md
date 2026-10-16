@@ -382,3 +382,12 @@ No alternative arbitrary 4,000/6,000-character cap is introduced. Any resumed
 T2 requires a new explicit study identity recording this pre-outcome amendment;
 the old approval is not reused and an offline revalidation is not a new model
 proposal or evidence of benefit. This adjustment itself makes no provider call.
+
+Acceptance at 5773af201438dadc9e4d473bd1469c02f8dfe069 on
+dbcloud/equivcompiler, clean worktree and CPU-only single-thread contract:
+71 passed in 1.02s, exit0, across model proposal, stateful evolution,
+real-learning inputs and Phase3 baseline tests. This includes explicit-null
+acceptance above 1,800, numeric-limit rejection, retained source/protected-step
+checks and production input-cap rejection before any provider access.
+Receipt: phase4 test_receipt/length-policy-5773af2, mirrored under E:/DATA.
+This is targeted contract verification, not a new full-suite or efficacy result.
