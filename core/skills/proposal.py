@@ -516,13 +516,29 @@ class ModelSkillProposer:
             "schema": {
                 "base_digest": document.digest,
                 "operations": [{
-                "op": "add | modify | split | merge | delete | reorder",
-                    "typed_item_fields": ["item_id", "section", "kind", "status", "protected", "semantic_tags", "evidence", "text", "semantic_atoms"],
+                    "op": "add", "after_id": None,
+                    "item": {"item_id": "new-stable-id", "section": "heuristics", "kind": "heuristic",
+                             "status": "recommended", "protected": False, "semantic_tags": [],
+                             "evidence": [], "text": "An evidence-supported optional instruction.", "semantic_atoms": []},
                 }],
                 "source_trace_ids": ["subset of supplied source traces"],
                 "failure_hypothesis": "string", "expected_benefit": "string",
                 "possible_regressions": ["string"],
             },
+            "operation_shapes": {
+                "add": ["op", "item", "after_id (optional)"],
+                "modify": ["op", "item_id", "item"],
+                "split": ["op", "item_id", "new_items"],
+                "merge": ["op", "item_ids", "item"],
+                "delete": ["op", "item_id"],
+                "reorder": ["op", "section", "order"],
+            },
+            "editing_rules": [
+                "Return only schema's top-level fields; operation_shapes is documentation, not output.",
+                "Required legacy text without semantic_atoms cannot be replaced, split or deleted; add separate optional advice instead.",
+                "Required atom-backed wording can change only to an exact registered equivalent rendering with identical atom order.",
+                "Do not add a new mandatory invariant, change scope/preconditions/postconditions, or claim that preserve_semantics=true proves equivalence.",
+            ],
             "semantic_document": {
                 "digest": document.digest,
                 "rendered_body": document.rendered,

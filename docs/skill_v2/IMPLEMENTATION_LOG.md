@@ -470,7 +470,7 @@ provider receipts. No code reset/stash or user changes were taken over.
 
 Server a76398997485de7d8251c8380cdf7b0ddded91f0: affected tests108 passed/exit0;
 full suite668 passed,8warnings,699.38s/exit0. Counts overlap and are not added.
-The final receipt-metadata additions are tested separately at their exact
+The final receipt-metadata and explicit operation-schema additions are tested separately at their exact
 revision; earlier full-suite evidence is not relabeled as a later full run.
 The two current production entries are semantic delta refinement (new studies)
 and OFF/LENGTH/SKILL attribution; old frozen T2 behavior is historical only.
