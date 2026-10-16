@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -307,6 +308,9 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
         for package, expected in manifest["environment_packages"].items():
             if version(package) != expected:
                 raise ValueError("environment version changed after freeze")
+        for task in manifest["plan"]:
+            if hashlib.sha256(Path(task["gamefile"]).read_bytes()).hexdigest() != task["gamefile_sha256"]:
+                raise ValueError("task content changed after manifest freeze")
     client=factory(os.environ.get("DEEPSEEK_API_KEY"),manifest["base_url"],manifest["model"],budget=budget,
         max_completion_tokens=manifest["max_completion_per_request"],
         persist_budget=lambda b:_append(journal.root/"provider_journal.jsonl",b))

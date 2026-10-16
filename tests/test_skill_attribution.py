@@ -220,3 +220,20 @@ def test_offline_partial_stop_summary_keeps_missing_outcomes_without_provider(tm
     assert result["status"]=="STOP_UNKNOWN_ARM"and result["missing_arms"]==2
     assert result["comparisons"]["OFF_vs_SKILL"]["missing"]==1
     assert result["comparisons"]["OFF_vs_SKILL"]["00"]==0
+
+
+def test_changed_task_bytes_rejected_before_real_client_construction(tmp_path,monkeypatch):
+    manifest,parent,s,approval,pricing=live_fixture(tmp_path)
+    game=tmp_path/"game";game.write_text("changed bytes")
+    manifest["plan"][0].update(gamefile=str(game),gamefile_sha256="0"*64)
+    parent["task_membership"][0]["gamefile"]=str(game)
+    manifest["split_manifest_sha256"]=manifest_digest(parent)
+    manifest["environment_packages"]={}
+    approval["approved_manifest_sha256"]=manifest_digest(manifest)
+    approval["approved_split_manifest_sha256"]=manifest["split_manifest_sha256"]
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES","")
+    monkeypatch.setenv("DEEPSEEK_API_KEY","SYNTHETIC_FIXTURE_NOT_A_KEY")
+    import experiments.external_real.alfworld_stateful_runner as runner
+    monkeypatch.setattr(runner.DeepSeekStatefulClient,"__init__",lambda *_a,**_k:pytest.fail("SDK reached"))
+    with pytest.raises(ValueError,match="task content changed"):
+        run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture")
