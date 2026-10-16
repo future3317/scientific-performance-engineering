@@ -306,6 +306,7 @@ class DeepSeekStatefulClient:
         from openai import OpenAI
 
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0, max_retries=0)
+        self.base_url = base_url
         self.model = model
         self.temperature = temperature
         self.budget = budget
@@ -313,6 +314,17 @@ class DeepSeekStatefulClient:
         self.persist_budget = persist_budget
         self.response_identity: tuple[Any, Any] | None = None
         self.response_ids: set[str] = set()
+        self.receipt_journal: Any = None
+        self._episode_context: tuple[str, str, str | None] | None = None
+        self._episode_turn = 0
+
+    def set_episode_context(self, episode_id: str, arm: str,
+                            skill_version: str | None = None) -> None:
+        """Set stable receipt identity before running one episode arm."""
+        if not episode_id or not arm:
+            raise ValueError("episode_id and arm are required for durable receipts")
+        self._episode_context = (episode_id, arm, skill_version)
+        self._episode_turn = 0
 
     def choose_action(
         self,
@@ -349,10 +361,55 @@ class DeepSeekStatefulClient:
         usd_before = self.budget.usd_used if isinstance(self.budget, ApprovedProviderBudget) else None
         if input_bound > getattr(self, "max_input_per_request", input_bound):
             raise ProviderBudgetExceeded("per_request_input_cap")
+        journal = getattr(self, "receipt_journal", None)
+        intent: dict[str, Any] | None = None
+        call_id: str | None = None
+        prompt_identity = manifest_digest({"messages": messages})
+        if journal is not None:
+            configuration_identity = manifest_digest({
+                "model": self.model, "base_url": getattr(self, "base_url", None),
+                "temperature": self.temperature, "max_completion_tokens": self.max_completion_tokens,
+                "thinking": {"type": "enabled"},
+            })
+            if self._episode_context is None:
+                raise RuntimeError("set_episode_context is required when receipt journaling is enabled")
+            episode_id, arm, skill_version = self._episode_context
+            turn = self._episode_turn
+            call_id = f"{episode_id}/{arm}/{skill_version or 'none'}/turn-{turn}"
+            self._episode_turn += 1
+            saved_response = journal.existing_response(
+                call_id=call_id, episode_id=episode_id, arm=arm,
+                skill_version=skill_version, turn=turn,
+                prompt_identity=prompt_identity,
+                configuration_identity=configuration_identity,
+            )
+            if saved_response is not None:
+                if self.budget is not None and not journal.budget_was_restored(self.budget):
+                    raise RuntimeError("call journal.restore_budget(budget) before replaying a saved response")
+                if self.budget is not None and self.budget.stopped:
+                    raise ProviderBudgetExceeded(self.budget.stop_reason or "recovered_budget_stopped")
+                self.response_identity = (saved_response.get("model"), saved_response.get("system_fingerprint"))
+                return self._result_from_durable_receipt(saved_response)
         if self.budget is not None:
             self.budget.reserve(input_bound, self.max_completion_tokens)
-            if self.persist_budget is not None:
-                self.persist_budget(self.budget.as_dict())
+        if journal is not None:
+            try:
+                intent = journal.reserve_intent(
+                    call_id=call_id, episode_id=episode_id, arm=arm,
+                    skill_version=skill_version, turn=turn,
+                    prompt_identity=prompt_identity,
+                    configuration_identity=configuration_identity,
+                    input_token_bound=input_bound,
+                    completion_token_bound=self.max_completion_tokens,
+                )
+            except BaseException:
+                if self.budget is not None:
+                    self.budget.mark_unknown("durable_provider_intent_failed")
+                raise
+            if intent is not None:
+                raise RuntimeError("provider receipt appeared after intent preflight")
+        if journal is None and self.budget is not None and self.persist_budget is not None:
+            self.persist_budget(self.budget.as_dict())
         started = time.perf_counter()
         try:
             request_timeout = ({"timeout": max(0.001, min(120.0, self.budget.remaining_wall_seconds))}
@@ -372,8 +429,41 @@ class DeepSeekStatefulClient:
                     self.persist_budget(self.budget.as_dict())
             raise
         latency = time.perf_counter() - started
+        usage = getattr(response, "usage", None)
+        if journal is not None:
+            choice = response.choices[0]
+            message = choice.message
+            content = message.content or ""
+            response_id = getattr(response, "id", None)
+            details = getattr(usage, "completion_tokens_details", None)
+            raw_receipt = {
+                "call_id": call_id, "episode_id": episode_id, "arm": arm,
+                "skill_version": skill_version, "turn": turn,
+                "prompt_identity": prompt_identity,
+                "configuration_identity": configuration_identity,
+                "content": content,
+                "input_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", None),
+                "cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", None),
+                "reasoning_tokens": getattr(details, "reasoning_tokens", None),
+                "model": getattr(response, "model", None), "response_id": response_id,
+                "system_fingerprint": getattr(response, "system_fingerprint", None),
+                "finish_reason": getattr(choice, "finish_reason", None),
+                "latency_seconds": latency,
+                "input_token_bound": input_bound,
+                "completion_token_bound": self.max_completion_tokens,
+                "saved_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            try:
+                journal.save_response(raw_receipt)
+            except BaseException:
+                if self.budget is not None:
+                    self.budget.mark_unknown("provider_response_receipt_write_failed")
+                    if self.persist_budget is not None:
+                        self.persist_budget(self.budget.as_dict())
+                raise
         try:
-            usage = getattr(response, "usage", None)
             input_tokens = getattr(usage, "prompt_tokens", None)
             output_tokens = getattr(usage, "completion_tokens", None)
             if self.budget is not None:
@@ -392,12 +482,16 @@ class DeepSeekStatefulClient:
                 self.budget.mark_unknown()
             raise
         finally:
+            if journal is not None and self.budget is not None:
+                journal.mark_budget_restored(self.budget, raw_receipt)
             if self.budget is not None and self.persist_budget is not None:
                 self.persist_budget(self.budget.as_dict())
         if self.budget is not None and self.budget.stopped:
             raise ProviderBudgetExceeded(self.budget.stop_reason or "provider_budget_stopped")
-        message = response.choices[0].message
-        response_id = getattr(response, "id", None)
+        if journal is None:
+            message = response.choices[0].message
+            content = message.content or ""
+            response_id = getattr(response, "id", None)
         if response_id is not None:
             if response_id in self.response_ids:
                 if self.budget is not None:
@@ -414,7 +508,6 @@ class DeepSeekStatefulClient:
                     self.persist_budget(self.budget.as_dict())
             raise RuntimeError("provider model identity changed within a frozen run")
         self.response_identity = identity
-        content = message.content or ""
         parser_input = content
         return {
             "raw_output": parser_input,
@@ -433,6 +526,26 @@ class DeepSeekStatefulClient:
             "latency_seconds": latency,
             "estimated_provider_usd": (str(self.budget.usd_used - usd_before)
                                        if usd_before is not None else None),
+        }
+
+    def _result_from_durable_receipt(self, receipt: Mapping[str, Any]) -> dict[str, Any]:
+        """Return the saved final content without another provider call or ledger charge."""
+        return {
+            "raw_output": receipt["content"],
+            "prompt_sha256": receipt["prompt_identity"],
+            "provider_raw": {"content": receipt["content"]},
+            "model_response_identity": receipt.get("model"),
+            "provider_response_id": receipt.get("response_id"),
+            "system_fingerprint": receipt.get("system_fingerprint"),
+            "response_field_used": "message.content",
+            "input_tokens": receipt.get("input_tokens"),
+            "output_tokens": receipt.get("completion_tokens"),
+            "cache_hit_tokens": receipt.get("cache_hit_tokens"),
+            "cache_miss_tokens": receipt.get("cache_miss_tokens"),
+            "reasoning_tokens": receipt.get("reasoning_tokens"),
+            "finish_reason": receipt.get("finish_reason"),
+            "latency_seconds": receipt.get("latency_seconds"),
+            "estimated_provider_usd": None,
         }
 
 

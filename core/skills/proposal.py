@@ -18,6 +18,7 @@ from .evolution import (
     SkillEvolution,
     SkillPatchOptimizer,
 )
+from .semantic import SEMANTIC_ATOMS, SemanticDelta, SemanticDocument, apply_semantic_delta
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,19 @@ class EvidenceBundle:
 @dataclass(frozen=True)
 class PatchProposal:
     patch: Patch
+    failure_hypothesis: str
+    expected_benefit: str
+    possible_regressions: tuple[str, ...]
+    evidence_trace_ids: tuple[str, ...]
+    prompt_sha256: str
+    output_sha256: str
+    model_identity: str
+
+
+@dataclass(frozen=True)
+class SemanticPatchProposal:
+    delta: SemanticDelta
+    candidate: SemanticDocument
     failure_hypothesis: str
     expected_benefit: str
     possible_regressions: tuple[str, ...]
@@ -262,6 +276,84 @@ class ModelSkillProposer:
             model_identity=model,
         )
 
+    def propose_semantic_patch(
+        self,
+        document: SemanticDocument,
+        evidence: EvidenceBundle,
+        reject_buffer: Sequence[Mapping[str, Any] | str] = (),
+    ) -> SemanticPatchProposal:
+        """Request and validate a bounded typed delta, leaving the legacy patch path intact."""
+        evidence.validate(patch_feedback=True)
+        if evidence.source_split != "train_inner":
+            raise ValueError("semantic patch feedback must come from train_inner")
+        if document.contract.task_family != evidence.task_family:
+            raise ValueError("proposal evidence task family differs from semantic document")
+        response: Mapping[str, Any] = {}
+        prompt_sha = output_sha = model = None
+        trace_ids: tuple[str, ...] = ()
+        try:
+            response, prompt_sha, output_sha, model = self._complete(
+                "semantic_patch", self._semantic_patch_prompt(document, evidence, reject_buffer)
+            )
+            trace_ids = self._check_trace_sources(response, evidence)
+            if set(response) != {
+                "base_digest", "operations", "source_trace_ids", "failure_hypothesis",
+                "expected_benefit", "possible_regressions",
+            }:
+                raise ValueError("semantic patch output must contain only the typed delta and its evidence summary")
+            delta = SemanticDelta.from_dict({
+                "base_digest": response["base_digest"], "operations": response["operations"]
+            })
+            for operation in delta.operations:
+                candidates = [x for x in (operation.item, *operation.new_items) if x is not None]
+                for candidate in candidates:
+                    if any(source and source.casefold() in candidate.text.casefold()
+                           for source in evidence.source_task_ids + evidence.source_trace_ids):
+                        raise ValueError("semantic text contains a source-task identifier")
+                    if any(source not in evidence.source_trace_ids + document.contract.source_trial_ids for source in candidate.evidence):
+                        raise ValueError("semantic item cites evidence outside the supplied train_inner traces")
+            candidate = apply_semantic_delta(document, delta)
+            failure_hypothesis = self._string(response.get("failure_hypothesis"), "failure_hypothesis")
+            expected_benefit = self._string(response.get("expected_benefit"), "expected_benefit")
+            possible_regressions = self._strings(response.get("possible_regressions"), "possible_regressions")
+        except (KeyError, TypeError, ValueError) as exc:
+            if self.on_completion is not None:
+                self.on_completion({
+                    "status": "semantic_patch_rejected", "proposal_kind": "semantic_patch",
+                    "prompt_sha256": prompt_sha, "output_sha256": output_sha,
+                    "model_identity": model, "evidence_trace_ids": list(trace_ids),
+                    "reject_buffer": list(reject_buffer), "reason": str(exc),
+                    "candidate_id": None, "base_digest": document.digest,
+                    "failed_invariant": str(exc),
+                    "affected_items": [operation.get("item_id", operation.get("item_ids"))
+                                       for operation in response.get("operations", []) if isinstance(operation, Mapping)],
+                    "trajectory_evidence": list(evidence.source_trace_hashes),
+                    "verifier_feedback": "deterministic structural/semantic rejection; no environment efficacy result",
+                })
+            raise ValueError("semantic patch rejected: " + str(exc)) from exc
+        if self.on_completion is not None:
+            self.on_completion({
+                "status": "semantic_patch_validated", "proposal_kind": "semantic_patch",
+                "prompt_sha256": prompt_sha, "output_sha256": output_sha,
+                "model_identity": model, "base_digest": document.digest,
+                "candidate_digest": candidate.digest, "evidence_trace_ids": list(trace_ids),
+                "base_token_count": document.token_count,
+                "candidate_token_count": candidate.token_count,
+                "reject_buffer": list(reject_buffer),
+                "operations": response["operations"],
+            })
+        return SemanticPatchProposal(
+            delta=delta,
+            candidate=candidate,
+            failure_hypothesis=failure_hypothesis,
+            expected_benefit=expected_benefit,
+            possible_regressions=possible_regressions,
+            evidence_trace_ids=trace_ids,
+            prompt_sha256=prompt_sha,
+            output_sha256=output_sha,
+            model_identity=model,
+        )
+
     def refine_and_evaluate(
         self,
         evolution: SkillEvolution,
@@ -296,16 +388,17 @@ class ModelSkillProposer:
     ) -> tuple[dict[str, Any], str, str, str]:
         if self.calls >= self.max_completion_calls or self.max_completion_tokens <= 0:
             raise ValueError("proposal completion budget is zero or exhausted")
-        data = {**data, "rendered_skill_body_max_characters": self.max_skill_characters,
-                "length_accounting": (
-                    "Write a concise procedural Skill. There is no separate character hard limit; runtime admission "
-                    "is determined by the approved provider input-token budget."
-                    if self.max_skill_characters is None else
-                    "The limit is Unicode characters in the rendered Skill body, not JSON size or tokens. "
-                    "Include When to use, Preconditions, Procedure, numbered steps, Verify, newlines, "
-                    "and the automatic sentence: Stop or replan when a precondition is unknown or a required action is unavailable. "
-                    "Keep applicability, preconditions, procedure and postconditions concise."
-                )}
+        if kind != "semantic_patch":
+            data = {**data, "rendered_skill_body_max_characters": self.max_skill_characters,
+                    "length_accounting": (
+                        "Write a concise procedural Skill. There is no separate character hard limit; runtime admission "
+                        "is determined by the approved provider input-token budget."
+                        if self.max_skill_characters is None else
+                        "The limit is Unicode characters in the rendered Skill body, not JSON size or tokens. "
+                        "Include When to use, Preconditions, Procedure, numbered steps, Verify, newlines, "
+                        "and the automatic sentence: Stop or replan when a precondition is unknown or a required action is unavailable. "
+                        "Keep applicability, preconditions, procedure and postconditions concise."
+                    )}
         prompt = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         messages = [
             {"role": "system", "content": (
@@ -411,6 +504,54 @@ class ModelSkillProposer:
             "parent_digest": parent.digest,
             "source_trace_ids": evidence.source_trace_ids,
             "evidence": evidence._prompt_data(),
+        }
+
+    @staticmethod
+    def _semantic_patch_prompt(
+        document: SemanticDocument,
+        evidence: EvidenceBundle,
+        reject_buffer: Sequence[Mapping[str, Any] | str],
+    ) -> dict[str, Any]:
+        return {
+            "schema": {
+                "base_digest": document.digest,
+                "operations": [{
+                "op": "add | modify | split | merge | delete | reorder",
+                    "typed_item_fields": ["item_id", "section", "kind", "status", "protected", "semantic_tags", "evidence", "text", "semantic_atoms"],
+                }],
+                "source_trace_ids": ["subset of supplied source traces"],
+                "failure_hypothesis": "string", "expected_benefit": "string",
+                "possible_regressions": ["string"],
+            },
+            "semantic_document": {
+                "digest": document.digest,
+                "rendered_body": document.rendered,
+                "rendered_token_count": document.token_count,
+                "metadata": {
+                    "skill_id": document.contract.skill_id,
+                    "version": document.contract.version,
+                    "task_family": document.contract.task_family,
+                    "subtask": document.contract.subtask,
+                    "intent": document.contract.intent,
+                    "applicability": document.contract.applicability,
+                    "preconditions": document.contract.preconditions,
+                    "postconditions": document.contract.postconditions,
+                    "protected_semantics": document.contract.protected_semantics,
+                },
+                "items": [item.to_dict() for item in document.items],
+                "refinement_rounds": document.refinement_rounds,
+            },
+            "registered_semantic_renderings": dict(SEMANTIC_ATOMS),
+            "source_trace_ids": evidence.source_trace_ids,
+            "evidence": evidence._prompt_data(),
+            "reject_buffer": list(reject_buffer),
+            "bounds": {
+                "operations": 3, "characters_per_operation": 250,
+                "character_count_definition": "Sum of the item text strings introduced or replaced by that operation.",
+                "existing_items_touched_fraction": 0.30, "refinements": 2,
+                "rendered_token_count_max": 2000,
+                "token_count_definition": "Count supplied by the caller-provided tokenizer; do not estimate from characters.",
+            },
         }
 
 

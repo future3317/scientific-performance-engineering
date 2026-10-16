@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import random
 import re
+import shutil
 from statistics import mean, median
 from typing import Any, Mapping, Sequence
 
@@ -228,6 +229,28 @@ def _append(path: Path, record: Mapping[str, Any]) -> None:
         stream.write(json.dumps(record, sort_keys=True)+"\n"); stream.flush(); os.fsync(stream.fileno())
 
 
+def _save_summary(output: Path, report: Mapping[str, Any]) -> None:
+    temporary=output/"summary.tmp"
+    with temporary.open("w")as f:
+        json.dump(report,f,indent=2);f.flush();os.fsync(f.fileno())
+    os.replace(temporary,output/"report.json")
+
+
+def summarize_spooled(manifest,pricing):
+    """Regenerate derived output from durable terminal episodes, with no SDK or approval renewal."""
+    source=Path(manifest["spool_dir"])/"episodes.jsonl"
+    events=[json.loads(line)for line in source.read_text().splitlines()]
+    rows=[e["episode"]for e in events if e["event"]=="COMPLETED"]
+    expected={(r["cluster_id"],arm)for r in manifest["plan"]for arm in ARMS}
+    if {(r["cluster_id"],r["arm"])for r in rows} != expected:
+        raise ValueError("summary-only requires complete frozen arm set; incomplete outcomes remain unknown")
+    result=summarize_attribution(manifest["plan"],rows,pricing)
+    result.update(status="COMPLETED",regenerated_without_provider=True,outer_status="NOT_RUN")
+    output=Path(manifest["output_dir"])
+    _save_summary(output,result)
+    return result
+
+
 def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path, revision: str,
                     client_factory=None, environment_factory=None) -> dict[str, Any]:
     """Approved-only; resume completed arms, never restart an interrupted environment."""
@@ -236,8 +259,6 @@ def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path,
         raise ValueError("run revision/output identity mismatch")
     budget=ApprovedProviderBudget(manifest,approval,pricing,controller_commit=revision,
         stage="skill_attribution",model=manifest["model"],base_url=manifest["base_url"])
-    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient, run_episode
-    from .native_verifier import make_selected_environment
     from .receipt_journal import DurableProviderJournal
     output.mkdir(parents=True,exist_ok=True)
     config=output/"run_config.json"
@@ -246,24 +267,44 @@ def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path,
     if not config.exists():
         with config.open("x")as f:
             json.dump(dict(manifest),f,sort_keys=True);f.flush();os.fsync(f.fileno())
-    events=output/"episodes.jsonl"
+    journal=DurableProviderJournal(Path(manifest["spool_dir"]),run_identity=manifest_digest(manifest))
+    try:
+        return _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
+                                client_factory,environment_factory)
+    finally:
+        journal.close()
+
+
+def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
+                     client_factory,environment_factory):
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient, run_episode
+    from .native_verifier import make_selected_environment
+    events=journal.root/"episodes.jsonl"
     prior=[json.loads(line)for line in events.read_text().splitlines()]if events.exists()else[]
+    if any(e["event"] == "STOP" for e in prior):
+        raise ProviderBudgetExceeded("frozen_batch_stopped_no_automatic_continuation")
     started={e["trial_id"]for e in prior if e["event"]=="STARTED"}
     completed={e["trial_id"]:e["episode"]for e in prior if e["event"]=="COMPLETED"}
     if started-set(completed):
         raise ProviderBudgetExceeded("interrupted_environment_unknown_no_automatic_restart")
     if any(receipt_outcome(row) is None for row in completed.values()):
         raise ProviderBudgetExceeded("unknown_previous_arm_no_automatic_continuation")
-    journal=DurableProviderJournal(Path(manifest["spool_dir"]))
     journal.restore_budget(budget)
+    if len(completed) == len(manifest["plan"])*len(ARMS):
+        report=summarize_attribution(manifest["plan"],list(completed.values()),pricing)
+        report.update(status="COMPLETED",provider_budget=budget.as_dict(),outer_status="NOT_RUN")
+        _save_summary(output,report)
+        return report
     factory=client_factory or DeepSeekStatefulClient
     if client_factory is None and not os.environ.get("DEEPSEEK_API_KEY"):
         raise RuntimeError("DEEPSEEK_API_KEY required only after exact live approval")
     client=factory(os.environ.get("DEEPSEEK_API_KEY"),manifest["base_url"],manifest["model"],budget=budget,
         max_completion_tokens=manifest["max_completion_per_request"],
-        persist_budget=lambda b:_append(output/"provider_journal.jsonl",b))
+        persist_budget=lambda b:_append(journal.root/"provider_journal.jsonl",b))
     client.max_input_per_request=manifest["max_input_per_request"]
     client.receipt_journal=journal
+    client.response_identity=journal.response_identity
+    client.response_ids.update(journal.response_ids)
     make_env=environment_factory or make_selected_environment
     for task in manifest["plan"]:
         pending=[arm for arm in task["arm_order"]if f"{manifest['run_id']}:{task['cluster_id']}:{arm}"not in completed]
@@ -280,7 +321,7 @@ def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path,
                     skill_version=str(skill.version)if arm=="SKILL"else None,expected_gamefiles=[task["gamefile"]],
                     receipt_metadata={**{k:task[k]for k in ("task_id","cluster_id","template_id","seed")},
                         "trial_id":trial,"arm":arm,"split":"train_inner","study_id":manifest["study_id"],
-                        "run_id":manifest["run_id"],"evidence_origin":"REAL_AGENT","source_commit":revision,
+                        "run_id":manifest["run_id"],"evidence_origin":getattr(client,"evidence_origin","REAL_AGENT"),"source_commit":revision,
                         "skill_digest":skill.digest if arm=="SKILL"else None})
             finally:
                 env.close()
@@ -290,18 +331,18 @@ def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path,
             completed[trial]=row
             # Raw episode is durable before any derived summary can fail.
             if receipt_outcome(row)is None:
+                _append(events,{"event":"STOP","reason":"UNKNOWN_ARM","trial_id":trial})
                 return {"status":"STOP_UNKNOWN","completed":len(completed),"provider_budget":budget.as_dict()}
             cluster_rows = {r["arm"]: r for r in completed.values() if r["cluster_id"] == task["cluster_id"]}
             if "OFF" in cluster_rows and receipt_outcome(cluster_rows["OFF"]) is True and any(
                 receipt_outcome(cluster_rows[a]) is False for a in ("LENGTH","SKILL") if a in cluster_rows
             ):
+                _append(events,{"event":"STOP","reason":"HARD_REGRESSION","trial_id":trial})
                 return {"status":"STOP_HARD_REGRESSION","completed":len(completed),"provider_budget":budget.as_dict()}
     report=summarize_attribution(manifest["plan"],list(completed.values()),pricing)
     report.update(status="COMPLETED",provider_budget=budget.as_dict(),outer_status="NOT_RUN")
-    temporary=output/"summary.tmp"
-    with temporary.open("w")as f:
-        json.dump(report,f,indent=2);f.flush();os.fsync(f.fileno())
-    os.replace(temporary,output/"report.json")
+    shutil.copytree(journal.root,output/"RAW_RECEIPTS",dirs_exist_ok=True)
+    _save_summary(output,report)
     return report
 
 
@@ -310,10 +351,15 @@ def main(argv=None):
     for key in ("manifest","split-manifest","skill","approval","pricing"):
         parser.add_argument("--"+key,type=Path,required=True)
     parser.add_argument("--live",action="store_true")
+    parser.add_argument("--summarize-only",action="store_true")
     args=parser.parse_args(argv)
     read=lambda p:json.loads(p.read_text())
     manifest,parent,skill=read(args.manifest),read(args.split_manifest),SkillContract.from_dict(read(args.skill))
     validate_manifest(manifest,parent,skill)
+    if args.summarize_only:
+        if args.live:
+            raise ValueError("summary regeneration is offline, not live")
+        summarize_spooled(manifest,read(args.pricing));return 0
     if not args.live:
         print(json.dumps({"status":"READY_FOR_APPROVAL","provider_calls":0,"manifest_sha256":manifest_digest(manifest)}));return 0
     import subprocess
