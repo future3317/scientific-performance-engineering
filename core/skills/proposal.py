@@ -143,7 +143,7 @@ class ModelSkillProposer:
         max_completion_calls: int = 0,
         max_completion_tokens: int | None = None,
         mock_mode: bool = False,
-        max_skill_characters: int = 1800,
+        max_skill_characters: int | None = 1800,
         on_completion: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> None:
         if max_completion_calls < 0:
@@ -298,6 +298,9 @@ class ModelSkillProposer:
             raise ValueError("proposal completion budget is zero or exhausted")
         data = {**data, "rendered_skill_body_max_characters": self.max_skill_characters,
                 "length_accounting": (
+                    "Write a concise procedural Skill. There is no separate character hard limit; runtime admission "
+                    "is determined by the approved provider input-token budget."
+                    if self.max_skill_characters is None else
                     "The limit is Unicode characters in the rendered Skill body, not JSON size or tokens. "
                     "Include When to use, Preconditions, Procedure, numbered steps, Verify, newlines, "
                     "and the automatic sentence: Stop or replan when a precondition is unknown or a required action is unavailable. "
