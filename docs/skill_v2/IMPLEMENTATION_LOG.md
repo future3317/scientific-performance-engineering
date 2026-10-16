@@ -391,3 +391,60 @@ acceptance above 1,800, numeric-limit rejection, retained source/protected-step
 checks and production input-cap rejection before any provider access.
 Receipt: phase4 test_receipt/length-policy-5773af2, mirrored under E:/DATA.
 This is targeted contract verification, not a new full-suite or efficacy result.
+
+### Phase4 amended T2 real execution and bounded stop — October 16
+
+Before treatment outcomes, inspection found two remaining downstream numeric
+cutoffs: evolution recording and standard pack export. Commit
+9b3f6263a360e6019439fd94eeff361903071501 propagates the declared length policy
+through both. A production-chain fixture covers a >1,800-character proposal,
+patch, A/B execution, pack readback and outer rollback without provider access.
+Server acceptance: 76 passed in 1.01s, exit0, at that exact commit, CPU-only
+equivcompiler. Receipt length-integration-9b3f626-correct-path contains the
+command/environment/logs; the preceding incorrect test-file invocation exited
+4 and is retained, not presented as a passing suite.
+
+The user-authorized pre-outcome amendment retains the original T2's exact
+16 task clusters, game identities, A/B arm orders and selector. It permits
+one additional initial proposal and one feedback patch, no retry after invalid
+output, max 40 rollouts / 2,402 calls / USD51. Manifest
+6b7d8014a763a85c253d47a160936d042442dbec85992b0b206990fc1ccbd7ab
+is stored under T2-length-policy; its output is
+live-phase4-t2-length-policy-9b3f626. Original T2 remains rejected and counted.
+Agent/model/thinking/input/output/action budgets were not changed. The public
+price snapshot was rechecked before launch; credentials were not printed or copied.
+
+MEASURED_REAL: UTC07:57:50.192883–08:09:33.659119, exit0 (a completed rejection,
+not successful optimization). v1 is a real model proposal, 2,580 characters,
+9 steps; body SHA 3ca1682d8d6bd70549b923c9ca008f5b4fe3003e6193c36690eaae93dc5bf92b.
+A completed 8 independent paired clusters / 16 new episodes. OFF and ON both
+officially succeeded 8/8: n00=0,n01=0,n10=0,n11=8, no unknown pair. OFF used
+67 calls/actions, 71,220 input, 54,977 completion, 54,362 reasoning tokens,
+USD0.087338400; ON used 66 calls/actions, 98,732 input, 22,017 completion,
+21,413 reasoning tokens, USD0.048664128. Five pairs cost less with ON and three
+cost more; median OFF-minus-ON cost USD0.000859464. These are adaptation-panel
+descriptions, not independent Skill efficacy or generalizable safety claims.
+
+One real feedback patch then attempted REPLACE_STEP at index8. It retained the
+old sentence and appended a conciseness instruction, but the model had marked
+all nine v1 procedure IDs required. The frozen exact-step guard rejected it as
+required_procedure_step_replaced. No v2 was admitted, no fresh B cluster was
+reset, and T3/T4/final were NOT_RUN. The rejection concerns permitted patch
+operations, not measured v2 performance. No guard was relaxed after observing A.
+
+New amended T2 total: 135 calls (133 action + 1 proposal + 1 patch), 176,489
+input / 86,886 completion / 83,885 reasoning tokens, cache hit/miss
+26,112/150,377, estimated USD0.149532972 of USD51, not a bill. Journal and
+request sums reconcile, reservations=null, reserved_usd=0, tokens_unknown=false,
+bound_violation=false; launcher2690779 and child2690818 exited. No provider job
+or automatic continuation remains. T1 + rejected old T2 + amended T2 total
+337 calls / 424,858 input / 314,592 completion / 309,133 reasoning tokens,
+estimated USD0.497140344. The old proposal's missing cache counters remain
+unknown, not zero. Codex/Luna platform fees are unavailable, not zero.
+
+Decision: STOP_PATCH_REJECTED under this manifest. Retain v1 and all negative
+records as development evidence; do not promote it, consume B opportunistically,
+or open outer/final. Any further bounded amendment must explicitly address the
+protected-step/edit contract and preserve the now-exposed A identity; it cannot
+be described as the original uninterrupted two-version study. Historical paper
+numbers and formal/sealed/C-D evidence remain unchanged.
