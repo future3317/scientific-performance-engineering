@@ -519,3 +519,50 @@ independent outer and ACRE remain NOT_RUN; final154 outcomes remain unaccessed.
 Do not promote v1 on this attribution result. Any next semantic refinement
 requires its own finite frozen inner-stage configuration, not a rerun or
 post-hoc expansion of these eight tasks.
+
+### Phase6 zero-API mechanism audit and scientific stop — October16
+
+PHASE6-R1 replaces the prior blanket paid-continuation instruction: a new exact
+C1 approval is required. This phase made zero provider calls and zero native
+environment resets. Luna audited raw costs/errors and policy gaps in two
+cohesive packages; main independently read the original nine-required-item
+contract and the T1 failure, reconstructed all297 historical prompts through
+production run_episode/choose_action, and matched every saved prompt hash.
+Original prompt bodies were not persisted; these are authenticated
+reconstructions, not new model responses or environment efficacy.
+
+Batch1 accounting closes at24 episodes/297 calls/USD0.425997240 estimate.
+The4 invalid decisions are OFF3 and SKILL1, all finish_reason=length with
+empty final content; LENGTH0. v1 contains no extra output-concision directive.
+The shared action-format instruction is unchanged. Historical input, output,
+reasoning and measured cache costs remain separate; private reasoning text is
+neither proposal input nor exported evidence.
+
+The actual search failure exhibits26 repeated actions,45 navigation actions,
+19 destinations and11 initially visible destinations left unvisited. However,
+v1 already requires bookkeeping, unobserved-before-checked search and no repeat
+without new information. A synonym of those rules is not a new mechanism.
+Current memory retains12 distinct locations and6 recent events; changing those
+capacities would change the fixed Agent. A particular monotone traversal rule
+would be a new unvalidated hypothesis, not a proven missing procedure. Public
+multi-object traces already succeed in all three arms; task-family provenance
+is not itself treated as a literal applicability exclusion or evidence of
+incremental benefit.
+
+Main accepts NO_MECHANISTIC_DELTA in the limited sense of no eligible,
+evidence-grounded increment identified for this v1 study. This is the taskbook's
+M6-1 zero-cost stop, not a failed v2 treatment or a universal impossibility
+claim. No model-generated v2,12-task fresh panel, executable C1 approval card,
+outer or ACRE is claimed. No speculative new runner/novelty framework is kept;
+original core and historical receipts remain unchanged. Four-arm composition
+and suggested USD8/USD1.25 caps are documented as NOT_FROZEN/NOT_AUTHORIZED,
+not presented as ready to execute. Existing A/B/Batch1 are consumed adaptation
+evidence. Parent462/461/460 and outer153/153/154 metadata are preserved.
+
+The server-only audit, current-head regression receipt and source indices are
+consolidated into PHASE6_REPORT.md, PHASE6_METRICS.json and
+PHASE6_EVIDENCE_BUNDLE.tar.gz under
+RESULTS/skill-evolution-phase6-c1-incremental-procedure. Counts from prior
+full668@a763989 and targeted111@fada137 are not relabeled as current tests.
+New Phase6 reserved-outcome reads are zero; OS-global historical access is
+not independently proven and remains unknown. No paper numbers were changed.
