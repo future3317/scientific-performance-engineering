@@ -465,6 +465,7 @@ def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp
     candidate = SkillContract.from_dict(json.loads((tmp_path / "inner/candidate_v2.json").read_text()))
     initial = SkillContract.from_dict(json.loads((tmp_path / "inner/candidate_v1.json").read_text()))
     inner_rows = report["inner_v1_and_v2_receipts"]
+    assert report["panel_b_plan"] == manifest["plan"]["panel_b_pairs"]
     assert report["selected_frozen"]["candidate_digest"] == candidate.digest
     assert {row["panel"] for row in inner_rows} == {"A", "B"}
     assert all({row["arm"] for row in inner_rows if row["panel"] == "B"

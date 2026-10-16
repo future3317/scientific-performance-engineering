@@ -918,7 +918,7 @@ def run_live_learning(
         "initial_proposal_output_sha256": initial.proposal_output_sha256,
         "patch_prompt_sha256": patch_proposal.prompt_sha256, "patch_output_sha256": patch_proposal.output_sha256,
         "panel_a_receipts": panel_a_rows, "panel_b_triplet_receipts": [row for row in receipt_rows if row["panel"] == "B"],
-        "panel_b_plan": [dict(pair, pair_id=f"B:{pair['pair_id']}") for pair in plan["panel_b_pairs"]],
+        "panel_b_plan": panel_b_plan,
         "selected_frozen": ({
             "version": selection["selected"], "candidate_digest": selected_candidate.digest,
             "body_sha256": selected_candidate.body_digest, "selection_policy": PHASE4_SELECTION_POLICY,
