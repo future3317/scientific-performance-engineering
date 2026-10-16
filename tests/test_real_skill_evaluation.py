@@ -7,6 +7,8 @@ from experiments.skill_evolution.evaluation import (
     POLICIES,
     dry_run_report,
     evaluate_fixed_skill,
+    evaluate_policy_value_on_real_paired_rollouts,
+    assess_success_only_efficiency,
     freeze_acre_route_decisions,
     freeze_policy_decisions,
     main,
@@ -57,6 +59,7 @@ def _decisions(plan, *, deploy_original=None, deploy_regime=None):
             row = {
                 "task_id": task["task_id"], "policy": policy, "deployed": deployed,
                 "skill_sha": plan["skill_sha"], "agent_sha": plan["agent_sha"],
+                "configuration_sha": plan["configuration_sha"],
             }
             if policy != "global_fixed_skill":
                 row["decision_source"] = "AcreEngine.route"
@@ -102,7 +105,8 @@ def _receipt(plan, task, arm, outcome, *, status=None, trial=None):
     if plan["evidence_kind"] == "SYNTHETIC_FIXTURE":
         receipt["evidence_origin"] = "SYNTHETIC_FIXTURE"
     else:
-        receipt.pop("receipt_type")
+        receipt["evidence_origin"] = "REAL_AGENT"
+        receipt["receipt_type"] = "real_agent_episode_receipt"
     return receipt
 
 
@@ -124,9 +128,10 @@ def test_content_and_gate_effects_are_separate_and_reuse_physical_receipts():
     ), _paired_receipts(plan, pairs))
 
     assert report["status"] == "SYNTHETIC_FIXTURE_ONLY"
-    assert report["content_contrast"]["paired_counts"] == {
-        "repair": 9, "regression": 1, "both_correct": 1, "both_wrong": 1, "missing": 0,
+    assert {key: report["content_contrast"]["paired_counts"][key] for key in ("00", "01", "10", "11", "missing")} == {
+        "00": 1, "01": 9, "10": 1, "11": 1, "missing": 0,
     }
+    assert report["content_contrast"]["paired_counts"]["regression"] == 1
     assert report["content_contrast"]["paired_delta_on_minus_off"]["complete_case"]["value"] == pytest.approx(8 / 12)
     assert report["gate_contrasts"]["original_acre_fixed_skill"]["coverage"] == pytest.approx(0.5)
     assert report["gate_contrasts"]["regime_acre_fixed_skill"]["coverage"] == pytest.approx(2 / 12)
@@ -147,6 +152,7 @@ def test_mock_fixture_cannot_be_joined_as_real_and_real_requires_explicit_origin
         evaluate_fixed_skill(real_plan, decisions, [fixture_receipt])
 
     real_receipt = _receipt(real_plan, real_plan["tasks"][0], "off", False)
+    real_receipt.pop("evidence_origin")
     with pytest.raises(ValueError, match="type/origin"):
         evaluate_fixed_skill(real_plan, decisions, [real_receipt])
 
@@ -166,6 +172,7 @@ def test_missing_pairs_get_itt_bounds_and_zero_deployment_harm_is_undefined():
     assert gate["n_deployed"] == 0
     assert gate["harm_deployed"] is None
     assert gate["harm_deployed_status"] == "UNDEFINED_ZERO_OBSERVED_DEPLOYMENT"
+    assert gate["zero_harm_upper_95"]["status"] == "UNDEFINED_ZERO_DEPLOYMENT"
 
 
 def test_shared_arm_policy_identity_is_zero_even_when_no_outcome_was_observed():
@@ -237,6 +244,19 @@ def test_route_freezer_calls_canonical_engine_for_each_preexecution_context():
     assert all(item["decision_source"] == "AcreEngine.route" for item in frozen["decisions"])
 
 
+def test_route_freezer_rejects_future_outcome_features():
+    class Engine:
+        def route(self, context, **kwargs):
+            return type("Decision", (), {"selected_rule_ids": ()})()
+
+    with pytest.raises(ValueError, match="cannot contain outcomes or labels"):
+        freeze_acre_route_decisions(
+            Engine(), [{"task_id": "t1", "context": {"future_observation": "won"}}],
+            policy="regime_acre_fixed_skill", skill_rule_ids=["skill-rule"],
+            skill_sha="skill-digest", agent_sha="agent-digest", study_id="study", run_id="run",
+        )
+
+
 def test_combined_freeze_emits_same_fixed_skill_policy_decisions_before_join():
     class Engine:
         def route(self, context, **kwargs):
@@ -246,7 +266,8 @@ def test_combined_freeze_emits_same_fixed_skill_policy_decisions_before_join():
         Engine(), Engine(),
         [{"task_id": "t1", "context": {"eligible": True}}],
         skill_rule_ids=["skill-rule"], skill_sha="skill-digest", agent_sha="agent-digest",
-        study_id="study", run_id="run", support_regimes={"skill-rule": "frozen"},
+        study_id="study", run_id="run", configuration_sha="config-digest",
+        support_regimes={"skill-rule": "frozen"},
     )
     assert frozen["frozen_before_outcome_join"] is True
     assert {row["policy"] for row in frozen["decisions"]} == set(POLICIES)
@@ -254,6 +275,8 @@ def test_combined_freeze_emits_same_fixed_skill_policy_decisions_before_join():
                for row in frozen["decisions"])
     assert all(row["decision_source"] == "AcreEngine.route"
                for row in frozen["decisions"] if row["policy"] != "global_fixed_skill")
+    assert frozen["policy_value_contract"]["feature_projection"] == "PREEXECUTION_CONTEXT_ONLY"
+    assert frozen["configuration_sha"] == "config-digest"
 
 
 def test_cluster_interval_is_suppressed_after_candidate_selection():
@@ -318,6 +341,160 @@ def test_taskbook_done_and_per_request_usd_fields_are_consumed():
     assert report["content_contrast"]["paired_counts"]["both_correct"] == 1
     assert report["cost"]["task_only"]["provider_calls"]["value"] == 2
     assert report["cost"]["task_only"]["provider_usd_estimate"]["value"] == pytest.approx(0.05)
+
+
+def _priced_success_report(*, count=3, input_off=100, completion_off=100,
+                           input_on=50, completion_on=50, usd_off="0.10", usd_on="0.08",
+                           outcomes=None, prefix="", split="train_outer"):
+    plan = _plan(evidence_kind="REAL_AGENT", count=count)
+    for task in plan["tasks"]:
+        for key in ("task_id", "template_id", "cluster_id"):
+            task[key] = prefix + task[key]
+        task["trial_ids"] = {arm: prefix + value for arm, value in task["trial_ids"].items()}
+        task["split"] = split
+        if split == "train_outer":
+            task["child_split"] = "outer_skill_validation"
+    plan["deployment_iid_assumption"] = True
+    plan["deployment_scope_frozen"] = True
+    pairs = outcomes or [(True, True)] * count
+    receipts = _paired_receipts(plan, pairs)
+    for receipt in receipts:
+        off = receipt["arm"] == "off"
+        receipt["trajectory"] = [{
+            "input_tokens": input_off if off else input_on,
+            "output_tokens": completion_off if off else completion_on,
+            "reasoning_tokens": 20 if off else 10,
+            "provider_request_made": True,
+            "estimated_provider_usd": usd_off if off else usd_on,
+        }]
+        receipt["actions"] = 4 if off else 3
+    return plan, _decisions(plan), receipts
+
+
+def test_inner_favorable_outer_regression_is_rejected_without_promotion():
+    inner_plan, inner_decisions, inner_receipts = _priced_success_report(prefix="inner-", split="train_inner")
+    inner, _ = evaluate_fixed_skill(inner_plan, inner_decisions, inner_receipts)
+    good_plan, good_decisions, good_receipts = _priced_success_report(prefix="outer-")
+    good_outer, _ = evaluate_fixed_skill(good_plan, good_decisions, good_receipts)
+    favorable = assess_success_only_efficiency(inner, good_outer)
+    assert favorable["outer_status"] == "FAVORABLE"
+    assert favorable["canonical_regime"] == "UNCHANGED_NO_PROMOTION"
+    outer_plan, outer_decisions, outer_receipts = _priced_success_report(
+        outcomes=[(True, False), (True, True), (True, True)], prefix="outer-")
+    outer, _ = evaluate_fixed_skill(outer_plan, outer_decisions, outer_receipts)
+
+    result = assess_success_only_efficiency(inner, outer)
+
+    assert result["inner_status"] == "FAVORABLE"
+    assert result["outer_status"] == "REJECTED"
+    assert result["outer_reason"] == "OBSERVED_REGRESSION"
+    assert result["promotion"] == "NO_REAL_PROMOTION"
+    assert result["canonical_regime"] == "UNCHANGED_NO_PROMOTION"
+
+
+def test_inner_cannot_be_renamed_as_independent_outer():
+    plan, decisions, receipts = _priced_success_report(split="train_inner")
+    report, _ = evaluate_fixed_skill(plan, decisions, receipts)
+    with pytest.raises(ValueError, match="reserved outer cohorts"):
+        assess_success_only_efficiency(report, report)
+
+
+def test_break_even_requires_measured_build_not_total_evaluation_cost():
+    plan, decisions, receipts = _priced_success_report()
+    report, _ = evaluate_fixed_skill(plan, decisions, receipts)
+    assert report["cost"]["break_even_deployments"] is None
+    plan["measured_build_costs_usd"] = {key: 1.0 for key in (
+        "diagnostic", "proposal", "patch", "inner", "outer", "gate_calibration")}
+    report, _ = evaluate_fixed_skill(plan, decisions, receipts)
+    assert report["cost"]["measured_build_cost_usd"] == 6.0
+    assert report["cost"]["break_even_deployments"] == pytest.approx(300, abs=1)
+
+
+def test_both_success_but_higher_cost_and_tokens_is_no_net_efficiency_gain():
+    plan, decisions, receipts = _priced_success_report(
+        input_off=50, completion_off=50, input_on=100, completion_on=100,
+        usd_off="0.05", usd_on="0.10")
+
+    report, _ = evaluate_fixed_skill(plan, decisions, receipts)
+
+    assert report["content_contrast"]["paired_counts"]["11"] == 3
+    assert report["success_only_gate"]["status"] == "NO_NET_EFFICIENCY_GAIN"
+    assert report["success_only_gate"]["median_both_success_total_token_saving_fraction"] == pytest.approx(-1.0)
+    assert report["cost"]["break_even_deployments"] is None
+
+
+def test_failed_rollouts_with_lower_usage_do_not_count_as_efficiency_savings():
+    plan, decisions, receipts = _priced_success_report(
+        input_off=100, completion_off=100, input_on=1, completion_on=1,
+        outcomes=[(False, False)] * 3)
+
+    report, _ = evaluate_fixed_skill(plan, decisions, receipts)
+
+    assert report["success_only_efficiency"]["n_both_success"] == 0
+    assert report["success_only_efficiency"]["metrics"]["total_tokens"]["saving_fraction"]["n"] == 0
+    assert report["success_only_gate"]["status"] == "NO_NET_EFFICIENCY_GAIN"
+
+
+def test_static_policy_value_requires_real_fixed_predecision_rollouts_and_unique_clusters():
+    plan, _, receipts = _priced_success_report(count=3)
+    for task in plan["tasks"][1:]:
+        task["cluster_id"] = "shared-cluster"
+    plan["tasks"][0]["cluster_id"] = "shared-cluster"
+    for receipt in receipts:
+        receipt["cluster_id"] = "shared-cluster"
+    decisions = {
+        "record_type": "frozen_policy_decisions", "frozen_before_outcome_join": True,
+        "study_id": plan["study_id"], "run_id": plan["run_id"],
+        "skill_sha": plan["skill_sha"], "agent_sha": plan["agent_sha"],
+        "configuration_sha": plan["configuration_sha"],
+        "policy_value_contract": {
+            "decision_timing": "BEFORE_EPISODE",
+            "feature_projection": "PREEXECUTION_CONTEXT_ONLY",
+            "router_behavior": "INJECT_OR_ABSTAIN_ONLY",
+        },
+        "decisions": [],
+    }
+    for task in plan["tasks"]:
+        for policy in POLICIES:
+            deployed = policy == "global_fixed_skill"
+            decisions["decisions"].append({
+                "task_id": task["task_id"], "policy": policy, "deployed": deployed,
+                "skill_sha": plan["skill_sha"], "agent_sha": plan["agent_sha"],
+                **({"decision_source": "AcreEngine.route", "selected_rule_ids": ["skill-rule"] if deployed else []}
+                   if policy != "global_fixed_skill" else {}),
+            })
+    semantics = {
+        "off": "fixed_agent_config_without_skill",
+        "on": "same_fixed_agent_config_with_frozen_skill",
+        "router": "skill_injection_or_abstention_only",
+    }
+
+    report, _ = evaluate_policy_value_on_real_paired_rollouts(
+        plan, decisions, receipts, arm_semantics=semantics)
+
+    assert report["policy_value"]["status"] == "POLICY_VALUE_ON_REAL_PAIRED_ROLLOUTS"
+    assert report["policy_value"]["independent_semantic_clusters"] == 1
+    assert report["pair_denominators"] == {
+        "planned": 3, "started": 3, "completed": 3, "paired_valid": 3,
+        "incomplete": 0, "not_started": 0,
+    }
+    with pytest.raises(ValueError, match="dynamic routers"):
+        evaluate_policy_value_on_real_paired_rollouts(
+            plan, decisions, receipts, arm_semantics=semantics, dynamic_router=True)
+
+
+def test_zero_harm_bound_needs_declared_iid_fixed_unselected_design():
+    plan, decisions, receipts = _priced_success_report(count=3)
+
+    report, _ = evaluate_fixed_skill(plan, decisions, receipts)
+
+    bound = report["gate_contrasts"]["original_acre_fixed_skill"]["zero_harm_upper_95"]
+    assert bound["status"] == "EXACT_ONE_SIDED_BINOMIAL"
+    assert bound["n_independent_deployments"] == 3
+    assert bound["value"] == pytest.approx(1 - 0.05 ** (1 / 3))
+    del plan["deployment_iid_assumption"]
+    uncertified, _ = evaluate_fixed_skill(plan, decisions, receipts)
+    assert uncertified["gate_contrasts"]["original_acre_fixed_skill"]["zero_harm_upper_95"]["status"] == "UNCERTIFIED"
 
 
 def test_dry_run_is_explicitly_not_an_outcome_analysis():

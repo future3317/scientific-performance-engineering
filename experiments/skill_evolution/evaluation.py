@@ -21,7 +21,11 @@ TERMINAL_STATUSES = {
 COST_FIELDS = (
     "provider_calls", "input_tokens", "completion_tokens", "reasoning_tokens",
     "cache_hit_tokens", "cache_miss_tokens", "provider_usd_estimate",
-    "wall_seconds", "gpu_seconds", "verification_seconds",
+    "wall_seconds", "gpu_seconds", "verification_seconds", "actions",
+)
+EFFICIENCY_FIELDS = (
+    "input_tokens", "completion_tokens", "reasoning_tokens", "provider_calls",
+    "actions", "provider_usd_estimate", "wall_seconds",
 )
 PAIRED_INDEX_FIELDS = (
     "task_id", "template_id", "cluster_id", "split", "arm", "trial_id",
@@ -33,13 +37,25 @@ PAIRED_INDEX_FIELDS = (
 )
 FORBIDDEN_DECISION_FIELDS = {
     "outcome", "verified_outcome", "success", "environment_won", "reward",
-    "won", "label", "repair", "regression",
+    "won", "label", "repair", "regression", "future_observation", "hidden_state",
+    "high_pddl", "expert_action", "teacher_trajectory",
+}
+FORBIDDEN_FEATURE_TOKENS = {
+    "outcome", "outcomes", "success", "won", "reward", "label", "repair", "regression",
+    "future", "hidden", "oracle", "high", "pddl", "expert", "teacher",
 }
 
 
 def _contains_outcome_field(value: Any) -> bool:
     if isinstance(value, Mapping):
-        return bool(FORBIDDEN_DECISION_FIELDS.intersection(str(key).casefold() for key in value)) or any(
+        forbidden_key = any(
+            str(key).casefold() in FORBIDDEN_DECISION_FIELDS
+            or bool(FORBIDDEN_FEATURE_TOKENS.intersection(
+                str(key).casefold().replace("-", "_").split("_")
+            ))
+            for key in value
+        )
+        return forbidden_key or any(
             _contains_outcome_field(item) for item in value.values()
         )
     if isinstance(value, (list, tuple)):
@@ -57,6 +73,7 @@ def freeze_acre_route_decisions(
     agent_sha: str,
     study_id: str,
     run_id: str,
+    configuration_sha: str | None = None,
     token_budget: int | None = None,
     support_regimes: Mapping[str, Any] | None = None,
     runtime_versions: Mapping[str, str] | None = None,
@@ -90,15 +107,22 @@ def freeze_acre_route_decisions(
             "decision_source": "AcreEngine.route",
             "skill_sha": skill_sha,
             "agent_sha": agent_sha,
+            **({"configuration_sha": configuration_sha} if configuration_sha else {}),
         })
     return {
         "record_type": "frozen_policy_decisions",
         "frozen_before_outcome_join": True,
+        "policy_value_contract": {
+            "decision_timing": "BEFORE_EPISODE",
+            "feature_projection": "PREEXECUTION_CONTEXT_ONLY",
+            "router_behavior": "INJECT_OR_ABSTAIN_ONLY",
+        },
         "study_id": study_id,
         "run_id": run_id,
         "policy": policy,
         "skill_sha": skill_sha,
         "agent_sha": agent_sha,
+        **({"configuration_sha": configuration_sha} if configuration_sha else {}),
         "decisions": decisions,
     }
 
@@ -113,6 +137,7 @@ def freeze_policy_decisions(
     agent_sha: str,
     study_id: str,
     run_id: str,
+    configuration_sha: str | None = None,
     token_budget: int | None = None,
     support_regimes: Mapping[str, Any] | None = None,
     runtime_versions: Mapping[str, str] | None = None,
@@ -128,6 +153,7 @@ def freeze_policy_decisions(
         "decision_source": "global_fixed_skill_policy",
         "skill_sha": skill_sha,
         "agent_sha": agent_sha,
+        **({"configuration_sha": configuration_sha} if configuration_sha else {}),
     } for task in tasks]
     for engine, policy in (
         (original_engine, "original_acre_fixed_skill"),
@@ -136,6 +162,7 @@ def freeze_policy_decisions(
         routed = freeze_acre_route_decisions(
             engine, tasks, policy=policy, skill_rule_ids=skill_rule_ids,
             skill_sha=skill_sha, agent_sha=agent_sha, study_id=study_id, run_id=run_id,
+            configuration_sha=configuration_sha,
             token_budget=token_budget,
             support_regimes=support_regimes if policy == "regime_acre_fixed_skill" else None,
             runtime_versions=runtime_versions,
@@ -144,10 +171,16 @@ def freeze_policy_decisions(
     return {
         "record_type": "frozen_policy_decisions",
         "frozen_before_outcome_join": True,
+        "policy_value_contract": {
+            "decision_timing": "BEFORE_EPISODE",
+            "feature_projection": "PREEXECUTION_CONTEXT_ONLY",
+            "router_behavior": "INJECT_OR_ABSTAIN_ONLY",
+        },
         "study_id": study_id,
         "run_id": run_id,
         "skill_sha": skill_sha,
         "agent_sha": agent_sha,
+        **({"configuration_sha": configuration_sha} if configuration_sha else {}),
         "decisions": decisions,
     }
 
@@ -212,6 +245,8 @@ def _validate_decisions(
         raise ValueError("frozen decisions belong to a different study/run")
     if record.get("skill_sha") != plan["skill_sha"] or record.get("agent_sha") != plan["agent_sha"]:
         raise ValueError("decisions do not use the plan's fixed Skill and Agent")
+    if record.get("configuration_sha", plan["configuration_sha"]) != plan["configuration_sha"]:
+        raise ValueError("decisions do not use the plan's fixed configuration")
     rows = record.get("decisions")
     if not isinstance(rows, list):
         raise ValueError("frozen decisions must be a list")
@@ -230,6 +265,8 @@ def _validate_decisions(
             raise ValueError("every frozen decision must explicitly set deployed true/false")
         if row.get("skill_sha") != plan["skill_sha"] or row.get("agent_sha") != plan["agent_sha"]:
             raise ValueError("all policies must use the same frozen Skill and Agent")
+        if row.get("configuration_sha", plan["configuration_sha"]) != plan["configuration_sha"]:
+            raise ValueError("all policies must use the same frozen configuration")
         if policy != "global_fixed_skill" and row.get("decision_source") != "AcreEngine.route":
             raise ValueError("operational ACRE decisions must come from AcreEngine.route")
         if policy != "global_fixed_skill":
@@ -324,6 +361,7 @@ def _request_cost(row: Mapping[str, Any]) -> dict[str, int | float | None]:
         "wall_seconds": row.get("wall_seconds"),
         "gpu_seconds": row.get("gpu_seconds"),
         "verification_seconds": row.get("verification_seconds"),
+        "actions": row.get("actions", row.get("environment_actions")),
     }
 
 
@@ -338,19 +376,131 @@ def _sum_costs(costs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _paired_counts(pairs: Sequence[tuple[bool, bool] | None]) -> dict[str, int]:
-    counts = {"repair": 0, "regression": 0, "both_correct": 0, "both_wrong": 0, "missing": 0}
+    counts = {"00": 0, "01": 0, "10": 0, "11": 0, "missing": 0}
     for pair in pairs:
         if pair is None:
             counts["missing"] += 1
-        elif pair == (False, True):
-            counts["repair"] += 1
-        elif pair == (True, False):
-            counts["regression"] += 1
-        elif pair == (True, True):
-            counts["both_correct"] += 1
         else:
-            counts["both_wrong"] += 1
+            counts[f"{int(pair[0])}{int(pair[1])}"] += 1
+    counts.update({"repair": counts["01"], "regression": counts["10"],
+                   "both_correct": counts["11"], "both_wrong": counts["00"]})
     return counts
+
+
+def _distribution(values: Sequence[float]) -> dict[str, Any]:
+    if not values:
+        return {"n": 0, "median": None, "mean": None, "p10": None, "p90": None}
+    ordered = sorted(values)
+    def percentile(fraction: float) -> float:
+        position = fraction * (len(ordered) - 1)
+        low = math.floor(position)
+        high = math.ceil(position)
+        return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
+    return {"n": len(values), "median": percentile(0.5), "mean": mean(values),
+            "p10": percentile(0.1), "p90": percentile(0.9)}
+
+
+def _zero_harm_upper(n: int, *, assumptions_valid: bool) -> dict[str, Any]:
+    if not assumptions_valid:
+        return {"value": None, "status": "UNCERTIFIED", "confidence": 0.95,
+                "assumptions": ["independent identically distributed deployed episodes",
+                                "deployment scope fixed before outcomes", "no outcome-based selection"]}
+    if n == 0:
+        return {"value": None, "status": "UNDEFINED_ZERO_DEPLOYMENT", "confidence": 0.95}
+    return {"value": 1 - 0.05 ** (1 / n), "status": "EXACT_ONE_SIDED_BINOMIAL",
+            "confidence": 0.95, "n_independent_deployments": n,
+            "assumptions": ["independent identically distributed deployed episodes",
+                            "deployment scope fixed before outcomes", "no outcome-based selection"]}
+
+
+def _status_counts(tasks: Sequence[Mapping[str, Any]], by_trial: Mapping[str, Mapping[str, Any]]) -> dict[str, int]:
+    counts = {"planned": len(tasks), "started": 0, "completed": 0, "paired_valid": 0,
+              "incomplete": 0, "not_started": 0}
+    for task in tasks:
+        arm_rows = [by_trial.get(task["trial_ids"][arm]) for arm in ARMS]
+        statuses = [row.get("status") if row else "NOT_LAUNCHED" for row in arm_rows]
+        launched = [status not in {"PLANNED", "ELIGIBLE", "RESERVED", "NOT_LAUNCHED"} for status in statuses]
+        outcomes = [receipt_outcome(row) if row and row.get("status") in TERMINAL_STATUSES else None
+                    for row in arm_rows]
+        counts["started"] += int(any(launched))
+        counts["completed"] += int(all(status in TERMINAL_STATUSES for status in statuses))
+        counts["paired_valid"] += int(all(type(outcome) is bool for outcome in outcomes))
+        counts["not_started"] += int(not any(launched))
+        counts["incomplete"] += int(any(launched) and not all(type(outcome) is bool for outcome in outcomes))
+    return counts
+
+
+def _efficiency_summary(tasks: Sequence[Mapping[str, Any]], by_trial: Mapping[str, Mapping[str, Any]],
+                        cost_by_trial: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    fields = (*EFFICIENCY_FIELDS, "total_tokens")
+    differences: dict[str, list[float]] = {field: [] for field in fields}
+    saving_fractions: dict[str, list[float]] = {field: [] for field in fields}
+    pairs = 0
+    for task in tasks:
+        off_id, on_id = (task["trial_ids"][arm] for arm in ARMS)
+        off, on = by_trial.get(off_id), by_trial.get(on_id)
+        if not off or not on or off.get("status") not in TERMINAL_STATUSES or on.get("status") not in TERMINAL_STATUSES:
+            continue
+        if receipt_outcome(off) is not True or receipt_outcome(on) is not True:
+            continue
+        pairs += 1
+        off_cost, on_cost = cost_by_trial[off_id], cost_by_trial[on_id]
+        off_total = (off_cost.get("input_tokens") + off_cost.get("completion_tokens")
+                     if all(type(off_cost.get(field)) in (int, float) for field in ("input_tokens", "completion_tokens")) else None)
+        on_total = (on_cost.get("input_tokens") + on_cost.get("completion_tokens")
+                    if all(type(on_cost.get(field)) in (int, float) for field in ("input_tokens", "completion_tokens")) else None)
+        for field in fields:
+            before, after = ((off_total, on_total) if field == "total_tokens"
+                             else (off_cost.get(field), on_cost.get(field)))
+            if (type(before) in (int, float) and math.isfinite(before) and
+                    type(after) in (int, float) and math.isfinite(after)):
+                differences[field].append(float(after - before))
+            if (type(before) in (int, float) and before > 0 and
+                    type(after) in (int, float) and math.isfinite(after)):
+                saving_fractions[field].append(float((before - after) / before))
+    result = {field: {"on_minus_off": _distribution(differences[field]),
+                      "saving_fraction": _distribution(saving_fractions[field])}
+              for field in fields}
+    return {"conditioning": "both arms officially successful; descriptive selected subset",
+            "n_both_success": pairs, "metrics": result}
+
+
+def assess_success_only_efficiency(inner: Mapping[str, Any], outer: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply the frozen inner threshold once and report independent outer status."""
+    identity_fields = ("skill_sha", "agent_sha", "model_identity", "configuration_sha", "benchmark_revision")
+    if any(inner.get("identity", {}).get(field) != outer.get("identity", {}).get(field)
+           for field in identity_fields):
+        raise ValueError("inner and outer reports must use the same frozen Skill, Agent, model, and configuration")
+    inner_cohort, outer_cohort = inner.get("cohort", []), outer.get("cohort", [])
+    if (not inner_cohort or not outer_cohort
+            or any(row.get("split") != "train_inner" for row in inner_cohort)
+            or any(row.get("child_split") != "outer_skill_validation" for row in outer_cohort)):
+        raise ValueError("independent outer assessment requires declared inner and reserved outer cohorts")
+    for key in ("task_id", "template_id", "cluster_id"):
+        if {row[key] for row in inner_cohort} & {row[key] for row in outer_cohort}:
+            raise ValueError("inner and outer assessment cohorts overlap")
+
+    def screen(result: Mapping[str, Any]) -> tuple[str, str]:
+        counts = result["content_contrast"]["paired_counts"]
+        token_saving = result["success_only_efficiency"]["metrics"]["total_tokens"]["saving_fraction"]["median"]
+        if counts["regression"]:
+            return "REJECTED", "OBSERVED_REGRESSION"
+        if counts["missing"]:
+            return "UNDECIDED", "INCOMPLETE_PAIRS"
+        if token_saving is None or token_saving < 0.10:
+            return "REJECTED", "NO_NET_EFFICIENCY_GAIN"
+        return "FAVORABLE", "FIXED_SUCCESS_ONLY_SCREEN_MET"
+
+    inner_status, inner_reason = screen(inner)
+    if inner_status != "FAVORABLE":
+        return {"inner_status": inner_status, "inner_reason": inner_reason,
+                "outer_status": "NOT_RUN_INNER_NOT_FAVORABLE", "promotion": "NO_REAL_PROMOTION",
+                "canonical_regime": "UNCHANGED_NO_PROMOTION"}
+    outer_status, outer_reason = screen(outer)
+    return {"inner_status": inner_status, "inner_reason": inner_reason,
+            "outer_status": outer_status, "outer_reason": outer_reason,
+            "promotion": "NO_REAL_PROMOTION",
+            "canonical_regime": "UNCHANGED_NO_PROMOTION"}
 
 
 def _delta_summary(differences: Sequence[int], planned: int) -> dict[str, Any]:
@@ -588,9 +738,18 @@ def evaluate_fixed_skill(
         global_tasks = [task for _, task in data["delta_global"]]
         rows = data["rows"]
         deployed = sum(item[0] for item in rows)
+        selected_arm_costs = []
+        for task, item in zip(tasks, rows):
+            arm = "on" if item[0] else "off"
+            trial_id = task["trial_ids"][arm]
+            selected_arm_costs.append(cost_by_trial.get(trial_id, {}))
         observed_deployed = sum(item[0] and type(item[1]) is bool and type(item[2]) is bool for item in rows)
         policy_outcomes = [item[3] for item in rows]
         observed_pairs = sum(type(item[1]) is bool and type(item[2]) is bool for item in rows)
+        observed_deployed_clusters = len({
+            str(task["cluster_id"]) for task, item in zip(tasks, rows)
+            if item[0] and type(item[1]) is bool and type(item[2]) is bool
+        })
         repair_opportunities = content_counts["repair"]
         retained_repairs = sum(item[0] and item[1] is False and item[2] is True for item in rows)
         avoided_regressions = sum(not item[0] and item[1] is True and item[2] is False for item in rows)
@@ -600,6 +759,8 @@ def evaluate_fixed_skill(
             "paired_counts_vs_global": pair_counts,
             "coverage": deployed / task_count,
             "n_deployed": deployed,
+            "selected_arm_cost": _sum_costs(selected_arm_costs),
+            "route_overhead_cost": {"value": None, "status": "UNKNOWN_NOT_SEPARATELY_MEASURED"},
             "success_rate": _binary_rate(policy_outcomes, task_count),
             "incremental_success_over_base": _delta_summary(base_diffs, task_count),
             "paired_delta_vs_global": _delta_summary(global_diffs, task_count),
@@ -618,12 +779,20 @@ def evaluate_fixed_skill(
             "n_deployed_observed": observed_deployed,
             "harm_deployed": harm / observed_deployed if observed_deployed else None,
             "harm_deployed_status": "MEASURED" if observed_deployed else "UNDEFINED_ZERO_OBSERVED_DEPLOYMENT",
+            "zero_harm_upper_95": (_zero_harm_upper(
+                observed_deployed_clusters,
+                assumptions_valid=(plan.get("deployment_iid_assumption") is True
+                                   and plan.get("deployment_scope_frozen") is True
+                                   and int(plan.get("candidate_selection_count", 1)) == 1
+                                   and observed_deployed == deployed),
+            ) if harm == 0 else {"value": None, "status": "NOT_ZERO_HARM", "observed_harms": harm}),
             "contrast_identification": "Shared-arm contrasts are exactly zero by policy identity; other contrasts require both arm outcomes. Raw missing pairs remain missing.",
             "semantic_cluster_interval_vs_global": _cluster_interval(
                 global_diffs, [str(task["cluster_id"]) for task in global_tasks],
                 selection_count=int(plan.get("candidate_selection_count", 1)),
                 minimum_clusters=plan["minimum_independent_clusters_for_interval"],
             ),
+            "independent_deployed_clusters": observed_deployed_clusters,
         }
 
     trial_costs = [cost_by_trial[trial_id] for trial_id in planned_trials if trial_id in cost_by_trial]
@@ -642,6 +811,40 @@ def evaluate_fixed_skill(
         shared_costs.append({field: values.get(field) for field in COST_FIELDS})
     task_cost = _sum_costs(trial_costs)
     all_cost = _sum_costs([*trial_costs, *shared_costs])
+    efficiency = _efficiency_summary(tasks, by_trial, cost_by_trial)
+    token_saving = efficiency["metrics"]["total_tokens"]["saving_fraction"]["median"]
+    cost_saving = efficiency["metrics"]["provider_usd_estimate"]["saving_fraction"]["median"]
+    observed_regressions = content_counts["regression"]
+    off_success = sum(outcomes[(str(task["task_id"]), "off")] is True for task in tasks)
+    retained_off_successes = sum(
+        outcomes[(str(task["task_id"]), "off")] is True
+        and outcomes[(str(task["task_id"]), "on")] is True for task in tasks
+    )
+    efficiency_status = ("REJECTED_REGRESSION" if observed_regressions else
+                         "UNDECIDED_INCOMPLETE_PAIRS" if content_counts["missing"] else
+                         "NO_NET_EFFICIENCY_GAIN" if token_saving is None or token_saving < 0.10 else
+                         "PILOT_FAVORABLE_ONLY")
+    usd_differences = []
+    for task in tasks:
+        off_id, on_id = task["trial_ids"]["off"], task["trial_ids"]["on"]
+        if all(by_trial.get(trial_id) and by_trial[trial_id].get("status") in TERMINAL_STATUSES
+               and receipt_outcome(by_trial[trial_id]) is True for trial_id in (off_id, on_id)):
+            before, after = cost_by_trial[off_id].get("provider_usd_estimate"), cost_by_trial[on_id].get("provider_usd_estimate")
+            if type(before) in (int, float) and type(after) in (int, float):
+                usd_differences.append(float(before - after))
+    median_usd_saving = _distribution(usd_differences)["median"]
+    # Evaluation spending is not deployment preparation. Require an explicit
+    # measured build-cost breakdown rather than silently using all-in test cost.
+    build_costs = plan.get("measured_build_costs_usd")
+    build_fields = {"diagnostic", "proposal", "patch", "inner", "outer", "gate_calibration"}
+    build_usd = (sum(build_costs.values()) if isinstance(build_costs, Mapping)
+                 and set(build_costs) == build_fields and all(
+                     type(value) in (int, float) and math.isfinite(value) and value >= 0
+                     for value in build_costs.values()) else None)
+    mean_usd_saving = mean(usd_differences) if usd_differences else None
+    break_even = (math.ceil(build_usd / mean_usd_saving)
+                  if build_usd is not None and mean_usd_saving is not None and mean_usd_saving > 0 else None)
+    pair_denominators = _status_counts(tasks, by_trial)
     terminal_receipts = [row for row in by_trial.values() if row.get("status") in TERMINAL_STATUSES]
     started_trials = [row for row in by_trial.values() if row.get("status") not in {"PLANNED", "ELIGIBLE", "RESERVED", "NOT_LAUNCHED"}]
     completed_task_ids = {
@@ -652,6 +855,8 @@ def evaluate_fixed_skill(
         "status": "REAL_RECEIPT_ANALYSIS" if expected_origin == "REAL_AGENT" else "SYNTHETIC_FIXTURE_ONLY",
         "claim_scope": "one fixed Skill, one fixed Agent/model/configuration; policies reuse the same task-level off/on outcomes",
         "evidence_kind": expected_origin,
+        "cohort": [{key: task.get(key) for key in ("task_id", "template_id", "cluster_id", "split", "child_split")}
+                   for task in tasks],
         "identity": {key: plan[key] for key in ("study_id", "run_id", "source_commit", "split_manifest_sha256", "skill_sha", "agent_sha", "model_identity", "configuration_sha", "benchmark_revision") if key in plan},
         "observed_model_response_identity": next(iter(response_models), None),
         "counts": {
@@ -662,16 +867,91 @@ def evaluate_fixed_skill(
             "n_success_false": sum(value is False for value in outcomes.values()),
             "n_success_unknown": sum(value is None for value in outcomes.values()),
             "n_not_launched": sum(1 for trial_id in planned_trials if trial_id not in by_trial or by_trial[trial_id].get("status") in {"PLANNED", "ELIGIBLE", "RESERVED", "NOT_LAUNCHED"}),
+            "n_incomplete_pairs": pair_denominators["incomplete"],
+            "n_not_started_pairs": pair_denominators["not_started"],
             "n_started_trials": len(started_trials), "n_completed_trials": len(terminal_receipts),
         },
         "content_contrast": content,
+        "success_only_efficiency": efficiency,
+        "success_only_gate": {
+            "status": efficiency_status,
+            "fixed_rule": "zero observed regression and median both-success paired total-token saving >= 10%; USD is secondary and cannot substitute",
+            "regression_count": observed_regressions,
+            "off_success_denominator": off_success,
+            "regression_rate_given_off_success": observed_regressions / off_success if off_success else None,
+            "regression_rate_status": "MEASURED" if off_success else "UNDEFINED_ZERO_OFF_SUCCESS",
+            "on_success_given_off_success": retained_off_successes / off_success if off_success else None,
+            "on_success_given_off_success_status": "MEASURED" if off_success else "UNDEFINED_ZERO_OFF_SUCCESS",
+            "median_both_success_total_token_saving_fraction": token_saving,
+            "median_both_success_usd_saving_fraction_secondary": cost_saving,
+            "outer_interpretation": "pilot favorable, undecided, or rejected; never GLOBAL_VERIFIED",
+            "canonical_promotion": "NOT_PERMITTED_BY_OUTER_PILOT",
+        },
         "gate_contrasts": gates,
         "cost": {"task_only": task_cost, "all_in": all_cost,
-                 "accounting_note": "Each physical trial and shared cost_id is summed once. Provider usage comes from per-request trajectory/request_usage; cumulative provider_budget snapshots are ignored."},
+                 "median_both_success_usd_saving_per_deployment": median_usd_saving,
+                 "mean_both_success_usd_saving_per_deployment": mean_usd_saving,
+                 "measured_build_cost_usd": build_usd,
+                 "break_even_basis": "fixed global Skill, mean observed both-success saving; descriptive subset, not a population causal estimate; gate overhead must be added separately",
+                 "break_even_deployments": break_even,
+                 "break_even_status": "FINITE_POSITIVE_SAVING" if break_even is not None else "UNDEFINED_NO_POSITIVE_MEASURED_USD_SAVING_OR_COST",
+                 "accounting_note": "Each physical trial and shared cost_id is summed once. Provider usage comes from per-request trajectory/request_usage; cumulative provider_budget snapshots are ignored. Unknown components remain unknown."},
+        "pair_denominators": pair_denominators,
         "uncertainty_note": f"No interval is emitted below the predeclared minimum of {plan['minimum_independent_clusters_for_interval']} independent semantic clusters or for an unadjusted selected-candidate set. Reported intervals retain task weights and cluster dependence; policy intervals reuse outcomes and are correlated, not independent claims.",
         "independent_claims": False,
     }
     return report, index_rows
+
+
+def evaluate_policy_value_on_real_paired_rollouts(
+    plan: Mapping[str, Any],
+    frozen_decisions: Mapping[str, Any],
+    receipts: Sequence[Mapping[str, Any]],
+    *,
+    arm_semantics: Mapping[str, str],
+    dynamic_router: bool = False,
+    shared_cost_items: Sequence[Mapping[str, Any]] = (),
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Evaluate frozen static policies over independently completed real OFF/ON pairs."""
+    if plan.get("evidence_kind") != "REAL_AGENT":
+        raise ValueError("static policy value requires real paired agent rollouts")
+    if dynamic_router:
+        raise ValueError("dynamic routers require their own online rollout arms")
+    if arm_semantics != {
+        "off": "fixed_agent_config_without_skill",
+        "on": "same_fixed_agent_config_with_frozen_skill",
+        "router": "skill_injection_or_abstention_only",
+    }:
+        raise ValueError("static policy value requires matching frozen OFF/ON arm semantics")
+    contract = frozen_decisions.get("policy_value_contract")
+    if contract != {
+        "decision_timing": "BEFORE_EPISODE",
+        "feature_projection": "PREEXECUTION_CONTEXT_ONLY",
+        "router_behavior": "INJECT_OR_ABSTAIN_ONLY",
+    }:
+        raise ValueError("frozen decisions lack the outcome-free static feature projection contract")
+    if frozen_decisions.get("configuration_sha") != plan.get("configuration_sha"):
+        raise ValueError("static policy decisions do not bind the plan's frozen configuration")
+    if any(row.get("configuration_sha") != plan.get("configuration_sha")
+           for row in frozen_decisions.get("decisions", [])):
+        raise ValueError("every static policy decision must bind the frozen configuration")
+    report, rows = evaluate_fixed_skill(plan, frozen_decisions, receipts,
+                                        shared_cost_items=shared_cost_items)
+    independent_clusters = len({task["cluster_id"] for task in plan["tasks"]})
+    report["policy_value"] = {
+        "status": "POLICY_VALUE_ON_REAL_PAIRED_ROLLOUTS",
+        "decision_timing": "BEFORE_EPISODE",
+        "feature_projection": "PREEXECUTION_CONTEXT_ONLY; outcomes and future observations excluded",
+        "same_frozen_skill_agent_and_arm_semantics": True,
+        "policy_values_reuse_physical_off_on_receipts": True,
+        "independent_semantic_clusters": independent_clusters,
+        "planned_task_count": len(plan["tasks"]),
+        "shared_control_denominator_rule": "each semantic cluster contributes at most one independent unit",
+        "dynamic_router": False,
+        "online_gate_integration_validated": False,
+        "claim_limit": "static policy value estimate; not online gate execution or held-out superiority",
+    }
+    return report, rows
 
 
 def dry_run_report(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -691,12 +971,15 @@ def _markdown(report: Mapping[str, Any]) -> str:
     if report["status"] == "DRY_RUN_NOT_EXECUTED":
         lines.extend([f"Planned tasks: {report['n_planned']}", "Provider calls: 0", "", report["claim_scope"], ""])
         return "\n".join(lines)
-    counts = report["counts"]
-    lines.extend(["## Trial coverage", "", "| Planned | Started | Completed | Paired valid | Success true | Success false | Unknown | Not launched |",
-                  "|---:|---:|---:|---:|---:|---:|---:|---:|",
-                  f"| {counts['n_planned']} | {counts['n_started']} | {counts['n_completed']} | {counts['n_paired_valid']} | {counts['n_success_true']} | {counts['n_success_false']} | {counts['n_success_unknown']} | {counts['n_not_launched']} |",
+    pairs = report["pair_denominators"]
+    lines.extend(["## Trial coverage", "", "| Planned pairs | Started | Completed | Paired valid | Incomplete | Not started |",
+                  "|---:|---:|---:|---:|---:|---:|",
+                  f"| {pairs['planned']} | {pairs['started']} | {pairs['completed']} | {pairs['paired_valid']} | {pairs['incomplete']} | {pairs['not_started']} |",
                   "", "## Skill content", "", f"Paired cells: `{json.dumps(report['content_contrast']['paired_counts'], sort_keys=True)}`",
                   f"On minus off: `{json.dumps(report['content_contrast']['paired_delta_on_minus_off'], sort_keys=True)}`", "",
+                  "## Success-only efficiency", "",
+                  f"Decision: `{report['success_only_gate']['status']}`; both-success pairs: {report['success_only_efficiency']['n_both_success']}; fixed rule: {report['success_only_gate']['fixed_rule']}",
+                  f"Both-success metric distributions: `{json.dumps(report['success_only_efficiency']['metrics'], sort_keys=True)}`", "",
                   "## Routing policies", ""])
     for policy, result in report["gate_contrasts"].items():
         lines.extend([f"### {policy}", "",

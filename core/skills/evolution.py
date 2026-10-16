@@ -681,6 +681,7 @@ class SkillEvolution:
         source_template_ids: Sequence[str] = (),
         source_cluster_ids: Sequence[str] = (),
         source_trace_hashes: Sequence[str] = (),
+        patch_feedback_receipt_hashes: Sequence[str] = (),
         train_split_manifest_sha256: str | None = None,
         generator_provider: str | None = None,
         model_identity: str | None = None,
@@ -699,7 +700,7 @@ class SkillEvolution:
                 proposal_prompt_sha256, proposal_output_sha256, runtime_agent_sha)):
             candidate = replace(
                 candidate,
-                source_split="train_inner" if split == "train_inner" else parent.source_split,
+                source_split=parent.source_split,
                 source_trial_ids=tuple(sorted(set(parent.source_trial_ids) | set(source_trial_ids))),
                 source_task_ids=tuple(sorted(set(parent.source_task_ids) | set(source_task_ids))),
                 source_template_ids=tuple(sorted(set(parent.source_template_ids) | set(source_template_ids))),
@@ -711,7 +712,11 @@ class SkillEvolution:
                 proposal_prompt_sha256=proposal_prompt_sha256 or parent.proposal_prompt_sha256,
                 proposal_output_sha256=proposal_output_sha256 or parent.proposal_output_sha256,
                 runtime_agent_sha=runtime_agent_sha or parent.runtime_agent_sha,
+                patch_feedback_receipt_hashes=tuple(sorted(set(parent.patch_feedback_receipt_hashes) | set(patch_feedback_receipt_hashes))),
             )
+        elif patch_feedback_receipt_hashes:
+            candidate = replace(candidate, patch_feedback_receipt_hashes=tuple(sorted(
+                set(parent.patch_feedback_receipt_hashes) | set(patch_feedback_receipt_hashes))))
         try:
             evidence = verify_inner_pairs(candidate, receipts) if split == "train_inner" else verify_training_pairs(candidate, receipts)
         except ValueError as exc:

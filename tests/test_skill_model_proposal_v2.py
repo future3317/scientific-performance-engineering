@@ -11,7 +11,8 @@ SHA = "a" * 64
 
 def evidence(**updates):
     values = {
-        "source_split": "train_inner",
+        "source_split": "train_dev",
+        "source_mode": "CONTRASTIVE_REPAIR",
         "source_task_ids": ("task-source-1", "task-source-2"),
         "source_template_ids": ("template-source-1", "template-source-2"),
         "source_cluster_ids": ("cluster-source-1", "cluster-source-2"),
@@ -48,6 +49,7 @@ class MockCompletion:
 
 def initial_response():
     return {
+        "source_mode": "CONTRASTIVE_REPAIR",
         "source_trace_ids": ["trace-source-1"],
         "intent": "Complete cleaning tasks with visible checks.",
         "applicability": ["ALFWorld clean_place tasks"],
@@ -84,7 +86,8 @@ def test_initial_proposal_uses_final_content_and_binds_train_inner_provenance():
         evidence(), skill_id="alfworld.clean_place", subtask="clean_and_place", constraints=("One page.",),
     )
     assert client.calls == 1
-    assert skill.source_split == "train_inner"
+    assert skill.source_split == "train_dev"
+    assert skill.source_mode == "CONTRASTIVE_REPAIR"
     assert skill.source_task_ids == evidence().source_task_ids
     assert skill.source_template_ids == evidence().source_template_ids
     assert skill.source_trace_hashes == evidence().source_trace_hashes
@@ -125,6 +128,7 @@ def test_zero_completion_cap_never_calls_even_a_mock_client():
 
 def test_patch_rejects_out_of_bundle_source_and_protected_step_deletion():
     poisoned = {
+        "parent_digest": parent().digest,
         "source_trace_ids": ["outside-trace"], "failure_hypothesis": "failure",
         "edit_operation": {"op": "delete", "section": "procedure", "index": 0},
         "expected_benefit": "maybe", "possible_regressions": [],
@@ -134,7 +138,7 @@ def test_patch_rejects_out_of_bundle_source_and_protected_step_deletion():
     proposer = ModelSkillProposer(client, max_completion_calls=1, mock_mode=True,
                                   on_completion=recorded.append)
     with pytest.raises(ValueError, match="outside its train_inner"):
-        proposer.propose_patch(parent(), evidence())
+        proposer.propose_patch(parent(), evidence(source_split="train_inner"))
     assert recorded[0]["status"] == "received_unvalidated"
     assert json.loads(recorded[0]["raw_output"])["source_trace_ids"] == ["outside-trace"]
 
@@ -142,7 +146,7 @@ def test_patch_rejects_out_of_bundle_source_and_protected_step_deletion():
     client = MockCompletion(poisoned)
     proposer = ModelSkillProposer(client, max_completion_calls=1, mock_mode=True)
     with pytest.raises(ValueError, match="required_procedure_step_removed"):
-        proposer.propose_patch(parent(), evidence())
+        proposer.propose_patch(parent(), evidence(source_split="train_inner"))
 
 
 def test_proposal_rejects_private_paths_instance_ids_and_oracle_terms():
