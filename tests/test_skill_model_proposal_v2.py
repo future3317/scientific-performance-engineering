@@ -23,6 +23,7 @@ def evidence(**updates):
         "agent_hash": "agent-r1",
         "successful_trajectory_summaries": ("Verified completion after checking visible state.",),
         "failed_trajectory_summaries": ("Verified failure after an unconfirmed transformation.",),
+        "verified_failure_patterns": ("unconfirmed transformation",),
         "redaction_report_sha256": "d" * 64,
     }
     return EvidenceBundle(**(values | updates))

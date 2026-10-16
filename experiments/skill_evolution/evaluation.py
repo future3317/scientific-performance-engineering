@@ -401,12 +401,12 @@ def _distribution(values: Sequence[float]) -> dict[str, Any]:
 
 
 def _zero_harm_upper(n: int, *, assumptions_valid: bool) -> dict[str, Any]:
+    if n == 0:
+        return {"value": None, "status": "UNDEFINED_ZERO_DEPLOYMENT", "confidence": 0.95}
     if not assumptions_valid:
         return {"value": None, "status": "UNCERTIFIED", "confidence": 0.95,
                 "assumptions": ["independent identically distributed deployed episodes",
                                 "deployment scope fixed before outcomes", "no outcome-based selection"]}
-    if n == 0:
-        return {"value": None, "status": "UNDEFINED_ZERO_DEPLOYMENT", "confidence": 0.95}
     return {"value": 1 - 0.05 ** (1 / n), "status": "EXACT_ONE_SIDED_BINOMIAL",
             "confidence": 0.95, "n_independent_deployments": n,
             "assumptions": ["independent identically distributed deployed episodes",
