@@ -327,3 +327,25 @@ def test_pair_order_is_metadata_only_deterministic_and_balanced():
     assert sum(row["arm_order"] == ["off", "on"] for row in result) == 3
     changed = [dict(row, future_outcome=False, high_pddl="not a sampler input") for row in pairs]
     assert [row["arm_order"] for row in result] == [row["arm_order"] for row in freeze_pair_orders(changed, 31)]
+
+
+def test_six_pair_long_trace_feedback_stays_bounded_without_dropping_costs():
+    from core.skills import PairReceipt
+    from experiments.skill_evolution.real_learning import _feedback_bundle
+    _, _, _, _, source = learning_fixture()
+    pairs, raw = [], []
+    for index in range(6):
+        for arm in ("off", "on"):
+            pairs.append(PairReceipt(trial_id=f"inner-{index}-{arm}", pair_id=f"pair-{index}",
+                task_id=f"inner-task-{index}", seed=1, arm=arm, split="train_inner",
+                skill_digest="a" * 64 if arm == "on" else None, agent_revision="agent", benchmark_revision="benchmark",
+                success=True, utility=1.0, verifier_status="verified", hard_gates_passed=True,
+                template_id=f"inner-template-{index}", cluster_id=f"inner-cluster-{index}", receipt_sha256="b" * 64))
+            raw.append({"pair_id": f"pair-{index}", "arm": arm, "success": True,
+                        "input_tokens": 12345, "completion_tokens": 6789, "reasoning_tokens": 6000,
+                        "cost_usd": "0.01", "steps": 60, "actions": 60,
+                        "feedback_events": [{"observation": "visible feedback " * 50, "selected_action": "look"} for _ in range(60)]})
+    feedback = _feedback_bundle(source, pairs, raw)
+    feedback.validate(patch_feedback=True)
+    assert len(feedback.paired_execution_metrics) == 12
+    assert all("input_tokens=12345" in item and "full_event_count=60" in item for item in feedback.paired_execution_metrics)
