@@ -31,6 +31,7 @@ from core.skills import (
     SkillPatchOptimizer,
     approve_outer_validation,
     verify_inner_pairs,
+    export_skill_pack,
 )
 
 
@@ -48,7 +49,7 @@ def append_jsonl(path: Path, value: Mapping[str, Any]) -> None:
 def _redact_feedback_text(value: Any) -> Any:
     if not isinstance(value, str):
         return value
-    value = re.sub(r"(?i)\b(?:cabinet|drawer|countertop|table|sinkbasin|stoveburner|fridge|microwave|bed|sofa)\s+\d+\b", "<object>", value)
+    value = re.sub(r"(?i)\b([a-z]+)\s+\d+\b", r"\1", value)
     value = re.sub(r"(?i)(?:[A-Z]:\\|/(?:home|Users|mnt|private|tmp)/)\S+", "<path>", value)
     return value
 
@@ -65,6 +66,58 @@ def _evidence_bundle(value: Mapping[str, Any]) -> EvidenceBundle:
         field.name: tuple(value[field.name]) if field.name in tuple_fields else value[field.name]
         for field in fields(EvidenceBundle) if field.name in value
     })
+
+
+def source_bundle_from_receipts(source_rows: Sequence[Mapping[str, Any]],
+                                split_manifest: Mapping[str, Any], *, source_mode: str) -> EvidenceBundle:
+    """Project verified dev trajectories, never expert/state/reasoning fields."""
+    from experiments.external_real.alfworld_runner import task_family_name
+    members = {row["task_id"]: row for row in split_manifest["task_membership"]}
+    if not source_rows:
+        raise ValueError("real train_dev source receipts are required")
+    positive, negative, families, agents = [], [], set(), set()
+    for row in source_rows:
+        member = members.get(row.get("task_id"), {})
+        if (row.get("split") != "train_dev" or member.get("split") != "train_dev"
+                or row.get("evidence_origin") != "REAL_AGENT" or row.get("teacher_only_source")
+                or (row.get("provider_budget") or {}).get("tokens_unknown", True)
+                or not row.get("trajectory") or receipt_outcome(row) is None
+                or row.get("cluster_id") != member.get("cluster_id")
+                or row.get("template_id") != member.get("template_id")):
+            raise ValueError("source must be a complete autonomous resolved train_dev receipt")
+        if row.get("receipt_sha256") != manifest_digest({k: v for k, v in row.items() if k != "receipt_sha256"}):
+            raise ValueError("source receipt digest mismatch")
+        families.add(task_family_name(member.get("task_type")))
+        agents.add(row.get("agent_revision_sha256"))
+        visible = [{key: _redact_feedback_text(turn[key]) for key in ("observation", "selected_action", "fallback_reason")
+                    if key in turn} for turn in row["trajectory"]]
+        # Bounded source summaries disclose truncation; labels still use the
+        # complete official receipt, never a model's self-reported success.
+        text = json.dumps({"official_success": receipt_outcome(row), "visible_events": visible}, ensure_ascii=False)
+        text = text[:2400]
+        (positive if receipt_outcome(row) else negative).append(text)
+    if len(families) != 1 or len(agents) != 1 or None in agents:
+        raise ValueError("induction sources require one frozen agent and one family")
+    if source_mode == "SUCCESS_ONLY_INDUCTION" and negative:
+        raise ValueError("success-only sources cannot include failed episodes")
+    if source_mode == "CONTRASTIVE_REPAIR" and (not positive or not negative):
+        raise ValueError("contrastive repair requires genuine success and failure episodes")
+    disclosure = {"fields": ["observation", "selected_action", "fallback_reason"],
+                  "redaction": "entity instance numbers removed", "summary_character_cap_per_trace": 2400,
+                  "labels": "complete official receipts", "teacher_or_reasoning_or_state_fields": "excluded"}
+    bundle = EvidenceBundle(source_split="train_dev", source_mode=source_mode,
+        source_task_ids=tuple(row["task_id"] for row in source_rows),
+        source_template_ids=tuple(row["template_id"] for row in source_rows),
+        source_cluster_ids=tuple(row["cluster_id"] for row in source_rows),
+        source_trace_ids=tuple(row["trial_id"] for row in source_rows),
+        source_trace_hashes=tuple(row["receipt_sha256"] for row in source_rows),
+        train_split_manifest_sha256=manifest_digest(split_manifest), task_family=next(iter(families)),
+        agent_hash=next(iter(agents)), successful_trajectory_summaries=tuple(positive),
+        failed_trajectory_summaries=tuple(negative),
+        verified_failure_patterns=("official non-success episode",) if negative else (),
+        redaction_report_sha256=manifest_digest(disclosure))
+    bundle.validate()
+    return bundle
 
 
 def _feedback_bundle(source: EvidenceBundle, receipts: Sequence[PairReceipt],
@@ -381,6 +434,30 @@ def _success_only_inner_screen(receipts: Sequence[Mapping[str, Any]], *, split: 
             "usd_secondary_endpoint": [row.get("cost_usd") for arms in both_success for row in arms.values()]}
 
 
+def select_inner_candidate(rows: Sequence[Mapping[str, Any]], source_mode: str) -> dict[str, Any]:
+    """Two prespecified candidates; ties favor the earlier, unpatched version."""
+    screens = {}
+    for version in ("v1", "v2"):
+        batch = [row for row in rows if str(row.get("pair_id", "")).endswith(":" + version)]
+        screen = _success_only_inner_screen(batch)
+        pairs = {}
+        for row in batch:
+            pairs.setdefault(row["pair_id"], {})[row["arm"]] = row
+        repairs = sum(arms.get("off", {}).get("success") is False and arms.get("on", {}).get("success") is True
+                      for arms in pairs.values())
+        score = (screen["median_total_token_saving_fraction"] if source_mode == "SUCCESS_ONLY_INDUCTION"
+                 else repairs - screen["regressions"])
+        eligible = (bool(batch) and screen["missing_pairs"] == 0 and screen["regressions"] == 0
+                    and (screen["status"] == "READY_FOR_T3_PILOT" if source_mode == "SUCCESS_ONLY_INDUCTION"
+                         else repairs > 0))
+        screens[version] = {**screen, "repairs": repairs, "eligible_for_outer_pilot": eligible, "score": score}
+    eligible = [version for version in ("v1", "v2") if screens[version]["eligible_for_outer_pilot"]]
+    selected = max(eligible, key=lambda version: screens[version]["score"]) if eligible else "no_skill"
+    return {"selected": selected, "candidate_screens": screens, "selection_count": 2,
+            "status": "READY_FOR_T3_PILOT" if eligible else "NO_QUALIFIED_INNER_CANDIDATE",
+            "claim": "exploratory inner selection only; separate T3 required, no canonical promotion"}
+
+
 def _run_one_pair(data_root: Path, client: Any, pair: Mapping[str, Any], candidate: SkillContract,
                   *, split: str, max_steps: int, run_id: str, agent_revision: str,
                   benchmark_revision: str, provenance: Mapping[str, Any],
@@ -400,7 +477,7 @@ def _run_one_pair(data_root: Path, client: Any, pair: Mapping[str, Any], candida
             "pair_id": pair["pair_id"], "trial_id": arm_id,
             "task_id": pair["task_id"], "template_id": pair["template_id"],
             "cluster_id": pair["cluster_id"],
-            "arm": arm, "split": split, "evidence_origin": "REAL_AGENT",
+            "arm": arm, "split": split, "evidence_origin": getattr(client, "evidence_origin", "REAL_AGENT"),
             "skill_digest": candidate.digest if arm == "on" else None,
             "skill_version_sha256": candidate.digest if arm == "on" else None,
             "skill_sha": candidate.digest if arm == "on" else None,
@@ -520,7 +597,7 @@ def run_live_learning(
                     "arm": arm, "skill_digest": candidate.digest if arm == "on" else None,
                     "agent_revision": manifest["agent_revision"], "benchmark_revision": manifest["benchmark_revision"],
                     "success": receipt_outcome(row), "status": row["status"], "steps": row["steps"],
-                    "provider_budget": row["provider_budget"], "evidence_origin": "REAL_AGENT",
+                    "provider_budget": row["provider_budget"], "evidence_origin": row["evidence_origin"],
                     "input_tokens": row.get("input_tokens"), "completion_tokens": row.get("completion_tokens"),
                     "reasoning_tokens": total("reasoning_tokens"), "actions": row.get("env_steps"),
                     "cost_usd": (str(sum((Decimal(item["estimated_provider_usd"]) for item in trajectory
@@ -600,13 +677,19 @@ def run_live_learning(
         generator_provider="deepseek", model_identity=patch_proposal.model_identity,
         proposal_prompt_sha256=patch_proposal.prompt_sha256, proposal_output_sha256=patch_proposal.output_sha256,
         runtime_agent_sha=evidence.agent_hash)
-    efficiency_screen = (_success_only_inner_screen(receipt_rows)
-                         if evidence.source_mode == "SUCCESS_ONLY_INDUCTION" else None)
-    stage_status = efficiency_screen["status"] if efficiency_screen else result.assessment_status
+    selection = select_inner_candidate(receipt_rows, evidence.source_mode)
+    selected_candidate = {"v1": initial, "v2": candidate}.get(selection["selected"])
+    if selected_candidate is not None:
+        export_skill_pack(selected_candidate, output / "selected_skill_pack",
+            agent_revision=manifest["agent_revision"], model_identity=selected_candidate.model_identity,
+            verifier_revision=manifest["benchmark_revision"], task_population="ALFWorld train pilot, not a global certificate")
+    efficiency_screen = selection["candidate_screens"] if evidence.source_mode == "SUCCESS_ONLY_INDUCTION" else None
+    stage_status = selection["status"]
     report = {"status": stage_status, "inner_status": result.assessment_status,
         "success_only_efficiency_screen": efficiency_screen,
         "outer_status": "NOT_RUN_REQUIRES_SEPARATE_T3_APPROVAL", "initial_candidate_digest": initial.digest,
-        "candidate_digest": result.candidate.digest if result.candidate else None,
+        "candidate_digest": selected_candidate.digest if selected_candidate else None,
+        "inner_selection": selection,
         "initial_proposal_prompt_sha256": initial.proposal_prompt_sha256,
         "initial_proposal_output_sha256": initial.proposal_output_sha256,
         "patch_prompt_sha256": patch_proposal.prompt_sha256, "patch_output_sha256": patch_proposal.output_sha256,
@@ -620,15 +703,20 @@ def run_live_learning(
 
 def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str, Any],
                           extension: Mapping[str, Any], candidate: SkillContract,
-                          parent: SkillContract, inner_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+                          parent: SkillContract | None, inner_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Fail closed unless a separately approved frozen T3 candidate has fresh child tasks."""
     if manifest.get("stage") != "skill_outer_validation":
         raise ProviderBudgetExceeded("outer_validation_requires_T3_stage")
+    if manifest.get("selected_inner_version") not in {"v1", "v2"}:
+        raise ProviderBudgetExceeded("selected_inner_version_required")
+    if not manifest.get("outer_consumption_journal"):
+        raise ProviderBudgetExceeded("shared_outer_consumption_journal_required")
     if manifest.get("parent_split_manifest_sha256") != manifest_digest(parent_split):
         raise ProviderBudgetExceeded("outer_parent_split_digest_mismatch")
     if manifest.get("split_extension_sha256") != manifest_digest(extension):
         raise ProviderBudgetExceeded("outer_split_extension_digest_mismatch")
-    if manifest.get("frozen_candidate_sha256") != candidate.digest or candidate.parent_digest != parent.digest:
+    if (manifest.get("frozen_candidate_sha256") != candidate.digest
+            or candidate.parent_digest != (parent.digest if parent is not None else None)):
         raise ProviderBudgetExceeded("outer_candidate_or_parent_identity_mismatch")
     if extension.get("parent_manifest_sha256") != manifest.get("parent_split_manifest_sha256"):
         raise ProviderBudgetExceeded("outer_extension_parent_mismatch")
@@ -649,6 +737,13 @@ def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str
     inner_clusters = {row.get("cluster_id") for row in inner_rows}
     candidate_sources = set(candidate.source_cluster_ids)
     seen: set[str] = set()
+    journal = Path(manifest["outer_consumption_journal"])
+    consumed: set[str] = set()
+    if journal.exists():
+        for line in journal.read_text(encoding="utf-8").splitlines():
+            event = json.loads(line)
+            if event["split_extension_sha256"] == manifest["split_extension_sha256"]:
+                consumed.update(event["cluster_ids"])
     for pair in pairs:
         task_id = pair.get("task_id")
         child = child_by_task.get(task_id)
@@ -662,7 +757,7 @@ def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str
                 or pair.get("arm_order") not in (["off", "on"], ["on", "off"])):
             raise ValueError("outer pair does not match the frozen outer_skill_validation child manifest")
         cluster = child.get("cluster_id")
-        if cluster in seen or cluster in inner_clusters or cluster in candidate_sources:
+        if cluster in seen or cluster in inner_clusters or cluster in candidate_sources or cluster in consumed:
             raise ValueError("outer cluster is repeated, consumed by inner, or used as an induction source")
         seen.add(cluster)
     max_steps = manifest.get("max_steps")
@@ -689,9 +784,9 @@ def _pair_receipt_from_row(row: Mapping[str, Any], candidate_digest: str) -> Pai
 
 def run_frozen_outer(manifest: Mapping[str, Any], parent_split: Mapping[str, Any],
                      extension: Mapping[str, Any], candidate: SkillContract,
-                     parent: SkillContract, inner_rows: Sequence[Mapping[str, Any]],
+                     parent: SkillContract | None, inner_rows: Sequence[Mapping[str, Any]],
                      approval: Mapping[str, Any], pricing: Mapping[str, Any], *,
-                     revision: str, base_url: str, api_key: str, data_root: Path,
+                     revision: str, base_url: str, api_key: str | None, data_root: Path,
                      output: Path, client_factory: Callable[..., Any] | None = None,
                      environment_factory: Callable[..., Any] | None = None) -> dict[str, Any]:
     plan = validate_outer_inputs(manifest, parent_split, extension, candidate, parent, inner_rows)
@@ -705,6 +800,9 @@ def run_frozen_outer(manifest: Mapping[str, Any], parent_split: Mapping[str, Any
         plan["planned_provider_calls"] * manifest["max_input_per_request"],
         plan["planned_provider_calls"] * manifest["max_completion_per_request"])
     if client_factory is None:
+        api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        if not api_key:
+            raise RuntimeError("DEEPSEEK_API_KEY is required at runtime")
         from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
         client_factory = DeepSeekStatefulClient
     def persist_budget(snapshot: dict[str, Any]) -> None:
@@ -720,6 +818,12 @@ def run_frozen_outer(manifest: Mapping[str, Any], parent_split: Mapping[str, Any
     client.max_input_per_request = manifest["max_input_per_request"]
     rows: list[dict[str, Any]] = []
     receipts: list[PairReceipt] = []
+    # This study-level journal survives rejected candidates and different run
+    # output directories. Record consumption before reset, not after a good result.
+    append_jsonl(Path(manifest["outer_consumption_journal"]), {
+        "run_id": manifest["run_id"], "candidate_sha256": candidate.digest,
+        "split_extension_sha256": manifest["split_extension_sha256"], "cluster_ids": plan["outer_clusters"],
+        "status": "RESERVED_FOR_OUTER_EXECUTION"})
     for pair in manifest["plan"]["pairs"]:
         off, on = _run_one_pair(data_root, client, pair, candidate, split="train_outer",
             max_steps=manifest["max_steps"], run_id=manifest["run_id"],
@@ -744,14 +848,20 @@ def run_frozen_outer(manifest: Mapping[str, Any], parent_split: Mapping[str, Any
                 skill_digest=candidate.digest if arm == "on" else None,
                 agent_revision=manifest["agent_revision"], benchmark_revision=manifest["benchmark_revision"],
                 success=outcome, utility=float(outcome) if outcome is not None else 0.0,
-                verifier_status=row["status"], hard_gates_passed=outcome is not None,
+                verifier_status="verified" if outcome is not None else row["status"], hard_gates_passed=outcome is not None,
                 template_id=pair["template_id"], cluster_id=pair["cluster_id"],
                 receipt_sha256=row["receipt_sha256"]))
     (output / "outer_receipts.json").write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if any(row["success"] is None for row in rows):
+        report = {"status": "REAL_OUTER_EVALUATED_UNDECIDED", "reason": "INCOMPLETE_PAIR_UNKNOWN",
+                  "canonical_promotion": False, "provider_budget": budget.as_dict(), "results_claimed": False}
+        (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        return report
+    selected_version = manifest.get("selected_inner_version")
     inner_pair_receipts = [_pair_receipt_from_row(row, candidate.digest) for row in inner_rows
-                           if str(row.get("pair_id", "")).endswith(":v2")]
-    inner_evidence = verify_inner_pairs(candidate, inner_pair_receipts)
-    outer_evidence = approve_outer_validation(candidate, candidate.digest, inner_evidence, receipts,
+                           if str(row.get("pair_id", "")).endswith(":" + selected_version)]
+    inner_evidence = verify_inner_pairs(replace(candidate, verification_trial_ids=()), inner_pair_receipts)
+    outer_evidence = approve_outer_validation(replace(candidate, verification_trial_ids=()), candidate.digest, inner_evidence, receipts,
         split="train_outer", alpha=manifest.get("alpha", 0.05))
     store = SkillEvolutionStore(output)
     store.save_candidate(candidate)
@@ -782,15 +892,16 @@ def run_frozen_outer(manifest: Mapping[str, Any], parent_split: Mapping[str, Any
 
 def outer_main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a separately approved frozen T3 outer validation.")
-    for name in ("manifest", "split-manifest", "split-extension", "candidate", "parent",
+    for name in ("manifest", "split-manifest", "split-extension", "candidate",
                  "inner-receipts", "approval", "pricing", "data-root", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--parent", type=Path)
     parser.add_argument("--live", action="store_true")
     args = parser.parse_args(argv)
     manifest = _read_json(args.manifest)
     parent_split, extension = _read_json(args.split_manifest), _read_json(args.split_extension)
     candidate = SkillContract.from_dict(_read_json(args.candidate))
-    parent = SkillContract.from_dict(_read_json(args.parent))
+    parent = SkillContract.from_dict(_read_json(args.parent)) if args.parent else None
     inner_payload = _read_json(args.inner_receipts)
     inner_rows = inner_payload.get("inner_v1_and_v2_receipts", inner_payload.get("receipts", inner_payload))
     if not isinstance(inner_rows, list):
@@ -810,11 +921,8 @@ def outer_main(argv: Sequence[str] | None = None) -> int:
     base_url = manifest.get("base_url")
     if not isinstance(base_url, str) or not base_url:
         raise ProviderBudgetExceeded("approved_api_base_required")
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise RuntimeError("DEEPSEEK_API_KEY is required at runtime")
     report = run_frozen_outer(manifest, parent_split, extension, candidate, parent, inner_rows,
-        approval, pricing, revision=revision, base_url=base_url, api_key=api_key,
+        approval, pricing, revision=revision, base_url=base_url, api_key=None,
         data_root=args.data_root, output=args.output)
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
@@ -826,8 +934,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return outer_main(actual_argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("manifest", "split-manifest", "viability-receipts", "source-receipts",
-                 "source-evidence", "parent", "approval", "pricing", "data-root", "output"):
+                 "parent", "approval", "pricing", "data-root", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--source-evidence", type=Path, help="optional frozen bundle; must match the raw-trajectory projection")
     parser.add_argument("--live", action="store_true", help="execute the explicitly approved C-stage run")
     args = parser.parse_args(argv)
     manifest = _read_json(args.manifest)
@@ -836,7 +945,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     source_payload = _read_json(args.source_receipts)
     b_rows = _rows(b_payload, "episodes")
     source_rows = _rows(source_payload, "receipts")
-    evidence = _evidence_bundle(_read_json(args.source_evidence))
+    evidence = source_bundle_from_receipts(source_rows, split_manifest, source_mode=manifest["source_mode"])
+    if args.source_evidence and _evidence_bundle(_read_json(args.source_evidence)) != evidence:
+        raise ValueError("supplied source bundle differs from the policy-visible receipt projection")
     parent = SkillContract.from_dict(_read_json(args.parent))
     plan = validate_learning_inputs(manifest, split_manifest, b_rows, source_rows, evidence)
     if not args.live:

@@ -460,6 +460,7 @@ def test_static_policy_value_requires_real_fixed_predecision_rollouts_and_unique
             decisions["decisions"].append({
                 "task_id": task["task_id"], "policy": policy, "deployed": deployed,
                 "skill_sha": plan["skill_sha"], "agent_sha": plan["agent_sha"],
+                "configuration_sha": plan["configuration_sha"],
                 **({"decision_source": "AcreEngine.route", "selected_rule_ids": ["skill-rule"] if deployed else []}
                    if policy != "global_fixed_skill" else {}),
             })

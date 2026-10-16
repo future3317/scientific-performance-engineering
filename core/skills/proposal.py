@@ -305,6 +305,10 @@ class ModelSkillProposer:
         if not isinstance(result, Mapping):
             raise ValueError("completion client returned no response object")
         raw = result.get("raw_output")
+        if self.on_completion is not None:
+            self.on_completion({"status": "received_unvalidated", **{key: result.get(key) for key in (
+                "raw_output", "provider_response_id", "model_response_identity", "finish_reason",
+                "input_tokens", "output_tokens", "reasoning_tokens", "estimated_provider_usd")}})
         if not isinstance(raw, str) or not raw.strip():
             raise ValueError("completion has no final content; reasoning is not proposal text")
         if result.get("finish_reason") != "stop":
@@ -314,12 +318,6 @@ class ModelSkillProposer:
         model = result.get("model_response_identity") or result.get("model_identity")
         if not isinstance(model, str) or not model.strip():
             raise ValueError("proposal model identity is unknown")
-        if self.on_completion is not None:
-            self.on_completion({
-                "status": "received_unvalidated", "raw_output": raw,
-                "model_identity": model, "finish_reason": result["finish_reason"],
-                "input_tokens": result["input_tokens"], "output_tokens": result["output_tokens"],
-            })
         try:
             proposal = json.loads(raw)
         except json.JSONDecodeError as exc:

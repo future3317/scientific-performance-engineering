@@ -67,7 +67,7 @@ def export_skill_pack(
     task_population: str,
 ) -> Path:
     """Create a new SKILL.md plus typed contract and provenance manifest."""
-    if contract.source_split not in {"train", "train_inner"}:
+    if contract.source_split not in {"train", "train_dev", "train_inner"}:
         raise ValueError("only train-derived skill candidates may be exported")
     if contract.status != "candidate":
         raise ValueError("only candidate skills may be exported")
@@ -167,7 +167,7 @@ def read_skill_pack(directory: str | Path) -> SkillContract:
     )
     if manifest.get("certificate_key") != key.__dict__ or manifest.get("certificate_key_sha256") != key.digest:
         raise ValueError("skill certificate key does not match current content and execution scope")
-    if manifest.get("source_split") not in {"train", "train_inner"} or manifest.get("scripts_allowed") is not False:
+    if manifest.get("source_split") not in {"train", "train_dev", "train_inner"} or manifest.get("scripts_allowed") is not False:
         raise ValueError("skill pack provenance or execution policy is invalid")
     for key_name, expected in (
         ("source_task_ids", list(contract.source_task_ids)),
