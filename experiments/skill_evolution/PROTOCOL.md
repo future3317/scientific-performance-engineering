@@ -3,10 +3,11 @@
 ## Status and boundary
 
 Current continuation: Phase5, coordinated by the user's October16 T2 Repair,
-Efficiency Attribution and First Efficacy Taskbook. The latest user instruction
-authorizes zero-provider work only and supersedes the earlier automatic paid
-progression request. Stop at READY_FOR_APPROVAL with the exact Batch1 card;
-no prior approval authorizes its calls, semantic refinement, outer or final.
+Efficiency Attribution and First Efficacy Taskbook. Following the zero-provider
+closeout and exact Batch1 card, the user explicitly authorized autonomous
+continuation without repeated approval waits. Each paid stage still needs a
+finite frozen manifest and operational hard cap; scientific stop/go, no automatic
+retries, split isolation and the reserved final boundary remain binding.
 See `docs/skill_v3/PHASE3_EXECUTION_REPORT.md` for the prior preparation.
 Historical fixture and Phase2 design
 sections below retain their original scope; they are not current execution
@@ -15,7 +16,7 @@ Skill or routing efficacy. The earlier success-plus-failure prerequisite is
 replaced for new Phase3 studies by the source modes below, not retroactively
 changed in original receipts.
 
-### Phase5 zero-provider closeout and proposed Batch1
+### Phase5 implementation and completed Batch1 attribution
 
 The original T1/T2 receipts below remain immutable. Read-only diagnostics found
 34 unique actions among the failed T1 episode's 60 legal actions; 26 repeats,
@@ -34,7 +35,7 @@ refinement rounds, three operations/round, 250 introduced text characters/op,
 30% existing items changed/round and 2,000 counted tokens; never inherit an
 old certificate. A new model-produced v2 remains NOT_RUN.
 
-The proposed Batch1 is eight fresh train_inner clusters (two each pick/place,
+The completed Batch1 contains eight fresh train_inner clusters (two each pick/place,
 clean/place, heat/place and pick-two) and three arms OFF/LENGTH/SKILL, all with
 the same model, action prompt, environment seed and budgets. SKILL uses the
 exact historical v1 body (2,580 characters, 458 standalone official V4 tokens),
@@ -44,12 +45,14 @@ arms do not identify an interaction or establish equivalence. The primary
 question is success-preserving cost beyond generic concise-response control.
 
 All old A/B reservations, historical exposures, source and final clusters remain
-excluded. Batch1's proposed cap is USD30 / USD1.25 per episode, at most 1,440
+excluded. Batch1's cap was USD30 / USD1.25 per episode, at most 1,440
 calls, 60 decisions/episode, input32,768/output8,192 per request, zero retries;
-thinking stays enabled. These are proposed caps, not spending authorization.
+thinking stayed enabled. USER_APPROVED.json records the user's subsequent
+authorization; the original approval-required template remains unchanged.
 The official current pricing/tokenizer snapshots and exact task list are in
 RESULTS/skill-evolution-phase5-20261016/EXPERIMENT_MANIFEST.json and its inputs.
-APPROVAL_REQUIRED.json keeps provider_enabled=false and execute=false.
+The input manifest and run source fada13770ac981be34bc406e11ecbcc8bd29c63a
+were not changed during execution.
 
 The attribution runner reuses the native run_episode/executor. Server-local
 provider intents/responses and terminal episodes are fsynced before derived
@@ -60,7 +63,25 @@ and blocks automatic continuation: there is no invented native checkpoint.
 An observed treatment regression, unknown usage/outcome, model drift, receipt
 failure, expiration or resource cap stops the batch. No automatic outer/final/
 ACRE follows. Historical paid estimates and bootstrap diagnostics are reported
-separately from new real evidence; this phase currently adds no provider call.
+separately from new real evidence.
+
+Batch1 ended exit0 on October16, 14:04:26 UTC: 24/24 native rollouts completed,
+OFF/LENGTH/SKILL each 8/8 official wins, no failures, unknowns, repairs or
+regressions. Each of four families contributed two independent tasks per arm.
+There were 297 calls, 394662 input, 265897 completion (263239 reasoning),
+39040 cache-hit and 355622 cache-miss tokens; peak estimate USD0.425997240,
+not a bill. Zero pending intents or outstanding currency reservation remained.
+
+OFF/LENGTH/SKILL estimated costs were USD0.200580636 / 0.083862900 /
+0.141553704, with 106/89/98 environment steps. SKILL saved 29.43% versus OFF,
+but generic LENGTH saved 58.19%. The paired mean cost saving LENGTH minus
+SKILL was -USD0.0072113505, descriptive task-bootstrap 95% interval
+[-0.0206744895, 0.0011503065]. Thus procedural advantage beyond concision is
+not established; INNER=UNCERTAIN. All-success outcomes do not establish
+equivalence or binary repair efficacy. No candidate promotion, real semantic
+v2, independent outer or ACRE experiment follows automatically from this result.
+Any subsequent semantic refinement is a separate bounded inner study, not a
+retry or expansion of Batch1. Final154 outcomes remain unaccessed.
 
 ### Phase4 real diagnostic and prospective continuation
 

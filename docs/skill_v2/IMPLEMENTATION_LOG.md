@@ -451,8 +451,8 @@ numbers and formal/sealed/C-D evidence remain unchanged.
 
 ### Phase5 zero-provider implementation and approval boundary — October16
 
-The latest Phase5 taskbook replaces automatic paid continuation: no new provider
-experiment is authorized. Actual T1 receipts, the 2,580-character v1 and the
+At the initial Phase5 checkpoint no new provider experiment was authorized.
+Actual T1 receipts, the 2,580-character v1 and the
 rejected replace-at-index8 response were read, not inferred from summaries.
 Machine-readable failure diagnosis and paired resource/uncertainty recomputation
 live under RESULTS/skill-evolution-phase5-20261016. Historical sources are not
@@ -475,8 +475,47 @@ revision; earlier full-suite evidence is not relabeled as a later full run.
 The two current production entries are semantic delta refinement (new studies)
 and OFF/LENGTH/SKILL attribution; old frozen T2 behavior is historical only.
 
-Delivery is READY_FOR_APPROVAL, not Phase5 scientific completion. Batch1 proposes
+The zero-provider delivery was READY_FOR_APPROVAL, not Phase5 scientific completion. Batch1 proposed
 8 fresh inner tasks x3 arms, no new induction/patch call, fixed original v1,
 USD30 hard cap and at most1440calls. All original B reservations and final154
 clusters stay unconsumed. Three arms cannot identify an interaction. Real v2,
 independent Skill efficacy and ACRE efficacy remain NOT_RUN/NOT_ESTABLISHED.
+
+### Phase5 Batch1 real attribution closeout — October16
+
+The user then instructed “之后不用等待我批准，直接做就行。” The exact presented
+Batch1 card was executed unchanged at fada13770ac981be34bc406e11ecbcc8bd29c63a,
+with eight fresh inner tasks, OFF/LENGTH/SKILL, USD30/1440-call hard cap,
+thinking enabled and zero retries. The final affected test receipt at this
+source is 111 passed/exit0; the earlier full668 receipt remains bound to a763989.
+Current official model/token prices matched the frozen snapshot; the public
+page had added unrelated Search & Fetch pricing. Both page versions were kept.
+
+Run start/end: 2026-10-16 13:30:40–14:04:26 UTC, exit0. All24 rollouts completed,
+each arm8/8 official successes, four families each2/2 per arm. No failures,
+unknowns, repairs, regressions, pending intents or outstanding reservation.
+297 provider calls; input394662, completion265897, reasoning263239;
+cache hit39040/miss355622. Peak-price estimate USD0.425997240, not a bill.
+
+OFF/LENGTH/SKILL: calls109/89/99; environment steps106/89/98;
+reasoning133963/43405/85871; estimated USD0.200580636/0.083862900/0.141553704.
+SKILL saved29.43% versus OFF, while generic LENGTH saved58.19%. Paired mean
+LENGTH-minus-SKILL cost saving=-0.0072113505, descriptive task-bootstrap95%
+CI[-0.0206744895,0.0011503065]. There is no established procedural advantage
+beyond generic concision; INNER=UNCERTAIN. No binary repair efficacy,
+equivalence, interaction or independent Skill/ACRE efficacy is established.
+
+Luna prepared the zero-provider closeout helper; main reviewed the actual
+receipt schemas, corrected partial-arm and accounting handling, and executed
+the closeout on dbcloud/equivcompiler only. The pre-run reports and bundle were
+preserved under pre-batch1-closeout. Consolidated report/metrics, task-paired
+CSV, full atomic receipts and bundle are under
+RESULTS/skill-evolution-phase5-20261016 and mirrored under
+E:/DATA/EvoSPE/skill-evolution-phase5-20261016. No paper numbers changed.
+
+The user has removed repeated approval waits, not scientific selection gates.
+Batch1 is complete, the Phase5 scientific loop is not. Real semantic v2,
+independent outer and ACRE remain NOT_RUN; final154 outcomes remain unaccessed.
+Do not promote v1 on this attribution result. Any next semantic refinement
+requires its own finite frozen inner-stage configuration, not a rerun or
+post-hoc expansion of these eight tasks.
