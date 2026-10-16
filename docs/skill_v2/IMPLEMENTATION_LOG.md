@@ -1,5 +1,58 @@
 # Skill-evolution implementation and zero-provider study
 
+## Current Phase7 closeout: fixed-v1 conditional increment
+
+E1 completed on dbcloud/equivcompiler at 2026-10-16T17:29:09Z, exit0,
+with unchanged Agent, original v1 and LENGTH. Execution source was
+`e480f320818aa5d15b45c25ea78ba8a51e3bb649`; subsequent documentation commits
+are not execution revisions. The frozen manifest is
+`58fee95b8b73fe48466c2b5ceeabe9d133ed12f4691b99d8a84e16b27ddb4f2d`.
+All12 fresh train_inner semantic clusters (six families twice),24 planned
+episodes were started and completed; unknown/interrupted/not-started=0.
+LENGTH and V1_PLUS_LENGTH each achieved10 successes/2 failures. Paired cells:
+repair0,regression0,both-success10,both-fail2,missing0. Equal observed success
+is not equivalence, and these are inner exploratory data, not outer efficacy.
+
+The frozen decision is `E1_COMPLETED_INCONCLUSIVE`, not positive efficacy.
+On10 both-success clusters, LENGTH-minus-PLUS peak-price cost saving has
+mean -USD0.0016824528,median +USD0.001030272; independent-cluster percentile
+bootstrap95% mean CI [-0.0054751536,+0.0015979248] (seed101,10000 resamples).
+Signs are6 positive/4 negative/0 ties. Summed both-success cost increased
+16.11% with PLUS. No-cache mean saving is -USD0.0030786,95% CI
+[-0.0067908,+0.00014286]. These mixed results do not establish a stable
+incremental procedural benefit or a new learned mechanism.
+
+All474 calls close against474 atomic responses and474 usage-ledger events;
+unresolved intents,unledgered responses and duplicate response IDs=0.
+LENGTH:232 calls,280602 input,181403 completion (179516 reasoning),512 cache
+hit/280090 miss,228 env steps,4 invalid decisions,USD0.301713672 estimate.
+PLUS:242 calls,403474 input,159988 completion (157970 reasoning),94464 hit/
+309010 miss,240 env steps,2 invalid decisions,USD0.285255384 estimate.
+Total measured-cache peak-price estimate is USD0.586969056 of USD12 cap,
+not a provider bill. Whole-batch no-cache costs are USD0.3018642 vs0.3130278;
+aggregate apparent savings must not replace the both-success estimand.
+Reasoning is a subset of completion, not an additional charge.
+
+Source acceptance: targeted42passed14.58s; full674passed8warnings721.30s;
+both exit0 at e480f32. Counts overlap and are not added or relabeled as
+tests of later documentation revisions. D0 remains NO_SUPPORTED_NEW_MECHANISM;
+R0 is NO_ROUTING_OPPORTUNITY_YET (E1 success oracle increment over LENGTH=0).
+D1 is only a24-task metadata-selected train_dev discovery draft, six families
+four each. Its confirmatory_eligible=false is retained by design, not a
+discovery blocker. D1a/b each require separate approval (12 tasks,720calls,
+USD6 per batch); no D1,v2/C1,outer or ACRE was run. No automatic continuation
+or extra E1 tasks are authorized. Phase6 NO_MECHANISTIC_DELTA remains valid.
+
+Unified report, machine JSON and raw-receipt evidence bundle are under
+`/home/workspace/lrh/RESULTS/skill-evolution-phase7-marginal-value/` and copied
+to `E:/DATA/EvoSPE/skill-evolution-phase7-marginal-value/`. Parent462/461/460,
+outer153/153/154 and manuscript/historical evidence remain unchanged;
+this stage read zero final154 outcomes. Historical freeze metadata was read
+from its original Git tag because the JSON is absent from the study branch.
+Five newly created diagnostic drafts initially placed under Phase6 were
+verified absent from its historical bundle and moved into Phase7's
+`internal/diagnostics/misplaced-initial-draft`; no original file was replaced.
+
 ## October 16 Phase2 continuation
 
 The current continuation is [PHASE2_EXECUTION_REPORT.md](PHASE2_EXECUTION_REPORT.md).

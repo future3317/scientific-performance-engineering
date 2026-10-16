@@ -578,8 +578,6 @@ cost, retries, and concurrency/blocking. For every metric, serialize a value
 only when measured and otherwise retain `null` with an explicit unknown or
 not-measured status. Equal task execution is not equal total compute.
 
-## Power table interpretation
-
 ## Fixed-Skill conditional increment and source discovery
 
 Phase7 E1 uses fresh train_inner semantic clusters and two independently reset
@@ -606,6 +604,27 @@ separate authorization after the E1 decision. R0 audits routing opportunity;
 without measurable fixed-treatment benefit/harm and pre-decision information,
 report NO_ROUTING_OPPORTUNITY_YET rather than tune a gate. No Phase7 training
 result changes frozen manuscript numbers or permits access to final154 outcomes.
+
+### E1 observed closeout (not a change to the preregistration)
+
+Execution e480f320818aa5d15b45c25ea78ba8a51e3bb649 completed24/24 episodes
+with exit0; manifest58fee95b8b73fe48466c2b5ceeabe9d133ed12f4691b99d8a84e16b27ddb4f2d.
+Both arms had10 successes/2 failures/0unknown, with0repairs/0regressions,
+10both-success and2both-fail pairs. The frozen decision is
+E1_COMPLETED_INCONCLUSIVE. On10 both-success clusters, mean peak-price cost
+saving from adding v1 was -USD0.0016824528 (95% cluster-bootstrap CI
+[-0.0054751536,+0.0015979248]); median +USD0.001030272, signs6positive/4negative.
+No-cache mean saving was -USD0.0030786. Whole-batch measured-cache estimates
+USD0.301713672 vs0.285255384 include failed episodes and are not interchangeable
+with the both-success efficiency estimand; no-cache totals reverse that order
+(USD0.3018642 vs0.3130278). All474 calls are accounted for; total estimated
+USD0.586969056, not a bill. These results do not qualify v1 for outer or ACRE.
+Stop this candidate without synonym patches or extra E1 trials. D1 remains a
+separately approved development-discovery option, not an automatic next stage.
+The complete machine summary and evidence are in
+RESULTS/skill-evolution-phase7-marginal-value (outside Git).
+
+## Power table interpretation
 
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
