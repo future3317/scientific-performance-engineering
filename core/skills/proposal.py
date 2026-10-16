@@ -296,6 +296,13 @@ class ModelSkillProposer:
     ) -> tuple[dict[str, Any], str, str, str]:
         if self.calls >= self.max_completion_calls or self.max_completion_tokens <= 0:
             raise ValueError("proposal completion budget is zero or exhausted")
+        data = {**data, "rendered_skill_body_max_characters": self.max_skill_characters,
+                "length_accounting": (
+                    "The limit is Unicode characters in the rendered Skill body, not JSON size or tokens. "
+                    "Include When to use, Preconditions, Procedure, numbered steps, Verify, newlines, "
+                    "and the automatic sentence: Stop or replan when a precondition is unknown or a required action is unavailable. "
+                    "Keep applicability, preconditions, procedure and postconditions concise."
+                )}
         prompt = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         messages = [
             {"role": "system", "content": (
@@ -321,7 +328,8 @@ class ModelSkillProposer:
             self.on_completion({"status": "received_unvalidated", "proposal_kind": kind,
                                 "prompt_sha256": prompt_sha, **{key: result.get(key) for key in (
                 "raw_output", "provider_response_id", "model_response_identity", "finish_reason",
-                "input_tokens", "output_tokens", "reasoning_tokens", "estimated_provider_usd")}})
+                "input_tokens", "output_tokens", "reasoning_tokens", "cache_hit_tokens", "cache_miss_tokens",
+                "estimated_provider_usd")}})
         if not isinstance(raw, str) or not raw.strip():
             raise ValueError("completion has no final content; reasoning is not proposal text")
         if result.get("finish_reason") != "stop":

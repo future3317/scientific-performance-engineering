@@ -101,6 +101,19 @@ def test_initial_proposal_uses_final_content_and_binds_train_inner_provenance():
     assert skill.proposal_prompt_sha256 == hashlib.sha256(json.dumps(
         client.messages, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")).hexdigest()
+    supplied = json.loads(client.messages[1]["content"].split("constraints_and_evidence_json=", 1)[1])
+    assert supplied["rendered_skill_body_max_characters"] == 1800
+    assert "Unicode characters" in supplied["length_accounting"]
+
+
+@pytest.mark.parametrize("limit", [900, 1800])
+def test_generator_receives_the_registered_body_limit_without_provider(limit):
+    client = MockCompletion(initial_response())
+    ModelSkillProposer(client, max_completion_calls=1, mock_mode=True,
+                       max_skill_characters=limit).propose_initial(
+        evidence(), skill_id="alfworld.clean_place", subtask="clean_and_place", constraints=())
+    supplied = json.loads(client.messages[1]["content"].split("constraints_and_evidence_json=", 1)[1])
+    assert supplied["rendered_skill_body_max_characters"] == limit
 
 
 @pytest.mark.parametrize("changes, message", [
