@@ -135,6 +135,7 @@ def live_fixture(tmp_path):
         "controller_commit":"fixture","study_id":"fixture","run_id":"fixture","model":"deepseek-flash",
         "base_url":"https://api.deepseek.com","output_dir":str(tmp_path/"output"),"spool_dir":str(tmp_path/"spool"),
         "max_completion_per_request":100,"max_input_per_request":2000,"max_steps":1,
+        "agent_sha":"fixture-agent","configuration_sha":"fixture-config","prompt_template_sha256":"fixture-prompt",
         "max_usd_per_episode":"0.1","max_calls_per_episode":1,"max_episode_wall_seconds":60}
     now=datetime.now(timezone.utc)
     approval={"provider_enabled":True,"execute":True,"controller_commit":"fixture","model":manifest["model"],
@@ -192,6 +193,11 @@ def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_
     assert len(calls)==len(resets)==3
     events=[json.loads(x)for x in(tmp_path/"spool/journal.jsonl").read_text().splitlines()]
     assert sum(e["event"]=="usage_ledger"for e in events)==3
+    episodes=[json.loads(x)["episode"] for x in (tmp_path/"spool/episodes.jsonl").read_text().splitlines()
+              if json.loads(x)["event"]=="COMPLETED"]
+    assert all(r["agent_sha"]=="fixture-agent"and r["configuration_sha"]=="fixture-config"for r in episodes)
+    assert all(manifest_digest({k:v for k,v in r.items()if k!="receipt_sha256"})==r["receipt_sha256"]for r in episodes)
+    assert all(r["actual_new_model_rollout"]is False for r in episodes)
 
 
 def test_explicit_approval_denial_precedes_sdk_and_environment(tmp_path):

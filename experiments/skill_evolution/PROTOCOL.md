@@ -2,13 +2,11 @@
 
 ## Status and boundary
 
-Current continuation: Phase4, coordinated by the user's October16 Phase4
-Execution Decision Playbook. T1 was explicitly authorized following its frozen
-card; the user subsequently requested automatic progression and waived further
-budget questions. Each subsequent stage still needs a finite, exact manifest,
-stage-specific authorization record and scientific eligibility before execution.
-This is not permission to expand task cohorts, retry failed experiments or
-consume final outcomes before the declared qualification gates.
+Current continuation: Phase5, coordinated by the user's October16 T2 Repair,
+Efficiency Attribution and First Efficacy Taskbook. The latest user instruction
+authorizes zero-provider work only and supersedes the earlier automatic paid
+progression request. Stop at READY_FOR_APPROVAL with the exact Batch1 card;
+no prior approval authorizes its calls, semantic refinement, outer or final.
 See `docs/skill_v3/PHASE3_EXECUTION_REPORT.md` for the prior preparation.
 Historical fixture and Phase2 design
 sections below retain their original scope; they are not current execution
@@ -16,6 +14,53 @@ status. Phase2 B at `713bd65` completed three autonomous official wins, not
 Skill or routing efficacy. The earlier success-plus-failure prerequisite is
 replaced for new Phase3 studies by the source modes below, not retroactively
 changed in original receipts.
+
+### Phase5 zero-provider closeout and proposed Batch1
+
+The original T1/T2 receipts below remain immutable. Read-only diagnostics found
+34 unique actions among the failed T1 episode's 60 legal actions; 26 repeats,
+19 locations in 45 navigation actions, 11 initially visible locations unvisited,
+zero completed subgoals and two replans. The target's actual location and goal
+distance remain unobserved. This supports a repetitive/incomplete-search
+diagnosis, not a claim that any particular Skill repairs the task.
+
+New semantic edits use core/skills/semantic.py and the metered
+ModelSkillProposer.propose_semantic_patch path. Typed stable IDs, explicit
+obligations, deterministic merge, lineage and checked runtime rendering replace
+arbitrary required-text replacement for new semantic studies. Required wording
+equivalence is a finite vetted vocabulary, not a model flag or unrestricted
+natural-language theorem. Legacy unproved text remains protected. Max two
+refinement rounds, three operations/round, 250 introduced text characters/op,
+30% existing items changed/round and 2,000 counted tokens; never inherit an
+old certificate. A new model-produced v2 remains NOT_RUN.
+
+The proposed Batch1 is eight fresh train_inner clusters (two each pick/place,
+clean/place, heat/place and pick-two) and three arms OFF/LENGTH/SKILL, all with
+the same model, action prompt, environment seed and budgets. SKILL uses the
+exact historical v1 body (2,580 characters, 458 standalone official V4 tokens),
+not a post-hoc rewritten candidate; LENGTH is generic concise-response control
+without procedures. There are no paid proposal/patch calls in Batch1. Three
+arms do not identify an interaction or establish equivalence. The primary
+question is success-preserving cost beyond generic concise-response control.
+
+All old A/B reservations, historical exposures, source and final clusters remain
+excluded. Batch1's proposed cap is USD30 / USD1.25 per episode, at most 1,440
+calls, 60 decisions/episode, input32,768/output8,192 per request, zero retries;
+thinking stays enabled. These are proposed caps, not spending authorization.
+The official current pricing/tokenizer snapshots and exact task list are in
+RESULTS/skill-evolution-phase5-20261016/EXPERIMENT_MANIFEST.json and its inputs.
+APPROVAL_REQUIRED.json keeps provider_enabled=false and execute=false.
+
+The attribution runner reuses the native run_episode/executor. Server-local
+provider intents/responses and terminal episodes are fsynced before derived
+summaries; exact call identity, manifest binding and an exclusive spool lock
+prevent duplicate calls. Completed arms can be resumed without resetting them.
+An interrupted native environment or unresolved provider intent remains unknown
+and blocks automatic continuation: there is no invented native checkpoint.
+An observed treatment regression, unknown usage/outcome, model drift, receipt
+failure, expiration or resource cap stops the batch. No automatic outer/final/
+ACRE follows. Historical paid estimates and bootstrap diagnostics are reported
+separately from new real evidence; this phase currently adds no provider call.
 
 ### Phase4 real diagnostic and prospective continuation
 

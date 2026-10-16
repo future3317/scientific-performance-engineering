@@ -298,6 +298,13 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
     factory=client_factory or DeepSeekStatefulClient
     if client_factory is None and not os.environ.get("DEEPSEEK_API_KEY"):
         raise RuntimeError("DEEPSEEK_API_KEY required only after exact live approval")
+    if client_factory is None:
+        from importlib.metadata import version
+        if os.environ.get("CUDA_VISIBLE_DEVICES") != "":
+            raise ValueError("ALFWorld attribution requires the declared CPU-only resource contract")
+        for package, expected in manifest["environment_packages"].items():
+            if version(package) != expected:
+                raise ValueError("environment version changed after freeze")
     client=factory(os.environ.get("DEEPSEEK_API_KEY"),manifest["base_url"],manifest["model"],budget=budget,
         max_completion_tokens=manifest["max_completion_per_request"],
         persist_budget=lambda b:_append(journal.root/"provider_journal.jsonl",b))
@@ -322,11 +329,23 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
                     receipt_metadata={**{k:task[k]for k in ("task_id","cluster_id","template_id","seed")},
                         "trial_id":trial,"arm":arm,"split":"train_inner","study_id":manifest["study_id"],
                         "run_id":manifest["run_id"],"evidence_origin":getattr(client,"evidence_origin","REAL_AGENT"),"source_commit":revision,
+                        "manifest_sha256":manifest_digest(manifest),
+                        "agent_revision":revision,"benchmark_revision":revision,
+                        "agent_revision_sha256":manifest.get("agent_sha"),"agent_sha":manifest.get("agent_sha"),
+                        "configuration_sha":manifest.get("configuration_sha"),
+                        "prompt_template_sha256":manifest.get("prompt_template_sha256"),
+                        "model_request_name":manifest["model"],"pricing_sha256":manifest.get("pricing_sha256"),
+                        "gamefile_sha256":task.get("gamefile_sha256"),"task_family":task.get("family"),
+                        "parent_split":"train_inner","independently_reset_environment":True,
+                        "trigger_matched":None,"trigger_status":"NATURAL_LANGUAGE_ONLY_NOT_OPERATIONAL_GATE",
                         "skill_digest":skill.digest if arm=="SKILL"else None})
             finally:
                 env.close()
             row["prompt_treatment_present"]=arm!="OFF"
             row["skill_injected"]=row["skill_rendered"]=arm=="SKILL"
+            row["length_control_injected"]=arm=="LENGTH"
+            row["actual_new_model_rollout"]=row["evidence_origin"]=="REAL_AGENT"
+            row["receipt_sha256"]=manifest_digest(row)
             _append(events,{"event":"COMPLETED","trial_id":trial,"episode":row})
             completed[trial]=row
             # Raw episode is durable before any derived summary can fail.
