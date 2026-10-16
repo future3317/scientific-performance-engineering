@@ -21,30 +21,35 @@ from core.skills import SkillContract
 from .evaluation import _paired_counts, _request_cost, receipt_outcome
 
 ARMS = ("OFF", "LENGTH", "SKILL")
+E1_ARMS = ("LENGTH", "V1_PLUS_LENGTH")
 LENGTH_CONTROL = "Be concise. Do not produce unnecessary explanation. Return the next valid action efficiently."
 RESOURCE_FIELDS = ("provider_calls", "input_tokens", "completion_tokens", "reasoning_tokens",
                    "final_content_tokens", "total_tokens", "cache_hit_tokens", "cache_miss_tokens",
                    "environment_steps", "invalid_decisions", "replans", "repeated_actions",
-                   "provider_usd_estimate", "peak_usd_estimate", "off_peak_usd_estimate", "wall_seconds")
+                   "provider_usd_estimate", "peak_usd_estimate", "off_peak_usd_estimate", "no_cache_usd_estimate", "wall_seconds")
 
 
-def arm_texts(skill: SkillContract) -> dict[str, str | None]:
+def arm_texts(skill: SkillContract, *, design: str = "attribution") -> dict[str, str | None]:
     if re.search(r"\b(?:be concise|concise sentence|unnecessary explanation|avoid re.deriving|brief answer)\b", skill.body, re.I):
         raise ValueError("procedure arm contains length-control wording; preregister a different contrast")
+    if design == "conditional_increment":
+        return {"LENGTH": LENGTH_CONTROL, "V1_PLUS_LENGTH": LENGTH_CONTROL + "\n\n" + skill.body}
+    if design != "attribution":
+        raise ValueError("unknown attribution design")
     return {"OFF": None, "LENGTH": LENGTH_CONTROL, "SKILL": skill.body}
 
 
-def arm_fingerprints(skill: SkillContract) -> dict[str, Any]:
+def arm_fingerprints(skill: SkillContract, *, design: str = "attribution") -> dict[str, Any]:
     from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient, EpisodeState
     class Capture:
         def complete_text(self, messages):
             return messages
     state = EpisodeState.start("Your task is to: put the target at the destination.", 60)
     result = {}
-    for arm, text in arm_texts(skill).items():
+    for arm, text in arm_texts(skill, design=design).items():
         messages = DeepSeekStatefulClient.choose_action(Capture(), state, ["look"], text, "", None)
         result[arm] = {"messages": messages, "prompt_sha256": manifest_digest({"messages": messages}),
-                       "treatment_sha256": manifest_digest({"text": text}), "skill_content": arm == "SKILL"}
+                       "treatment_sha256": manifest_digest({"text": text}), "skill_content": arm in ("SKILL", "V1_PLUS_LENGTH")}
     return result
 
 
@@ -129,6 +134,10 @@ def episode_metrics(row: Mapping[str, Any], pricing: Mapping[str, Any]) -> dict[
             result[name] = float((Decimal(inputs-hits)*Decimal(str(rates["input_miss_per_million"]))
                 + Decimal(hits)*Decimal(str(rates["input_hit_per_million"]))
                 + Decimal(outputs)*Decimal(str(rates["output_per_million"]))) / Decimal(1_000_000))
+    result["no_cache_usd_estimate"] = (
+        float((Decimal(usage["input_tokens"])*Decimal(str(pricing["input_miss_per_million"]))
+               + Decimal(n)*Decimal(str(pricing["output_per_million"])))/Decimal(1_000_000))
+        if usage["input_tokens"] is not None and n is not None else None)
     return result
 
 
@@ -205,7 +214,9 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
         raise ValueError("parent split identity mismatch")
     if manifest.get("skill_digest") != skill.digest or manifest.get("skill_body_sha256") != skill.body_digest:
         raise ValueError("frozen skill identity mismatch")
-    if manifest.get("arms") != list(ARMS) or manifest.get("treatments") != arm_texts(skill):
+    design = manifest.get("design", "attribution")
+    arms = E1_ARMS if design == "conditional_increment" else ARMS
+    if manifest.get("arms") != list(arms) or manifest.get("treatments") != arm_texts(skill, design=design):
         raise ValueError("arm content differs from frozen OFF/LENGTH/SKILL design")
     members = {r["task_id"]: r for r in parent["task_membership"]}
     seen, templates = set(), set()
@@ -218,11 +229,56 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
             raise ValueError("task identity differs from immutable parent")
         if task["cluster_id"] in seen | excluded or task["template_id"] in templates | set(manifest["excluded_templates"]):
             raise ValueError("task is duplicate, exposed or reserved")
-        if sorted(task["arm_order"]) != sorted(ARMS) or task["seed"] != manifest["seed"]:
+        if sorted(task["arm_order"]) != sorted(arms) or task["seed"] != manifest["seed"]:
             raise ValueError("task arms/seed differ")
         seen.add(task["cluster_id"]); templates.add(task["template_id"])
     if manifest.get("thinking") != "enabled" or manifest.get("max_retries") != 0:
         raise ValueError("model configuration changed")
+    if design == "conditional_increment":
+        families = Counter(r["task_type"] for r in parent["task_membership"] if r["task_id"] in {t["task_id"] for t in manifest["plan"]})
+        if len(manifest["plan"]) != 12 or len(families) != 6 or set(families.values()) != {2}:
+            raise ValueError("E1 requires twelve clusters, two per native family")
+        if Counter(t["arm_order"][0] for t in manifest["plan"]) != Counter({a:6 for a in arms}):
+            raise ValueError("E1 requires balanced first-arm order")
+
+
+def conditional_increment_decision(plan, rows, pricing):
+    """Frozen E1 decision; missing outcomes and quality precede conditional cost."""
+    summary = summarize_attribution(plan, rows, pricing, E1_ARMS)
+    cells = summary["comparisons"]["LENGTH_vs_V1_PLUS_LENGTH"]
+    by = {(r["cluster_id"], r["arm"]): episode_metrics(r, pricing) for r in rows}
+    table = []
+    for task in plan:
+        left, right = (by.get((task["cluster_id"], arm)) for arm in E1_ARMS)
+        paired = left is not None and right is not None
+        both_success = paired and left["success"] is True and right["success"] is True
+        saving = left["peak_usd_estimate"]-right["peak_usd_estimate"] if both_success else None
+        no_cache = left["no_cache_usd_estimate"]-right["no_cache_usd_estimate"] if both_success else None
+        table.append({**task, "LENGTH": left, "V1_PLUS_LENGTH": right,
+                      "cost_saving": saving, "no_cache_saving": no_cache})
+    values = [r["cost_saving"] for r in table if r["cost_saving"] is not None]
+    stats = paired_resource_summary(values, seed=101, repeats=10000)
+    signs = {"positive":sum(v>0 for v in values), "negative":sum(v<0 for v in values), "zero":sum(v==0 for v in values)}
+    status = "E1_COMPLETED_INCONCLUSIVE"
+    if cells["regression"]:
+        status = "E1_COMPLETED_NEGATIVE_EXPLORATORY"
+    elif cells["repair"]:
+        status = "E1_COMPLETED_INCONCLUSIVE"  # quality gain; cost-only ranking suspended
+    elif cells["missing"] == 0 and len(values) == len(plan):
+        if stats["mean"] > 0 and stats["median"] > 0 and signs["positive"] >= 8:
+            status = "E1_COMPLETED_POSITIVE_EXPLORATORY"
+        elif stats["mean"] <= 0 and stats["median"] <= 0 and signs["positive"] < len(plan)/2:
+            status = "E1_COMPLETED_NEGATIVE_EXPLORATORY"
+    base_sum = sum(r["LENGTH"]["peak_usd_estimate"] for r in table if r["cost_saving"] is not None)
+    return {"status":status, "summary":summary, "pairs":table, "cost_savings":stats,
+            "sum_saving":sum(values), "relative_sum_saving":sum(values)/base_sum if base_sum else None,
+            "signs":signs, "no_cache_savings":paired_resource_summary([r["no_cache_saving"] for r in table if r["no_cache_saving"] is not None], seed=101, repeats=10000),
+            "leave_one_cluster_out":[{"excluded_cluster":r["cluster_id"],
+                 "mean":mean(other["cost_saving"] for other in table if other is not r and other["cost_saving"] is not None),
+                 "median":median(other["cost_saving"] for other in table if other is not r and other["cost_saving"] is not None)}
+                 for r in table if r["cost_saving"] is not None and len(values)>1],
+            "quality_gain_cost_ranking_suspended":bool(cells["repair"]),
+            "outer":"NOT_RUN", "ACRE":"NOT_RUN"}
 
 
 def _append(path: Path, record: Mapping[str, Any]) -> None:
@@ -242,10 +298,11 @@ def summarize_spooled(manifest,pricing):
     source=Path(manifest["spool_dir"])/"episodes.jsonl"
     events=[json.loads(line)for line in source.read_text().splitlines()]
     rows=[e["episode"]for e in events if e["event"]=="COMPLETED"]
-    expected={(r["cluster_id"],arm)for r in manifest["plan"]for arm in ARMS}
+    arms=tuple(manifest["arms"])
+    expected={(r["cluster_id"],arm)for r in manifest["plan"]for arm in arms}
     observed={(r["cluster_id"],r["arm"])for r in rows}
     stops=[e for e in events if e["event"]=="STOP"]
-    result=summarize_attribution(manifest["plan"],rows,pricing)
+    result=summarize_attribution(manifest["plan"],rows,pricing,arms)
     status=("STOP_"+stops[-1]["reason"] if stops else "COMPLETED" if observed==expected else "INCOMPLETE_UNKNOWN")
     result.update(status=status,regenerated_without_provider=True,outer_status="NOT_RUN",
                   planned_arms=len(expected),completed_arms=len(observed),missing_arms=len(expected-observed))
@@ -284,6 +341,7 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
     from .native_verifier import make_selected_environment
     events=journal.root/"episodes.jsonl"
     prior=[json.loads(line)for line in events.read_text().splitlines()]if events.exists()else[]
+    arms=tuple(manifest["arms"])
     if any(e["event"] == "STOP" for e in prior):
         raise ProviderBudgetExceeded("frozen_batch_stopped_no_automatic_continuation")
     started={e["trial_id"]for e in prior if e["event"]=="STARTED"}
@@ -293,8 +351,8 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
     if any(receipt_outcome(row) is None for row in completed.values()):
         raise ProviderBudgetExceeded("unknown_previous_arm_no_automatic_continuation")
     journal.restore_budget(budget)
-    if len(completed) == len(manifest["plan"])*len(ARMS):
-        report=summarize_attribution(manifest["plan"],list(completed.values()),pricing)
+    if len(completed) == len(manifest["plan"])*len(arms):
+        report=summarize_attribution(manifest["plan"],list(completed.values()),pricing,arms)
         report.update(status="COMPLETED",provider_budget=budget.as_dict(),outer_status="NOT_RUN")
         _save_summary(output,report)
         return report
@@ -321,17 +379,20 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
     make_env=environment_factory or make_selected_environment
     for task in manifest["plan"]:
         pending=[arm for arm in task["arm_order"]if f"{manifest['run_id']}:{task['cluster_id']}:{arm}"not in completed]
+        if budget.usd_used + len(pending)*Decimal(str(manifest["max_usd_per_episode"])) > budget.max_usd:
+            raise ProviderBudgetExceeded("whole_pair_usd_headroom")
         budget.ensure_capacity(len(pending)*manifest["max_steps"],len(pending)*manifest["max_steps"]*manifest["max_input_per_request"],
                                len(pending)*manifest["max_steps"]*manifest["max_completion_per_request"])
         for arm in pending:
+            has_skill=arm in ("SKILL", "V1_PLUS_LENGTH")
             trial=f"{manifest['run_id']}:{task['cluster_id']}:{arm}"
             budget.begin_episode(max_usd=manifest["max_usd_per_episode"],max_calls=manifest["max_calls_per_episode"],max_wall_seconds=manifest["max_episode_wall_seconds"])
-            client.set_episode_context(trial,arm,str(skill.version)if arm=="SKILL"else None)
+            client.set_episode_context(trial,arm,str(skill.version)if has_skill else None)
             _append(events,{"event":"STARTED","trial_id":trial})
             env=make_env(task["gamefile"],max_steps=manifest["max_steps"],seed=task["seed"])
             try:
                 row=run_episode(env,client,skill=manifest["treatments"][arm],max_steps=manifest["max_steps"],
-                    skill_version=str(skill.version)if arm=="SKILL"else None,expected_gamefiles=[task["gamefile"]],
+                    skill_version=str(skill.version)if has_skill else None,expected_gamefiles=[task["gamefile"]],
                     receipt_metadata={**{k:task[k]for k in ("task_id","cluster_id","template_id","seed")},
                         "trial_id":trial,"arm":arm,"split":"train_inner","study_id":manifest["study_id"],
                         "run_id":manifest["run_id"],"evidence_origin":getattr(client,"evidence_origin","REAL_AGENT"),"source_commit":revision,
@@ -344,12 +405,12 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
                         "gamefile_sha256":task.get("gamefile_sha256"),"task_family":task.get("family"),
                         "parent_split":"train_inner","independently_reset_environment":True,
                         "trigger_matched":None,"trigger_status":"NATURAL_LANGUAGE_ONLY_NOT_OPERATIONAL_GATE",
-                        "skill_digest":skill.digest if arm=="SKILL"else None})
+                        "skill_digest":skill.digest if has_skill else None})
             finally:
                 env.close()
             row["prompt_treatment_present"]=arm!="OFF"
-            row["skill_injected"]=row["skill_rendered"]=arm=="SKILL"
-            row["length_control_injected"]=arm=="LENGTH"
+            row["skill_injected"]=row["skill_rendered"]=has_skill
+            row["length_control_injected"]=arm in E1_ARMS
             row["actual_new_model_rollout"]=row["evidence_origin"]=="REAL_AGENT"
             row["receipt_sha256"]=manifest_digest(row)
             _append(events,{"event":"COMPLETED","trial_id":trial,"episode":row})
@@ -361,14 +422,15 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
                 _save_summary(output,report)
                 return report
             cluster_rows = {r["arm"]: r for r in completed.values() if r["cluster_id"] == task["cluster_id"]}
-            if "OFF" in cluster_rows and receipt_outcome(cluster_rows["OFF"]) is True and any(
-                receipt_outcome(cluster_rows[a]) is False for a in ("LENGTH","SKILL") if a in cluster_rows
+            baseline="LENGTH" if arms == E1_ARMS else "OFF"
+            if baseline in cluster_rows and receipt_outcome(cluster_rows[baseline]) is True and any(
+                receipt_outcome(cluster_rows[a]) is False for a in arms if a != baseline and a in cluster_rows
             ):
                 _append(events,{"event":"STOP","reason":"HARD_REGRESSION","trial_id":trial})
                 report={"status":"STOP_HARD_REGRESSION","completed":len(completed),"provider_budget":budget.as_dict()}
                 _save_summary(output,report)
                 return report
-    report=summarize_attribution(manifest["plan"],list(completed.values()),pricing)
+    report=summarize_attribution(manifest["plan"],list(completed.values()),pricing,arms)
     report.update(status="COMPLETED",provider_budget=budget.as_dict(),outer_status="NOT_RUN")
     shutil.copytree(journal.root,output/"RAW_RECEIPTS",dirs_exist_ok=True)
     _save_summary(output,report)

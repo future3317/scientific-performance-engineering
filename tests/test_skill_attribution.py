@@ -8,9 +8,37 @@ import pytest
 from core.acre.resource_budget import manifest_digest
 from core.skills import SkillContract
 from experiments.skill_evolution.attribution import (
-    ARMS, LENGTH_CONTROL, arm_fingerprints, arm_texts, diagnose_failure,
+    ARMS, E1_ARMS, LENGTH_CONTROL, arm_fingerprints, arm_texts, diagnose_failure, conditional_increment_decision,
     episode_metrics, main, run_attribution, summarize_attribution, summarize_spooled, validate_manifest,
 )
+
+
+def test_conditional_composer_preserves_exact_v1_and_base_messages():
+    texts=arm_texts(skill(),design="conditional_increment")
+    assert texts=={"LENGTH":LENGTH_CONTROL,"V1_PLUS_LENGTH":LENGTH_CONTROL+"\n\n"+skill().body}
+    fp=arm_fingerprints(skill(),design="conditional_increment")
+    a,b=(fp[arm]["messages"]for arm in E1_ARMS)
+    assert a[0]==b[0]
+    assert a[1]["content"].replace(texts["LENGTH"],"<TREATMENT>")==b[1]["content"].replace(texts["V1_PLUS_LENGTH"],"<TREATMENT>")
+    assert fp["V1_PLUS_LENGTH"]["skill_content"] is True
+
+
+def test_e1_decision_quality_missing_and_cache_sensitivity():
+    plan=[task(i) for i in range(12)]
+    rows=[]
+    for i in range(12):
+        a,b=receipt("LENGTH",i=i),receipt("V1_PLUS_LENGTH",i=i)
+        b["trajectory"][0].update(output_tokens=40,reasoning_tokens=30)
+        rows.extend([a,b])
+    d=conditional_increment_decision(plan,rows,PRICING)
+    assert d["status"]=="E1_COMPLETED_POSITIVE_EXPLORATORY"
+    assert d["signs"]["positive"]==12 and len(d["leave_one_cluster_out"])==12
+    assert d["no_cache_savings"]["mean"]==pytest.approx(.000024)
+    assert conditional_increment_decision(plan,rows[:-1],PRICING)["status"]=="E1_COMPLETED_INCONCLUSIVE"
+    rows[-1]=receipt("V1_PLUS_LENGTH",False,i=11)
+    assert conditional_increment_decision(plan,rows,PRICING)["status"]=="E1_COMPLETED_NEGATIVE_EXPLORATORY"
+    rows[-1]=receipt("V1_PLUS_LENGTH",True,i=11);rows[-2]=receipt("LENGTH",False,i=11)
+    assert conditional_increment_decision(plan,rows,PRICING)["quality_gain_cost_ranking_suspended"]
 
 
 def skill():
