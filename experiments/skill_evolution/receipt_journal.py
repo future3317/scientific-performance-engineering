@@ -76,8 +76,17 @@ class DurableProviderJournal:
     def events(self) -> list[dict[str, Any]]:
         if not self.events_path.exists():
             return []
-        with self.events_path.open(encoding="utf-8") as handle:
-            return [json.loads(line) for line in handle if line.strip()]
+        data = self.events_path.read_bytes()
+        if data and not data.endswith(b"\n"):
+            # A killed/failed append may leave only a tail fragment. The atomic
+            # response file, not the response/usage index event, is authoritative.
+            boundary = data.rfind(b"\n") + 1
+            with (self.root / "journal.incomplete-tail").open("ab") as saved:
+                saved.write(data[boundary:]); saved.flush(); os.fsync(saved.fileno())
+            with self.events_path.open("r+b") as handle:
+                handle.truncate(boundary); handle.flush(); os.fsync(handle.fileno())
+            data = data[:boundary]
+        return [json.loads(line) for line in data.splitlines() if line.strip()]
 
     def _receipt_path(self, call_id: str) -> Path:
         return self.receipts / f"{_digest(call_id)}.json"

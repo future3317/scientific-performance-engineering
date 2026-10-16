@@ -177,3 +177,22 @@ def test_recovered_unknown_usage_never_releases_action(tmp_path):
     with pytest.raises(ProviderBudgetExceeded):
         resumed.complete_text(_messages())
 
+
+def test_interrupted_usage_index_append_recovers_from_atomic_response_once(tmp_path):
+    import json
+    spool=tmp_path/"server-spool"
+    journal=DurableProviderJournal(spool)
+    client=_client(journal,_budget(),lambda **_:_response())
+    client.complete_text(_messages())
+    complete=[e for e in journal.events()if e['event']!='usage_ledger']
+    journal.close()
+    # Simulate a process killed while appending the nonauthoritative usage index.
+    (spool/'journal.jsonl').write_bytes(('\n'.join(json.dumps(e)for e in complete)+'\n').encode()+b'{"event":"usage_ledger"')
+    recovered=DurableProviderJournal(spool)
+    budget=_budget();assert recovered.restore_budget(budget)==1
+    replay=_client(recovered,budget,lambda **_:pytest.fail("duplicate call after index recovery"))
+    assert replay.complete_text(_messages())['raw_output']=='Action: look'
+    assert budget.calls_reserved==1
+    assert sum(e['event']=='usage_ledger'for e in recovered.events())==1
+    assert (spool/'journal.incomplete-tail').read_bytes()==b'{"event":"usage_ledger"'
+
