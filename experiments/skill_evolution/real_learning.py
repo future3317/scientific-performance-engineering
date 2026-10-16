@@ -795,7 +795,10 @@ def run_live_learning(
                                  else None),
                     "feedback_events": [{key: _redact_feedback_text(item.get(key)) for key in
                         ("step", "observation", "selected_action", "fallback_reason", "subgoal")
-                        if item.get(key) is not None} for item in trajectory],
+                        if item.get(key) is not None} for item in trajectory] + (
+                        [{"step": len(trajectory), "event": "terminal_visible_observation",
+                          "observation": _redact_feedback_text(row["state"]["last_observation"])}]
+                        if row.get("env_steps", 0) > 0 else []),
                     "receipt_sha256": row["receipt_sha256"],
                 })
             (output / "paired_receipts.json").write_text(
