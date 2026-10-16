@@ -65,13 +65,14 @@ def export_skill_pack(
     model_identity: str,
     verifier_revision: str,
     task_population: str,
+    max_skill_characters: int | None = 1800,
 ) -> Path:
     """Create a new SKILL.md plus typed contract and provenance manifest."""
     if contract.source_split not in {"train", "train_dev", "train_inner"}:
         raise ValueError("only train-derived skill candidates may be exported")
     if contract.status != "candidate":
         raise ValueError("only candidate skills may be exported")
-    errors = validate_skill_text(contract, max_characters=1800)
+    errors = validate_skill_text(contract, max_characters=max_skill_characters)
     if errors:
         raise ValueError("skill pack rejected: " + ",".join(errors))
     name, description = _pack_name(contract)

@@ -343,8 +343,8 @@ def test_success_only_bundle_projects_visible_fields_and_rejects_B_sources():
         source_bundle_from_receipts(rows, split, source_mode="SUCCESS_ONLY_INDUCTION")
 
 
-@pytest.mark.parametrize("patch_reply", ["valid", "noop", "illegal"])
-def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp_path, patch_reply):
+@pytest.mark.parametrize("patch_reply,long_skill", [("valid", False), ("noop", False), ("illegal", False), ("valid", True)])
+def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp_path, patch_reply, long_skill):
     """Actual orchestration and Agent code, injected fixtures, zero network."""
     import json
     from datetime import datetime, timedelta, timezone
@@ -373,6 +373,10 @@ def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp
     pricing = {"model": "deepseek-flash", "currency": "USD", "pricing_source_url": "https://fixture.test", "checked_at_utc": "fixture",
                "price_period": "fixture", "estimate_quality": "SYNTHETIC_FIXTURE",
                "input_hit_per_million": "0.006", "input_miss_per_million": "0.3", "output_per_million": "1.2"}
+
+    if long_skill:
+        manifest["max_skill_characters"] = None
+        parent = replace(parent, procedure=("Inspect visible state. " * 100, parent.procedure[1]))
 
     def approval_for(m):
         return {"provider_enabled": True, "study_id": m["study_id"], "run_id": m["run_id"], "controller_commit": "fixture",
@@ -464,6 +468,10 @@ def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp
     assert report["outer_status"] == "NOT_RUN_REQUIRES_SEPARATE_T3_APPROVAL"
     candidate = SkillContract.from_dict(json.loads((tmp_path / "inner/candidate_v2.json").read_text()))
     initial = SkillContract.from_dict(json.loads((tmp_path / "inner/candidate_v1.json").read_text()))
+    if long_skill:
+        from core.skills.pack import read_skill_pack
+        assert len(initial.body) > 1800 and len(candidate.body) > 1800
+        assert read_skill_pack(tmp_path / "inner/selected_skill_pack").digest == candidate.digest
     inner_rows = report["inner_v1_and_v2_receipts"]
     assert report["panel_b_plan"] == manifest["plan"]["panel_b_pairs"]
     assert report["selected_frozen"]["candidate_digest"] == candidate.digest
