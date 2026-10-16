@@ -350,3 +350,35 @@ train-side Agent successes, not Skill-content or ACRE treatment effects.
 Full results and cost/termination details are in PHASE2_EXECUTION_REPORT.md.
 Original artifacts are retained and mirrored locally; follow-up is paused
 after reporting. No new tests were needed for this documentation-only closeout.
+
+### Phase4 length-policy amendment before inner outcomes — October 16
+
+T1 completed 12 real no-Skill train_dev episodes: 11 official successes,
+1 failure, 0 unknown, 201 calls; peak-price estimate USD0.342900072 (not bill).
+The first T2 proposal at eb2e8f1 was rejected solely as skill_too_long:
+1,946 rendered characters versus the frozen 1,800-character limit. Its original
+generation prompt did not disclose that limit. One real proposal call consumed
+1,423 input / 3,567 completion / 2,804 reasoning tokens, estimated USD0.0047073.
+No inner arm, patch, outer or held-out rollout followed. The original rejection,
+manifest and response remain unchanged; no Skill/ACRE efficacy is established.
+
+Following the user's explicit request to assess rather than mechanically raise
+the cap, a zero-provider diagnostic on dbcloud/equivcompiler at 19e1102 rendered
+the exact nine-step proposal through production choose_action for the first
+public observation/admissible list of all 12 T1 receipts. Conservative input
+bounds were 1,935–3,808 without Skill and 3,851–5,724 with Skill, adding 1,916
+units per call against the existing 32,768 input cap. These are UTF-8 byte plus
+framing reservations, not native tokenizer measurements. At USD0.3/million,
+the added input upper estimate is USD0.0005748/call or USD0.034488/60 calls;
+it excludes any change in reasoning/output or episode length.
+
+There is no evidence-based reason to reject this procedure at 1,800 characters.
+New study configurations may explicitly set max_skill_characters=null, removing
+only the independent character gate. Historical/default numeric limits remain
+unchanged. Prompts still request concise, generic procedures; production input,
+output, call, time and USD admission remain mandatory. Source leakage,
+protected semantics and bounded patch/candidate/iteration checks remain.
+No alternative arbitrary 4,000/6,000-character cap is introduced. Any resumed
+T2 requires a new explicit study identity recording this pre-outcome amendment;
+the old approval is not reused and an offline revalidation is not a new model
+proposal or evidence of benefit. This adjustment itself makes no provider call.

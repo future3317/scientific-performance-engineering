@@ -174,13 +174,13 @@ class SkillContract:
 _ENTITY_NUMBER = re.compile(r"\b(?:cabinet|drawer|countertop|table|sinkbasin|stoveburner|fridge|microwave|bed|sofa)\s+\d+\b", re.I)
 
 
-def validate_skill_text(contract: SkillContract, *, max_characters: int) -> list[str]:
+def validate_skill_text(contract: SkillContract, *, max_characters: int | None) -> list[str]:
     """Check size and concrete unsafe/source-leak patterns in the rendered skill."""
     body = contract.body
     metadata = json.dumps(contract.to_dict(), ensure_ascii=False, sort_keys=True)
     scanned_text = body + "\n" + metadata
     errors: list[str] = []
-    if len(body) > max_characters:
+    if max_characters is not None and len(body) > max_characters:
         errors.append("skill_too_long")
     if _ENTITY_NUMBER.search(scanned_text):
         errors.append("instance_specific_entity")

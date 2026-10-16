@@ -3,7 +3,10 @@ import json
 
 import pytest
 
-from core.skills import EvidenceBundle, ModelSkillProposer, PairReceipt, Patch, SkillContract, verify_inner_pairs
+from core.skills import (
+    EvidenceBundle, ModelSkillProposer, PairReceipt, Patch, SkillContract,
+    SkillPatchOptimizer, verify_inner_pairs,
+)
 
 
 SHA = "a" * 64
@@ -114,6 +117,65 @@ def test_generator_receives_the_registered_body_limit_without_provider(limit):
         evidence(), skill_id="alfworld.clean_place", subtask="clean_and_place", constraints=())
     supplied = json.loads(client.messages[1]["content"].split("constraints_and_evidence_json=", 1)[1])
     assert supplied["rendered_skill_body_max_characters"] == limit
+
+
+def test_unbounded_character_policy_accepts_long_procedure_but_strict_default_rejects():
+    response = initial_response()
+    response["procedure"][-1] += " " + "Check visible state and confirm the requested result. " * 40
+
+    unrestricted = ModelSkillProposer(
+        MockCompletion(response), max_completion_calls=1, mock_mode=True,
+        max_skill_characters=None,
+    ).propose_initial(evidence(), skill_id="alfworld.clean_place", subtask="clean_and_place", constraints=())
+    assert len(unrestricted.body) > 1800
+
+    with pytest.raises(ValueError, match="skill_too_long"):
+        ModelSkillProposer(
+            MockCompletion(response), max_completion_calls=1, mock_mode=True,
+            max_skill_characters=1800,
+        ).propose_initial(evidence(), skill_id="alfworld.clean_place", subtask="clean_and_place", constraints=())
+
+
+def test_unbounded_character_policy_keeps_source_leak_rejection_and_prompt_honest():
+    response = initial_response()
+    response["procedure"][0] = "Use cabinet 12 as the target."
+    client = MockCompletion(response)
+    proposer = ModelSkillProposer(client, max_completion_calls=1, mock_mode=True, max_skill_characters=None)
+    with pytest.raises(ValueError, match="instance_specific_entity"):
+        proposer.propose_initial(evidence(), skill_id="alfworld.clean_place", subtask="clean_and_place", constraints=())
+    supplied = json.loads(client.messages[1]["content"].split("constraints_and_evidence_json=", 1)[1])
+    assert supplied["rendered_skill_body_max_characters"] is None
+    assert "no separate character hard limit" in supplied["length_accounting"]
+
+
+def test_unbounded_optimizer_keeps_edit_and_protected_step_bounds():
+    optimizer = SkillPatchOptimizer(max_skill_characters=None)
+    long_step = "Confirm the visible state before proceeding. " * 50
+    candidate, errors = optimizer.apply(parent(), (Patch("ADD_STEP", 1, long_step),))
+    assert candidate is not None and not errors and len(candidate.body) > 1800
+
+    over_edit_budget, reasons = optimizer.apply(parent(), (
+        Patch("ADD_STEP", 1, "Check the visible state."),
+        Patch("ADD_STEP", 2, "Confirm the result."),
+    ))
+    assert over_edit_budget is None and reasons == ("edit_budget_exceeded",)
+
+    required = parent().procedure_step_ids.index(parent().required_procedure_step_ids[0])
+    removed, reasons = optimizer.apply(parent(), (Patch("DELETE_STEP", required),))
+    assert removed is None and reasons == ("required_procedure_step_removed",)
+
+
+def test_character_unbounded_skill_still_hits_runtime_input_cap_before_provider():
+    from core.acre.resource_budget import ProviderBudgetExceeded
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient, EpisodeState
+
+    # No SDK construction: reaching provider access would fail this test.
+    client = DeepSeekStatefulClient.__new__(DeepSeekStatefulClient)
+    client.budget = None
+    client.max_input_per_request = 1000
+    state = EpisodeState.start("Your task is to: place the target.", 60)
+    with pytest.raises(ProviderBudgetExceeded, match="per_request_input_cap"):
+        client.choose_action(state, ["look"], "Check visible state. " * 200, "", None)
 
 
 @pytest.mark.parametrize("changes, message", [

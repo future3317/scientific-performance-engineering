@@ -376,14 +376,16 @@ class SkillPatchOptimizer:
         max_edit_ops_per_round: int = 1,
         max_iterations: int = 3,
         max_candidate_count: int = 8,
-        max_skill_characters: int = 1800,
+        max_skill_characters: int | None = 1800,
     ) -> None:
         self.max_edit_ops_per_round = max_edit_ops_per_round
         self.max_iterations = max_iterations
         self.max_candidate_count = max_candidate_count
         self.max_skill_characters = max_skill_characters
         self._candidate_count = 0
-        if min(max_edit_ops_per_round, max_iterations, max_candidate_count, max_skill_characters) < 1:
+        if min(max_edit_ops_per_round, max_iterations, max_candidate_count) < 1 or (
+            max_skill_characters is not None and max_skill_characters < 1
+        ):
             raise ValueError("optimizer bounds must be positive")
 
     def apply(self, parent: SkillContract, patches: Sequence[Patch], *, iteration: int = 1) -> tuple[SkillContract | None, tuple[str, ...]]:
