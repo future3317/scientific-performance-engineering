@@ -19,7 +19,7 @@ def learning_fixture():
             "task_id": task_id,
             "template_id": f"source-template-{index}",
             "cluster_id": f"source-cluster-{index}",
-            "split": "train_inner",
+            "split": "train_dev",
             "status": status,
             "termination_reason": "success" if outcome else "agent_policy_failure",
             "environment_won": outcome,
@@ -37,12 +37,12 @@ def learning_fixture():
         receipts.append(row)
         membership.append({
             "task_id": task_id, "template_id": row["template_id"], "cluster_id": row["cluster_id"],
-            "split": "train_inner", "task_type": "pick_clean_then_place_in_recep",
+            "split": "train_dev", "task_type": "pick_clean_then_place_in_recep",
             "identity_status": "IDENTIFIED", "confirmatory_eligible": True,
         })
 
     pairs = []
-    for split, suffix in (("train_inner", "inner"), ("train_outer", "outer")):
+    for split, suffix in (("train_inner", "inner"),):
         task_id = f"{suffix}-template/trial_1"
         gamefile = f"/data/json_2.1.1/train/{task_id}/game.tw-pddl"
         row = {"task_id": task_id, "template_id": f"{suffix}-template", "gamefile": gamefile,
@@ -56,19 +56,19 @@ def learning_fixture():
         })
 
     split_manifest = {"task_membership": membership}
-    plan = {"pairs": pairs[:1], "outer_pairs": pairs[1:]}
+    plan = {"pairs": pairs}
     manifest = {
         "stage": "skill_evolution", "split": "train_inner", "thinking": "enabled",
         "max_retries": 0, "split_manifest_sha256": manifest_digest(split_manifest),
         "plan": plan, "plan_sha256": manifest_digest(plan),
         "viability_receipts_sha256": "b" * 64, "source_receipts_sha256": "c" * 64,
         "max_steps": 2, "max_input_per_request": 100, "max_completion_per_request": 100,
-        "proposal_completion_calls": 1, "max_calls": 9, "agent_sha": "a" * 64,
+        "proposal_completion_calls": 1, "patch_completion_calls": 1, "max_calls": 10, "agent_sha": "a" * 64,
         "configuration_sha": "e" * 64, "model_request_name": "deepseek-flash",
         "source_commit": "controller-commit",
     }
     evidence = EvidenceBundle(
-        source_split="train_inner",
+        source_split="train_dev", source_mode="CONTRASTIVE_REPAIR",
         source_task_ids=tuple(row["task_id"] for row in receipts),
         source_template_ids=tuple(row["template_id"] for row in receipts),
         source_cluster_ids=tuple(row["cluster_id"] for row in receipts),
@@ -78,19 +78,29 @@ def learning_fixture():
         task_family="clean_place", agent_hash=manifest["agent_sha"],
         successful_trajectory_summaries=("Verified visible completion.",),
         failed_trajectory_summaries=("Frozen agent reached a policy loop; environment did not report a win.",),
+        verified_failure_patterns=("policy loop",),
         redaction_report_sha256="d" * 64,
     )
-    return manifest, split_manifest, [dict(row) for row in receipts], [dict(row) for row in receipts], evidence
+    viability = []
+    for index in range(2):
+        row = dict(receipts[index], trial_id=f"b-run:{index}", split="train_inner",
+                   task_id=f"b-template-{index}/trial_{index}", template_id=f"b-template-{index}",
+                   cluster_id=f"b-cluster-{index}", status="VERIFIED_SUCCESS", environment_won=True,
+                   environment_done=True, success=True)
+        row["receipt_sha256"] = manifest_digest({k: v for k, v in row.items() if k != "receipt_sha256"})
+        viability.append(row)
+    return manifest, split_manifest, viability, [dict(row) for row in receipts], evidence
 
 
-def test_c_inputs_use_canonical_membership_semantic_clusters_and_prebudget_outer_pairs():
+def test_t2_inputs_use_train_dev_sources_and_complete_inner_budget_only():
     manifest, split, viability, sources, evidence = learning_fixture()
     plan = validate_learning_inputs(manifest, split, viability, sources, evidence)
     assert plan["status"] == "READY_FOR_APPROVAL"
     assert plan["B_independent_wins"] == 2
-    assert plan["B_verified_failures"] == 1
-    assert plan["planned_provider_calls"] == 9
-    assert plan["paired_clusters"] == {"train_inner": ["inner-cluster"], "train_outer": ["outer-cluster"]}
+    assert plan["B_verified_failures"] == 0
+    assert plan["planned_provider_calls"] == 10
+    assert plan["outer_pairs"] == 0
+    assert plan["paired_clusters"] == {"train_inner": ["inner-cluster"]}
 
 
 def test_b_gate_counts_semantic_clusters_not_directory_templates():
@@ -107,16 +117,11 @@ def test_source_receipt_hash_is_recomputed_and_tampering_is_rejected():
         validate_learning_inputs(manifest, split, viability, sources, evidence)
 
 
-def test_inner_outer_semantic_cluster_overlap_is_rejected_even_with_distinct_templates():
+def test_t2_manifest_cannot_smuggle_outer_pairs_under_inner_approval():
     manifest, split, viability, sources, evidence = learning_fixture()
-    outer_task = manifest["plan"]["outer_pairs"][0]
-    membership = next(row for row in split["task_membership"] if row["task_id"] == outer_task["task_id"])
-    membership["cluster_id"] = "inner-cluster"
-    outer_task["cluster_id"] = "inner-cluster"
+    manifest["plan"]["outer_pairs"] = [{"split": "train_outer"}]
     manifest["plan_sha256"] = manifest_digest(manifest["plan"])
-    manifest["split_manifest_sha256"] = manifest_digest(split)
-    evidence = replace(evidence, train_split_manifest_sha256=manifest["split_manifest_sha256"])
-    with pytest.raises(ValueError, match="inner and outer"):
+    with pytest.raises(ProviderBudgetExceeded, match="separate T3"):
         validate_learning_inputs(manifest, split, viability, sources, evidence)
 
 
@@ -134,9 +139,7 @@ def test_old_agent_source_evidence_cannot_be_used_as_current_agent_evidence():
         validate_learning_inputs(manifest, split, viability, sources, replace(evidence, agent_hash="old"))
 
 
-def test_real_pair_adapter_uses_production_episode_and_persists_both_arms(monkeypatch, tmp_path):
-    import sys
-    from types import SimpleNamespace
+def test_real_pair_adapter_uses_production_episode_and_persists_both_arms(tmp_path):
     from experiments.skill_evolution.real_learning import _run_one_pair
     manifest, _, _, _, _ = learning_fixture()
     pair = manifest["plan"]["pairs"][0]
@@ -158,13 +161,9 @@ def test_real_pair_adapter_uses_production_episode_and_persists_both_arms(monkey
         def close(self):
             closed.append(True)
 
-    class Owner:
-        def __init__(self, config, train_eval):
-            assert train_eval == "train"
-
-        def init_env(self, batch_size):
-            assert batch_size == 1
-            return Environment()
+    def environment_factory(gamefile, *, max_steps, seed):
+        assert gamefile == pair["gamefile"] and max_steps == 2 and seed == pair["seed"]
+        return Environment()
 
     class Client:
         budget = None
@@ -174,11 +173,11 @@ def test_real_pair_adapter_uses_production_episode_and_persists_both_arms(monkey
             return {"raw_output": "Action: look" if skill else "Action: inventory",
                     "input_tokens": 10, "output_tokens": 3}
 
-    monkeypatch.setitem(sys.modules, "alfworld.agents.environment.alfred_tw_env", SimpleNamespace(AlfredTWEnv=Owner))
     candidate = SimpleNamespace(body="Verify visible outcomes.", digest="f" * 64, version=1)
     off, on = _run_one_pair(tmp_path, Client(), pair, candidate, split="train_inner", max_steps=2,
                            run_id="fixture", agent_revision="agent", benchmark_revision="benchmark",
-                           provenance=manifest, on_arm=lambda arm, row: persisted.append((arm, row)))
+                           provenance=manifest, on_arm=lambda arm, row: persisted.append((arm, row)),
+                           environment_factory=environment_factory)
     assert off["success"] is False and on["success"] is True
     assert [arm for arm, _ in persisted] == ["off", "on"]
     assert insertions == [None, candidate.body]

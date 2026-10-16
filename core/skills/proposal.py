@@ -1,4 +1,4 @@
-"""Budgeted model proposals over verified train_inner evidence."""
+"""Budgeted skill proposals from train_dev evidence and inner feedback."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ class EvidenceBundle:
     """Redacted, verifier-labeled evidence prepared outside the model adapter."""
 
     source_split: str
+    source_mode: str
     source_task_ids: tuple[str, ...]
     source_template_ids: tuple[str, ...]
     source_cluster_ids: tuple[str, ...]
@@ -42,15 +43,18 @@ class EvidenceBundle:
     action_rejections: tuple[str, ...] = ()
     loop_or_stall_events: tuple[str, ...] = ()
     budget_failures: tuple[str, ...] = ()
+    paired_execution_metrics: tuple[str, ...] = ()
     success_labels_origin: str = "environment_won"
     teacher_only_source: bool = False
     uses_hidden_task_state: bool = False
     unknown_usage_count: int = 0
     redaction_report_sha256: str = ""
 
-    def validate(self) -> None:
-        if self.source_split != "train_inner":
-            raise ValueError("model proposal requires train_inner evidence")
+    def validate(self, *, patch_feedback: bool = False) -> None:
+        if self.source_split not in {"train_dev", "train_inner"}:
+            raise ValueError("skill evidence must come from train_dev or train_inner feedback")
+        if self.source_mode not in {"SUCCESS_ONLY_INDUCTION", "CONTRASTIVE_REPAIR"}:
+            raise ValueError("unsupported skill source mode")
         if self.teacher_only_source:
             raise ValueError("teacher-only evidence cannot generate autonomous skill candidates")
         if self.uses_hidden_task_state:
@@ -59,6 +63,8 @@ class EvidenceBundle:
             raise ValueError("proposal outcomes must originate from the environment verifier")
         if self.unknown_usage_count:
             raise ValueError("proposal evidence has unknown provider usage")
+        if self.source_split == "train_inner" and self.source_mode not in {"SUCCESS_ONLY_INDUCTION", "CONTRASTIVE_REPAIR"}:
+            raise ValueError("inner feedback must retain the candidate's registered source mode")
         if not self.source_task_ids or not self.source_template_ids or not self.source_cluster_ids or not self.source_trace_ids:
             raise ValueError("proposal evidence requires task, template, cluster, and trace provenance")
         if len(set(self.source_task_ids)) != len(self.source_task_ids):
@@ -78,8 +84,14 @@ class EvidenceBundle:
                 raise ValueError("split manifest and redaction report must be SHA256 digests")
         if not self.task_family.strip() or not self.agent_hash.strip():
             raise ValueError("task family and agent identity are required")
-        if not self.successful_trajectory_summaries or not self.failed_trajectory_summaries:
-            raise ValueError("contrastive proposal requires verified successes and failures")
+        if not self.successful_trajectory_summaries:
+            raise ValueError("skill induction requires a verified success source")
+        if not patch_feedback and self.source_mode == "SUCCESS_ONLY_INDUCTION" and self.failed_trajectory_summaries:
+            raise ValueError("success-only induction cannot include failure examples")
+        if not patch_feedback and self.source_mode == "CONTRASTIVE_REPAIR" and (
+            not self.failed_trajectory_summaries or not self.verified_failure_patterns
+        ):
+            raise ValueError("contrastive repair requires resolved independent success and failure evidence")
         content = json.dumps(self._prompt_data(), ensure_ascii=False)
         if len(content) > 12_000:
             raise ValueError("proposal evidence exceeds the fixed 12000-character input bound")
@@ -92,6 +104,7 @@ class EvidenceBundle:
 
     def _prompt_data(self) -> dict[str, Any]:
         return {
+            "source_mode": self.source_mode,
             "task_family": self.task_family,
             "successful_trajectory_summaries": self.successful_trajectory_summaries,
             "failed_trajectory_summaries": self.failed_trajectory_summaries,
@@ -102,6 +115,7 @@ class EvidenceBundle:
             "action_rejections": self.action_rejections,
             "loop_or_stall_events": self.loop_or_stall_events,
             "budget_failures": self.budget_failures,
+            "paired_execution_metrics": self.paired_execution_metrics,
             "labels_origin": self.success_labels_origin,
         }
 
@@ -154,6 +168,8 @@ class ModelSkillProposer:
         constraints: Sequence[str],
     ) -> SkillContract:
         evidence.validate()
+        if evidence.source_split != "train_dev":
+            raise ValueError("initial induction requires train_dev evidence")
         response, prompt_sha, output_sha, model = self._complete(
             "initial_subskill", self._initial_prompt(evidence, constraints)
         )
@@ -180,7 +196,9 @@ class ModelSkillProposer:
             postconditions=self._strings(response["postconditions"], "postconditions"),
             protected_semantics=self._strings(response["protected_semantics"], "protected_semantics"),
             source_trial_ids=evidence.source_trace_ids,
-            source_split="train_inner",
+            source_split=evidence.source_split,
+            source_mode=evidence.source_mode,
+            evidence_basis=("observed_success",) if evidence.source_mode == "SUCCESS_ONLY_INDUCTION" else ("observed_success", "observed_failure"),
             source_task_ids=evidence.source_task_ids,
             source_template_ids=evidence.source_template_ids,
             source_cluster_ids=evidence.source_cluster_ids,
@@ -198,12 +216,16 @@ class ModelSkillProposer:
         return contract
 
     def propose_patch(self, parent: SkillContract, evidence: EvidenceBundle) -> PatchProposal:
-        evidence.validate()
+        evidence.validate(patch_feedback=True)
+        if evidence.source_split != "train_inner":
+            raise ValueError("bounded patch feedback must come from train_inner")
         if parent.task_family != evidence.task_family:
             raise ValueError("proposal evidence task family differs from parent skill")
         response, prompt_sha, output_sha, model = self._complete(
             "patch", self._patch_prompt(parent, evidence)
         )
+        if response.get("parent_digest") != parent.digest:
+            raise ValueError("patch parent digest mismatch")
         trace_ids = self._check_trace_sources(response, evidence)
         raw_patch = response.get("edit_operation")
         if not isinstance(raw_patch, Mapping) or raw_patch.get("section") != "procedure":
@@ -336,6 +358,7 @@ class ModelSkillProposer:
     def _initial_prompt(evidence: EvidenceBundle, constraints: Sequence[str]) -> dict[str, Any]:
         return {
             "schema": {
+                "source_mode": evidence.source_mode,
                 "source_trace_ids": ["subset of supplied source traces"],
                 "intent": "string", "applicability": ["observable scope"],
                 "procedure": ["generic reusable step"], "procedure_step_ids": ["stable step id"],
@@ -353,6 +376,7 @@ class ModelSkillProposer:
     def _patch_prompt(parent: SkillContract, evidence: EvidenceBundle) -> dict[str, Any]:
         return {
             "schema": {
+                "parent_digest": parent.digest,
                 "source_trace_ids": ["subset of supplied source traces"],
                 "failure_hypothesis": "string", "edit_operation": {
                     "op": "add | replace | delete", "section": "procedure", "index": "integer",
@@ -366,3 +390,12 @@ class ModelSkillProposer:
             "source_trace_ids": evidence.source_trace_ids,
             "evidence": evidence._prompt_data(),
         }
+
+
+def source_readiness(evidence: EvidenceBundle) -> str:
+    """Return induction eligibility without treating absent failures as evidence."""
+    evidence.validate()
+    if evidence.source_split != "train_dev":
+        return "BLOCKED_INVALID_EVIDENCE"
+    return ("SUCCESS_ONLY_READY" if evidence.source_mode == "SUCCESS_ONLY_INDUCTION"
+            else "CONTRASTIVE_READY")

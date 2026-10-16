@@ -28,6 +28,9 @@ class SkillContract:
     source_trial_ids: tuple[str, ...]
     verification_trial_ids: tuple[str, ...] = ()
     source_split: str = "train"
+    source_mode: str = "CONTRASTIVE_REPAIR"
+    evidence_basis: tuple[str, ...] = ()
+    patch_feedback_receipt_hashes: tuple[str, ...] = ()
     source_task_ids: tuple[str, ...] = ()
     source_template_ids: tuple[str, ...] = ()
     source_cluster_ids: tuple[str, ...] = ()
@@ -44,7 +47,9 @@ class SkillContract:
 
     def __post_init__(self) -> None:
         validate_identifier(self.skill_id, "skill_id")
-        if self.version < 1 or self.source_split not in {"train", "train_inner"} or self.status not in {"candidate", "rejected"}:
+        if (self.version < 1 or self.source_split not in {"train", "train_dev", "train_inner"}
+                or self.source_mode not in {"SUCCESS_ONLY_INDUCTION", "CONTRASTIVE_REPAIR"}
+                or self.status not in {"candidate", "rejected"}):
             raise ValueError("skill candidates require a positive version, train provenance, and candidate/rejected status")
         if self.parent_digest is not None and (not self.parent_version or self.parent_version >= self.version):
             raise ValueError("child skill revisions require an earlier parent version")
@@ -69,6 +74,9 @@ class SkillContract:
         for digest in self.source_trace_hashes:
             if not re.fullmatch(r"[0-9a-f]{64}", digest):
                 raise ValueError("source trace hashes must be lowercase SHA256 digests")
+        for digest in self.patch_feedback_receipt_hashes:
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError("patch feedback receipt hashes must be lowercase SHA256 digests")
         for name in ("train_split_manifest_sha256", "proposal_prompt_sha256", "proposal_output_sha256"):
             digest = getattr(self, name)
             if digest is not None and not re.fullmatch(r"[0-9a-f]{64}", digest):
@@ -120,6 +128,8 @@ class SkillContract:
             "procedure_step_ids", "required_procedure_step_ids", "protected_semantics",
             "source_trial_ids", "verification_trial_ids", "source_task_ids",
             "source_template_ids", "source_cluster_ids", "source_trace_hashes",
+            "evidence_basis",
+            "patch_feedback_receipt_hashes",
         } else item for key, item in value.items()})
 
     def to_dict(self) -> dict[str, Any]:

@@ -178,3 +178,21 @@ def test_production_t1_batch_resets_selected_games_in_frozen_order_without_provi
     assert all(row["record_kind"] == "SYNTHETIC_FIXTURE" and not row["actual_new_model_rollout"]
                for row in result["episodes"])
     assert result["summary"]["source_readiness"]["independent_win_clusters"] == 0
+
+
+def test_duplicate_provider_response_id_stops_without_reexecuting_action(monkeypatch):
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
+    _, _, budget = approved_budget()
+    response = SimpleNamespace(id="fixture-repeated-response", model="deepseek-flash", system_fingerprint="fixture",
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=10, prompt_cache_hit_tokens=0,
+                              prompt_cache_miss_tokens=10, completion_tokens_details=SimpleNamespace(reasoning_tokens=2)),
+        choices=[SimpleNamespace(message=SimpleNamespace(content="Action: look"), finish_reason="stop")])
+    sdk = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=lambda **kw: sdk))
+    client = DeepSeekStatefulClient("SYNTHETIC_FIXTURE", "https://api.deepseek.com", "deepseek-flash", budget=budget)
+    result = client.complete_text([{"role": "user", "content": "fixture"}])
+    assert result["provider_response_id"] == "fixture-repeated-response"
+    with pytest.raises(RuntimeError, match="duplicate provider response"):
+        client.complete_text([{"role": "user", "content": "fixture"}])
+    assert budget.stopped and budget.stop_reason == "duplicate_provider_response_id"
+    assert budget.calls_reserved == 2 and budget.usd_used > 0
