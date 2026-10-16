@@ -580,6 +580,33 @@ not-measured status. Equal task execution is not equal total compute.
 
 ## Power table interpretation
 
+## Fixed-Skill conditional increment and source discovery
+
+Phase7 E1 uses fresh train_inner semantic clusters and two independently reset
+arms: unchanged LENGTH, versus unchanged LENGTH followed by two newlines and
+the original frozen v1 body in the same user-message treatment slot. It tests
+conditional add-on value, not a factorial interaction, new Skill generation,
+outer efficacy, or ACRE routing. Historical adaptation data cannot fill E1 arms.
+Twelve clusters cover six native families twice; six pairs start each arm.
+Missing/unknown official outcomes remain unknown; quality precedes cost.
+Regressions stop further pairs. Repairs suspend cost-only ranking. With twelve
+complete both-success pairs, positive exploration requires mean and median
+peak-price cost savings above zero and at least eight positive paired savings.
+Negative exploration requires a regression, or complete nonpositive mean and
+median with fewer than six positive savings; other outcomes are inconclusive.
+Report measured-cache and no-cache costs, sign counts, independent-cluster
+percentile bootstrap (seed101,10000 resamples), and leave-one-cluster-out influence.
+These are exploratory decision rules, not a significance or safety theorem.
+
+D0 audits public historical failures and expensive successes without proposing
+a new mechanism merely from text redundancy. D1 separately collects LENGTH
+baseline source trajectories on metadata-selected, unexposed train_dev tasks;
+it is discovery, not evidence of benefit over LENGTH. Its two batches require
+separate authorization after the E1 decision. R0 audits routing opportunity;
+without measurable fixed-treatment benefit/harm and pre-decision information,
+report NO_ROUTING_OPPORTUNITY_YET rather than tune a gate. No Phase7 training
+result changes frozen manuscript numbers or permits access to final154 outcomes.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
