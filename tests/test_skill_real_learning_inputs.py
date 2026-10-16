@@ -172,11 +172,12 @@ def test_panel_b_excludes_incomplete_triplets_and_reports_three_common_cluster_c
             arms.pop("v2")
         for arm, success in arms.items():
             rows.append({"panel": "B", "pair_id": f"B:p{index}", "arm": arm,
-                         "success": success, "input_tokens": 100, "completion_tokens": 0,
+                         "success": success, "input_tokens": 70 if arm == "v2" else 100, "completion_tokens": 0,
                          "cost_usd": "0.01" if arm != "v2" else "0.005"})
     selected = select_inner_candidate(rows, "SUCCESS_ONLY_INDUCTION", pairs)
     assert selected["panel_b_complete_triplets"] == 3
     assert selected["panel_b_incomplete_triplet_ids"] == ["B:p0"]
+    assert selected["selected"] == "no_skill"
     assert {item["valid_pairs"] for item in selected["pairwise_comparisons"].values()} == {3}
     assert selected["candidate_screens"]["v1"]["regressions"] == 0
 

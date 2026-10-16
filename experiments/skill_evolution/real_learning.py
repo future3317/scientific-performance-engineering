@@ -555,7 +555,7 @@ def select_inner_candidate(rows: Sequence[Mapping[str, Any]], source_mode: str,
         median_token_saving = _median(both_success_tokens)
         median_usd_saving = _median(both_success_usd_savings)
         net_success = repairs - regressions
-        eligible = bool(complete) and regressions == 0 and (
+        eligible = bool(complete) and not incomplete and regressions == 0 and (
             median_token_saving is not None and median_token_saving >= 0.10
             if route == "SUCCESS_ONLY_EFFICIENCY" else net_success > 0
         )
