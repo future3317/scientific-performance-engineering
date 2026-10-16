@@ -57,7 +57,7 @@ def learning_fixture():
         })
 
     split_manifest = {"task_membership": membership}
-    plan = {"pairs": pairs}
+    plan = {"pairs": pairs, "pair_order_seed": 19}
     manifest = {
         "stage": "skill_evolution", "split": "train_inner", "thinking": "enabled",
         "max_retries": 0, "split_manifest_sha256": manifest_digest(split_manifest),
@@ -307,7 +307,7 @@ def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp
              "frozen_candidate_sha256": candidate.digest, "selected_inner_version": "v2",
              "inner_receipts_sha256": manifest_digest({"receipts": inner_rows}), "output_dir": str(tmp_path / "outer"),
              "outer_consumption_journal": str(tmp_path / "consumed.jsonl"),
-             "plan": {"pairs": [dict(outer_member, pair_id="outer-pair", split="outer_skill_validation", seed=19,
+             "plan": {"pair_order_seed": 19, "pairs": [dict(outer_member, pair_id="outer-pair", split="outer_skill_validation", seed=19,
                                      arm_order=["off", "on"], task_type_id=3)]}}
     outer_report = run_frozen_outer(outer, split, extension, candidate, initial, inner_rows,
         approval_for(outer), pricing, revision="fixture", base_url="https://api.deepseek.com", api_key="SYNTHETIC_FIXTURE",
@@ -317,3 +317,13 @@ def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp
     from experiments.skill_evolution.real_learning import validate_outer_inputs
     with pytest.raises(ValueError, match="consumed"):
         validate_outer_inputs(outer, split, extension, candidate, initial, inner_rows)
+
+
+def test_pair_order_is_metadata_only_deterministic_and_balanced():
+    from experiments.skill_evolution.real_learning import freeze_pair_orders
+    pairs = [{"pair_id": str(i)} for i in range(6)]
+    result = freeze_pair_orders(pairs, 31)
+    assert result == freeze_pair_orders(pairs, 31)
+    assert sum(row["arm_order"] == ["off", "on"] for row in result) == 3
+    changed = [dict(row, future_outcome=False, high_pddl="not a sampler input") for row in pairs]
+    assert [row["arm_order"] for row in result] == [row["arm_order"] for row in freeze_pair_orders(changed, 31)]

@@ -179,6 +179,16 @@ def _rows(payload: Any, key: str) -> list[dict[str, Any]]:
     return rows
 
 
+def freeze_pair_orders(pairs: Sequence[Mapping[str, Any]], seed: int) -> list[dict[str, Any]]:
+    """Balance OFF-first and ON-first using metadata only, before outcomes."""
+    if type(seed) is not int:
+        raise ValueError("predeclared pair order seed is required")
+    ranked = sorted(pairs, key=lambda pair: manifest_digest({"seed": seed, "pair_id": pair["pair_id"]}))
+    orders = {pair["pair_id"]: (["off", "on"] if index % 2 == 0 else ["on", "off"])
+              for index, pair in enumerate(ranked)}
+    return [dict(pair, arm_order=orders[pair["pair_id"]]) for pair in pairs]
+
+
 def validate_learning_inputs(
     manifest: Mapping[str, Any],
     split_manifest: Mapping[str, Any],
@@ -270,6 +280,8 @@ def validate_learning_inputs(
     inner_pairs = manifest.get("plan", {}).get("pairs")
     if not isinstance(inner_pairs, list) or not inner_pairs:
         raise ValueError("C manifest requires a frozen non-empty inner pair list")
+    if inner_pairs != freeze_pair_orders(inner_pairs, manifest["plan"].get("pair_order_seed")):
+        raise ValueError("inner pair execution order differs from frozen balanced randomization")
     if "outer_pairs" in manifest.get("plan", {}):
         raise ProviderBudgetExceeded("outer evaluation requires a separate T3 approval")
     pair_templates: dict[str, set[str]] = {"train_inner": set()}
@@ -734,6 +746,15 @@ def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str
     pairs = plan.get("pairs")
     if not isinstance(pairs, list) or not pairs:
         raise ValueError("T3 requires a frozen nonempty outer pair plan")
+    if pairs != freeze_pair_orders(pairs, plan.get("pair_order_seed")):
+        raise ValueError("outer pair execution order differs from frozen balanced randomization")
+    selection = select_inner_candidate(inner_rows, candidate.source_mode)
+    if selection["selected"] != manifest["selected_inner_version"]:
+        raise ValueError("outer candidate was not selected by the frozen inner screen")
+    selected_on = [row for row in inner_rows if row.get("arm") == "on"
+                   and str(row.get("pair_id", "")).endswith(":" + manifest["selected_inner_version"])]
+    if any(row.get("skill_digest") != candidate.digest for row in selected_on):
+        raise ValueError("selected inner receipts do not belong to the frozen candidate")
     inner_clusters = {row.get("cluster_id") for row in inner_rows}
     candidate_sources = set(candidate.source_cluster_ids)
     seen: set[str] = set()
