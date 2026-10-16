@@ -43,7 +43,10 @@ sampler nor reservation opens games, outcomes, descriptions or expert plans.
 Predeclared allocation: equal thirds within each official family; largest
 remainder with rotating family tie priority. This is a practical exploratory
 reservation, not a powered success-superiority or low-harm certification.
-Actual child counts and digests are recorded in the server preparation summary.
+Actual child counts: skill validation153 / gate calibration153 / final154 /
+quarantine0. All460 outer clusters assigned exactly once. Extension digest:
+`b9886a0a551a5119aceda1040c24e9b226da8b6728c9a40172ce175f976dabe3`.
+Sampling digest: `abeca9405f9d77f3c278a7faf624792cb77a85e8b793886f911eb5c12d4f6ad1`.
 Final reserved task IDs are metadata-only; no final environment is reset.
 
 T1: study_id=`phase3_baseline_diagnostic`, seed31, exactly two previously
@@ -53,7 +56,13 @@ probabilities are retained, but no automatic replacement is authorized.
 No outcomes/expert lengths/difficulty guesses affect selection. Existing
 88-template history, old probes, B and teacher exposure are excluded as groups.
 Only the twelve selected T1 game files are then read as opaque bytes to bind
-execution identities. Reserved final files remain unopened.
+execution identities. During Phase3, reserved final files remain unopened.
+The parent population had already been metadata-indexed in Phase2; its legacy
+environment collector also scanned train JSON and solvability metadata. We do
+not claim these files have never been opened as bytes. Untouched here means
+no known model/teacher rollout, outcome-driven analysis, proposal feedback or
+gate calibration use, based on the recorded exposure ledger. The selected-only
+factory prevents such population-wide scans in new training runs.
 
 ## C. Provider authorization and execution
 
@@ -102,6 +111,12 @@ T3 proposal: eight new outer pairs (16 episodes, 960-call ceiling, USD20 cap
 proposal). These figures are planning envelopes, not permission or finalized
 candidate-dependent manifests. T4 remains unqualified without a fabricated cap.
 
+The selected-only official environment factory also passed a real zero-provider
+integration on one already exposed B train_inner task: reset, one batched
+admissible action, no expert-plan info; zero new T1/reserved tasks opened,
+shell exit0. `selected-native-integration.json` is environment evidence only,
+not a new autonomous Agent rollout or success.
+
 ## D. Real no-Skill diagnostic
 
 T1 NOT_RUN. The only autonomous evidence remains historical B: clean21,
@@ -122,11 +137,24 @@ Initial/patch consume final content only; invalid, truncated, hidden-answer,
 wrong-parent, wrong-split or outer-derived proposals are rejected and journaled.
 The code is a preparation contract, not evidence that a real Skill was generated.
 The exact integration/negative tests and server results are recorded below.
+The source projector constructs summaries from raw dev observation/action/
+rejection fields, redacts instance numbers and caps each trace summary at2,400
+characters. State, expert and private reasoning fields are not projected.
+Optional supplied bundle files must exactly match that projection. Inner
+feedback contains measured arm-specific tokens/cost and visible events, not
+cumulative ledger totals. One initial proposal precedes v1 OFF/ON; one patch
+consumes only that inner feedback, followed by fresh v2 OFF/ON. Two candidates
+are scored separately; ties favor v1 and neither qualified selects no_skill.
 
 ## F. Independent outer and ACRE evidence
 
 Real outer, gate calibration and held-out policy comparisons: **NOT_RUN**.
 Frozen candidates require a separate T3 approval; T2 cannot consume outer.
+T3 binds parent/child/candidate/inner identities, uses balanced frozen arm
+order, and records cluster consumption before reset in a study-level outer
+journal. Renaming output does not make those clusters fresh. Raw arms are
+persisted once; incomplete pairs remain undecided. The production-path fixture
+exercises initial→inner→patch→new inner→outer regression→rollback.
 Outer decisions retain favorable-pilot/undecided/rejected, never automatic
 GLOBAL_VERIFIED or canonical promotion. ACRE still uses AcreEngine.route.
 Static frozen decisions over real OFF/ON may be evaluated as
@@ -149,6 +177,33 @@ HEAD, not subsequent Phase3 implementation commits.
 Raw command/environment/stdout/stderr/exit are under
 `test_receipt/entry-7cdbeee/`. Later implementation validation must cite its own
 commit and scope; overlapping test counts are not summed. Windows runs no tests.
+PR-E/F targeted verification at45cca87: **77 passed, 0.97s, exit0** under
+`test_receipt/ef-45cca87-corrected/`. The initial invocation at the same commit
+had a mistyped test filename (exit4, no tests); its log remains under
+`test_receipt/ef-45cca87/`. No assertion was relaxed.
+
+| Revision/run | Server outcome | Interpretation |
+|---|---|---|
+| integration-0d43dda | exit4 | Mistyped test filename; no tests ran |
+| integration-0d43dda-corrected | 74 passed /5 failed, exit1 | Fixture provenance/import and zero-denominator/static-config issues; retained |
+| integration-65103c2 | 80 passed /1 failed, exit1 | Production integration exposed a list-vs-mapping receipt digest bug |
+| integration-207b517 | 81 passed,0.86s,exit0 | Production proposal/feedback/outer rollback passed after digest fix |
+| integration-cafa9d1 | 130 passed,1.11s,exit0 | Affected/adjacent source, pack, split, budget, Agent and analysis paths |
+| full-cafa9d1 | 617 passed /1 failed,8 warnings,679.19s,exit1 | Old unknown-usage test expected the unmetered action to be returned; raw log retained |
+
+Follow-up strengthens the unknown-usage test to require immediate rejection
+before env.step, retention of the charged/unknown reservation, and no further
+request. It does not restore unsafe action release. It also adds a missing-ON
+retention/regression test (point values unknown, explicit bounds) and bounds
+six-pair long-trace patch feedback while retaining every arm's measured cost.
+The final acceptance command/result/SHA/exit is the authoritative receipt in
+`test_receipt/full-phase3-acceptance/`; it is not inferred from earlier counts.
+
+No synthetic qualification campaign was repeated. Controlled pytest fixture
+outcomes verify code contracts only and do not enter real efficacy tables.
+The machine-readable closeout `PHASE3_CLOSEOUT.json` and frozen report snapshot
+under the evidence root include the final receipt status and exact T1 manifest
+identities. No all-green statement is implied by this source document alone.
 
 Source mapping:
 

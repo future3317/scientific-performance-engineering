@@ -108,14 +108,32 @@ def test_unknown_usage_stops_before_the_next_provider_call(monkeypatch):
     budget = ProviderUsageBudget(max_calls=3, max_total_tokens=100_000)
     client = _client(monkeypatch, create, budget)
     _choose(client)
-    unknown = _choose(client)
-    assert unknown["input_tokens"] is None
-    assert unknown["output_tokens"] is None
+    # Unknown usage must not release an action to the environment, even for
+    # the response that first made accounting unknown.
+    with pytest.raises(ProviderBudgetExceeded, match="provider_usage_unknown"):
+        _choose(client)
+    assert budget.tokens_used == 45
+    assert budget.as_dict()["tokens_unknown"] is True
+    assert budget.as_dict()["reservations"]["status"] == "usage_unknown"
     with pytest.raises(ProviderBudgetExceeded):
         _choose(client)
 
     assert len(calls) == 2
     assert budget.stopped
+
+
+def test_unknown_usage_never_reaches_env_step(monkeypatch):
+    calls = []
+    def create(**request):
+        calls.append(request)
+        return SimpleNamespace(usage=None)
+    budget = ProviderUsageBudget(max_calls=3, max_total_tokens=100_000)
+    client = _client(monkeypatch, create, budget)
+    environment = _Environment()
+    result = run_episode(environment, client, max_steps=2)
+    assert environment.steps == result["env_steps"] == 0
+    assert result["success"] is None and budget.tokens_unknown
+    assert len(calls) == budget.calls_reserved == 1
 
 
 def test_provider_exception_consumes_admission_and_freezes_unknown_budget(monkeypatch):

@@ -149,12 +149,16 @@ def _feedback_bundle(source: EvidenceBundle, receipts: Sequence[PairReceipt],
         raise ValueError("inner feedback has no verified success; stop before patching")
     metrics = []
     for row in raw_receipts:
+        events = row.get("feedback_events", [])
+        informative = [event for event in events if event.get("fallback_reason")]
+        selected_events = informative[:2] if informative else (events[:1] + events[-1:] if events else [])
+        snippets = [json.dumps(event, ensure_ascii=False)[:160] for event in selected_events]
         metrics.append(
             f"{row.get('pair_id')} {row.get('arm')}: outcome={row.get('success')}; "
             f"input_tokens={row.get('input_tokens')}; completion_tokens={row.get('completion_tokens')}; "
             f"reasoning_tokens={row.get('reasoning_tokens')}; usd={row.get('cost_usd')}; "
             f"environment_steps={row.get('steps')}; actions={row.get('actions')}; "
-            f"visible_events={row.get('feedback_events', [])}"
+            f"visible_event_snippets={snippets}; full_event_count={len(events)}"
         )
     return EvidenceBundle(
         source_split="train_inner", source_mode=source.source_mode,

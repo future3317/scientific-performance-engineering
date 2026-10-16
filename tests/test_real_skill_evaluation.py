@@ -435,6 +435,18 @@ def test_failed_rollouts_with_lower_usage_do_not_count_as_efficiency_savings():
     assert report["success_only_gate"]["status"] == "NO_NET_EFFICIENCY_GAIN"
 
 
+def test_missing_on_is_not_imputed_as_zero_regression_or_zero_retention():
+    plan = _plan(count=1)
+    receipts = _paired_receipts(plan, [(True, True)])[:1]
+    report, _ = evaluate_fixed_skill(plan, _decisions(plan), receipts)
+    screen = report["success_only_gate"]
+    assert screen["off_success_denominator"] == 1
+    assert screen["regression_rate_given_off_success"] is None
+    assert screen["on_success_given_off_success"] is None
+    assert screen["regression_rate_bounds"] == {"lower": 0.0, "upper": 1.0}
+    assert screen["on_success_given_off_success_bounds"] == {"lower": 0.0, "upper": 1.0}
+
+
 def test_static_policy_value_requires_real_fixed_predecision_rollouts_and_unique_clusters():
     plan, _, receipts = _priced_success_report(count=3)
     for task in plan["tasks"][1:]:

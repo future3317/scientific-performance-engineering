@@ -820,6 +820,12 @@ def evaluate_fixed_skill(
         outcomes[(str(task["task_id"]), "off")] is True
         and outcomes[(str(task["task_id"]), "on")] is True for task in tasks
     )
+    missing_on_after_off_success = sum(
+        outcomes[(str(task["task_id"]), "off")] is True
+        and outcomes[(str(task["task_id"]), "on")] is None for task in tasks
+    )
+    retention_status = ("UNDEFINED_ZERO_OFF_SUCCESS" if not off_success else
+                        "NOT_IDENTIFIED_MISSING_ON_OUTCOMES" if missing_on_after_off_success else "MEASURED")
     efficiency_status = ("REJECTED_REGRESSION" if observed_regressions else
                          "UNDECIDED_INCOMPLETE_PAIRS" if content_counts["missing"] else
                          "NO_NET_EFFICIENCY_GAIN" if token_saving is None or token_saving < 0.10 else
@@ -878,10 +884,15 @@ def evaluate_fixed_skill(
             "fixed_rule": "zero observed regression and median both-success paired total-token saving >= 10%; USD is secondary and cannot substitute",
             "regression_count": observed_regressions,
             "off_success_denominator": off_success,
-            "regression_rate_given_off_success": observed_regressions / off_success if off_success else None,
-            "regression_rate_status": "MEASURED" if off_success else "UNDEFINED_ZERO_OFF_SUCCESS",
-            "on_success_given_off_success": retained_off_successes / off_success if off_success else None,
-            "on_success_given_off_success_status": "MEASURED" if off_success else "UNDEFINED_ZERO_OFF_SUCCESS",
+            "missing_on_after_off_success": missing_on_after_off_success,
+            "regression_rate_given_off_success": observed_regressions / off_success if off_success and not missing_on_after_off_success else None,
+            "regression_rate_status": retention_status,
+            "regression_rate_bounds": ({"lower": observed_regressions / off_success,
+                "upper": (observed_regressions + missing_on_after_off_success) / off_success} if off_success else None),
+            "on_success_given_off_success": retained_off_successes / off_success if off_success and not missing_on_after_off_success else None,
+            "on_success_given_off_success_status": retention_status,
+            "on_success_given_off_success_bounds": ({"lower": retained_off_successes / off_success,
+                "upper": (retained_off_successes + missing_on_after_off_success) / off_success} if off_success else None),
             "median_both_success_total_token_saving_fraction": token_saving,
             "median_both_success_usd_saving_fraction_secondary": cost_saving,
             "outer_interpretation": "pilot favorable, undecided, or rejected; never GLOBAL_VERIFIED",
