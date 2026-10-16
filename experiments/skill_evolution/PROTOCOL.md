@@ -2,13 +2,50 @@
 
 ## Status and boundary
 
-Current continuation: Phase3 preparation, no new provider authorization. See
-`docs/skill_v3/PHASE3_EXECUTION_REPORT.md`. Historical fixture and Phase2 design
+Current continuation: Phase4, coordinated by the user's October16 Phase4
+Execution Decision Playbook. T1 was explicitly authorized following its frozen
+card; the user subsequently requested automatic progression and waived further
+budget questions. Each subsequent stage still needs a finite, exact manifest,
+stage-specific authorization record and scientific eligibility before execution.
+This is not permission to expand task cohorts, retry failed experiments or
+consume final outcomes before the declared qualification gates.
+See `docs/skill_v3/PHASE3_EXECUTION_REPORT.md` for the prior preparation.
+Historical fixture and Phase2 design
 sections below retain their original scope; they are not current execution
 status. Phase2 B at `713bd65` completed three autonomous official wins, not
 Skill or routing efficacy. The earlier success-plus-failure prerequisite is
 replaced for new Phase3 studies by the source modes below, not retroactively
 changed in original receipts.
+
+### Phase4 real diagnostic and prospective continuation
+
+T1 at `3b2f3fb278617dd4292f174045facb4c07451d2b` completed the unchanged
+seed31 twelve-task no-Skill cohort: 11 official successes, one official
+failure, zero unknown; exit0. Pick-and-place was 1/2; the other five families
+were each 2/2. There were 201 calls, 246946 input and 224139 completion
+tokens, and USD0.342900072 estimated at peak prices with measured cache
+counters. These are train-dev Agent diagnostics, not Skill or ACRE efficacy.
+The raw receipts remain in the original frozen T1 output directory; Phase4
+reports and launch records live under RESULTS/skill-evolution-phase4-20261016.
+
+The real same-family success/failure makes CONTRASTIVE_REPAIR source-eligible
+for pick-and-place. Selecting this source is a train-dev development decision,
+not a pre-outcome claim or an outer result. No inner/outer/final outcome is
+used for that choice. SUCCESS_ONLY_EFFICIENCY remains a distinct research
+route, represented by SUCCESS_ONLY_INDUCTION in the existing source contract.
+
+The Phase4 T2 design supersedes the older six-task two-version design below:
+one model proposal v1; frozen panel A of eight inner OFF/v1 pairs; exactly
+one bounded model patch using panel A feedback; fresh panel B of eight inner
+OFF/v1/v2 triplets with independent resets and frozen arm order. Source tasks,
+A, B, outer validation, gate calibration and reserved final remain disjoint.
+Candidate selection uses panel B only, prioritizing fewer regressions then
+higher net success, followed by both-success cost/token savings and a v1 tie
+break. No qualifying candidate means no automatic T3 expenditure. Panel A is
+training evidence, and panel B is selection evidence, never independent outer.
+Actual candidates, task identities, costs and stage caps are bound in the
+new stage manifest before its first paid call. All policy deployment still
+passes through canonical AcreEngine.route; no pilot creates GLOBAL_VERIFIED.
 
 ### Phase3 registered preparation
 

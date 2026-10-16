@@ -1,7 +1,7 @@
 """Approved train_dev skill induction and train_inner feedback evaluation.
 
 Dry-run is the default. Live calls require a C-scoped ApprovedProviderBudget,
-eligible B viability receipts, disjoint frozen templates, and a complete pair
+eligible B viability receipts, disjoint frozen templates, and a complete panel
 budget before the provider client or environment is created.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import fields, replace
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 import os
 from pathlib import Path
@@ -33,6 +33,10 @@ from core.skills import (
     verify_inner_pairs,
     export_skill_pack,
 )
+
+PHASE4_T2_MODE = "PANEL_A_OFF_V1_PANEL_B_OFF_V1_V2"
+PHASE4_T2_MODE_VERSION = 1
+PHASE4_SELECTION_POLICY = "MIN_REGRESSION_MAX_NET_SUCCESS_COST_TOKENS_TIE_V1"
 
 
 def _read_json(path: Path) -> Any:
@@ -152,13 +156,14 @@ def _feedback_bundle(source: EvidenceBundle, receipts: Sequence[PairReceipt],
         events = row.get("feedback_events", [])
         informative = [event for event in events if event.get("fallback_reason")]
         selected_events = informative[:2] if informative else (events[:1] + events[-1:] if events else [])
-        snippets = [json.dumps(event, ensure_ascii=False)[:160] for event in selected_events]
+        visible_events = [json.dumps(event, ensure_ascii=False, sort_keys=True)[:160]
+                          for event in selected_events]
         metrics.append(
             f"{row.get('pair_id')} {row.get('arm')}: outcome={row.get('success')}; "
             f"input_tokens={row.get('input_tokens')}; completion_tokens={row.get('completion_tokens')}; "
             f"reasoning_tokens={row.get('reasoning_tokens')}; usd={row.get('cost_usd')}; "
             f"environment_steps={row.get('steps')}; actions={row.get('actions')}; "
-            f"visible_event_snippets={snippets}; full_event_count={len(events)}"
+            f"visible_events={visible_events}; full_event_count={len(events)}"
         )
     return EvidenceBundle(
         source_split="train_inner", source_mode=source.source_mode,
@@ -191,6 +196,19 @@ def freeze_pair_orders(pairs: Sequence[Mapping[str, Any]], seed: int) -> list[di
     orders = {pair["pair_id"]: (["off", "on"] if index % 2 == 0 else ["on", "off"])
               for index, pair in enumerate(ranked)}
     return [dict(pair, arm_order=orders[pair["pair_id"]]) for pair in pairs]
+
+
+def freeze_triplet_orders(pairs: Sequence[Mapping[str, Any]], seed: int) -> list[dict[str, Any]]:
+    """Freeze balanced deterministic OFF/v1/v2 permutations before outcomes."""
+    if type(seed) is not int:
+        raise ValueError("predeclared panel B arm order seed is required")
+    orders = (
+        ["off", "v1", "v2"], ["v1", "v2", "off"], ["v2", "off", "v1"],
+        ["off", "v2", "v1"], ["v2", "v1", "off"], ["v1", "off", "v2"],
+    )
+    ranked = sorted(pairs, key=lambda pair: manifest_digest({"seed": seed, "pair_id": pair["pair_id"]}))
+    order_by_id = {pair["pair_id"]: orders[index % len(orders)] for index, pair in enumerate(ranked)}
+    return [dict(pair, arm_order=order_by_id[pair["pair_id"]]) for pair in pairs]
 
 
 def validate_learning_inputs(
@@ -281,18 +299,37 @@ def validate_learning_inputs(
         raise ProviderBudgetExceeded("pair_plan_digest_mismatch")
     source_ids, source_templates = set(evidence.source_task_ids), set(evidence.source_template_ids)
     source_clusters = set(evidence.source_cluster_ids)
-    inner_pairs = manifest.get("plan", {}).get("pairs")
-    if not isinstance(inner_pairs, list) or not inner_pairs:
-        raise ValueError("C manifest requires a frozen non-empty inner pair list")
-    if inner_pairs != freeze_pair_orders(inner_pairs, manifest["plan"].get("pair_order_seed")):
-        raise ValueError("inner pair execution order differs from frozen balanced randomization")
+    if (manifest.get("phase4_mode") != PHASE4_T2_MODE
+            or type(manifest.get("phase4_mode_version")) is not int
+            or manifest.get("phase4_mode_version") != PHASE4_T2_MODE_VERSION):
+        raise ProviderBudgetExceeded("explicit_versioned_phase4_t2_mode_required")
+    if manifest.get("source_mode") != evidence.source_mode:
+        raise ProviderBudgetExceeded("source_mode_manifest_evidence_mismatch")
+    selection_policy = manifest.get("selection_policy")
+    if selection_policy != {"id": PHASE4_SELECTION_POLICY, "version": 1}:
+        raise ProviderBudgetExceeded("frozen_phase4_selection_policy_required")
+    plan_data = manifest.get("plan", {})
+    panel_a = plan_data.get("panel_a_pairs")
+    panel_b = plan_data.get("panel_b_pairs")
+    if not isinstance(panel_a, list) or not isinstance(panel_b, list):
+        raise ValueError("Phase4 manifest requires frozen panel_a_pairs and panel_b_pairs")
+    if len(panel_a) != len(panel_b) or len(panel_a) not in {6, 8}:
+        raise ValueError("Phase4 panels must both contain exactly 6 (MIN) or 8 (STANDARD) clusters")
+    if len({pair.get("pair_id") for pair in panel_a + panel_b}) != len(panel_a) + len(panel_b):
+        raise ValueError("panel A and B pair IDs must be unique")
     if "outer_pairs" in manifest.get("plan", {}):
         raise ProviderBudgetExceeded("outer evaluation requires a separate T3 approval")
-    pair_templates: dict[str, set[str]] = {"train_inner": set()}
-    pair_clusters: dict[str, set[str]] = {"train_inner": set()}
-    pair_task_ids: dict[str, set[str]] = {"train_inner": set()}
-    for split, pairs in (("train_inner", inner_pairs),):
+    pair_templates: dict[str, set[str]] = {"panel_a": set(), "panel_b": set()}
+    pair_clusters: dict[str, set[str]] = {"panel_a": set(), "panel_b": set()}
+    pair_task_ids: dict[str, set[str]] = {"panel_a": set(), "panel_b": set()}
+    for panel_name, pairs, expected_arms, order_seed, freezer in (
+        ("panel_a", panel_a, {"off", "on"}, plan_data.get("pair_order_seed"), freeze_pair_orders),
+        ("panel_b", panel_b, {"off", "v1", "v2"}, plan_data.get("panel_b_arm_order_seed"), freeze_triplet_orders),
+    ):
+        if pairs != freezer(pairs, order_seed):
+            raise ValueError(f"{panel_name} arm order differs from frozen randomization")
         for pair in pairs:
+            split = "train_inner"
             if not isinstance(pair, dict) or pair.get("split") != split:
                 raise ValueError(f"every paired task must be explicitly assigned to {split}")
             task_id, template_id = pair.get("task_id"), pair.get("template_id")
@@ -312,14 +349,17 @@ def validate_learning_inputs(
                 raise ValueError("proposal, B viability, and paired validation templates/clusters must be disjoint")
             if pair.get("cluster_id") != cluster_id:
                 raise ValueError("pair plan semantic cluster differs from canonical task membership")
-            if (task_id in pair_task_ids[split] or template_id in pair_templates[split]
-                    or cluster_id in pair_clusters[split]):
-                raise ValueError(f"{split} validation requires unique task, template, and semantic cluster")
-            if pair.get("arm_order") not in (["off", "on"], ["on", "off"]):
-                raise ValueError("each pair must freeze its off/on execution order")
-            pair_task_ids[split].add(task_id)
-            pair_templates[split].add(template_id)
-            pair_clusters[split].add(cluster_id)
+            if pair.get("arm_order") is None or set(pair["arm_order"]) != expected_arms or len(pair["arm_order"]) != len(expected_arms):
+                raise ValueError(f"{panel_name} must freeze each required arm exactly once")
+            if (task_id in pair_task_ids[panel_name] or template_id in pair_templates[panel_name]
+                    or cluster_id in pair_clusters[panel_name]):
+                raise ValueError(f"{panel_name} requires unique task, template, and semantic cluster identities")
+            pair_task_ids[panel_name].add(task_id)
+            pair_templates[panel_name].add(template_id)
+            pair_clusters[panel_name].add(cluster_id)
+    for panel_name, values in (("task", pair_task_ids), ("template", pair_templates), ("cluster", pair_clusters)):
+        if values["panel_a"] & values["panel_b"]:
+            raise ValueError(f"panel A and B {panel_name} sets must be disjoint")
     if not set(evidence.source_task_ids).issubset(split_by_task):
         raise ValueError("source task missing from split manifest")
     if source_clusters != {split_by_task[task_id].get("cluster_id") for task_id in source_ids}:
@@ -329,8 +369,7 @@ def validate_learning_inputs(
         if (task is None or task.get("split") != "train_dev"
                 or task.get("template_id") != row.get("template_id")
                 or task.get("cluster_id") != row.get("cluster_id")
-                or task.get("identity_status") != "IDENTIFIED"
-                or task.get("confirmatory_eligible") is not True):
+                or task.get("identity_status") != "IDENTIFIED"):
             raise ValueError("source receipt does not match the frozen train_dev manifest")
     from experiments.external_real.alfworld_runner import TASK_FAMILIES, task_family_name
     stable_families = set(TASK_FAMILIES.values())
@@ -359,20 +398,33 @@ def validate_learning_inputs(
     completion_cap = manifest.get("max_completion_per_request")
     if any(type(value) is not int or value <= 0 for value in (max_steps, input_cap, completion_cap)):
         raise ProviderBudgetExceeded("finite step and per-request token caps are required")
+    try:
+        episode_usd_cap = Decimal(str(manifest["max_usd_per_episode"]))
+    except (KeyError, ValueError, TypeError, InvalidOperation):
+        raise ProviderBudgetExceeded("finite per-episode USD cap is required") from None
+    if (not episode_usd_cap.is_finite() or episode_usd_cap <= 0
+            or type(manifest.get("max_calls_per_episode")) is not int
+            or manifest["max_calls_per_episode"] < max_steps
+            or type(manifest.get("max_episode_wall_seconds")) is not int
+            or manifest["max_episode_wall_seconds"] <= 0):
+        raise ProviderBudgetExceeded("finite per-episode call, USD, and wall caps are required")
     proposal_calls = manifest.get("proposal_completion_calls")
     if proposal_calls != 1:
         raise ProviderBudgetExceeded("one bounded proposal completion is required for this patch stage")
     patch_calls = manifest.get("patch_completion_calls", 1)
     if patch_calls != 1:
         raise ProviderBudgetExceeded("one bounded inner-feedback patch completion is required")
-    required_calls = proposal_calls + patch_calls + len(inner_pairs) * 4 * max_steps
+    required_calls = proposal_calls + patch_calls + (len(panel_a) * 2 + len(panel_b) * 3) * max_steps
     if manifest.get("max_calls") != required_calls:
         raise ProviderBudgetExceeded("manifest call cap must equal complete proposal and paired schedule")
     return {
         "status": "READY_FOR_APPROVAL",
         "provider_calls": 0,
         "planned_provider_calls": required_calls,
-        "inner_pairs": len(inner_pairs),
+        "phase4_mode": PHASE4_T2_MODE,
+        "phase4_mode_version": PHASE4_T2_MODE_VERSION,
+        "panel_a_clusters": len(panel_a),
+        "panel_b_clusters": len(panel_b),
         "outer_pairs": 0,
         "source_tasks": len(source_receipts),
         "B_independent_wins": len(win_clusters),
@@ -381,8 +433,8 @@ def validate_learning_inputs(
             and not row.get("teacher_only_source", False))}),
         "source_templates": sorted(source_templates),
         "source_clusters": sorted(source_clusters),
-        "paired_templates": {split: sorted(values) for split, values in pair_templates.items()},
-        "paired_clusters": {split: sorted(values) for split, values in pair_clusters.items()},
+        "paired_templates": {panel: sorted(values) for panel, values in pair_templates.items()},
+        "paired_clusters": {panel: sorted(values) for panel, values in pair_clusters.items()},
         "results_claimed": False,
     }
 
@@ -450,53 +502,160 @@ def _success_only_inner_screen(receipts: Sequence[Mapping[str, Any]], *, split: 
             "usd_secondary_endpoint": [row.get("cost_usd") for arms in both_success for row in arms.values()]}
 
 
-def select_inner_candidate(rows: Sequence[Mapping[str, Any]], source_mode: str) -> dict[str, Any]:
-    """Two prespecified candidates; ties favor the earlier, unpatched version."""
-    screens = {}
+def _median(values: Sequence[float]) -> float | None:
+    ordered = sorted(values)
+    if not ordered:
+        return None
+    middle = len(ordered) // 2
+    return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def select_inner_candidate(rows: Sequence[Mapping[str, Any]], source_mode: str,
+                           panel_b_pairs: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    """Select only from complete same-cluster panel B triplets; ties favor v1."""
+    route = "SUCCESS_ONLY_EFFICIENCY" if source_mode == "SUCCESS_ONLY_INDUCTION" else source_mode
+    grouped: dict[str, dict[str, Mapping[str, Any]]] = {}
+    for row in rows:
+        if row.get("panel") == "B":
+            arms = grouped.setdefault(str(row.get("pair_id")), {})
+            arm = str(row.get("arm"))
+            if arm in arms:
+                raise ValueError("duplicate panel B receipt arm")
+            arms[arm] = row
+    planned = {str(pair["pair_id"]) for pair in panel_b_pairs} if panel_b_pairs is not None else set(grouped)
+    complete = {
+        pair_id: arms for pair_id, arms in grouped.items()
+        if pair_id in planned and set(arms) == {"off", "v1", "v2"}
+        and all(type(arms[arm].get("success")) is bool for arm in ("off", "v1", "v2"))
+    }
+    incomplete = sorted(planned - set(complete))
+    screens: dict[str, dict[str, Any]] = {}
     for version in ("v1", "v2"):
-        batch = [row for row in rows if str(row.get("pair_id", "")).endswith(":" + version)]
-        screen = _success_only_inner_screen(batch)
-        pairs = {}
-        for row in batch:
-            pairs.setdefault(row["pair_id"], {})[row["arm"]] = row
-        repairs = sum(arms.get("off", {}).get("success") is False and arms.get("on", {}).get("success") is True
-                      for arms in pairs.values())
-        score = (screen["median_total_token_saving_fraction"] if source_mode == "SUCCESS_ONLY_INDUCTION"
-                 else repairs - screen["regressions"])
-        eligible = (bool(batch) and screen["missing_pairs"] == 0 and screen["regressions"] == 0
-                    and (screen["status"] == "READY_FOR_T3_PILOT" if source_mode == "SUCCESS_ONLY_INDUCTION"
-                         else repairs > 0))
-        screens[version] = {**screen, "repairs": repairs, "eligible_for_outer_pilot": eligible, "score": score}
+        repairs = regressions = 0
+        both_success_count = 0
+        both_success_tokens: list[float] = []
+        both_success_usd_savings: list[float] = []
+        for arms in complete.values():
+            off, treated = arms["off"], arms[version]
+            repairs += off["success"] is False and treated["success"] is True
+            regressions += off["success"] is True and treated["success"] is False
+            if off["success"] is not True or treated["success"] is not True:
+                continue
+            both_success_count += 1
+            token_values = [off.get("input_tokens"), off.get("completion_tokens"),
+                            treated.get("input_tokens"), treated.get("completion_tokens")]
+            if all(type(value) is int for value in token_values):
+                off_tokens = token_values[0] + token_values[1]
+                treated_tokens = token_values[2] + token_values[3]
+                if off_tokens > 0:
+                    both_success_tokens.append((off_tokens - treated_tokens) / off_tokens)
+            off_cost, treated_cost = off.get("cost_usd"), treated.get("cost_usd")
+            if off_cost is not None and treated_cost is not None:
+                both_success_usd_savings.append(float(Decimal(str(off_cost)) - Decimal(str(treated_cost))))
+        median_token_saving = _median(both_success_tokens)
+        median_usd_saving = _median(both_success_usd_savings)
+        net_success = repairs - regressions
+        eligible = bool(complete) and regressions == 0 and (
+            median_token_saving is not None and median_token_saving >= 0.10
+            if route == "SUCCESS_ONLY_EFFICIENCY" else net_success > 0
+        )
+        screens[version] = {
+            "complete_triplets": len(complete), "incomplete_triplets_excluded": len(incomplete),
+            "repairs": repairs, "regressions": regressions, "net_success": net_success,
+            "both_success_pairs": both_success_count,
+            "both_success_token_pairs": len(both_success_tokens),
+            "median_both_success_total_token_saving_fraction": median_token_saving,
+            "median_both_success_usd_saving": median_usd_saving,
+            "eligible_for_outer_pilot": eligible,
+        }
     eligible = [version for version in ("v1", "v2") if screens[version]["eligible_for_outer_pilot"]]
-    selected = max(eligible, key=lambda version: screens[version]["score"]) if eligible else "no_skill"
-    return {"selected": selected, "candidate_screens": screens, "selection_count": 2,
-            "status": "READY_FOR_T3_PILOT" if eligible else "NO_QUALIFIED_INNER_CANDIDATE",
-            "claim": "exploratory inner selection only; separate T3 required, no canonical promotion"}
+    # Lexicographic safety-first rule: fewest regressions, highest net success,
+    # then lower measured USD and total tokens on both-success pairs; tie -> v1.
+    def rank(version: str) -> tuple[float, ...]:
+        screen = screens[version]
+        usd = screen["median_both_success_usd_saving"]
+        tokens = screen["median_both_success_total_token_saving_fraction"]
+        return (screen["regressions"], -screen["net_success"],
+                -(usd if usd is not None else float("-inf")),
+                -(tokens if tokens is not None else float("-inf")),
+                0 if version == "v1" else 1)
+    selected = min(eligible, key=rank) if eligible else "no_skill"
+    pairwise = {}
+    for left, right in (("off", "v1"), ("off", "v2"), ("v1", "v2")):
+        valid = [(arms[left], arms[right]) for arms in complete.values()]
+        wins = sum(a["success"] is False and b["success"] is True for a, b in valid)
+        losses = sum(a["success"] is True and b["success"] is False for a, b in valid)
+        pairwise[f"{left}_vs_{right}"] = {
+            "valid_pairs": len(valid), "left_only_success": losses, "right_only_success": wins,
+            "incomplete_triplets_excluded": len(incomplete),
+        }
+    return {
+        "selected": selected, "candidate_screens": screens, "selection_count": 2,
+        "research_route": route, "panel_b_complete_triplets": len(complete),
+        "panel_b_incomplete_triplet_ids": incomplete, "pairwise_comparisons": pairwise,
+        "selection_policy": PHASE4_SELECTION_POLICY,
+        "status": "READY_FOR_T3_PILOT" if eligible else "NO_QUALIFIED_INNER_CANDIDATE",
+        "claim": "exploratory panel B selection only; panel A is adaptation evidence; separate T3 required",
+    }
 
 
-def _run_one_pair(data_root: Path, client: Any, pair: Mapping[str, Any], candidate: SkillContract,
-                  *, split: str, max_steps: int, run_id: str, agent_revision: str,
-                  benchmark_revision: str, provenance: Mapping[str, Any],
-                  on_arm: Callable[[str, dict[str, Any]], None],
-                  environment_factory: Callable[..., Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+def _selected_panel_b_pairs(rows: Sequence[Mapping[str, Any]], version: str) -> list[dict[str, Any]]:
+    """Normalize complete raw panel B triplets to the existing OFF/ON pair contract."""
+    if version not in {"v1", "v2"}:
+        raise ValueError("selected inner version must be v1 or v2")
+    grouped: dict[str, dict[str, Mapping[str, Any]]] = {}
+    for row in rows:
+        if row.get("panel") == "B":
+            grouped.setdefault(str(row.get("pair_id")), {})[str(row.get("arm"))] = row
+    normalized = []
+    for pair_id, arms in sorted(grouped.items()):
+        if set(arms) != {"off", "v1", "v2"} or any(type(arms[arm].get("success")) is not bool
+                                                         for arm in ("off", "v1", "v2")):
+            continue
+        for source_arm, pair_arm in (("off", "off"), (version, "on")):
+            normalized.append({**arms[source_arm], "arm": pair_arm, "pair_id": f"{pair_id}:{version}"})
+    return normalized
+
+
+def _run_panel_cluster(data_root: Path, client: Any, pair: Mapping[str, Any],
+                       candidates: Mapping[str, SkillContract | None], *, split: str,
+                       max_steps: int, run_id: str, agent_revision: str,
+                       benchmark_revision: str, provenance: Mapping[str, Any],
+                       on_arm: Callable[[str, dict[str, Any]], None],
+                       environment_factory: Callable[..., Any] | None = None) -> dict[str, dict[str, Any]]:
     from experiments.external_real.alfworld_stateful_runner import run_episode
     if environment_factory is None:
         from experiments.skill_evolution.native_verifier import make_selected_environment
         environment_factory = make_selected_environment
 
     gamefile = pair["gamefile"]
-    rows = {}
+    rows: dict[str, dict[str, Any]] = {}
+    if set(pair["arm_order"]) != set(candidates):
+        raise ValueError("frozen cluster arm order does not match candidate arms")
+    if isinstance(client.budget, ApprovedProviderBudget):
+        arm_count = len(pair["arm_order"])
+        client.budget.ensure_capacity(
+            arm_count * max_steps, arm_count * max_steps * client.max_input_per_request,
+            arm_count * max_steps * client.max_completion_tokens,
+        )
     for arm in pair["arm_order"]:
+        if isinstance(client.budget, ApprovedProviderBudget):
+            client.budget.begin_episode(
+                max_usd=str(provenance["max_usd_per_episode"]),
+                max_calls=provenance["max_calls_per_episode"],
+                max_wall_seconds=provenance["max_episode_wall_seconds"],
+            )
+        candidate = candidates[arm]
         arm_id = f"{run_id}:{pair['pair_id']}:{arm}"
         receipt_metadata = {
-            "study_id": "skill_evolution_real_v2", "run_id": run_id,
+            "study_id": provenance.get("study_id", "skill_evolution_real_v2"), "run_id": run_id,
             "pair_id": pair["pair_id"], "trial_id": arm_id,
             "task_id": pair["task_id"], "template_id": pair["template_id"],
             "cluster_id": pair["cluster_id"],
             "arm": arm, "split": split, "evidence_origin": getattr(client, "evidence_origin", "REAL_AGENT"),
-            "skill_digest": candidate.digest if arm == "on" else None,
-            "skill_version_sha256": candidate.digest if arm == "on" else None,
-            "skill_sha": candidate.digest if arm == "on" else None,
+            "skill_digest": candidate.digest if candidate is not None else None,
+            "skill_version_sha256": candidate.digest if candidate is not None else None,
+            "skill_sha": candidate.digest if candidate is not None else None,
             "agent_revision": agent_revision, "benchmark_revision": benchmark_revision,
             "agent_revision_sha256": provenance.get("agent_revision_sha256") or provenance.get("agent_sha"),
             "agent_sha": provenance.get("agent_sha") or provenance.get("agent_revision_sha256"),
@@ -507,18 +666,12 @@ def _run_one_pair(data_root: Path, client: Any, pair: Mapping[str, Any], candida
             "split_manifest_sha256": provenance["split_manifest_sha256"],
             "seed": pair["seed"],
         }
-        if isinstance(client.budget, ApprovedProviderBudget):
-            steps = max_steps * (2 - len(rows))
-            client.budget.ensure_capacity(
-                steps, steps * client.max_input_per_request,
-                steps * client.max_completion_tokens,
-            )
         environment = environment_factory(gamefile, max_steps=max_steps, seed=int(pair["seed"]))
         try:
             row = run_episode(
                 environment, client,
-                skill=candidate.body if arm == "on" else None,
-                skill_version=str(candidate.version) if arm == "on" else None,
+                skill=candidate.body if candidate is not None else None,
+                skill_version=str(candidate.version) if candidate is not None else None,
                 max_steps=max_steps,
                 receipt_metadata=receipt_metadata,
                 expected_gamefiles=[gamefile],
@@ -528,6 +681,18 @@ def _run_one_pair(data_root: Path, client: Any, pair: Mapping[str, Any], candida
         row["receipt_sha256"] = manifest_digest(row)
         rows[arm] = row
         on_arm(arm, row)
+    return rows
+
+
+def _run_one_pair(data_root: Path, client: Any, pair: Mapping[str, Any], candidate: SkillContract,
+                  *, split: str, max_steps: int, run_id: str, agent_revision: str,
+                  benchmark_revision: str, provenance: Mapping[str, Any],
+                  on_arm: Callable[[str, dict[str, Any]], None],
+                  environment_factory: Callable[..., Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    rows = _run_panel_cluster(data_root, client, pair, {"off": None, "on": candidate}, split=split,
+        max_steps=max_steps, run_id=run_id, agent_revision=agent_revision,
+        benchmark_revision=benchmark_revision, provenance=provenance, on_arm=on_arm,
+        environment_factory=environment_factory)
     return rows["off"], rows["on"]
 
 
@@ -541,6 +706,10 @@ def run_live_learning(
     """Generate v1 from train_dev, patch it from real inner feedback, and stop at T2."""
     if parent.task_family != evidence.task_family or evidence.source_split != "train_dev":
         raise ValueError("initial proposal requires same-family train_dev source evidence")
+    validate_learning_inputs(manifest, split_manifest, viability_receipts, source_receipts, evidence)
+    for cap_name in ("max_usd_per_episode", "max_calls_per_episode", "max_episode_wall_seconds"):
+        if str(manifest[cap_name]) != str(budget.approval.get(cap_name)):
+            raise ProviderBudgetExceeded(f"episode_cap_manifest_approval_mismatch:{cap_name}")
     if "outer_pairs" in manifest.get("plan", {}):
         raise ProviderBudgetExceeded("T2 cannot contain outer tasks; submit a separate T3 manifest")
     if client_factory is None:
@@ -577,6 +746,8 @@ def run_live_learning(
         max_skill_characters=manifest.get("max_skill_characters", 1800),
         on_completion=lambda record: append(output / "proposal_journal.jsonl", record))
     try:
+        budget.begin_episode(max_usd=str(manifest.get("max_usd_per_proposal", "0.05")),
+                             max_calls=1, max_wall_seconds=3600)
         initial = proposer.propose_initial(evidence, skill_id=parent.skill_id, subtask=parent.subtask,
                                            constraints=manifest.get("skill_constraints", ()))
     except (ValueError, ProviderBudgetExceeded) as exc:
@@ -590,27 +761,29 @@ def run_live_learning(
     (output / "candidate_v1.json").write_text(json.dumps(initial.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     receipt_rows: list[dict[str, Any]] = []
-    def run_pairs(candidate: SkillContract, suffix: str) -> list[PairReceipt] | None:
-        result_receipts: list[PairReceipt] = []
-        for pair in manifest["plan"]["pairs"]:
-            tagged = {**pair, "pair_id": f"{pair['pair_id']}:{suffix}"}
-            off, on = _run_one_pair(data_root, client, tagged, candidate, split="train_inner",
+
+    def run_panel(pairs: Sequence[Mapping[str, Any]], panel: str,
+                  candidates: Mapping[str, SkillContract | None]) -> None:
+        for pair in pairs:
+            tagged = dict(pair)
+            arm_rows = _run_panel_cluster(data_root, client, tagged, candidates, split="train_inner",
                 max_steps=manifest["max_steps"], run_id=manifest["run_id"],
                 agent_revision=manifest["agent_revision"], benchmark_revision=manifest["benchmark_revision"],
-                provenance=manifest,
-                environment_factory=environment_factory,
+                provenance=manifest, environment_factory=environment_factory,
                 on_arm=lambda arm, row: append(output / "arm_trajectories.jsonl",
-                    {"split": "train_inner", "pair_id": tagged["pair_id"], "arm": arm, "episode": row}))
-            compact = []
-            for arm, row in (("off", off), ("on", on)):
+                    {"split": "train_inner", "panel": panel, "pair_id": tagged["pair_id"],
+                     "arm": arm, "episode": row}))
+            for arm in pair["arm_order"]:
+                row = arm_rows[arm]
                 trajectory = row.get("trajectory", [])
                 def total(field: str) -> int | None:
                     values = [item.get(field) for item in trajectory if item.get(field) is not None]
                     return sum(values) if len(values) == len(trajectory) and all(type(value) is int for value in values) else None
-                summary = {"trial_id": row["trial_id"], "pair_id": tagged["pair_id"],
+                receipt_rows.append({
+                    "trial_id": row["trial_id"], "panel": panel, "pair_id": tagged["pair_id"],
                     "task_id": pair["task_id"], "template_id": pair["template_id"],
                     "cluster_id": pair["cluster_id"], "seed": pair["seed"], "split": "train_inner",
-                    "arm": arm, "skill_digest": candidate.digest if arm == "on" else None,
+                    "arm": arm, "skill_digest": candidates[arm].digest if candidates[arm] else None,
                     "agent_revision": manifest["agent_revision"], "benchmark_revision": manifest["benchmark_revision"],
                     "success": receipt_outcome(row), "status": row["status"], "steps": row["steps"],
                     "provider_budget": row["provider_budget"], "evidence_origin": row["evidence_origin"],
@@ -623,42 +796,63 @@ def run_live_learning(
                     "feedback_events": [{key: _redact_feedback_text(item.get(key)) for key in
                         ("step", "observation", "selected_action", "fallback_reason", "subgoal")
                         if item.get(key) is not None} for item in trajectory],
-                    "receipt_sha256": row["receipt_sha256"]}
-                compact.append(summary)
-                receipt_rows.append(summary)
-            (output / "paired_receipts.json").write_text(json.dumps(receipt_rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            if any(row["success"] is None for row in compact):
-                return None
-            result_receipts.extend(PairReceipt(trial_id=s["trial_id"], pair_id=s["pair_id"], task_id=s["task_id"],
-                seed=s["seed"], arm=s["arm"], split="train_inner", skill_digest=s["skill_digest"],
-                agent_revision=s["agent_revision"], benchmark_revision=s["benchmark_revision"],
-                success=s["success"], utility=float(s["success"]), verifier_status="verified", hard_gates_passed=True,
-                template_id=s["template_id"], cluster_id=s["cluster_id"], receipt_sha256=s["receipt_sha256"]) for s in compact)
-        return result_receipts
+                    "receipt_sha256": row["receipt_sha256"],
+                })
+            (output / "paired_receipts.json").write_text(
+                json.dumps(receipt_rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    v1_receipts = run_pairs(initial, "v1")
-    if v1_receipts is None:
-        status = "INCOMPLETE_PAIR_UNKNOWN"
-        report = {"status": status, "candidate_identity": initial.digest, "outer_status": "NOT_RUN",
-            "paired_receipts": receipt_rows, "provider_budget": budget.as_dict(), "canonical_promotion": False,
-            "results_claimed": False}
+    def save_report(report: dict[str, Any]) -> dict[str, Any]:
         (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return report
 
-    v1_pair_ids = {receipt.pair_id for receipt in v1_receipts}
-    inner_feedback = _feedback_bundle(evidence, v1_receipts,
-        [row for row in receipt_rows if row["pair_id"] in v1_pair_ids])
+    plan = manifest["plan"]
+    run_panel(plan["panel_a_pairs"], "A", {"off": None, "on": initial})
+    panel_a_rows = [row for row in receipt_rows if row["panel"] == "A"]
+    if any(row["success"] is not True and row["success"] is not False for row in panel_a_rows):
+        return save_report({"status": "PANEL_A_INCOMPLETE_NO_PATCH", "patch_attempt_state": "NOT_ATTEMPTED",
+            "candidate_identity": initial.digest, "panel_a_receipts": panel_a_rows,
+            "panel_b_status": "NOT_RUN", "outer_status": "NOT_RUN", "provider_budget": budget.as_dict(),
+            "canonical_promotion": False, "results_claimed": False})
+    panel_a_pair_ids = {row["pair_id"] for row in panel_a_rows}
+    patch_feedback_rows = [row for row in panel_a_rows if row["pair_id"] in panel_a_pair_ids]
+    v1_receipts = [
+        PairReceipt(trial_id=row["trial_id"], pair_id=row["pair_id"], task_id=row["task_id"], seed=row["seed"],
+            arm="off" if row["arm"] == "off" else "on", split="train_inner",
+            skill_digest=row["skill_digest"], agent_revision=row["agent_revision"],
+            benchmark_revision=row["benchmark_revision"], success=row["success"], utility=float(row["success"]),
+            verifier_status="verified", hard_gates_passed=True, template_id=row["template_id"],
+            cluster_id=row["cluster_id"], receipt_sha256=row["receipt_sha256"])
+        for row in panel_a_rows
+    ]
     try:
+        inner_feedback = _feedback_bundle(evidence, v1_receipts, patch_feedback_rows)
+    except ValueError as exc:
+        return save_report({"status": "PANEL_A_NO_PATCHABLE_FEEDBACK", "reason": str(exc),
+            "patch_attempt_state": "NOT_ATTEMPTED", "candidate_identity": initial.digest,
+            "panel_a_receipts": panel_a_rows, "panel_b_status": "NOT_RUN", "outer_status": "NOT_RUN",
+            "provider_budget": budget.as_dict(), "canonical_promotion": False, "results_claimed": False})
+    try:
+        budget.begin_episode(max_usd=str(manifest.get("max_usd_per_proposal", "0.05")),
+                             max_calls=1, max_wall_seconds=3600)
         patch_proposal = proposer.propose_patch(initial, inner_feedback)
     except (ValueError, ProviderBudgetExceeded) as exc:
-        status = "REJECTED_PATCH"
+        attempts = [json.loads(line) for line in (output / "proposal_journal.jsonl").read_text(encoding="utf-8").splitlines()]
+        response = next((item for item in reversed(attempts) if item.get("status") == "received_unvalidated"), {})
+        try:
+            parsed = json.loads(response.get("raw_output", ""))
+        except (TypeError, json.JSONDecodeError):
+            parsed = None
+        patch_state = "PATCH_NOOP" if isinstance(parsed, dict) and (
+            parsed.get("status") == "NO_OP" or (isinstance(parsed.get("edit_operation"), dict)
+                                                   and parsed["edit_operation"].get("op", "").casefold() in {"no_op", "noop", "none"})
+        ) else "PATCH_REJECTED"
+        status = "PATCH_NOOP" if patch_state == "PATCH_NOOP" else "REJECTED_PATCH"
         append(output / "proposal_journal.jsonl", {"status": status, "reason": str(exc),
             "parent_digest": initial.digest, "feedback_receipt_hashes": [r.receipt_sha256 for r in v1_receipts]})
-        report = {"status": status, "reason": str(exc), "candidate_identity": initial.digest,
-            "inner_v1_receipts": receipt_rows, "outer_status": "NOT_RUN", "provider_budget": budget.as_dict(),
-            "canonical_promotion": False, "results_claimed": False}
-        (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        return report
+        return save_report({"status": status, "reason": str(exc), "patch_attempt_state": patch_state,
+            "candidate_identity": initial.digest, "panel_a_receipts": panel_a_rows,
+            "panel_b_status": "NOT_RUN", "outer_status": "NOT_RUN", "provider_budget": budget.as_dict(),
+            "canonical_promotion": False, "results_claimed": False})
     optimizer = SkillPatchOptimizer(max_edit_ops_per_round=1, max_iterations=1, max_candidate_count=1,
         max_skill_characters=manifest.get("max_skill_characters", 1800))
     candidate, errors = optimizer.apply(initial, (patch_proposal.patch,), iteration=1)
@@ -667,59 +861,82 @@ def run_live_learning(
         append(output / "proposal_journal.jsonl", {"status": "REJECTED_PATCH", "reason": reason,
             "parent_digest": initial.digest, "candidate_digest": candidate.digest if candidate else None,
             "feedback_receipt_hashes": [r.receipt_sha256 for r in v1_receipts]})
-        report = {"status": "REJECTED_PATCH", "reason": reason, "candidate_identity": initial.digest,
-            "outer_status": "NOT_RUN", "canonical_promotion": False, "provider_budget": budget.as_dict(),
-            "results_claimed": False}
-        (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        return report
+        return save_report({"status": "REJECTED_PATCH", "reason": reason, "patch_attempt_state": "PATCH_REJECTED",
+            "candidate_identity": initial.digest, "panel_a_receipts": panel_a_rows,
+            "panel_b_status": "NOT_RUN", "outer_status": "NOT_RUN", "provider_budget": budget.as_dict(),
+            "canonical_promotion": False, "results_claimed": False})
     candidate = replace(candidate, source_split=initial.source_split, source_mode=initial.source_mode,
         evidence_basis=initial.evidence_basis,
         patch_feedback_receipt_hashes=tuple(sorted(set(r.receipt_sha256 for r in v1_receipts))),
         generator_provider="deepseek", model_identity=patch_proposal.model_identity,
         proposal_prompt_sha256=patch_proposal.prompt_sha256, proposal_output_sha256=patch_proposal.output_sha256)
     (output / "candidate_v2.json").write_text(json.dumps(candidate.to_dict(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    v2_receipts = run_pairs(candidate, "v2")
-    if v2_receipts is None:
-        report = {"status": "INCOMPLETE_V2_PAIR_UNKNOWN", "candidate_identity": candidate.digest,
-            "paired_receipts": receipt_rows, "outer_status": "NOT_RUN", "canonical_promotion": False,
-            "provider_budget": budget.as_dict(), "results_claimed": False}
-        (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        return report
-    result = SkillEvolution(SkillPatchOptimizer(max_candidate_count=1),
-        SkillEvolutionStore(output / "evolution")).run_round(initial, (patch_proposal.patch,), v2_receipts,
-        iteration=1, split="train_inner",
-        patch_feedback_receipt_hashes=inner_feedback.source_trace_hashes,
-        train_split_manifest_sha256=evidence.train_split_manifest_sha256,
-        generator_provider="deepseek", model_identity=patch_proposal.model_identity,
-        proposal_prompt_sha256=patch_proposal.prompt_sha256, proposal_output_sha256=patch_proposal.output_sha256,
-        runtime_agent_sha=evidence.agent_hash)
-    selection = select_inner_candidate(receipt_rows, evidence.source_mode)
+    run_panel(plan["panel_b_pairs"], "B", {"off": None, "v1": initial, "v2": candidate})
+    panel_b_plan = [dict(pair) for pair in plan["panel_b_pairs"]]
+    selection = select_inner_candidate(receipt_rows, evidence.source_mode, panel_b_plan)
+    v2_receipts = []
+    complete_b = {pair_id: arms for pair_id, arms in {
+        pair_id: {row["arm"]: row for row in receipt_rows if row["panel"] == "B" and row["pair_id"] == pair_id}
+        for pair_id in {row["pair_id"] for row in receipt_rows if row["panel"] == "B"}
+    }.items() if set(arms) == {"off", "v1", "v2"}
+       and all(type(arms[arm]["success"]) is bool for arm in ("off", "v1", "v2"))}
+    for pair_id, arms in complete_b.items():
+        for arm, receipt_arm in (("off", "off"), ("v2", "on")):
+            row = arms[arm]
+            v2_receipts.append(PairReceipt(trial_id=row["trial_id"], pair_id=pair_id, task_id=row["task_id"],
+                seed=row["seed"], arm=receipt_arm, split="train_inner",
+                skill_digest=candidate.digest if arm == "v2" else None,
+                agent_revision=row["agent_revision"], benchmark_revision=row["benchmark_revision"],
+                success=row["success"], utility=float(row["success"]), verifier_status="verified",
+                hard_gates_passed=True, template_id=row["template_id"], cluster_id=row["cluster_id"],
+                receipt_sha256=row["receipt_sha256"]))
+    result = None
+    if v2_receipts:
+        result = SkillEvolution(SkillPatchOptimizer(max_candidate_count=1),
+            SkillEvolutionStore(output / "evolution")).run_round(initial, (patch_proposal.patch,), v2_receipts,
+            iteration=1, split="train_inner", patch_feedback_receipt_hashes=inner_feedback.source_trace_hashes,
+            train_split_manifest_sha256=evidence.train_split_manifest_sha256,
+            generator_provider="deepseek", model_identity=patch_proposal.model_identity,
+            proposal_prompt_sha256=patch_proposal.prompt_sha256, proposal_output_sha256=patch_proposal.output_sha256,
+            runtime_agent_sha=evidence.agent_hash)
     selected_candidate = {"v1": initial, "v2": candidate}.get(selection["selected"])
     if selected_candidate is not None:
         export_skill_pack(selected_candidate, output / "selected_skill_pack",
             agent_revision=manifest["agent_revision"], model_identity=selected_candidate.model_identity,
             verifier_revision=manifest["benchmark_revision"], task_population="ALFWorld train pilot, not a global certificate")
-    efficiency_screen = selection["candidate_screens"] if evidence.source_mode == "SUCCESS_ONLY_INDUCTION" else None
     stage_status = selection["status"]
-    report = {"status": stage_status, "inner_status": result.assessment_status,
-        "success_only_efficiency_screen": efficiency_screen,
+    report = {"status": stage_status, "inner_status": result.assessment_status if result else "NOT_ASSESSED_NO_COMPLETE_TRIPLETS",
+        "phase4_mode": PHASE4_T2_MODE, "phase4_mode_version": PHASE4_T2_MODE_VERSION,
+        "patch_attempt_state": "PATCH_APPLIED", "research_route": selection["research_route"],
         "outer_status": "NOT_RUN_REQUIRES_SEPARATE_T3_APPROVAL", "initial_candidate_digest": initial.digest,
         "candidate_digest": selected_candidate.digest if selected_candidate else None,
         "inner_selection": selection,
         "initial_proposal_prompt_sha256": initial.proposal_prompt_sha256,
         "initial_proposal_output_sha256": initial.proposal_output_sha256,
         "patch_prompt_sha256": patch_proposal.prompt_sha256, "patch_output_sha256": patch_proposal.output_sha256,
+        "panel_a_receipts": panel_a_rows, "panel_b_triplet_receipts": [row for row in receipt_rows if row["panel"] == "B"],
+        "panel_b_plan": [dict(pair, pair_id=f"B:{pair['pair_id']}") for pair in plan["panel_b_pairs"]],
+        "selected_frozen": ({
+            "version": selection["selected"], "candidate_digest": selected_candidate.digest,
+            "body_sha256": selected_candidate.body_digest, "selection_policy": PHASE4_SELECTION_POLICY,
+            "panel": "B", "raw_triplet_receipts_sha256": manifest_digest(
+                {"receipts": [row for row in receipt_rows if row["panel"] == "B"]}),
+            "panel_b_plan_sha256": manifest_digest({"pairs": panel_b_plan}),
+            "panel_b_arm_order_seed": plan["panel_b_arm_order_seed"],
+        } if selected_candidate is not None else None),
+        # Kept as the T3 CLI handoff field; it now contains all raw A and B rows.
         "inner_v1_and_v2_receipts": receipt_rows,
         "inner_receipts_sha256": manifest_digest({"receipts": receipt_rows}),
-        "inner_pair_count": len(manifest["plan"]["pairs"]),
+        "panel_a_pair_count": len(plan["panel_a_pairs"]), "panel_b_triplet_count": len(plan["panel_b_pairs"]),
         "canonical_promotion": False, "provider_budget": budget.as_dict(), "results_claimed": False}
-    (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return report
+    return save_report(report)
 
 
 def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str, Any],
                           extension: Mapping[str, Any], candidate: SkillContract,
-                          parent: SkillContract | None, inner_rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+                          parent: SkillContract | None, inner_rows: Sequence[Mapping[str, Any]], *,
+                          panel_b_pairs: Sequence[Mapping[str, Any]] | None = None,
+                          selected_frozen: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Fail closed unless a separately approved frozen T3 candidate has fresh child tasks."""
     if manifest.get("stage") != "skill_outer_validation":
         raise ProviderBudgetExceeded("outer_validation_requires_T3_stage")
@@ -752,11 +969,49 @@ def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str
         raise ValueError("T3 requires a frozen nonempty outer pair plan")
     if pairs != freeze_pair_orders(pairs, plan.get("pair_order_seed")):
         raise ValueError("outer pair execution order differs from frozen balanced randomization")
-    selection = select_inner_candidate(inner_rows, candidate.source_mode)
+    if not isinstance(panel_b_pairs, Sequence) or not panel_b_pairs or not isinstance(selected_frozen, Mapping):
+        raise ProviderBudgetExceeded("versioned_T2_panel_B_handoff_required")
+    panel_b_seed = selected_frozen.get("panel_b_arm_order_seed")
+    if panel_b_pairs != freeze_triplet_orders(panel_b_pairs, panel_b_seed):
+        raise ValueError("T2 panel B order differs from its frozen handoff")
+    if selected_frozen.get("panel_b_plan_sha256") != manifest_digest({"pairs": list(panel_b_pairs)}):
+        raise ValueError("T2 panel B plan digest differs from its frozen handoff")
+    planned_ids = {str(pair.get("pair_id")) for pair in panel_b_pairs}
+    receipt_ids = {str(row.get("pair_id")) for row in inner_rows if row.get("panel") == "B"}
+    if not receipt_ids.issubset(planned_ids):
+        raise ValueError("panel B receipts contain a cluster outside the frozen plan")
+    planned_by_id = {str(pair["pair_id"]): pair for pair in panel_b_pairs}
+    for row in inner_rows:
+        if row.get("panel") != "B":
+            continue
+        pair = planned_by_id[str(row["pair_id"])]
+        if (row.get("arm") not in {"off", "v1", "v2"}
+                or row.get("task_id") != pair.get("task_id")
+                or row.get("template_id") != pair.get("template_id")
+                or row.get("cluster_id") != pair.get("cluster_id")
+                or row.get("seed") != pair.get("seed")):
+            raise ValueError("panel B receipt identity differs from the frozen plan")
+    selection = select_inner_candidate(inner_rows, candidate.source_mode, panel_b_pairs)
     if selection["selected"] != manifest["selected_inner_version"]:
         raise ValueError("outer candidate was not selected by the frozen inner screen")
-    selected_on = [row for row in inner_rows if row.get("arm") == "on"
-                   and str(row.get("pair_id", "")).endswith(":" + manifest["selected_inner_version"])]
+    if selected_frozen is not None and (
+        selected_frozen.get("version") != selection["selected"]
+        or selected_frozen.get("candidate_digest") != candidate.digest
+        or selected_frozen.get("body_sha256") != candidate.body_digest
+        or selected_frozen.get("selection_policy") != PHASE4_SELECTION_POLICY
+        or selected_frozen.get("panel") != "B"
+        or selected_frozen.get("raw_triplet_receipts_sha256") != manifest_digest({
+            "receipts": [row for row in inner_rows if row.get("panel") == "B"]
+        })
+    ):
+        raise ValueError("T3 frozen candidate provenance differs from raw panel B evidence")
+    if manifest.get("selected_frozen_sha256") != manifest_digest(selected_frozen):
+        raise ProviderBudgetExceeded("T3 approval does not bind the selected frozen inner candidate")
+    selected_version = manifest["selected_inner_version"]
+    selected_rows = _selected_panel_b_pairs(inner_rows, selected_version)
+    selected_on = [row for row in selected_rows if row.get("arm") == "on"]
+    if not selected_on:
+        raise ValueError("selected candidate has no complete panel B triplets")
     if any(row.get("skill_digest") != candidate.digest for row in selected_on):
         raise ValueError("selected inner receipts do not belong to the frozen candidate")
     inner_clusters = {row.get("cluster_id") for row in inner_rows}
@@ -793,7 +1048,10 @@ def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str
         raise ProviderBudgetExceeded("outer_budget_must_reserve_every_complete_pair")
     return {"status": "READY_FOR_T3_APPROVAL", "provider_calls": 0,
             "planned_provider_calls": required_calls, "outer_pairs": len(pairs),
-            "candidate_digest": candidate.digest, "outer_clusters": sorted(seen),
+            "candidate_digest": candidate.digest, "selected_inner_version": selected_version,
+            "selected_inner_pairs": len(selected_rows) // 2,
+            "panel_b_incomplete_triplets_excluded": selection["panel_b_incomplete_triplet_ids"],
+            "outer_clusters": sorted(seen),
             "canonical_promotion": False, "results_claimed": False}
 
 
@@ -810,11 +1068,13 @@ def _pair_receipt_from_row(row: Mapping[str, Any], candidate_digest: str) -> Pai
 def run_frozen_outer(manifest: Mapping[str, Any], parent_split: Mapping[str, Any],
                      extension: Mapping[str, Any], candidate: SkillContract,
                      parent: SkillContract | None, inner_rows: Sequence[Mapping[str, Any]],
+                     panel_b_pairs: Sequence[Mapping[str, Any]], selected_frozen: Mapping[str, Any],
                      approval: Mapping[str, Any], pricing: Mapping[str, Any], *,
                      revision: str, base_url: str, api_key: str | None, data_root: Path,
                      output: Path, client_factory: Callable[..., Any] | None = None,
                      environment_factory: Callable[..., Any] | None = None) -> dict[str, Any]:
-    plan = validate_outer_inputs(manifest, parent_split, extension, candidate, parent, inner_rows)
+    plan = validate_outer_inputs(manifest, parent_split, extension, candidate, parent, inner_rows,
+        panel_b_pairs=panel_b_pairs, selected_frozen=selected_frozen)
     if manifest.get("controller_commit") != revision:
         raise ProviderBudgetExceeded("outer_run_revision_mismatch")
     if output.exists() or Path(manifest.get("output_dir", "")).resolve() != output.resolve():
@@ -883,8 +1143,8 @@ def run_frozen_outer(manifest: Mapping[str, Any], parent_split: Mapping[str, Any
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         return report
     selected_version = manifest.get("selected_inner_version")
-    inner_pair_receipts = [_pair_receipt_from_row(row, candidate.digest) for row in inner_rows
-                           if str(row.get("pair_id", "")).endswith(":" + selected_version)]
+    inner_pair_receipts = [_pair_receipt_from_row(row, candidate.digest)
+                           for row in _selected_panel_b_pairs(inner_rows, selected_version)]
     inner_evidence = verify_inner_pairs(replace(candidate, verification_trial_ids=()), inner_pair_receipts)
     outer_evidence = approve_outer_validation(replace(candidate, verification_trial_ids=()), candidate.digest, inner_evidence, receipts,
         split="train_outer", alpha=manifest.get("alpha", 0.05))
@@ -931,7 +1191,10 @@ def outer_main(argv: Sequence[str] | None = None) -> int:
     inner_rows = inner_payload.get("inner_v1_and_v2_receipts", inner_payload.get("receipts", inner_payload))
     if not isinstance(inner_rows, list):
         raise ValueError("inner receipts must be a JSON list")
-    plan = validate_outer_inputs(manifest, parent_split, extension, candidate, parent, inner_rows)
+    panel_b_plan = inner_payload.get("panel_b_plan") if isinstance(inner_payload, Mapping) else None
+    selected_frozen = inner_payload.get("selected_frozen") if isinstance(inner_payload, Mapping) else None
+    plan = validate_outer_inputs(manifest, parent_split, extension, candidate, parent, inner_rows,
+        panel_b_pairs=panel_b_plan, selected_frozen=selected_frozen)
     if not args.live:
         print(json.dumps(plan, indent=2, sort_keys=True))
         return 0
@@ -947,6 +1210,7 @@ def outer_main(argv: Sequence[str] | None = None) -> int:
     if not isinstance(base_url, str) or not base_url:
         raise ProviderBudgetExceeded("approved_api_base_required")
     report = run_frozen_outer(manifest, parent_split, extension, candidate, parent, inner_rows,
+        panel_b_plan, selected_frozen,
         approval, pricing, revision=revision, base_url=base_url, api_key=None,
         data_root=args.data_root, output=args.output)
     print(json.dumps(report, indent=2, sort_keys=True))
