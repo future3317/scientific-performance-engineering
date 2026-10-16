@@ -33,7 +33,150 @@ def viability_gate(receipts: list[dict[str, Any]]) -> dict[str, Any]:
                       "VIABLE_BUT_NOT_QUALIFIED" if wins else "B-INSUFFICIENT",
             "independent_win_clusters": len(wins), "independent_failure_clusters": len(failures),
             "action": "REQUEST_C_APPROVAL" if qualified else "STOP_PAID_SKILL_OPTIMIZATION",
-            "claim": "train-side engineering gate, not efficacy"}
+            "claim": "train-side engineering gate, not efficacy",
+            "agent_viability": "VERIFIED_TRAIN_VIABLE" if len(wins) >= 2 else "INCONCLUSIVE",
+            "skill_source_readiness": ("CONTRASTIVE_READY" if wins and failures - wins else
+                                       "SUCCESS_ONLY_READY" if wins else "NONE"),
+            "skill_efficacy": "NOT_RUN",
+            "provider_authorization": "SEPARATE_STAGE_APPROVAL_REQUIRED"}
+
+
+def diagnostic_manifest(sample: dict[str, Any], parent: dict[str, Any], extension: dict[str, Any],
+                        *, controller_commit: str, run_id: str, output_dir: str,
+                        gamefile_digests: dict[str, str], episode_usd_cap: str = "1.25", stage_usd_cap: str = "15") -> dict[str, Any]:
+    """Freeze T1's six-family cohort, not a new Agent or benchmark framework."""
+    episodes = [dict(row, gamefile_sha256=gamefile_digests[row["task_id"]]) for row in sample["selected"]]
+    if len(episodes) != 12:
+        raise ValueError("T1 requires twelve preselected independent clusters")
+    plan = {"status": "DRY_RUN_NOT_EXECUTED", "provider_calls": 0,
+            "config": {"max_steps": 60}, "selection_seed": sample["seed"], "episodes": episodes}
+    manifest = readiness_manifest(plan, controller_commit=controller_commit, run_id=run_id,
+                                  max_input_per_request=32768, max_completion_per_request=8192,
+                                  split_manifest=parent, live_output_dir=output_dir)
+    manifest.update(study_id="phase3_baseline_diagnostic", stage="baseline_diagnostic", split="train_dev",
+                    split_extension=extension, split_extension_sha256=manifest_digest(extension),
+                    sampling_manifest=sample, sampling_manifest_sha256=manifest_digest(sample),
+                    max_usd_per_episode=episode_usd_cap, max_total_usd=stage_usd_cap,
+                    max_calls_per_episode=60, max_episode_wall_seconds=3600, max_wall_seconds=43200,
+                    task_types=[1, 2, 3, 4, 5, 6], agent_condition="BASE_AGENT_V2_TELEMETRY",
+                    reason_for_new_identity="Response-ID telemetry/dedup and selected-only environment loading; no prompt change; do not pool with B.",
+                    reasoning_effort="NOT_EXPLICITLY_SENT", temperature=0.0,
+                    approval_status="APPROVAL_REQUIRED",
+                    stop_rules={"all_success": "SUCCESS_ONLY_READY_NO_AUTOMATIC_EXPANSION",
+                                "success_and_failure": "CONTRASTIVE_READY_REQUEST_T2_APPROVAL",
+                                "all_failure": "STOP_PAID_SKILL_OPTIMIZATION",
+                                "unknown_or_integrity_failure": "STOP_INTEGRITY_NO_RETRY",
+                                "task_replacement": "NONE; unavailable task stops study; no post-outcome replacement"})
+    return manifest
+
+
+def _validate_diagnostic(manifest: dict[str, Any], plan: dict[str, Any], split: dict[str, Any],
+                         approval: dict[str, Any]) -> None:
+    from collections import Counter
+    from experiments.external_real.alfworld_runner import TASK_TYPE_NAMES
+    if manifest.get("split") != "train_dev" or len(plan["episodes"]) != 12:
+        raise ProviderBudgetExceeded("unsupported_diagnostic_scope")
+    if (manifest.get("max_steps") != 60 or manifest.get("max_calls_per_episode") != 60
+            or manifest.get("max_input_per_request") != 32768
+            or manifest.get("max_completion_per_request") != 8192
+            or manifest.get("reasoning_effort") != "NOT_EXPLICITLY_SENT"):
+        raise ProviderBudgetExceeded("diagnostic_frozen_agent_configuration_mismatch")
+    counts = Counter(row.get("task_type") for row in plan["episodes"])
+    if set(counts) != set(TASK_TYPE_NAMES) or set(counts.values()) != {2}:
+        raise ProviderBudgetExceeded("six_families_two_tasks_each_required")
+    if len({row.get("cluster_id") for row in plan["episodes"]}) != 12:
+        raise ProviderBudgetExceeded("independent_diagnostic_clusters_required")
+    extension, sample = manifest.get("split_extension"), manifest.get("sampling_manifest")
+    if (not isinstance(extension, dict) or manifest.get("split_extension_sha256") != manifest_digest(extension)
+            or not isinstance(sample, dict) or manifest.get("sampling_manifest_sha256") != manifest_digest(sample)
+            or sample.get("selected") != [{k: v for k, v in row.items() if k != "gamefile_sha256"} for row in plan["episodes"]]):
+        raise ProviderBudgetExceeded("diagnostic_reservation_or_sampling_mismatch")
+    for key in ("max_usd_per_episode", "max_calls_per_episode", "max_episode_wall_seconds"):
+        if str(manifest.get(key)) != str(approval.get(key)):
+            raise ProviderBudgetExceeded(f"diagnostic_episode_approval_mismatch:{key}")
+    if str(manifest.get("max_total_usd")) != str(approval.get("max_total_usd")):
+        raise ProviderBudgetExceeded("diagnostic_stage_usd_mismatch")
+    if manifest.get("max_wall_seconds") != approval.get("max_wall_seconds"):
+        raise ProviderBudgetExceeded("diagnostic_stage_wall_mismatch")
+    if any(row.get("split") != "train_dev" or row.get("exposure") not in {"new_train_dev", "unexposed"}
+           or row.get("identity_status") != "IDENTIFIED" for row in plan["episodes"]):
+        raise ProviderBudgetExceeded("diagnostic_task_exposed_or_unknown")
+
+
+def diagnostic_summary(episodes: list[dict[str, Any]], planned: int) -> dict[str, Any]:
+    """Observed failures only; empty content is a turn event, not a failed task."""
+    from collections import Counter
+    families: dict[str, Any] = {}
+    for row in episodes:
+        family = row["task_family"]
+        entry = families.setdefault(family, {"completed": 0, "successes": 0, "unknown": 0})
+        entry["completed"] += 1
+        entry["successes"] += row.get("success") is True
+        entry["unknown"] += row.get("success") is None
+    return {"planned": planned, "started": len(episodes), "completed": len(episodes),
+            "not_started": planned - len(episodes), "families": families,
+            "terminal_statuses": dict(Counter(row["status"] for row in episodes)),
+            "invalid_decision_recovered": sum(row.get("success") is True and any(
+                t.get("finish_reason") == "length" and not t.get("selected_action")
+                for t in row.get("trajectory", [])) for row in episodes),
+            "failure_taxonomy": [{"task_id": row["task_id"], "category": (
+                "budget" if row["status"] == "BUDGET_EXHAUSTED" else
+                "action_parser" if row["status"] == "API_CONTRACT_FAILURE" else
+                "loop" if row["termination_reason"] == "agent_policy_failure" else "UNIDENTIFIED")}
+                for row in episodes if row.get("success") is not True],
+            "source_readiness": viability_gate(episodes), "next_stage": "SEPARATE_T2_APPROVAL_REQUIRED"}
+
+
+def run_diagnostic(manifest: dict[str, Any], client: Any, output: Path, *, environment_factory: Any = None) -> dict[str, Any]:
+    """Run the frozen T1 order with the existing Agent and selected games only."""
+    import hashlib
+    from .native_verifier import make_selected_environment
+    from experiments.external_real.alfworld_stateful_runner import run_episode
+    environment_factory = environment_factory or make_selected_environment
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "config.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    rows: list[dict[str, Any]] = []
+    plan = manifest["plan"]
+    budget = client.budget
+    for task in plan["episodes"]:
+        budget.begin_episode(max_usd=manifest["max_usd_per_episode"], max_calls=manifest["max_calls_per_episode"],
+                             max_wall_seconds=manifest["max_episode_wall_seconds"])
+        try:
+            budget.ensure_capacity(60, 60 * client.max_input_per_request, 60 * client.max_completion_tokens)
+        except ProviderBudgetExceeded as exc:
+            budget.stop(str(exc))
+            break
+        actual_game_sha = hashlib.sha256(Path(task["gamefile"]).read_bytes()).hexdigest()
+        if actual_game_sha != task["gamefile_sha256"]:
+            raise ValueError("frozen gamefile bytes changed; no replacement permitted")
+        environment = environment_factory(task["gamefile"], max_steps=manifest["max_steps"], seed=plan["selection_seed"])
+        try:
+            row = run_episode(environment, client, max_steps=manifest["max_steps"],
+                              receipt_metadata=client.receipt_metadata,
+                              expected_gamefiles=[task["gamefile"]])
+        finally:
+            environment.close()
+        row.update(task_id=task["task_id"], template_id=task["template_id"], cluster_id=task["cluster_id"],
+                   parent_split="train_dev", child_split=None, task_family=task["task_type"],
+                   gamefile_sha256=actual_game_sha, trial_id=f"{manifest['run_id']}:{len(rows)}",
+                   record_kind=("ACTUAL_REAL_ROLLOUT" if row.get("evidence_origin") == "REAL_AGENT" else "SYNTHETIC_FIXTURE"),
+                   seed=plan["selection_seed"],
+                   pre_registered_manifest_sha256=manifest_digest(manifest),
+                   independently_reset_environment=True, actual_new_model_rollout=row.get("evidence_origin") == "REAL_AGENT")
+        row["trace_sha256"] = manifest_digest({"trajectory": row["trajectory"]})
+        row["verifier_receipt_sha256"] = manifest_digest({k: row.get(k) for k in ["environment_won", "environment_done", "status"]})
+        row["receipt_sha256"] = manifest_digest(row)
+        rows.append(row)
+        result = {"status": "IN_PROGRESS", "episodes": rows, "summary": diagnostic_summary(rows, 12),
+                  "provider_budget": budget.as_dict()}
+        (output / "results.json").write_text(json.dumps(result, indent=2) + "\n")
+        if budget.stopped or row["status"] in {"PROVIDER_FAILURE", "ENVIRONMENT_FAILURE", "INCONCLUSIVE", "BUDGET_EXHAUSTED"}:
+            break
+    result = {"status": "COMPLETED" if len(rows) == 12 else "STOPPED", "episodes": rows,
+              "summary": diagnostic_summary(rows, 12), "provider_budget": budget.as_dict()}
+    (output / "results.json").write_text(json.dumps(result, indent=2) + "\n")
+    (output / "REPORT.md").write_text("# Frozen T1 diagnostic\n\n" + json.dumps(result["summary"], indent=2) + "\n")
+    return result
 
 
 def readiness_manifest(plan: dict[str, Any], *, controller_commit: str,
@@ -98,10 +241,15 @@ def prepare_live(manifest: dict[str, Any], plan: dict[str, Any], approval: dict[
     by_task = {row["task_id"]: row for row in membership}
     for episode in plan["episodes"]:
         row = by_task.get(episode.get("task_id"))
-        if row is None or row.get("split") != "train_inner" or row.get("gamefile") != episode.get("gamefile"):
+        expected_split = "train_dev" if manifest.get("stage") == "baseline_diagnostic" else "train_inner"
+        if row is None or row.get("split") != expected_split or row.get("gamefile") != episode.get("gamefile"):
             raise ProviderBudgetExceeded("readiness_task_outside_frozen_train_inner")
-    if manifest.get("stage") != "train_viability" or manifest.get("arms") != ["V1_stateful_no_skill"]:
+    if manifest.get("stage") not in {"train_viability", "baseline_diagnostic"} or manifest.get("arms") != ["V1_stateful_no_skill"]:
         raise ProviderBudgetExceeded("unsupported_readiness_scope")
+    if manifest["stage"] == "baseline_diagnostic":
+        _validate_diagnostic(manifest, plan, split, approval)
+        if manifest.get("pricing_sha256") != manifest_digest(pricing):
+            raise ProviderBudgetExceeded("diagnostic_pricing_snapshot_mismatch")
     if manifest.get("thinking") != "enabled" or manifest.get("max_retries") != 0:
         raise ProviderBudgetExceeded("unsupported_provider_configuration")
     inp, out = manifest.get("max_input_per_request"), manifest.get("max_completion_per_request")
@@ -114,7 +262,7 @@ def prepare_live(manifest: dict[str, Any], plan: dict[str, Any], approval: dict[
     if calls != manifest["max_calls"]:
         raise ProviderBudgetExceeded("call_plan_mismatch")
     budget = ApprovedProviderBudget(manifest, approval, pricing, controller_commit=revision,
-                                    stage="train_viability", model=manifest["model"], base_url=base_url)
+                                    stage=manifest["stage"], model=manifest["model"], base_url=base_url)
     budget.ensure_capacity(calls, calls * inp, calls * out)
     return budget
 
@@ -196,7 +344,7 @@ def main() -> None:
     })
     client.run_manifest = manifest
     client.receipt_metadata = {"study_id": manifest["study_id"], "run_id": manifest["run_id"],
-                               "split": "train_inner",
+                               "split": manifest["split"],
                                "arm": "V1_stateful_no_skill", "evidence_origin": "REAL_AGENT",
                                "source_commit": revision,
                                "agent_revision": revision, "benchmark_revision": revision,
@@ -206,8 +354,15 @@ def main() -> None:
                                "model_request_name": manifest["model"],
                                "split_manifest_sha256": manifest["split_manifest_sha256"],
                                "approval_reference": approval["approval_reference"]}
-    run_smoke(args.data_root, args.output, client, len(plan["episodes"]),
-              manifest["max_steps"], plan["selection_seed"], plan=plan)
+    if manifest["stage"] == "baseline_diagnostic":
+        client.receipt_metadata.update(reasoning_effort=manifest["reasoning_effort"],
+                                       agent_condition=manifest["agent_condition"],
+                                       price_snapshot_sha256=manifest_digest(pricing),
+                                       approval_sha256=manifest_digest(approval))
+        run_diagnostic(manifest, client, args.output)
+    else:
+        run_smoke(args.data_root, args.output, client, len(plan["episodes"]),
+                  manifest["max_steps"], plan["selection_seed"], plan=plan)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from fractions import Fraction
 import hashlib
 import json
 from pathlib import Path
@@ -487,6 +488,344 @@ def create_split_manifest(
     payload = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     manifest["manifest_sha256"] = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return manifest
+
+
+_OUTER_CHILDREN = (
+    "outer_skill_validation", "outer_gate_calibration",
+    "untouched_eval_reserved", "quarantine_exposed",
+)
+_OFFICIAL_FAMILIES = (
+    "pick_and_place_simple", "look_at_obj_in_light",
+    "pick_clean_then_place_in_recep", "pick_heat_then_place_in_recep",
+    "pick_cool_then_place_in_recep", "pick_two_obj_and_place",
+)
+
+
+def _official_family(row: dict[str, Any]) -> str | None:
+    """Use the parent's raw official task_type as the single family identity."""
+    family, task_type = row.get("family"), row.get("task_type")
+    if task_type not in _OFFICIAL_FAMILIES or family != task_type:
+        return None
+    return task_type
+
+
+def _canonical_manifest_hash(manifest: dict[str, Any]) -> str:
+    payload = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _row_group_keys(row: dict[str, Any]) -> set[str]:
+    keys = set()
+    for field in ("cluster_id", "possible_overlap_key", "template_id", "template_digest"):
+        value = row.get(field)
+        if isinstance(value, str) and value:
+            keys.add(f"{field}:{value}")
+    for field in ("source_template_ids",):
+        values = row.get(field, ())
+        if isinstance(values, list):
+            keys.update(f"template_id:{value}" for value in values if isinstance(value, str) and value)
+    return keys
+
+
+def _parent_exposures(parent: dict[str, Any]) -> tuple[set[str], set[str], set[str]]:
+    task_ids: set[str] = set()
+    group_keys: set[str] = set()
+    unknown_families: set[str] = set()
+    for row in parent.get("exposure_ledger", []):
+        if not isinstance(row, dict):
+            raise ValueError("exposure ledger rows must be objects")
+        for field in ("task_id", "source_task_ids"):
+            value = row.get(field)
+            values = value if isinstance(value, list) else [value]
+            task_ids.update(item for item in values if isinstance(item, str) and item)
+        group_keys.update(_row_group_keys(row))
+        for template in (row.get("template_id"), row.get("exposed_template_id")):
+            if isinstance(template, str) and template:
+                group_keys.add(f"template_id:{template}")
+        for field in ("possible_overlap_keys",):
+            values = row.get(field, ())
+            if isinstance(values, list):
+                group_keys.update(f"possible_overlap_key:{value}" for value in values if isinstance(value, str) and value)
+        if row.get("identity_status") != "IDENTIFIED":
+            family = row.get("family") or row.get("task_type")
+            if family in _OFFICIAL_FAMILIES:
+                unknown_families.add(family)
+            else:
+                unknown_families.update(_OFFICIAL_FAMILIES)
+    return task_ids, group_keys, unknown_families
+
+
+def build_split_extension(
+    parent: dict[str, Any], *, study_id: str, seed: int,
+    exposed_cluster_ids: Iterable[str] = (), exposed_template_ids: Iterable[str] = (),
+    child_weights: dict[str, str | int | float] | None = None,
+) -> dict[str, Any]:
+    """Reserve disjoint outer children from parent metadata without reading outcomes."""
+    if not isinstance(study_id, str) or not study_id or not isinstance(seed, int):
+        raise ValueError("study_id and integer seed are required")
+    parent_hash = parent.get("manifest_sha256")
+    if not isinstance(parent_hash, str) or parent_hash != _canonical_manifest_hash(parent):
+        raise ValueError("parent manifest hash is missing or does not match its contents")
+    rows = parent.get("task_membership")
+    if not isinstance(rows, list):
+        raise ValueError("parent task_membership is required")
+
+    supplied_weights = ({child: "1/3" for child in _OUTER_CHILDREN[:3]}
+                        if child_weights is None else child_weights)
+    try:
+        weights = {child: Fraction(str(value)) for child, value in supplied_weights.items()}
+    except (ValueError, ZeroDivisionError):
+        raise ValueError("child_weights must be nonnegative fractions") from None
+    if set(weights) != set(_OUTER_CHILDREN[:3]) or any(value < 0 for value in weights.values()) or sum(weights.values()) != 1:
+        raise ValueError("child_weights must define the three reservation fractions summing to one")
+
+    exposed_tasks, exposed_keys, unknown_families = _parent_exposures(parent)
+    exposed_tasks.update(item for item in parent.get("overlap_report", {}).get("already_touched_task_ids", [])
+                         if isinstance(item, str))
+    exposed_cluster_ids = list(exposed_cluster_ids)
+    exposed_template_ids = list(exposed_template_ids)
+    if any(not isinstance(item, str) or not item for item in exposed_cluster_ids + exposed_template_ids):
+        raise ValueError("additional exposed cluster/template IDs must be nonempty strings")
+    exposed_keys.update(f"cluster_id:{item}" for item in exposed_cluster_ids)
+    exposed_keys.update(f"template_id:{item}" for item in exposed_template_ids)
+
+    outer_rows = [row for row in rows if isinstance(row, dict) and row.get("split") == "train_outer"]
+    if not outer_rows:
+        raise ValueError("parent has no train_outer task metadata")
+    if len({row.get("task_id") for row in outer_rows}) != len(outer_rows):
+        raise ValueError("parent train_outer task IDs must be unique")
+    for row in rows:
+        if not isinstance(row, dict) or row.get("split") == "train_outer":
+            continue
+        exposed_keys.update(_row_group_keys(row))
+        if row.get("identity_status") != "IDENTIFIED":
+            family = _official_family(row)
+            unknown_families.update(_OFFICIAL_FAMILIES if family is None else (family,))
+    # Union rows that share any known template/layout/semantic identity. Any
+    # exposure or unknown member quarantines the whole connected group.
+    groups: list[dict[str, Any]] = []
+    for row in outer_rows:
+        if not all(isinstance(row.get(field), str) and row[field]
+                   for field in ("task_id", "cluster_id")) or _official_family(row) is None:
+            raise ValueError("outer rows require task_id, family, and cluster_id")
+        keys = _row_group_keys(row)
+        matching = [group for group in groups if group["keys"] & keys]
+        if not matching:
+            groups.append({"keys": keys, "rows": [row]})
+        else:
+            target = matching[0]
+            target["keys"].update(keys)
+            target["rows"].append(row)
+            for extra in matching[1:]:
+                target["keys"].update(extra["keys"])
+                target["rows"].extend(extra["rows"])
+                groups.remove(extra)
+
+    eligible_by_family: dict[str, list[dict[str, Any]]] = {}
+    quarantined = []
+    for group in groups:
+        family_set = {_official_family(row) for row in group["rows"]}
+        unknown_identity = any(row.get("identity_status") != "IDENTIFIED" for row in group["rows"])
+        exposed = (unknown_identity or bool(group["keys"] & exposed_keys)
+                   or any(row["task_id"] in exposed_tasks for row in group["rows"])
+                   or bool(family_set & unknown_families))
+        if len(family_set) != 1:
+            exposed = True
+        if exposed:
+            quarantined.extend(group["rows"])
+        else:
+            group["family"] = next(iter(family_set))
+            eligible_by_family.setdefault(group["family"], []).append(group)
+
+    allocation = {}
+    child_membership = []
+    for family_index, family in enumerate(_OFFICIAL_FAMILIES):
+        family_groups = eligible_by_family.get(family, [])
+        ordered = sorted(family_groups, key=lambda group: hashlib.sha256(json.dumps(
+            [study_id, family, sorted(row["cluster_id"] for row in group["rows"])[0], seed], ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest())
+        n = len(ordered)
+        raw = {child: n * weights[child] for child in _OUTER_CHILDREN[:3]}
+        counts = {child: raw[child].numerator // raw[child].denominator for child in raw}
+        remainder = n - sum(counts.values())
+        tie_order = _OUTER_CHILDREN[:3][family_index % 3:] + _OUTER_CHILDREN[:3][:family_index % 3]
+        priority = sorted(raw, key=lambda child: (-(raw[child] - counts[child]), tie_order.index(child)))
+        for child in priority[:remainder]:
+            counts[child] += 1
+        allocation[family] = {
+            "available_groups": n,
+            "available_clusters": len({row["cluster_id"] for group in ordered for row in group["rows"]}),
+            **{f"{child}_groups": count for child, count in counts.items()},
+            "precision_note": f"{n} eligible overlap-closed groups; exploratory allocation, no power claim.",
+        }
+        offset = 0
+        for child in _OUTER_CHILDREN[:3]:
+            selected_groups = ordered[offset:offset + counts[child]]
+            for group in selected_groups:
+                for row in group["rows"]:
+                    child_membership.append({
+                        "task_id": row["task_id"], "family": family,
+                        "cluster_id": row["cluster_id"], "template_id": row.get("template_id"),
+                        "template_digest": row.get("template_digest"),
+                        "possible_overlap_key": row.get("possible_overlap_key"),
+                        "parent_split": "train_outer", "child_split": child,
+                        "exposure_status": "unexposed_metadata_only",
+                    })
+            offset += counts[child]
+    child_membership.extend({
+        "task_id": row["task_id"], "family": row["family"],
+        "cluster_id": row["cluster_id"], "template_id": row.get("template_id"),
+        "template_digest": row.get("template_digest"),
+        "possible_overlap_key": row.get("possible_overlap_key"),
+        "parent_split": "train_outer", "child_split": "quarantine_exposed",
+        "exposure_status": "unknown_or_previously_exposed",
+    } for row in quarantined)
+    assigned_clusters: dict[str, set[str]] = {child: set() for child in _OUTER_CHILDREN}
+    for row in child_membership:
+        assigned_clusters[row["child_split"]].add(row["cluster_id"])
+    all_outer_clusters = {row["cluster_id"] for row in outer_rows}
+    assigned_all = set().union(*assigned_clusters.values())
+    if assigned_all != all_outer_clusters or sum(map(len, assigned_clusters.values())) != len(assigned_all):
+        raise ValueError("outer cluster assignment is incomplete or overlaps across child partitions")
+    result = {
+        "schema_version": "3", "study_id": study_id, "seed": seed,
+        "parent_manifest_sha256": parent_hash,
+        "selection_method": "metadata_only_sha256_utf8_json_array_largest_remainder_v1",
+        "child_weights": {child: f"{weight.numerator}/{weight.denominator}"
+                           for child, weight in weights.items()},
+        "family_allocation": allocation,
+        "reservation_summary": {
+            "parent_outer_clusters": len(all_outer_clusters),
+            "assigned_outer_clusters": len(assigned_all),
+            "child_cluster_counts": {child: len(assigned_clusters[child]) for child in _OUTER_CHILDREN},
+        },
+        "additional_exposure": {
+            "cluster_ids": sorted(set(exposed_cluster_ids)),
+            "template_ids": sorted(set(exposed_template_ids)),
+        },
+        "precision_note": "Exploratory reservation counts only; precision is not established and no allocation is claimed to be statistically powered.",
+        "child_membership": sorted(child_membership, key=lambda row: (row["family"], row["task_id"])),
+    }
+    result["manifest_sha256"] = _canonical_manifest_hash(result)
+    return result
+
+
+def sample_train_dev(
+    parent: dict[str, Any], extension: dict[str, Any], *,
+    study_id: str, seed: int, per_family: int = 2,
+) -> dict[str, Any]:
+    """Return deterministic equal-family train_dev picks and complete reserve orders."""
+    if parent.get("manifest_sha256") != _canonical_manifest_hash(parent):
+        raise ValueError("parent manifest hash is missing or does not match its contents")
+    if extension.get("parent_manifest_sha256") != parent.get("manifest_sha256"):
+        raise ValueError("extension does not belong to this parent manifest")
+    if extension.get("manifest_sha256") != _canonical_manifest_hash(extension):
+        raise ValueError("extension manifest hash does not match its contents")
+    if extension.get("study_id") != study_id or extension.get("seed") != seed:
+        raise ValueError("sampler identity must match the frozen extension")
+    if not isinstance(per_family, int) or per_family < 1:
+        raise ValueError("per_family must be a positive integer")
+    task_rows = parent.get("task_membership")
+    if not isinstance(task_rows, list):
+        raise ValueError("parent task_membership is required")
+    if any(not isinstance(row, dict) for row in task_rows):
+        raise ValueError("parent task_membership rows must be objects")
+    if any(not isinstance(row.get("task_id"), str) or not row["task_id"] for row in task_rows):
+        raise ValueError("parent task IDs must be nonempty strings")
+    if len({row.get("task_id") for row in task_rows}) != len(task_rows):
+        raise ValueError("parent task IDs must be unique across splits")
+
+    membership_groups: list[dict[str, Any]] = []
+    for row in task_rows:
+        if row.get("split") not in {"train_dev", "train_inner", "train_outer"}:
+            raise ValueError("parent task row has an unsupported split")
+        if row.get("identity_status") == "IDENTIFIED" and not all(
+            isinstance(row.get(field), str) and row[field]
+            for field in ("cluster_id", "template_id", "template_digest", "possible_overlap_key")
+        ):
+            raise ValueError(f"identified parent row lacks group metadata: {row['task_id']}")
+        keys = _row_group_keys(row)
+        matching = [group for group in membership_groups if group["keys"] & keys]
+        if not matching:
+            membership_groups.append({"keys": keys, "rows": [row]})
+        else:
+            group = matching[0]
+            group["keys"].update(keys)
+            group["rows"].append(row)
+            for other in matching[1:]:
+                group["keys"].update(other["keys"])
+                group["rows"].extend(other["rows"])
+                membership_groups.remove(other)
+    for group in membership_groups:
+        splits = {row["split"] for row in group["rows"]}
+        if len(splits) != 1:
+            raise ValueError("parent semantic/template group overlaps train_dev, train_inner, or train_outer")
+
+    exposed_tasks, exposed_keys, unknown_families = _parent_exposures(parent)
+    exposed_tasks.update(item for item in parent.get("overlap_report", {}).get("already_touched_task_ids", [])
+                         if isinstance(item, str))
+    extra = extension.get("additional_exposure", {})
+    exposed_keys.update(f"cluster_id:{item}" for item in extra.get("cluster_ids", []))
+    exposed_keys.update(f"template_id:{item}" for item in extra.get("template_ids", []))
+    candidates = {family: [] for family in _OFFICIAL_FAMILIES}
+    for group in membership_groups:
+        if group["rows"][0]["split"] != "train_dev":
+            continue
+        rows = group["rows"]
+        family_ids = {_official_family(row) for row in rows}
+        if len(family_ids) != 1 or None in family_ids:
+            continue
+        family = next(iter(family_ids))
+        if family in unknown_families or any(row.get("identity_status") != "IDENTIFIED" for row in rows):
+            continue
+        if any(row["task_id"] in exposed_tasks for row in rows) or group["keys"] & exposed_keys:
+            continue
+        # A component is one sampling unit even if the parent contains repeated
+        # rows or multiple metadata rows for the same semantic/template group.
+        row = min(rows, key=lambda candidate: (candidate["cluster_id"], candidate["task_id"]))
+        if not all(isinstance(row.get(field), str) and row[field]
+                   for field in ("task_id", "cluster_id", "template_id", "gamefile")):
+            raise ValueError(f"identified train_dev row lacks sampler metadata: {row.get('task_id')}")
+        candidates[family].append((row, group))
+
+    selected, reserve_order, family_summary = [], [], {}
+    for family in _OFFICIAL_FAMILIES:
+        ordered = sorted(candidates[family], key=lambda item: hashlib.sha256(json.dumps(
+            [study_id, family, item[0]["cluster_id"], seed], ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")).hexdigest())
+        if len(ordered) < per_family:
+            raise ValueError(f"insufficient unexposed train_dev clusters for {family}: {len(ordered)} < {per_family}")
+        probability = per_family / len(ordered)
+        for rank, (row, group) in enumerate(ordered):
+            projection = {key: row.get(key) for key in (
+                "task_id", "family", "task_type", "split", "exposure", "identity_status",
+                "cluster_id", "template_id", "template_digest", "possible_overlap_key",
+                "gamefile", "gamefile_id",
+            )}
+            reserve_row = {
+                **projection,
+                "group_task_ids": sorted(item["task_id"] for item in group["rows"]),
+                "family_rank": rank + 1, "inclusion_probability": probability,
+            }
+            reserve_order.append(reserve_row)
+            if rank < per_family:
+                selected.append(reserve_row)
+        family_summary[family] = {
+            "eligible_clusters": len(ordered), "selected_clusters": per_family,
+            "inclusion_probability": probability,
+        }
+    return {
+        "schema_version": "1", "study_id": study_id, "seed": seed,
+        "parent_manifest_sha256": parent["manifest_sha256"],
+        "extension_manifest_sha256": extension["manifest_sha256"],
+        "selection_method": "sha256_utf8_json_array_study_family_cluster_seed_v1",
+        "family_summary": family_summary, "selected": selected,
+        "reserve_order": reserve_order,
+        "outcome_access": "PROHIBITED_DURING_SELECTION",
+    }
 
 
 def main() -> None:

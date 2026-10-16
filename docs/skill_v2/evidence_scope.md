@@ -20,7 +20,10 @@ paper `results/formal_failure_audit.json`; raw root recorded in baseline.
 
 See [PHASE2_EXECUTION_REPORT.md](PHASE2_EXECUTION_REPORT.md) for actual server
 evidence and exact test revisions. Train teacher controls demonstrate scorer
-reachability, not autonomous Agent success. Real Agent/Skill/held-out/routing
-experiments remain NOT_RUN pending staged approval. Budget guards and portable
+reachability, not autonomous Agent success. Separately approved real B at
+`713bd65` completed three train-side autonomous successes (56 calls); this is
+not a population success estimate, Skill gain or ACRE effect. Real Skill,
+held-out and routing experiments remain NOT_RUN pending staged approval.
+Budget guards and portable
 packs are engineering results, not efficacy. Prior synthetic qualification is
 not rerun or added to real denominators; manuscript statistics are unchanged.

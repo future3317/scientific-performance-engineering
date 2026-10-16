@@ -2,6 +2,63 @@
 
 ## Status and boundary
 
+Current continuation: Phase3 preparation, no new provider authorization. See
+`docs/skill_v3/PHASE3_EXECUTION_REPORT.md`. Historical fixture and Phase2 design
+sections below retain their original scope; they are not current execution
+status. Phase2 B at `713bd65` completed three autonomous official wins, not
+Skill or routing efficacy. The earlier success-plus-failure prerequisite is
+replaced for new Phase3 studies by the source modes below, not retroactively
+changed in original receipts.
+
+### Phase3 registered preparation
+
+Keep the parent split immutable. Metadata-only reservation subdivides only
+train_outer into outer_skill_validation / outer_gate_calibration /
+untouched_eval_reserved, with quarantine for exposure/unknown provenance.
+Allocate one third per child within official family, using deterministic
+largest remainder and rotating family tie order. This is an exploratory
+resource reservation, not a powered confirmation design. At ~153 independent
+final clusters, zero harms would have an idealized iid one-sided95 upper bound
+near 1.94%; actual selection/clustering assumptions must be checked before
+using such a bound. Final outcomes, expert plans and task contents stay closed.
+
+T1 samples exactly two unexposed train_dev clusters in each of six official
+families, ranking UTF8 JSON arrays [study_id,family,cluster_id,seed] by SHA256.
+Seed=31, study_id=phase3_baseline_diagnostic. No outcome-dependent replacement
+or expansion; unavailable selected files stop preparation/that study. Reserve
+order is recorded, not permission to substitute after seeing results. Equal
+family summaries are diagnostic, not naturally weighted population estimates.
+
+The three historical B sources are train_inner, not train_dev induction data.
+New SUCCESS_ONLY_INDUCTION requires compliant real train_dev successes; empty
+failure examples are valid. CONTRASTIVE_REPAIR additionally requires independent
+real resolved failure episodes. A length turn inside an eventual success is
+INVALID_DECISION_RECOVERED, never a failure episode. Neither source readiness
+nor Agent viability grants provider authorization or Skill efficacy.
+
+T2 freezes one family selected by source eligibility (not inner outcomes), six
+inner clusters, one initial proposal and one bounded feedback patch (two
+candidates). OFF/ON ordering is deterministically balanced; v2 ON is newly run.
+OFF may be shared only under the complete runtime/task/seed identity contract.
+Select by primary route fixed before outcomes: repairs-minus-regressions for
+contrastive; for success-only, zero observed regressions and median paired
+both-success total-token saving >=10%, with cost/steps as secondary outcomes.
+Cheaper failures are never efficiency gains. T2 cannot consume outer data.
+T3 independently approves eight frozen-candidate outer pairs, with no edits
+from outer feedback and no automatic promotion/global certificate.
+T4 is NOT_QUALIFIED until fixed real Skill utility/heterogeneity and independent
+gate calibration exist; no final task list or final outcomes are opened now.
+Static routing on frozen real OFF/ON outcomes is POLICY_VALUE_ON_REAL_PAIRED_ROLLOUTS,
+not a new online rollout per gate. Dynamic/intermediate injection is ineligible
+for that reuse. All production decisions still pass through AcreEngine.route.
+
+T1 caps preserve B's 60 decisions and8192 completion tokens, thinking enabled,
+no tools, zero retries; reasoning_effort was not explicitly sent in B and is
+not relabelled as an explicit parameter. Response-ID telemetry and selected-only
+native registration define BASE_AGENT_V2_TELEMETRY, with unchanged action prompt;
+do not pool with B. Every stage requires its own exact manifest and human USD
+approval; no credentials or paid requests are used during Phase3 preparation.
+
 This package contains an executable, provider-free synthetic fixture and a
 proposal for a future train-only viability phase. The fixture is not empirical
 evidence. `real_phase_i.status` remains `NOT_RUN` until executable readiness,
