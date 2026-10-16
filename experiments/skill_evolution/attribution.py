@@ -242,10 +242,12 @@ def summarize_spooled(manifest,pricing):
     events=[json.loads(line)for line in source.read_text().splitlines()]
     rows=[e["episode"]for e in events if e["event"]=="COMPLETED"]
     expected={(r["cluster_id"],arm)for r in manifest["plan"]for arm in ARMS}
-    if {(r["cluster_id"],r["arm"])for r in rows} != expected:
-        raise ValueError("summary-only requires complete frozen arm set; incomplete outcomes remain unknown")
+    observed={(r["cluster_id"],r["arm"])for r in rows}
+    stops=[e for e in events if e["event"]=="STOP"]
     result=summarize_attribution(manifest["plan"],rows,pricing)
-    result.update(status="COMPLETED",regenerated_without_provider=True,outer_status="NOT_RUN")
+    status=("STOP_"+stops[-1]["reason"] if stops else "COMPLETED" if observed==expected else "INCOMPLETE_UNKNOWN")
+    result.update(status=status,regenerated_without_provider=True,outer_status="NOT_RUN",
+                  planned_arms=len(expected),completed_arms=len(observed),missing_arms=len(expected-observed))
     output=Path(manifest["output_dir"])
     _save_summary(output,result)
     return result
@@ -351,13 +353,17 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
             # Raw episode is durable before any derived summary can fail.
             if receipt_outcome(row)is None:
                 _append(events,{"event":"STOP","reason":"UNKNOWN_ARM","trial_id":trial})
-                return {"status":"STOP_UNKNOWN","completed":len(completed),"provider_budget":budget.as_dict()}
+                report={"status":"STOP_UNKNOWN","completed":len(completed),"provider_budget":budget.as_dict()}
+                _save_summary(output,report)
+                return report
             cluster_rows = {r["arm"]: r for r in completed.values() if r["cluster_id"] == task["cluster_id"]}
             if "OFF" in cluster_rows and receipt_outcome(cluster_rows["OFF"]) is True and any(
                 receipt_outcome(cluster_rows[a]) is False for a in ("LENGTH","SKILL") if a in cluster_rows
             ):
                 _append(events,{"event":"STOP","reason":"HARD_REGRESSION","trial_id":trial})
-                return {"status":"STOP_HARD_REGRESSION","completed":len(completed),"provider_budget":budget.as_dict()}
+                report={"status":"STOP_HARD_REGRESSION","completed":len(completed),"provider_budget":budget.as_dict()}
+                _save_summary(output,report)
+                return report
     report=summarize_attribution(manifest["plan"],list(completed.values()),pricing)
     report.update(status="COMPLETED",provider_budget=budget.as_dict(),outer_status="NOT_RUN")
     shutil.copytree(journal.root,output/"RAW_RECEIPTS",dirs_exist_ok=True)
@@ -385,7 +391,8 @@ def main(argv=None):
     if subprocess.check_output(["git","status","--porcelain"],text=True).strip():
         raise ValueError("live run requires clean source")
     revision=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
-    run_attribution(manifest,parent,skill,read(args.approval),read(args.pricing),output=Path(manifest["output_dir"]),revision=revision)
+    result=run_attribution(manifest,parent,skill,read(args.approval),read(args.pricing),output=Path(manifest["output_dir"]),revision=revision)
+    print(json.dumps({"status":result["status"],"provider_budget":result.get("provider_budget")}))
     return 0
 
 
