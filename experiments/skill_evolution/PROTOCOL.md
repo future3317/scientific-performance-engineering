@@ -47,6 +47,19 @@ Actual candidates, task identities, costs and stage caps are bound in the
 new stage manifest before its first paid call. All policy deployment still
 passes through canonical AcreEngine.route; no pilot creates GLOBAL_VERIFIED.
 
+The first actual T2 at `eb2e8f1de2f2f4752c692b886cd76d0fd9abc952`
+ended REJECTED_INITIAL_PROPOSAL after one metered call: rendered body1946
+characters exceeded the unchanged1800 limit. The original prompt did not
+explicitly disclose that numeric rendered-body limit. This is a proposal
+contract-transmission failure, not a negative Skill treatment estimate.
+No candidate was admitted, no inner/patch/outer/final rollout was launched,
+and the USD0.0047073 estimate remains in the raw journal. The frozen T2
+manifest's STOP_NO_RETRY is honored; the proposal is not trimmed, reclassified
+or rerun. Subsequent code explicitly discloses the existing length contract
+and persists available proposal cache counters; it has not been paid-tested.
+A future real attempt needs a new explicit study identity and must account
+for this rejected proposal as part of the development/search history.
+
 ### Phase3 registered preparation
 
 Keep the parent split immutable. Metadata-only reservation subdivides only
