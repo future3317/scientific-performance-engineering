@@ -306,6 +306,10 @@ def test_semantic_model_proposal_uses_metered_completion_and_records_reject_buff
     assert prompt_data["semantic_document"]["rendered_token_count"] == doc.token_count
     assert prompt_data["bounds"]["rendered_token_count_max"] == 2000
     assert "rendered_skill_body_max_characters" not in prompt_data
+    example=prompt_data["schema"]["operations"][0]
+    # The actual prompt example must be parseable by the exact production parser.
+    assert SemanticOperation.from_dict(example).op=="add"
+    assert "Required legacy text" in " ".join(prompt_data["editing_rules"])
 
 
 def test_rejected_semantic_proposal_records_reject_buffer_and_provenance():
