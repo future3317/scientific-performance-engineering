@@ -448,3 +448,35 @@ or open outer/final. Any further bounded amendment must explicitly address the
 protected-step/edit contract and preserve the now-exposed A identity; it cannot
 be described as the original uninterrupted two-version study. Historical paper
 numbers and formal/sealed/C-D evidence remain unchanged.
+
+### Phase5 zero-provider implementation and approval boundary — October16
+
+The latest Phase5 taskbook replaces automatic paid continuation: no new provider
+experiment is authorized. Actual T1 receipts, the 2,580-character v1 and the
+rejected replace-at-index8 response were read, not inferred from summaries.
+Machine-readable failure diagnosis and paired resource/uncertainty recomputation
+live under RESULTS/skill-evolution-phase5-20261016. Historical sources are not
+relabeled as new induction or efficacy. Official public V4 tokenizer counts v1
+as 458 standalone tokens; public price/tokenizer retrieval made no model call.
+
+Two bounded Luna packages implemented semantic edits and durable receipts;
+main agent implemented attribution/diagnosis, reviewed and integrated them,
+ensured optional advice reaches the checked/exported runtime body and preserved
+immediate-parent lineage. Existing source/leakage guards and the legacy exact
+required-step checker remain intact. Native environment checkpoint recovery is
+not claimed; interrupted arms remain unknown, while completed arms/summary-only
+rebuilds do not repeat calls. No private reasoning text is persisted in new raw
+provider receipts. No code reset/stash or user changes were taken over.
+
+Server a76398997485de7d8251c8380cdf7b0ddded91f0: affected tests108 passed/exit0;
+full suite668 passed,8warnings,699.38s/exit0. Counts overlap and are not added.
+The final receipt-metadata additions are tested separately at their exact
+revision; earlier full-suite evidence is not relabeled as a later full run.
+The two current production entries are semantic delta refinement (new studies)
+and OFF/LENGTH/SKILL attribution; old frozen T2 behavior is historical only.
+
+Delivery is READY_FOR_APPROVAL, not Phase5 scientific completion. Batch1 proposes
+8 fresh inner tasks x3 arms, no new induction/patch call, fixed original v1,
+USD30 hard cap and at most1440calls. All original B reservations and final154
+clusters stay unconsumed. Three arms cannot identify an interaction. Real v2,
+independent Skill efficacy and ACRE efficacy remain NOT_RUN/NOT_ESTABLISHED.
