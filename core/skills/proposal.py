@@ -174,6 +174,10 @@ class ModelSkillProposer:
             "initial_subskill", self._initial_prompt(evidence, constraints)
         )
         self._check_trace_sources(response, evidence)
+        if response.get("unsupported_claims"):
+            raise ValueError("initial proposal contains unsupported claims")
+        if response.get("source_mode", evidence.source_mode) != evidence.source_mode:
+            raise ValueError("proposal cannot relabel its evidence source mode")
         required_fields = {
             "intent", "applicability", "procedure", "procedure_step_ids",
             "required_procedure_step_ids", "preconditions", "postconditions",
