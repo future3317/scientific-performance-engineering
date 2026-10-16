@@ -2,7 +2,38 @@
 
 ## Status and boundary
 
-Current continuation: Phase5, coordinated by the user's October16 T2 Repair,
+Current continuation: Phase6 incremental procedural value taskbook (PHASE6-R1).
+This latest request requires a new exact C1 approval and supersedes the earlier
+blanket automatic paid-continuation instruction. No C1/outer/ACRE payment is
+authorized. Historical Batch1 is consumed adaptation evidence, not fresh inner.
+
+Phase6's zero-API receipt/prompt and policy audit stops at NO_MECHANISTIC_DELTA:
+unvisited-before-revisit, search bookkeeping and anti-repeat guidance already
+exist in v1's required items. The runner's bounded memory does not establish
+a new prompt-only remedy. A monotone traversal order is a different unvalidated
+hypothesis, not an observed missing strategy; no such rule is inserted by the
+operator and presented as model learning. Cardinality is not explicit in runner
+state, but existing public multi-object traces already complete both objects;
+family metadata alone is not treated as a literal exclusion in the skill text.
+This means no eligible evidence-grounded delta was identified, not that useful
+procedural knowledge is universally impossible. Taskbook sections5.2/15.1 allow
+this zero-cost scientific stop. No paid proposal or fresh panel is scheduled,
+and no approval-ready or executable C1 manifest is claimed.
+
+All297 historical prompts can be reconstructed through the frozen production
+response path from saved public trajectories and matched to their original
+hashes; reconstruction is not original prompt persistence or new efficacy.
+The4 invalid decisions are empty final content at finish_reason=length:
+OFF3, SKILL1, LENGTH0. Existing required-semantic protections and the458-token
+v1 remain unchanged; no speculative novelty checker/second runner is retained.
+Unified outputs live under RESULTS/skill-evolution-phase6-c1-incremental-procedure
+(PHASE6_REPORT.md, PHASE6_METRICS.json, PHASE6_EVIDENCE_BUNDLE.tar.gz). Tests
+are recorded with their exact source commit in its internal/TEST_RECEIPTS.
+Outer/final outcomes remain out of scope; no paper numbers are changed.
+
+### Historical Phase5 authorization and attribution
+
+Phase5 was coordinated by the user's October16 T2 Repair,
 Efficiency Attribution and First Efficacy Taskbook. Following the zero-provider
 closeout and exact Batch1 card, the user explicitly authorized autonomous
 continuation without repeated approval waits. Each paid stage still needs a
