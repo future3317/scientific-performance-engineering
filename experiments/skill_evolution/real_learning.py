@@ -895,7 +895,8 @@ def run_live_learning(
                 receipt_sha256=row["receipt_sha256"]))
     result = None
     if v2_receipts:
-        result = SkillEvolution(SkillPatchOptimizer(max_candidate_count=1),
+        result = SkillEvolution(SkillPatchOptimizer(max_candidate_count=1,
+            max_skill_characters=manifest.get("max_skill_characters", 1800)),
             SkillEvolutionStore(output / "evolution")).run_round(initial, (patch_proposal.patch,), v2_receipts,
             iteration=1, split="train_inner", patch_feedback_receipt_hashes=inner_feedback.source_trace_hashes,
             train_split_manifest_sha256=evidence.train_split_manifest_sha256,
@@ -906,7 +907,8 @@ def run_live_learning(
     if selected_candidate is not None:
         export_skill_pack(selected_candidate, output / "selected_skill_pack",
             agent_revision=manifest["agent_revision"], model_identity=selected_candidate.model_identity,
-            verifier_revision=manifest["benchmark_revision"], task_population="ALFWorld train pilot, not a global certificate")
+            verifier_revision=manifest["benchmark_revision"], task_population="ALFWorld train pilot, not a global certificate",
+            max_skill_characters=manifest.get("max_skill_characters", 1800))
     stage_status = selection["status"]
     report = {"status": stage_status, "inner_status": result.assessment_status if result else "NOT_ASSESSED_NO_COMPLETE_TRIPLETS",
         "phase4_mode": PHASE4_T2_MODE, "phase4_mode_version": PHASE4_T2_MODE_VERSION,
