@@ -694,7 +694,7 @@ def run_live_learning(
         "initial_proposal_output_sha256": initial.proposal_output_sha256,
         "patch_prompt_sha256": patch_proposal.prompt_sha256, "patch_output_sha256": patch_proposal.output_sha256,
         "inner_v1_and_v2_receipts": receipt_rows,
-        "inner_receipts_sha256": manifest_digest(receipt_rows),
+        "inner_receipts_sha256": manifest_digest({"receipts": receipt_rows}),
         "inner_pair_count": len(manifest["plan"]["pairs"]),
         "canonical_promotion": False, "provider_budget": budget.as_dict(), "results_claimed": False}
     (output / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -720,7 +720,7 @@ def validate_outer_inputs(manifest: Mapping[str, Any], parent_split: Mapping[str
         raise ProviderBudgetExceeded("outer_candidate_or_parent_identity_mismatch")
     if extension.get("parent_manifest_sha256") != manifest.get("parent_split_manifest_sha256"):
         raise ProviderBudgetExceeded("outer_extension_parent_mismatch")
-    if manifest.get("inner_receipts_sha256") != manifest_digest(list(inner_rows)):
+    if manifest.get("inner_receipts_sha256") != manifest_digest({"receipts": list(inner_rows)}):
         raise ProviderBudgetExceeded("outer_inner_receipts_digest_mismatch")
     child_rows = extension.get("child_membership")
     if not isinstance(child_rows, list):

@@ -305,7 +305,7 @@ def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp
     outer = {**manifest, "run_id": "outer-fixture", "stage": "skill_outer_validation", "max_calls": 4,
              "parent_split_manifest_sha256": manifest_digest(split), "split_extension_sha256": manifest_digest(extension),
              "frozen_candidate_sha256": candidate.digest, "selected_inner_version": "v2",
-             "inner_receipts_sha256": manifest_digest(inner_rows), "output_dir": str(tmp_path / "outer"),
+             "inner_receipts_sha256": manifest_digest({"receipts": inner_rows}), "output_dir": str(tmp_path / "outer"),
              "outer_consumption_journal": str(tmp_path / "consumed.jsonl"),
              "plan": {"pairs": [dict(outer_member, pair_id="outer-pair", split="outer_skill_validation", seed=19,
                                      arm_order=["off", "on"], task_type_id=3)]}}
