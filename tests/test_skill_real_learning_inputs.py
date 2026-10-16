@@ -249,8 +249,8 @@ def test_real_pair_adapter_uses_production_episode_and_persists_both_arms(tmp_pa
                            provenance=manifest, on_arm=lambda arm, row: persisted.append((arm, row)),
                            environment_factory=environment_factory)
     assert off["success"] is False and on["success"] is True
-    assert [arm for arm, _ in persisted] == ["off", "on"]
-    assert insertions == [None, candidate.body]
+    assert [arm for arm, _ in persisted] == pair["arm_order"]
+    assert insertions == [candidate.body if arm == "on" else None for arm in pair["arm_order"]]
     assert len(closed) == 2
     assert on["skill_version_sha256"] == candidate.digest
     assert on["split"] == "train_inner" and on["trajectory"][0]["selected_action"] == "look"
@@ -408,10 +408,10 @@ def test_production_initial_inner_feedback_patch_and_separate_outer_rollback(tmp
                 sequence.append("patch")
                 assert data["evidence"]["paired_execution_metrics"]
                 assert data["evidence"]["source_split"] == "train_inner"
-                assert len(data["evidence"]["source_trace_ids"]) == 12
+                assert len(data["source_trace_ids"]) == 12
                 expected_a = {f"{manifest['run_id']}:{pair['pair_id']}:{arm}"
                               for pair in manifest['plan']['panel_a_pairs'] for arm in ('off', 'on')}
-                assert set(data["evidence"]["source_trace_ids"]) == expected_a
+                assert set(data["source_trace_ids"]) == expected_a
                 assert all("Visible feedback." in metric for metric in data["evidence"]["paired_execution_metrics"])
                 if patch_reply == "noop":
                     value = {"status": "NO_OP", "parent_digest": data["parent_digest"],
@@ -529,5 +529,5 @@ def test_long_trace_feedback_stays_bounded_without_dropping_costs(pair_count):
     feedback.validate(patch_feedback=True)
     assert len(feedback.paired_execution_metrics) == pair_count * 2
     assert all("input_tokens=12345" in item and "full_event_count=60" in item for item in feedback.paired_execution_metrics)
-    assert all("visible feedback" in item and "cost_usd=0.01" in item for item in feedback.paired_execution_metrics)
+    assert all("visible feedback" in item and "usd=0.01" in item for item in feedback.paired_execution_metrics)
     assert sum(map(len, feedback.paired_execution_metrics)) <= 12000
