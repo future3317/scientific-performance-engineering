@@ -1,13 +1,15 @@
 """Provider-free behavioral contracts for the registered three-arm attribution."""
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 import json
+from types import SimpleNamespace
 import pytest
 
 from core.acre.resource_budget import manifest_digest
 from core.skills import SkillContract
 from experiments.skill_evolution.attribution import (
     ARMS, LENGTH_CONTROL, arm_fingerprints, arm_texts, diagnose_failure,
-    episode_metrics, main, summarize_attribution, validate_manifest,
+    episode_metrics, main, run_attribution, summarize_attribution, validate_manifest,
 )
 
 
@@ -123,3 +125,80 @@ def test_final_outcome_and_exposed_tasks_cannot_enter_inner_manifest(tmp_path,mo
     monkeypatch.setattr(runner.DeepSeekStatefulClient,"__init__",lambda *a,**k:pytest.fail("provider constructed"))
     assert main(["--manifest",str(tmp_path/"manifest"),"--split-manifest",str(tmp_path/"split"),"--skill",str(tmp_path/"skill"),
                  "--approval",str(tmp_path/"missing-approval"),"--pricing",str(tmp_path/"missing-pricing")])==0
+
+
+def live_fixture(tmp_path):
+    t=task();s=skill();parent={"task_membership":[{**t,"split":"train_inner","confirmatory_eligible":True}]}
+    manifest={"stage":"skill_attribution","split":"train_inner","split_manifest_sha256":manifest_digest(parent),
+        "skill_digest":s.digest,"skill_body_sha256":s.body_digest,"arms":list(ARMS),"treatments":arm_texts(s),
+        "excluded_clusters":[],"excluded_templates":[],"plan":[t],"seed":67,"thinking":"enabled","max_retries":0,
+        "controller_commit":"fixture","study_id":"fixture","run_id":"fixture","model":"deepseek-flash",
+        "base_url":"https://api.deepseek.com","output_dir":str(tmp_path/"output"),"spool_dir":str(tmp_path/"spool"),
+        "max_completion_per_request":100,"max_input_per_request":2000,"max_steps":1,
+        "max_usd_per_episode":"0.1","max_calls_per_episode":1,"max_episode_wall_seconds":60}
+    now=datetime.now(timezone.utc)
+    approval={"provider_enabled":True,"execute":True,"controller_commit":"fixture","model":manifest["model"],
+        "study_id":"fixture","run_id":"fixture","approved_manifest_sha256":manifest_digest(manifest),
+        "approved_split_manifest_sha256":manifest["split_manifest_sha256"],"permitted_stages":[manifest["stage"]],
+        "api_base_allowlist":[manifest["base_url"]],"approved_by":"SYNTHETIC_FIXTURE","approval_reference":"SYNTHETIC_FIXTURE",
+        "approved_at_utc":now.isoformat(),"expiration_utc":(now+timedelta(hours=1)).isoformat(),
+        "max_provider_calls":3,"max_input_tokens":6000,"max_completion_tokens":300,"per_episode_max_steps":1,
+        "per_request_max_completion_tokens":100,"max_wall_seconds":3600,"max_total_usd":"1","max_failed_retries":0,
+        "max_usd_per_episode":"0.1","max_calls_per_episode":1,"max_episode_wall_seconds":60}
+    pricing={**PRICING,"currency":"USD","model":manifest["model"],"checked_at_utc":now.isoformat(),
+             "pricing_source_url":"SYNTHETIC_FIXTURE","price_period":"SYNTHETIC_FIXTURE","estimate_quality":"SYNTHETIC_FIXTURE"}
+    return manifest,parent,s,approval,pricing
+
+
+def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_resets(tmp_path,monkeypatch):
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
+    import experiments.skill_evolution.attribution as module
+    manifest,parent,s,approval,pricing=live_fixture(tmp_path)
+    calls,resets=[],[]
+    def fake_factory(_key,base,model,*,budget,max_completion_tokens,persist_budget):
+        client=DeepSeekStatefulClient.__new__(DeepSeekStatefulClient)
+        def provider(**_request):
+            calls.append(1)
+            return SimpleNamespace(id=f"fake-{len(calls)}",model=model,system_fingerprint="fixture",
+                usage=SimpleNamespace(prompt_tokens=31,completion_tokens=9,prompt_cache_hit_tokens=4,prompt_cache_miss_tokens=27,
+                                      completion_tokens_details=SimpleNamespace(reasoning_tokens=6)),
+                choices=[SimpleNamespace(message=SimpleNamespace(content="Action: look"),finish_reason="stop")])
+        client.client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=provider)))
+        client.base_url=base;client.model=model;client.temperature=0;client.budget=budget
+        client.max_completion_tokens=max_completion_tokens;client.persist_budget=persist_budget
+        client.response_identity=None;client.response_ids=set();client.receipt_journal=None
+        client._episode_context=None;client._episode_turn=0;client.evidence_origin="SYNTHETIC_FIXTURE"
+        return client
+    class Env:
+        def reset(self):
+            resets.append(1)
+            return ["Your task is to: inspect the target."],{"admissible_commands":[["look"]],"extra.gamefile":["/fixture/g0"]}
+        def step(self,actions):
+            assert actions==["look"]
+            return ["Done."],[1],[True],{"won":[True],"admissible_commands":[["look"]]}
+        def close(self):pass
+    actual=module._save_summary
+    monkeypatch.setattr(module,"_save_summary",lambda *_:(_ for _ in ()).throw(OSError("summary disk full")))
+    with pytest.raises(OSError,match="disk full"):
+        run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
+            client_factory=fake_factory,environment_factory=lambda *_a,**_k:Env())
+    assert len(calls)==len(resets)==3
+    monkeypatch.setattr(module,"_save_summary",actual)
+    def never(*_a,**_k):pytest.fail("resume constructed provider or reset completed environment")
+    result=run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
+        client_factory=never,environment_factory=never)
+    assert result["provider_budget"]["calls_reserved"]==3
+    assert result["comparisons"]["OFF_vs_SKILL"]["11"]==1
+    assert len(calls)==len(resets)==3
+    events=[json.loads(x)for x in(tmp_path/"spool/journal.jsonl").read_text().splitlines()]
+    assert sum(e["event"]=="usage_ledger"for e in events)==3
+
+
+def test_explicit_approval_denial_precedes_sdk_and_environment(tmp_path):
+    from core.acre.resource_budget import ProviderBudgetExceeded
+    manifest,parent,s,approval,pricing=live_fixture(tmp_path)
+    approval["provider_enabled"]=False
+    def never(*a,**k):pytest.fail("provider/environment reached without approval")
+    with pytest.raises(ProviderBudgetExceeded,match="APPROVAL_REQUIRED"):
+        run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
+                        client_factory=never,environment_factory=never)
