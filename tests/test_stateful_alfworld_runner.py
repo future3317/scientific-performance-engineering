@@ -237,7 +237,7 @@ def test_h1_changes_only_the_existing_replan_note_in_the_production_prompt():
             return {"raw_output": next(outputs), "finish_reason": "stop"}
 
         client.complete_text = complete_text
-        env = ReplayEnvironment(["Your task is to: look.", "Finished"], [["look"]], won=True)
+        env = ReplayEnvironment(["Your task is to: put a keychain in dresser.", "Finished"], [["look"]], won=True)
         run_episode(env, client, max_steps=2, harness_variant=variant)
         return prompts
 
