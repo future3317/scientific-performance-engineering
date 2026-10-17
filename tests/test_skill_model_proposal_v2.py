@@ -173,7 +173,7 @@ def test_character_unbounded_skill_still_hits_runtime_input_cap_before_provider(
     client = DeepSeekStatefulClient.__new__(DeepSeekStatefulClient)
     client.budget = None
     client.max_input_per_request = 1000
-    state = EpisodeState.start("Your task is to: place the target.", 60)
+    state = EpisodeState.start("Your task is to: put a keychain in dresser.", 60)
     with pytest.raises(ProviderBudgetExceeded, match="per_request_input_cap"):
         client.choose_action(state, ["look"], "Check visible state. " * 200, "", None)
 

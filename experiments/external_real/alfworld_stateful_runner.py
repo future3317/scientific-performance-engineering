@@ -53,7 +53,7 @@ def _parse_public_goal(goal: str) -> dict[str, Any]:
         r"(?:(?P<quantity>a|an|the|some|two|2)\s+)?"
         r"(?:(?P<state>clean(?:ed)?|heat(?:ed)?|cool(?:ed)?|hot|cold)\s+)?"
         r"(?P<object>[a-z][a-z -]*?)"
-        r"(?:\s+and put them)?"
+        r"(?:\s+and put (?:it|them))?"
         r"(?:\s+(?:in|inside|on|onto|under|at|with|using)\s+(?:a |an |the )?"
         r"(?P<receptacle>[a-z][a-z -]*?))?", text,
     )
