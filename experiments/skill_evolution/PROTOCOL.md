@@ -647,6 +647,13 @@ RESULTS/skill-evolution-phase7-marginal-value (outside Git).
 
 ## Power table interpretation
 
+Phase8.1 preflight supersedes the original D1a runtime card: the public-goal
+parser defect affects policy inputs. A corrected runtime must preserve the
+original D1a task identities/order and obtain its own explicit approval before
+any request. Fixing the harness is not Skill learning, and historical E1
+outcomes cannot be pooled as corrected-runtime baselines. Zero-provider
+preflight does not expose D1a native episodes or any outer/gate/final outcome.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
