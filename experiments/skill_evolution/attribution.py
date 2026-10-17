@@ -1,4 +1,4 @@
-"""Frozen task-start OFF/LENGTH/SKILL attribution on the existing native runner."""
+"""Frozen attribution and LENGTH-only source discovery on one native runner."""
 from __future__ import annotations
 
 import argparse
@@ -29,7 +29,11 @@ RESOURCE_FIELDS = ("provider_calls", "input_tokens", "completion_tokens", "reaso
                    "provider_usd_estimate", "peak_usd_estimate", "off_peak_usd_estimate", "no_cache_usd_estimate", "wall_seconds")
 
 
-def arm_texts(skill: SkillContract, *, design: str = "attribution") -> dict[str, str | None]:
+def arm_texts(skill: SkillContract | None, *, design: str = "attribution") -> dict[str, str | None]:
+    if design == "length_discovery":
+        return {"LENGTH": LENGTH_CONTROL}
+    if skill is None:
+        raise ValueError("attribution requires a frozen Skill")
     if re.search(r"\b(?:be concise|concise sentence|unnecessary explanation|avoid re.deriving|brief answer)\b", skill.body, re.I):
         raise ValueError("procedure arm contains length-control wording; preregister a different contrast")
     if design == "conditional_increment":
@@ -39,7 +43,7 @@ def arm_texts(skill: SkillContract, *, design: str = "attribution") -> dict[str,
     return {"OFF": None, "LENGTH": LENGTH_CONTROL, "SKILL": skill.body}
 
 
-def arm_fingerprints(skill: SkillContract, *, design: str = "attribution") -> dict[str, Any]:
+def arm_fingerprints(skill: SkillContract | None, *, design: str = "attribution") -> dict[str, Any]:
     from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient, EpisodeState
     class Capture:
         def complete_text(self, messages):
@@ -172,7 +176,8 @@ def summarize_attribution(plan: Sequence[Mapping[str, Any]], rows: Sequence[Mapp
             raise ValueError("paired task/seed identity mismatch")
         by[key] = row
     comparisons = {}
-    pairs = [("OFF", "LENGTH"), ("OFF", "SKILL"), ("LENGTH", "SKILL")] if tuple(arms) == ARMS else [(arms[0], arms[1])]
+    pairs = ([("OFF", "LENGTH"), ("OFF", "SKILL"), ("LENGTH", "SKILL")] if tuple(arms) == ARMS
+             else [(arms[0], arms[1])] if len(arms)>1 else [])
     costs = {key: episode_metrics(row, pricing) for key, row in by.items()}
     for left, right in pairs:
         outcomes, deltas = [], {k: [] for k in RESOURCE_FIELDS}
@@ -204,7 +209,8 @@ def summarize_attribution(plan: Sequence[Mapping[str, Any]], rows: Sequence[Mapp
     return {"planned_independent_clusters": len(planned), "completed_arm_records": len(by),
             "arm_metrics": {arm: [costs[key] for key in costs if key[1] == arm] for arm in arms},
             "comparisons": comparisons, "interaction_effect": None,
-            "interaction_status": "NOT_IDENTIFIABLE_WITH_THREE_ARMS", "evaluation_scope": "train_inner attribution, not independent outer"}
+            "interaction_status": "NOT_IDENTIFIED" if len(arms)>1 else "NOT_APPLICABLE_SINGLE_ARM",
+            "evaluation_scope": "train_inner attribution, not independent outer" if len(arms)>1 else "train_dev source discovery, not efficacy"}
 
 
 def select_conditional_plan(parent, excluded_clusters, excluded_templates, *, seed):
@@ -236,15 +242,19 @@ def select_conditional_plan(parent, excluded_clusters, excluded_templates, *, se
     return plan
 
 
-def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], skill: SkillContract) -> None:
-    if manifest.get("stage") != "skill_attribution" or manifest.get("split") != "train_inner":
+def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], skill: SkillContract | None) -> None:
+    design = manifest.get("design", "attribution")
+    discovery = design == "length_discovery"
+    split = "train_dev" if discovery else "train_inner"
+    if manifest.get("stage") != ("length_discovery" if discovery else "skill_attribution") or manifest.get("split") != split:
         raise ValueError("attribution requires approved inner stage")
     if manifest.get("split_manifest_sha256") != manifest_digest(parent):
         raise ValueError("parent split identity mismatch")
-    if manifest.get("skill_digest") != skill.digest or manifest.get("skill_body_sha256") != skill.body_digest:
+    if not discovery and (skill is None or manifest.get("skill_digest") != skill.digest or manifest.get("skill_body_sha256") != skill.body_digest):
         raise ValueError("frozen skill identity mismatch")
-    design = manifest.get("design", "attribution")
-    arms = E1_ARMS if design == "conditional_increment" else ARMS
+    if discovery and (skill is not None or manifest.get("skill_digest") is not None):
+        raise ValueError("LENGTH discovery does not inject a Skill")
+    arms = ("LENGTH",) if discovery else E1_ARMS if design == "conditional_increment" else ARMS
     if manifest.get("arms") != list(arms) or manifest.get("treatments") != arm_texts(skill, design=design):
         raise ValueError("arm content differs from frozen OFF/LENGTH/SKILL design")
     members = {r["task_id"]: r for r in parent["task_membership"]}
@@ -252,8 +262,10 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
     excluded = set(manifest["excluded_clusters"])
     for task in manifest["plan"]:
         member = members.get(task["task_id"], {})
-        if member.get("split") != "train_inner" or member.get("confirmatory_eligible") is not True:
+        if member.get("split") != split or (not discovery and member.get("confirmatory_eligible") is not True):
             raise ValueError("task is not eligible inner metadata")
+        if discovery and (member.get("identity_status") != "IDENTIFIED" or member.get("exposure") not in {"new_train_dev", "unexposed"}):
+            raise ValueError("discovery task is exposed or unidentified")
         if any(task.get(k) != member.get(k) for k in ("task_id", "cluster_id", "template_id", "gamefile")):
             raise ValueError("task identity differs from immutable parent")
         if task["cluster_id"] in seen | excluded or task["template_id"] in templates | set(manifest["excluded_templates"]):
@@ -263,6 +275,33 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
         seen.add(task["cluster_id"]); templates.add(task["template_id"])
     if manifest.get("thinking") != "enabled" or manifest.get("max_retries") != 0:
         raise ValueError("model configuration changed")
+    if discovery:
+        for key,value in (("max_steps",60),("max_calls",720),("max_calls_per_episode",60),
+                          ("max_input_per_request",32768),("max_completion_per_request",8192)):
+            if manifest.get(key)!=value:
+                raise ValueError("discovery frozen baseline configuration changed: " + key)
+        if not manifest.get("expected_response_identity") or len(manifest["expected_response_identity"])!=2:
+            raise ValueError("discovery requires the historical model/fingerprint identity")
+        cohort=manifest["discovery_cohort"]
+        if manifest.get("discovery_cohort_sha256") != manifest_digest(cohort):
+            raise ValueError("discovery cohort identity changed")
+        batch=manifest.get("discovery_batch")
+        if batch not in {"D1a", "D1b"} or len(cohort["tasks"]) != 24:
+            raise ValueError("discovery requires the frozen twenty-four-task cohort")
+        expected=cohort["tasks"][:12] if batch=="D1a" else cohort["tasks"][12:]
+        keys=("task_id","template_id","cluster_id")
+        if [{k:r[k]for k in keys}for r in manifest["plan"]] != [{k:r[k]for k in keys}for r in expected]:
+            raise ValueError("discovery batch order differs from frozen cohort")
+        if len({r["cluster_id"]for r in cohort["tasks"]})!=24 or len({r["template_id"]for r in cohort["tasks"]})!=24:
+            raise ValueError("discovery cohort repeats a semantic cluster/template")
+        for row in cohort["tasks"]:
+            member=members.get(row["task_id"],{})
+            if (member.get("split")!="train_dev" or any(member.get(k)!=row[k]for k in keys)
+                    or row["cluster_id"] in excluded or row["template_id"] in manifest["excluded_templates"]):
+                raise ValueError("discovery cohort crosses a split or exposure boundary")
+        family_counts=Counter(members[r["task_id"]]["task_type"]for r in manifest["plan"])
+        if len(family_counts)!=6 or set(family_counts.values())!={2}:
+            raise ValueError("discovery batch requires six families twice")
     if design == "conditional_increment":
         families = Counter(r["task_type"] for r in parent["task_membership"] if r["task_id"] in {t["task_id"] for t in manifest["plan"]})
         if len(manifest["plan"]) != 12 or len(families) != 6 or set(families.values()) != {2}:
@@ -346,8 +385,13 @@ def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path,
     validate_manifest(manifest,parent,skill)
     if manifest["controller_commit"] != revision or str(output) != manifest["output_dir"]:
         raise ValueError("run revision/output identity mismatch")
+    if manifest.get("design")=="length_discovery":
+        for key,approved_key in (("max_calls","max_provider_calls"),("max_total_usd","max_total_usd"),
+                                 ("max_usd_per_episode","max_usd_per_episode"),("max_wall_seconds","max_wall_seconds")):
+            if str(manifest[key]) != str(approval.get(approved_key)):
+                raise ProviderBudgetExceeded("discovery_approval_cap_mismatch:"+key)
     budget=ApprovedProviderBudget(manifest,approval,pricing,controller_commit=revision,
-        stage="skill_attribution",model=manifest["model"],base_url=manifest["base_url"])
+        stage=manifest["stage"],model=manifest["model"],base_url=manifest["base_url"])
     from .receipt_journal import DurableProviderJournal
     output.mkdir(parents=True,exist_ok=True)
     config=output/"run_config.json"
@@ -403,7 +447,10 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
         persist_budget=lambda b:_append(journal.root/"provider_journal.jsonl",b))
     client.max_input_per_request=manifest["max_input_per_request"]
     client.receipt_journal=journal
-    client.response_identity=journal.response_identity
+    expected_identity=tuple(manifest["expected_response_identity"]) if manifest.get("expected_response_identity") else None
+    if expected_identity and journal.response_identity and journal.response_identity != expected_identity:
+        raise ValueError("saved model identity differs from frozen baseline")
+    client.response_identity=expected_identity or journal.response_identity
     client.response_ids.update(journal.response_ids)
     make_env=environment_factory or make_selected_environment
     for task in manifest["plan"]:
@@ -423,7 +470,7 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
                 row=run_episode(env,client,skill=manifest["treatments"][arm],max_steps=manifest["max_steps"],
                     skill_version=str(skill.version)if has_skill else None,expected_gamefiles=[task["gamefile"]],
                     receipt_metadata={**{k:task[k]for k in ("task_id","cluster_id","template_id","seed")},
-                        "trial_id":trial,"arm":arm,"split":"train_inner","study_id":manifest["study_id"],
+                        "trial_id":trial,"arm":arm,"split":manifest["split"],"study_id":manifest["study_id"],
                         "run_id":manifest["run_id"],"evidence_origin":getattr(client,"evidence_origin","REAL_AGENT"),"source_commit":revision,
                         "manifest_sha256":manifest_digest(manifest),
                         "agent_revision":revision,"benchmark_revision":revision,
@@ -432,7 +479,7 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
                         "prompt_template_sha256":manifest.get("prompt_template_sha256"),
                         "model_request_name":manifest["model"],"pricing_sha256":manifest.get("pricing_sha256"),
                         "gamefile_sha256":task.get("gamefile_sha256"),"task_family":task.get("family"),
-                        "parent_split":"train_inner","independently_reset_environment":True,
+                        "parent_split":manifest["split"],"independently_reset_environment":True,
                         "trigger_matched":None,"trigger_status":"NATURAL_LANGUAGE_ONLY_NOT_OPERATIONAL_GATE",
                         "skill_digest":skill.digest if has_skill else None})
             finally:
@@ -468,13 +515,14 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    for key in ("manifest","split-manifest","skill","approval","pricing"):
+    for key in ("manifest","split-manifest","approval","pricing"):
         parser.add_argument("--"+key,type=Path,required=True)
+    parser.add_argument("--skill",type=Path)
     parser.add_argument("--live",action="store_true")
     parser.add_argument("--summarize-only",action="store_true")
     args=parser.parse_args(argv)
     read=lambda p:json.loads(p.read_text())
-    manifest,parent,skill=read(args.manifest),read(args.split_manifest),SkillContract.from_dict(read(args.skill))
+    manifest,parent,skill=read(args.manifest),read(args.split_manifest),SkillContract.from_dict(read(args.skill)) if args.skill else None
     validate_manifest(manifest,parent,skill)
     if args.summarize_only:
         if args.live:

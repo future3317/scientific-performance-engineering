@@ -197,10 +197,59 @@ def live_fixture(tmp_path):
     return manifest,parent,s,approval,pricing
 
 
-def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_resets(tmp_path,monkeypatch):
+def discovery_fixture(tmp_path):
+    from experiments.external_real.alfworld_runner import TASK_TYPE_NAMES
+    manifest,_,_,approval,pricing=live_fixture(tmp_path)
+    families=list(TASK_TYPE_NAMES)
+    members=[{**task(i),"task_type":families[i%6],"split":"train_dev","identity_status":"IDENTIFIED",
+              "exposure":"new_train_dev","confirmatory_eligible":False}for i in range(24)]
+    parent={"task_membership":members}
+    cohort={"tasks":[{k:r[k]for k in("task_id","cluster_id","template_id")}for r in members]}
+    manifest.update(stage="length_discovery",design="length_discovery",split="train_dev",arms=["LENGTH"],
+        treatments=arm_texts(None,design="length_discovery"),discovery_cohort=cohort,
+        discovery_cohort_sha256=manifest_digest(cohort),discovery_batch="D1a",
+        split_manifest_sha256=manifest_digest(parent),
+        plan=[{**r,"arm_order":["LENGTH"]}for r in members[:12]],
+        max_steps=60,max_calls=720,max_calls_per_episode=60,max_episode_wall_seconds=3600,max_usd_per_episode="1.25",
+        max_input_per_request=32768,max_completion_per_request=8192,expected_response_identity=["deepseek-flash","fixture"])
+    manifest.pop("skill_digest");manifest.pop("skill_body_sha256")
+    approval.update(approved_manifest_sha256=manifest_digest(manifest),approved_split_manifest_sha256=manifest_digest(parent),
+        permitted_stages=[manifest["stage"]],max_provider_calls=720,max_input_tokens=720*32768,max_completion_tokens=720*8192,
+        per_episode_max_steps=60,per_request_max_completion_tokens=8192,max_calls_per_episode=60,
+        max_episode_wall_seconds=3600,max_usd_per_episode="1.25",max_total_usd="6")
+    return manifest,parent,None,approval,pricing
+
+
+def test_discovery_no_skill_dry_run_and_order_boundary(tmp_path,monkeypatch):
+    m,parent,s,_,_=discovery_fixture(tmp_path)
+    validate_manifest(m,parent,s)
+    for name,value in (("manifest",m),("split",parent)):
+        (tmp_path/name).write_text(json.dumps(value))
+    import experiments.external_real.alfworld_stateful_runner as runner
+    monkeypatch.setattr(runner.DeepSeekStatefulClient,"__init__",lambda *a,**k:pytest.fail("SDK reached"))
+    assert main(["--manifest",str(tmp_path/"manifest"),"--split-manifest",str(tmp_path/"split"),
+                 "--approval","not-created","--pricing","not-created"])==0
+    m["plan"][0],m["plan"][1]=m["plan"][1],m["plan"][0]
+    with pytest.raises(ValueError,match="order"):
+        validate_manifest(m,parent,s)
+    m["plan"][0],m["plan"][1]=m["plan"][1],m["plan"][0]
+    m["excluded_templates"]=[m["discovery_cohort"]["tasks"][-1]["template_id"]]
+    with pytest.raises(ValueError,match="exposure boundary"):
+        validate_manifest(m,parent,s)
+    m["excluded_templates"]=[];parent["task_membership"][0]["split"]="train_outer"
+    m["split_manifest_sha256"]=manifest_digest(parent)
+    with pytest.raises(ValueError,match="eligible"):
+        validate_manifest(m,parent,s)
+
+
+@pytest.mark.parametrize("mode",["attribution","discovery","discovery_drift"])
+def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_resets(tmp_path,monkeypatch,mode):
     from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
     import experiments.skill_evolution.attribution as module
-    manifest,parent,s,approval,pricing=live_fixture(tmp_path)
+    manifest,parent,s,approval,pricing=(live_fixture if mode=="attribution"else discovery_fixture)(tmp_path)
+    if mode=="discovery_drift":
+        manifest["expected_response_identity"]=["deepseek-flash","changed"]
+        approval["approved_manifest_sha256"]=manifest_digest(manifest)
     calls,resets=[],[]
     def fake_factory(_key,base,model,*,budget,max_completion_tokens,persist_budget):
         client=DeepSeekStatefulClient.__new__(DeepSeekStatefulClient)
@@ -217,33 +266,44 @@ def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_
         client._episode_context=None;client._episode_turn=0;client.evidence_origin="SYNTHETIC_FIXTURE"
         return client
     class Env:
+        def __init__(self,gamefile):self.gamefile=gamefile
         def reset(self):
             resets.append(1)
-            return ["Your task is to: inspect the target."],{"admissible_commands":[["look"]],"extra.gamefile":["/fixture/g0"]}
+            return ["Your task is to: inspect the target."],{"admissible_commands":[["look"]],"extra.gamefile":[self.gamefile]}
         def step(self,actions):
             assert actions==["look"]
             return ["Done."],[1],[True],{"won":[True],"admissible_commands":[["look"]]}
         def close(self):pass
     actual=module._save_summary
+    if mode=="discovery_drift":
+        result=run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
+            client_factory=fake_factory,environment_factory=lambda gamefile,**_k:Env(gamefile))
+        assert result["status"]=="STOP_UNKNOWN" and len(calls)==len(resets)==1
+        assert (tmp_path/"spool/episodes.jsonl").read_text().count('"event": "STARTED"')==1
+        return
     monkeypatch.setattr(module,"_save_summary",lambda *_:(_ for _ in ()).throw(OSError("summary disk full")))
     with pytest.raises(OSError,match="disk full"):
         run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
-            client_factory=fake_factory,environment_factory=lambda *_a,**_k:Env())
-    assert len(calls)==len(resets)==3
+            client_factory=fake_factory,environment_factory=lambda gamefile,**_k:Env(gamefile))
+    expected=3 if mode=="attribution"else 12
+    assert len(calls)==len(resets)==expected
     monkeypatch.setattr(module,"_save_summary",actual)
     def never(*_a,**_k):pytest.fail("resume constructed provider or reset completed environment")
     result=run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
         client_factory=never,environment_factory=never)
-    assert result["provider_budget"]["calls_reserved"]==3
-    assert result["comparisons"]["OFF_vs_SKILL"]["11"]==1
-    assert len(calls)==len(resets)==3
+    assert result["provider_budget"]["calls_reserved"]==expected
+    if mode=="attribution":assert result["comparisons"]["OFF_vs_SKILL"]["11"]==1
+    else:assert result["comparisons"]=={} and len(result["arm_metrics"]["LENGTH"])==12
+    assert len(calls)==len(resets)==expected
     events=[json.loads(x)for x in(tmp_path/"spool/journal.jsonl").read_text().splitlines()]
-    assert sum(e["event"]=="usage_ledger"for e in events)==3
+    assert sum(e["event"]=="usage_ledger"for e in events)==expected
     episodes=[json.loads(x)["episode"] for x in (tmp_path/"spool/episodes.jsonl").read_text().splitlines()
               if json.loads(x)["event"]=="COMPLETED"]
     assert all(r["agent_sha"]=="fixture-agent"and r["configuration_sha"]=="fixture-config"for r in episodes)
     assert all(manifest_digest({k:v for k,v in r.items()if k!="receipt_sha256"})==r["receipt_sha256"]for r in episodes)
     assert all(r["actual_new_model_rollout"]is False for r in episodes)
+    if mode=="discovery":
+        assert all(r["split"]=="train_dev" and r["skill_injected"]is False and r["length_control_injected"]is True for r in episodes)
 
 
 def test_explicit_approval_denial_precedes_sdk_and_environment(tmp_path):
