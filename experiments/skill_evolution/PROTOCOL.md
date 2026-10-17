@@ -654,6 +654,13 @@ any request. Fixing the harness is not Skill learning, and historical E1
 outcomes cannot be pooled as corrected-runtime baselines. Zero-provider
 preflight does not expose D1a native episodes or any outer/gate/final outcome.
 
+After approval of corrected D1a manifest c7aa2212ac8fa3ba257e397de215e1205cd3e4bb280a4ca1bb0de16096407d39,
+the launch preflight detected a documented model-version change to
+DeepSeek-V4.1-Flash-1017 (prices unchanged) and stopped before any request or
+native reset. The historical expected fingerprint was not replaced or bypassed.
+Status is BLOCKED_PREFLIGHT with12 not-started, not a negative discovery result.
+Any new-model identity/protocol revision requires explicit authorization.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to

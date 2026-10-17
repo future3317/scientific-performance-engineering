@@ -684,3 +684,17 @@ the revised runtime approval card belong in the separate RESULTS directory
 skill-evolution-phase8-1-d1a-preflight. No D1a episode is reset during preflight.
 Only an explicit new approval bound to the corrected runtime may launch its
 12 LENGTH episodes; principle approval is not spending authorization.
+
+The subsequent human reply "好的继续" approved the corrected D1a card
+c7aa2212ac8fa3ba257e397de215e1205cd3e4bb280a4ca1bb0de16096407d39,
+source29346352a4489921811a9dc50567df0f7eea3d63, USD6/720calls only.
+That source passed126 targeted and693 full-suite tests (exit0; overlapping).
+The actual launch preflight then stopped before credential loading, approval
+materialization, SDK construction or native reset: the public model table
+changed from DeepSeek-V4.1-Flash to DeepSeek-V4.1-Flash-1017. Prices were
+unchanged. The old model/fingerprint constraint was not silently relaxed.
+D1a remains NOT_RUN,12 not-started,0 calls/USD0. This is an identity blocker,
+not D1_STOP_NO_SIGNAL. A new-model revision needs explicit authorization;
+there is no automatic retry or continuation into D1b/G2/outer/ACRE.
+The immutable preflight deliverables remain at the phase8.1 root; the blocked
+launch closeout is separated under d1a_execution. No protected outcome was read.
