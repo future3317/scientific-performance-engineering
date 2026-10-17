@@ -738,3 +738,38 @@ any future execution need a separately frozen runtime and explicit approval.
 The stopped run's original evidence is retained in
 skill-evolution-phase8-1-d1a-flash1017; historical evidence and paper numbers
 are unchanged.
+
+The subsequent zero-provider correction adds the official public light-goal
+verb "examine" to the existing parser and classifies both "look at" and
+"examine" as look_at_obj_in_light. Policy identity is
+alfworld-stateful-public-goal-light, source
+caed074f18968c0cba1b6076921b3673e119161b. It does not relax the unknown-goal
+stop, change LENGTH, add an action, or infer successful completion. A mocked
+SDK regression exercises the production message.content extraction,
+admissibility check and batched environment.step path, with both simulated
+official won=true and won=false signals (not real task outcomes). The installed ALFWorld public goal_library
+supplies two templates for each of the six supported families; all12 parse
+with the expected object, count, destination and family. The audit reads no
+task files and performs no native reset or provider request.
+
+This correction does not rewrite the stopped Flash-1017 receipts. A revised
+approval freeze retains the exact original12 task plan/order/seed and records
+one reset-exposed cluster plus11 not-started clusters; it cannot claim12
+pristine contexts. The user continuation authorizes this zero-provider fix
+and validation, not a paid restart. Provider execution remains disabled
+pending explicit approval of the revised runtime and exposure deviation.
+
+Server validation of caed074 completed:75 targeted tests passed in13.92s;
+708 full-suite tests passed in656.03s with8 warnings; both exit0 and counts
+overlap. The installed public-template audit passed12/12 across6 families.
+The preparation helper initially stopped on a missing repository import
+path, before writing any manifest; that auxiliary-only error was corrected
+without changing the tested source. The successful CLI dry-run had exit0,
+0 provider calls and0 native resets. Revised execution manifest
+7a0fe37254d00077dd53ec381c1165d755098388ea473742786e0fd14a96e2fb
+is READY_FOR_REVISED_D1A_APPROVAL in
+skill-evolution-phase8-1-d1a-native-goals. No USER_APPROVED file, live output
+or provider spool was created. USD6/720calls and the original cohort remain
+unchanged; the first reset-exposed cluster is explicitly declared. Model
+price/fingerprint checks, unknown-goal stop and protected outcomes remain
+in force. No new provider experiment or Skill efficacy was measured.

@@ -680,6 +680,17 @@ do not restart, replace tasks or treat the remaining11 as negative evidence.
 Any parser fix and subsequent execution require a new runtime and explicit
 approval. No Skill or routing efficacy was measured.
 
+The corrected native-light-goal runtime caed074 accepts the official
+"examine ... with ..." template, retains the unknown-goal stop and still
+requires official done/won. Server tests passed75 targeted /708 full
+(overlapping, exit0); installed public templates passed12/12 without task
+loads/resets. Revised manifest7a0fe37254d00077dd53ec381c1165d755098388ea473742786e0fd14a96e2fb
+retains original12 tasks/order/seed/LENGTH and USD6/720calls, declaring1 prior
+reset-exposed cluster and11 unstarted. Status READY_FOR_REVISED_D1A_APPROVAL;
+provider_enabled=false and execute=false. A new explicit approval must
+include this runtime and the exposed-cluster re-execution; the continuation
+request authorized zero-provider repair/validation, not a paid restart.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
