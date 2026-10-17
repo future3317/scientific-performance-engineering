@@ -732,6 +732,21 @@ No retry/replacement/automatic continuation is authorized. Preflight artifacts
 distinguish primary6-cluster/20-turn from literal12-cluster/216-turn
 opportunity denominators; neither is an efficacy estimate.
 
+Subsequent D1b authorization and execution supersede the above waiting state:
+the exact manifest ran once at df99ddb, exit0,12complete with9S/3F/0U,
+351calls/349envactions/2invalid decisions,estimatedUSD0.289314036 ofUSD6.
+All raw accounting and public prompts reconcile; observed identity matches
+D1a. Frozen24-cohort discovery closes at HARNESS_FIX_CANDIDATE, not G2:
+two source clusters replicate repeated inadmissible navigation and a feedback
+limitation, whereas a specific mandatory-examine action does not replicate
+(D1b uses legal open). Current text-Skill proposal route pauses; no D1c.
+Three official failures are retained, not corrected or rerun. Single-arm
+21/24 pooled discovery success is not a Skill treatment-effect estimate.
+Any Agent repair study needs an independent runtime/protocol/approval; no
+G2,inner,outer,ACRE or final stage follows automatically. Canonical report,
+metrics and sanitized raw bundle are the root PHASE8_D1B artifacts; preflight/
+continues to preserve the earlier zero-provider approval evidence unchanged.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
