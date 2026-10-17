@@ -192,6 +192,130 @@ def test_invalid_model_action_triggers_replan_and_never_reaches_environment():
     assert result["invalid_actions"] == 1
 
 
+def test_h1_rejection_feedback_names_only_the_rejected_action_and_preserves_h0():
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
+
+    class PromptClient:
+        def __init__(self, outputs):
+            self.outputs = iter(outputs)
+            self.prompts = []
+
+        def choose_action(self, state, admissible, skill, progress, replan_reason):
+            self.prompts.append(replan_reason)
+            return {"raw_output": next(self.outputs), "finish_reason": "stop"}
+
+    h0_env = ReplayEnvironment(["Start", "Finished"], [["look"]], won=True)
+    h0 = PromptClient(["Action: go to drawer 3", "Action: look"])
+    h0_result = run_episode(h0_env, h0, max_steps=2, harness_variant="H0")
+
+    h1_env = ReplayEnvironment(["Start", "Finished"], [["look"]], won=True)
+    h1 = PromptClient(["Action: go to drawer 3", "Action: look"])
+    h1_result = run_episode(h1_env, h1, max_steps=2, harness_variant="H1")
+
+    assert h0.prompts == [None, "action_not_admissible"]
+    assert "go to drawer 3" not in h0.prompts[1]
+    assert "go to drawer 3" in h1.prompts[1]
+    assert "NOT_ADMISSIBLE" in h1.prompts[1]
+    assert "did not execute" in h1.prompts[1]
+    assert h1_env.passed == ["look"] and h0_env.passed == ["look"]
+    assert h1_result["harness_variant"] == "H1"
+    assert h1_result["trajectory"][0]["rejection_event"]["env_step_called"] is False
+    assert h1_result["trajectory"][0]["rejection_event"]["rejection_code"] == "NOT_ADMISSIBLE"
+    assert h1_result["env_steps"] == h0_result["env_steps"] == 1
+
+
+def test_h1_changes_only_the_existing_replan_note_in_the_production_prompt():
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
+
+    def run(variant):
+        client = object.__new__(DeepSeekStatefulClient)
+        prompts = []
+        outputs = iter(["Action: go to drawer 3", "Action: look"])
+
+        def complete_text(messages):
+            prompts.append(messages[1]["content"])
+            return {"raw_output": next(outputs), "finish_reason": "stop"}
+
+        client.complete_text = complete_text
+        env = ReplayEnvironment(["Start", "Finished"], [["look"]], won=True)
+        run_episode(env, client, max_steps=2, harness_variant=variant)
+        return prompts
+
+    h0, h1 = run("H0"), run("H1")
+    assert h0[0] == h1[0]
+    h0_before, h0_after = h0[1].split("Replan note: ", 1)[0], h0[1].split("\nCurrent observation:", 1)[1]
+    h1_before, h1_after = h1[1].split("Replan note: ", 1)[0], h1[1].split("\nCurrent observation:", 1)[1]
+    assert (h0_before, h0_after) == (h1_before, h1_after)
+    assert "action_not_admissible" in h0[1]
+    assert "Prior validator feedback" in h1[1]
+
+
+def test_h1_counts_repeats_only_for_same_public_state_and_retains_bounded_history():
+    class PromptClient:
+        def __init__(self):
+            self.prompts = []
+            self.index = 0
+
+        def choose_action(self, state, admissible, skill, progress, replan_reason):
+            self.prompts.append(replan_reason)
+            self.index += 1
+            action = "go to drawer 3" if self.index < 5 else "look"
+            return {"raw_output": f"Action: {action}", "finish_reason": "stop"}
+
+    env = ReplayEnvironment(["Start", "Finished"], [["look"], ["go to drawer 3"]], won=True)
+    client = PromptClient()
+    result = run_episode(env, client, max_steps=5, harness_variant="H1")
+
+    events = [row["rejection_event"] for row in result["trajectory"] if row["invalid_action"]]
+    assert [event["consecutive_same_state_count"] for event in events] == [1, 2, 3, 4]
+    assert len(events) == 4
+    assert len(client.prompts[-1]) <= 500
+    assert "recheck the current admissible list" in client.prompts[-1]
+    assert "go to drawer 3" in client.prompts[-1]
+    assert env.passed == ["look"]
+
+
+def test_h1_distinguishes_truncated_or_malformed_output_and_does_not_block_newly_legal_action():
+    class PromptClient:
+        def __init__(self):
+            self.prompts = []
+            self.index = 0
+
+        def choose_action(self, state, admissible, skill, progress, replan_reason):
+            self.prompts.append((replan_reason, list(admissible)))
+            self.index += 1
+            if self.index == 1:
+                return {"raw_output": "Action: go to drawer", "finish_reason": "length"}
+            return {"raw_output": "Action: look" if self.index == 2 else "Action: go to drawer 3",
+                    "finish_reason": "stop"}
+
+    env = ReplayEnvironment(["Start", "At drawer", "Finished"], [["look"], ["go to drawer 3"]], won=True)
+    client = PromptClient()
+    result = run_episode(env, client, max_steps=3, harness_variant="H1")
+
+    assert result["trajectory"][0]["rejection_event"]["rejection_code"] == "OUTPUT_TRUNCATED"
+    assert env.passed == ["look", "go to drawer 3"]
+    assert client.prompts[2][1] == ["go to drawer 3"]
+    assert "recheck the current admissible list" in client.prompts[2][0]
+    assert result["env_steps"] == 2
+
+
+def test_h1_records_empty_final_content_as_truncated_not_an_illegal_action():
+    class PromptClient:
+        def __init__(self):
+            self.index = 0
+        def choose_action(self, state, admissible, skill, progress, replan_reason):
+            self.index += 1
+            return {"raw_output": "" if self.index == 1 else "Action: look", "finish_reason": "stop"}
+
+    env = ReplayEnvironment(["Start", "Finished"], [["look"]], won=True)
+    result = run_episode(env, PromptClient(), max_steps=2, harness_variant="H1")
+    rejection = result["trajectory"][0]["rejection_event"]
+    assert rejection["rejection_code"] == "OUTPUT_TRUNCATED"
+    assert rejection["requested_action"] is None
+    assert env.passed == ["look"]
+
+
 def test_guard_requests_replan_after_repeated_no_progress_and_history_is_bounded():
     state = EpisodeState.start("Same observation", remaining_steps=8)
     guard = ExecutionGuard(repeat_limit=2)

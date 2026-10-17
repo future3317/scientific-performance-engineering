@@ -493,6 +493,7 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
             try:
                 row=run_episode(env,client,skill=manifest["treatments"][arm],max_steps=manifest["max_steps"],
                     skill_version=str(skill.version)if has_skill else None,expected_gamefiles=[task["gamefile"]],
+                    harness_variant=manifest.get("harness_variants", {}).get(arm, "H0"),
                     receipt_metadata={**{k:task[k]for k in ("task_id","cluster_id","template_id","seed")},
                         "trial_id":trial,"arm":arm,"split":manifest["split"],"study_id":manifest["study_id"],
                         "run_id":manifest["run_id"],"evidence_origin":getattr(client,"evidence_origin","REAL_AGENT"),"source_commit":revision,
