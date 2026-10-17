@@ -212,7 +212,8 @@ def discovery_fixture(tmp_path):
         plan=[{**r,"arm_order":["LENGTH"]}for r in members[:12]],
         max_steps=60,max_calls=720,max_calls_per_episode=60,max_episode_wall_seconds=3600,max_usd_per_episode="1.25",
         max_input_per_request=32768,max_completion_per_request=8192,max_total_usd="6",max_wall_seconds=3600,
-        expected_response_identity=["deepseek-flash","fixture"])
+        expected_response_identity=["deepseek-flash","fixture"],public_model_price_table=" fixture ",
+        pricing_sha256=manifest_digest(pricing))
     manifest.pop("skill_digest");manifest.pop("skill_body_sha256")
     approval.update(approved_manifest_sha256=manifest_digest(manifest),approved_split_manifest_sha256=manifest_digest(parent),
         permitted_stages=[manifest["stage"]],max_provider_calls=720,max_input_tokens=720*32768,max_completion_tokens=720*8192,
@@ -241,6 +242,37 @@ def test_discovery_no_skill_dry_run_and_order_boundary(tmp_path,monkeypatch):
     m["split_manifest_sha256"]=manifest_digest(parent)
     with pytest.raises(ValueError,match="eligible"):
         validate_manifest(m,parent,s)
+
+
+def test_discovery_caps_and_unknown_summary_do_not_become_efficacy(tmp_path):
+    from core.acre.resource_budget import ProviderBudgetExceeded
+    m,parent,s,approval,pricing=discovery_fixture(tmp_path)
+    approval["max_total_usd"]="12"
+    def never(*_a,**_k):pytest.fail("unapproved cap reached SDK/reset")
+    with pytest.raises(ProviderBudgetExceeded,match="cap_mismatch"):
+        run_attribution(m,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
+                        client_factory=never,environment_factory=never)
+    summary=summarize_attribution(m["plan"],[receipt("LENGTH",None)],pricing,arms=("LENGTH",))
+    assert summary["comparisons"]=={} and summary["planned_independent_clusters"]==12
+    assert summary["arm_metrics"]["LENGTH"][0]["success"]is None
+    assert summary["interaction_status"]=="NOT_APPLICABLE_SINGLE_ARM"
+
+
+def test_new_skill_version_cannot_reuse_frozen_manifest(tmp_path):
+    m,parent,s,_,_=live_fixture(tmp_path)
+    with pytest.raises(ValueError,match="skill identity"):
+        validate_manifest(m,parent,replace(s,version=2))
+
+
+def test_discovery_price_drift_stops_before_client_or_environment(tmp_path,monkeypatch):
+    import io
+    from core.acre.resource_budget import ProviderBudgetExceeded
+    m,parent,s,approval,pricing=discovery_fixture(tmp_path)
+    monkeypatch.setattr("urllib.request.urlopen",lambda *_a,**_k:io.BytesIO(b"MODEL deepseek-flash changed (1) Use"))
+    import experiments.external_real.alfworld_stateful_runner as runner
+    monkeypatch.setattr(runner.DeepSeekStatefulClient,"__init__",lambda *_a,**_k:pytest.fail("SDK reached"))
+    with pytest.raises(ProviderBudgetExceeded,match="pricing_drift"):
+        run_attribution(m,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture")
 
 
 @pytest.mark.parametrize("mode",["attribution","discovery","discovery_drift"])
