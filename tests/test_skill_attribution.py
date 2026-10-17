@@ -211,7 +211,8 @@ def discovery_fixture(tmp_path):
         split_manifest_sha256=manifest_digest(parent),
         plan=[{**r,"arm_order":["LENGTH"]}for r in members[:12]],
         max_steps=60,max_calls=720,max_calls_per_episode=60,max_episode_wall_seconds=3600,max_usd_per_episode="1.25",
-        max_input_per_request=32768,max_completion_per_request=8192,expected_response_identity=["deepseek-flash","fixture"])
+        max_input_per_request=32768,max_completion_per_request=8192,max_total_usd="6",max_wall_seconds=3600,
+        expected_response_identity=["deepseek-flash","fixture"])
     manifest.pop("skill_digest");manifest.pop("skill_body_sha256")
     approval.update(approved_manifest_sha256=manifest_digest(manifest),approved_split_manifest_sha256=manifest_digest(parent),
         permitted_stages=[manifest["stage"]],max_provider_calls=720,max_input_tokens=720*32768,max_completion_tokens=720*8192,
