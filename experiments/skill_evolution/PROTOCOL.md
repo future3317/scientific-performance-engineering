@@ -691,6 +691,19 @@ provider_enabled=false and execute=false. A new explicit approval must
 include this runtime and the exposed-cluster re-execution; the continuation
 request authorized zero-provider repair/validation, not a paid restart.
 
+The later explicit approval covered that exact revised card and the exposed
+first cluster. D1a completed12/12 official successes at run source caed074,
+exit0,229 durable calls, USD0.129702504 estimated peak-price consumption,
+226 environment steps and3 invalid decisions; no unknown or unfinished
+tasks/reservations. Full artifacts remain under the native-goals RESULTS
+root. Main public-trace review yields one independent source for the narrow
+missing-navigation/listed-inspection priority hypothesis; repeated search
+bookkeeping duplicates existing v1 and is excluded. Thus the registered
+decision is D1B_APPROVAL_REQUIRED, not G2 approval or positive Skill efficacy.
+Only the original frozen remaining12 discovery contexts may be proposed
+for D1b, with a separate runtime/manifest/budget approval before any call.
+No held-out, gate, final, or ACRE stage is enabled by D1a completion.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
