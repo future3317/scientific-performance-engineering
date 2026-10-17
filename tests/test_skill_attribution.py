@@ -258,6 +258,21 @@ def test_discovery_caps_and_unknown_summary_do_not_become_efficacy(tmp_path):
     assert summary["interaction_status"]=="NOT_APPLICABLE_SINGLE_ARM"
 
 
+def test_first_response_binding_requires_explicit_documented_model(tmp_path):
+    m,parent,s,_,_=discovery_fixture(tmp_path)
+    m.update(response_identity_binding="first_formal_response",expected_response_identity=None)
+    with pytest.raises(ValueError,match="frozen documented model"):
+        validate_manifest(m,parent,s)
+    m.update(documented_model_version="Flash-1017",public_model_price_table="MODEL VERSION Flash-1017")
+    validate_manifest(m,parent,s)
+    m["expected_response_identity"]=["deepseek-flash","guessed"]
+    with pytest.raises(ValueError,match="guessed fingerprint"):
+        validate_manifest(m,parent,s)
+    m["response_identity_binding"]="typo"
+    with pytest.raises(ValueError,match="identity binding"):
+        validate_manifest(m,parent,s)
+
+
 def test_new_skill_version_cannot_reuse_frozen_manifest(tmp_path):
     m,parent,s,_,_=live_fixture(tmp_path)
     with pytest.raises(ValueError,match="skill identity"):
@@ -275,7 +290,7 @@ def test_discovery_price_drift_stops_before_client_or_environment(tmp_path,monke
         run_attribution(m,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture")
 
 
-@pytest.mark.parametrize("mode",["attribution","discovery","discovery_drift"])
+@pytest.mark.parametrize("mode",["attribution","discovery","discovery_drift","discovery_first_bind","discovery_first_drift"])
 def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_resets(tmp_path,monkeypatch,mode):
     from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
     import experiments.skill_evolution.attribution as module
@@ -283,12 +298,17 @@ def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_
     if mode=="discovery_drift":
         manifest["expected_response_identity"]=["deepseek-flash","changed"]
         approval["approved_manifest_sha256"]=manifest_digest(manifest)
+    if mode.startswith("discovery_first"):
+        manifest.update(response_identity_binding="first_formal_response",expected_response_identity=None,
+                        documented_model_version="Flash-1017",public_model_price_table="MODEL VERSION Flash-1017")
+        approval["approved_manifest_sha256"]=manifest_digest(manifest)
     calls,resets=[],[]
     def fake_factory(_key,base,model,*,budget,max_completion_tokens,persist_budget):
         client=DeepSeekStatefulClient.__new__(DeepSeekStatefulClient)
         def provider(**_request):
             calls.append(1)
-            return SimpleNamespace(id=f"fake-{len(calls)}",model=model,system_fingerprint="fixture",
+            fingerprint = "changed" if mode=="discovery_first_drift" and len(calls)>1 else "fixture"
+            return SimpleNamespace(id=f"fake-{len(calls)}",model=model,system_fingerprint=fingerprint,
                 usage=SimpleNamespace(prompt_tokens=31,completion_tokens=9,prompt_cache_hit_tokens=4,prompt_cache_miss_tokens=27,
                                       completion_tokens_details=SimpleNamespace(reasoning_tokens=6)),
                 choices=[SimpleNamespace(message=SimpleNamespace(content="Action: look"),finish_reason="stop")])
@@ -314,6 +334,14 @@ def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_
         assert result["status"]=="STOP_UNKNOWN" and len(calls)==len(resets)==1
         assert (tmp_path/"spool/episodes.jsonl").read_text().count('"event": "STARTED"')==1
         return
+    if mode=="discovery_first_drift":
+        result=run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
+            client_factory=fake_factory,environment_factory=lambda gamefile,**_k:Env(gamefile))
+        assert result["status"]=="STOP_UNKNOWN" and len(calls)==len(resets)==2
+        assert len(list((tmp_path/"spool/receipts").glob("*.json")))==2
+        events=[json.loads(x)for x in(tmp_path/"spool/journal.jsonl").read_text().splitlines()]
+        assert sum(e["event"]=="usage_ledger"for e in events)==2
+        return
     monkeypatch.setattr(module,"_save_summary",lambda *_:(_ for _ in ()).throw(OSError("summary disk full")))
     with pytest.raises(OSError,match="disk full"):
         run_attribution(manifest,parent,s,approval,pricing,output=tmp_path/"output",revision="fixture",
@@ -335,7 +363,7 @@ def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_
     assert all(r["agent_sha"]=="fixture-agent"and r["configuration_sha"]=="fixture-config"for r in episodes)
     assert all(manifest_digest({k:v for k,v in r.items()if k!="receipt_sha256"})==r["receipt_sha256"]for r in episodes)
     assert all(r["actual_new_model_rollout"]is False for r in episodes)
-    if mode=="discovery":
+    if mode in {"discovery","discovery_first_bind"}:
         assert all(r["split"]=="train_dev" and r["skill_injected"]is False and r["length_control_injected"]is True for r in episodes)
 
 

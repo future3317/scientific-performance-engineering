@@ -287,8 +287,14 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
                           ("max_input_per_request",32768),("max_completion_per_request",8192)):
             if manifest.get(key)!=value:
                 raise ValueError("discovery frozen baseline configuration changed: " + key)
-        if not manifest.get("expected_response_identity") or len(manifest["expected_response_identity"])!=2:
-            raise ValueError("discovery requires the historical model/fingerprint identity")
+        binding = manifest.get("response_identity_binding", "predeclared")
+        if binding == "first_formal_response":
+            documented = manifest.get("documented_model_version")
+            if (manifest.get("expected_response_identity") is not None or not isinstance(documented, str)
+                    or not documented or documented not in manifest.get("public_model_price_table", "")):
+                raise ValueError("first-response binding requires its frozen documented model and no guessed fingerprint")
+        elif binding != "predeclared" or not manifest.get("expected_response_identity") or len(manifest["expected_response_identity"])!=2:
+            raise ValueError("discovery requires a declared model/fingerprint identity binding")
         if not manifest.get("public_model_price_table"):
             raise ValueError("discovery requires its frozen public model/price table")
         cohort=manifest["discovery_cohort"]
@@ -468,6 +474,7 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
     if expected_identity and journal.response_identity and journal.response_identity != expected_identity:
         raise ValueError("saved model identity differs from frozen baseline")
     client.response_identity=expected_identity or journal.response_identity
+    client.require_response_identity = manifest.get("response_identity_binding") == "first_formal_response"
     client.response_ids.update(journal.response_ids)
     make_env=environment_factory or make_selected_environment
     for task in manifest["plan"]:
