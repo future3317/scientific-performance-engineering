@@ -19,7 +19,7 @@ from experiments.external_real.alfworld_runner import (
 )
 
 
-POLICY_REVISION = "alfworld-stateful-visible-thinking"
+POLICY_REVISION = "alfworld-stateful-public-goal-count"
 _TRANSFORMATIONS = ("clean", "heat", "cool")
 _STATE_HISTORY_LIMIT = 12
 _SEEN_ENTITY_LIMIT = 32
@@ -41,17 +41,45 @@ def _goal_from_observation(observation: str) -> str:
     return (match.group(1) if match else observation).strip()
 
 
-def _goal_entities(goal: str) -> tuple[str | None, str | None]:
-    task = re.sub(r"^\s*put\s+(?:a|an|the|some)\s+", "", goal, flags=re.I)
-    task = re.sub(r"^(?:clean(?:ed)?|heat(?:ed)?|cool(?:ed)?|hot|cold)\s+", "", task, flags=re.I)
-    object_match = re.search(r"(?:pick up|take|clean|heat|cool)\s+(?:(?:a|an|the|some)\s+)?([\w -]+?)(?:\s+(?:and|then|in|on|with|using)\b|[,.]|$)", goal, re.I)
-    if not object_match and task != goal:
-        object_match = re.search(r"^([\w -]+?)(?:\s+(?:in|inside|on|onto)\b|[,.]|$)", task, re.I)
-    destination_match = re.search(r"\b(?:in|inside|on|onto)\s+(?:the\s+)?([\w -]+?)(?:\s+\d+)?(?:[,.]|$)", goal, re.I)
-    return (
-        object_match.group(1).strip().casefold() if object_match else None,
-        destination_match.group(1).strip().casefold() if destination_match else None,
+def _parse_public_goal(goal: str) -> dict[str, Any]:
+    """Parse public ALFWorld goal language, never task files or teacher state."""
+    text = goal.strip().casefold().rstrip(".!")
+    match = re.fullmatch(
+        r"(?:put|find|pick up|take|clean|heat|cool|look at)\s+"
+        r"(?:(?P<quantity>a|an|the|some|two|2)\s+)?"
+        r"(?:(?P<state>clean(?:ed)?|heat(?:ed)?|cool(?:ed)?|hot|cold)\s+)?"
+        r"(?P<object>[a-z][a-z -]*?)"
+        r"(?:\s+and put them)?"
+        r"(?:\s+(?:in|inside|on|onto|under|at|with|using)\s+(?:a |an |the )?"
+        r"(?P<receptacle>[a-z][a-z -]*?))?", text,
     )
+    if not match:
+        return {"object_type": None, "receptacle_type": None, "target_count": None,
+                "task_family": None, "goal_parse_status": "UNPARSED"}
+    obj = match["object"]
+    # Public task nouns may be singular even after "two", or ordinarily plural.
+    if match["quantity"] in {"two", "2"}:
+        if obj == "knives":
+            obj = "knife"
+        elif obj.endswith("ies"):
+            obj = obj[:-3] + "y"
+        elif re.search(r"(?:sses|shes|ches|xes|zes)$", obj):
+            obj = obj[:-2]
+        elif obj.endswith("s") and not obj.endswith("ss"):
+            obj = obj[:-1]
+    count = 2 if match["quantity"] in {"two", "2"} else 1
+    transform = _transformation_from_goal(goal)
+    light = text.startswith("look at ")
+    family = ("look_at_obj_in_light" if light else "pick_two_obj_and_place" if count == 2 else
+              f"pick_{transform}_then_place_in_recep" if transform else "pick_and_place_simple")
+    return {"object_type": obj, "receptacle_type": match["receptacle"],
+            "target_count": count if match["receptacle"] else None, "task_family": family,
+            "goal_parse_status": "PARSED" if match["receptacle"] else "UNPARSED"}
+
+
+def _goal_entities(goal: str) -> tuple[str | None, str | None]:
+    parsed = _parse_public_goal(goal)
+    return parsed["object_type"], parsed["receptacle_type"]
 
 
 def _visible_inventory(observation: str) -> tuple[str, ...] | None:
@@ -86,6 +114,10 @@ class EpisodeState:
     inventory: tuple[str, ...] | None = None
     target_object: str | None = None
     target_receptacle: str | None = None
+    target_count: int | None = None
+    task_family: str | None = None
+    goal_parse_status: str = "UNKNOWN"
+    placed_target_objects: list[str] = field(default_factory=list)
     required_transformation: str | None = None
     completed_subgoals: list[str] = field(default_factory=list)
     open_containers: list[str] = field(default_factory=list)
@@ -100,11 +132,14 @@ class EpisodeState:
     @classmethod
     def start(cls, observation: str, remaining_steps: int) -> "EpisodeState":
         goal = _goal_from_observation(observation)
-        target_object, target_receptacle = _goal_entities(goal)
+        parsed = _parse_public_goal(goal)
         state = cls(
             goal=goal,
-            target_object=target_object,
-            target_receptacle=target_receptacle,
+            target_object=parsed["object_type"],
+            target_receptacle=parsed["receptacle_type"],
+            target_count=parsed["target_count"],
+            task_family=parsed["task_family"],
+            goal_parse_status=parsed["goal_parse_status"],
             required_transformation=_transformation_from_goal(goal),
             remaining_steps=remaining_steps,
         )
@@ -185,6 +220,10 @@ class EpisodeState:
                 if item not in inventory:
                     inventory.append(item)
                 self.inventory = tuple(inventory)
+                if item in self.placed_target_objects:
+                    self.placed_target_objects.remove(item)
+                    if "place_object" in self.completed_subgoals:
+                        self.completed_subgoals.remove("place_object")
                 self.fact_sources["inventory"] = {"status": "known", "step": self.observation_step}
                 if "acquire_object" not in self.completed_subgoals:
                     self.completed_subgoals.append("acquire_object")
@@ -214,7 +253,14 @@ class EpisodeState:
                 if self.inventory is not None:
                     self.inventory = tuple(value for value in self.inventory if not _mentions(item, value))
                     self.fact_sources["inventory"] = {"status": "known", "step": self.observation_step}
-                if "place_object" not in self.completed_subgoals:
+                # Count distinct publicly acknowledged object instances, not commands.
+                identifiable = self.target_count == 1 or re.search(r"\s\d+$", item)
+                if identifiable and item not in self.placed_target_objects:
+                    self.placed_target_objects.append(item)
+                    self.progress_markers.append(f"placement_acknowledged:{item}")
+                if (self.target_count is not None
+                        and len(self.placed_target_objects) >= self.target_count
+                        and "place_object" not in self.completed_subgoals):
                     self.completed_subgoals.append("place_object")
                     self.progress_markers.append("subgoal_acknowledged:place_object")
 
@@ -224,6 +270,8 @@ class SubgoalPlanner:
 
     @staticmethod
     def next_subgoal(state: EpisodeState, admissible_actions: Sequence[str]) -> str:
+        if state.goal_parse_status != "PARSED":
+            return "interpret the original public goal; target requirements are unresolved, not completed"
         if "place_object" in state.completed_subgoals:
             return "verify visible task completion; otherwise replan from the latest observation"
         visible_observation = state.last_observation.casefold().replace(state.goal.casefold(), "")
@@ -243,6 +291,8 @@ class SubgoalPlanner:
             return "locate the goal object using visible observations and admissible navigation actions"
         if state.required_transformation and state.required_transformation not in state.completed_subgoals:
             return f"perform and visibly confirm the required {state.required_transformation} transformation"
+        if state.task_family == "look_at_obj_in_light":
+            return "use the requested light with the held goal object; verify only through the environment"
         if state.target_receptacle and not _mentions(state.target_receptacle, visible_observation):
             return "locate the goal receptacle using admissible navigation actions"
         if state.target_receptacle and "place_object" not in state.completed_subgoals:
@@ -281,7 +331,7 @@ class ExecutionGuard:
 
     def observe_result(self, state: EpisodeState, previous_observation: str, observation: str, action: str) -> str | None:
         signature = (state.current_room_or_location, state.inventory,
-                     tuple(state.completed_subgoals), observation, action.casefold())
+                     tuple(state.completed_subgoals), tuple(state.placed_target_objects), observation, action.casefold())
         self._signature_counts[signature] = self._signature_counts.get(signature, 0) + 1
         count = self._signature_counts[signature]
         # Returning to the same observed state/action is also a loop, even

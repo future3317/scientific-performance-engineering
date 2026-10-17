@@ -662,3 +662,25 @@ RESULTS/skill-evolution-phase6-c1-incremental-procedure. Counts from prior
 full668@a763989 and targeted111@fada137 are not relabeled as current tests.
 New Phase6 reserved-outcome reads are zero; OS-global historical access is
 not independently proven and remains unknown. No paper numbers were changed.
+
+### Phase8.1 public-goal policy-impact preflight — October17
+
+The reported target_object=None is policy-relevant, not telemetry-only:
+EpisodeState is rendered into the actual user prompt and controls the current
+subgoal, visible acknowledgements and guard state. This establishes exposure
+of the defect, not a causal explanation of the historical E1 failures. E1
+receipts and the stopped v1 remain unchanged. The old D1a runtime is NO-GO.
+
+The bounded harness revision parses public placement/count/light goals, keeps
+unparsed requirements explicit, and counts distinct visibly acknowledged
+placements without treating one placement or a repeated acknowledgement as
+two objects. Official won/done remains the only success authority. This is
+an Agent correction, not a learned Skill or repair-efficacy result. LENGTH,
+the original D1 cohort/order/seed, action interface and hard caps are retained.
+
+Phase8.1 permits zero-provider validation only. Current-head test receipts,
+original-manifest audit, authenticated historical public-prompt replay and
+the revised runtime approval card belong in the separate RESULTS directory
+skill-evolution-phase8-1-d1a-preflight. No D1a episode is reset during preflight.
+Only an explicit new approval bound to the corrected runtime may launch its
+12 LENGTH episodes; principle approval is not spending authorization.

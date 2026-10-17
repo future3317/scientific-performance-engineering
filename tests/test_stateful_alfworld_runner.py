@@ -228,6 +228,82 @@ def test_failed_placement_does_not_advance_until_native_success_acknowledgement(
 import pytest
 
 
+@pytest.mark.parametrize("goal,obj,count,recep,family", [
+    ("put two keychain in dresser", "keychain", 2, "dresser", "pick_two_obj_and_place"),
+    ("find two keychain and put them in dresser", "keychain", 2, "dresser", "pick_two_obj_and_place"),
+    ("put two mugs on shelf", "mug", 2, "shelf", "pick_two_obj_and_place"),
+    ("put a keychain in dresser", "keychain", 1, "dresser", "pick_and_place_simple"),
+    ("put some keychain on desk", "keychain", 1, "desk", "pick_and_place_simple"),
+    ("put a clean mug in cabinet", "mug", 1, "cabinet", "pick_clean_then_place_in_recep"),
+    ("put a hot apple in fridge", "apple", 1, "fridge", "pick_heat_then_place_in_recep"),
+    ("put a cool cup in cabinet", "cup", 1, "cabinet", "pick_cool_then_place_in_recep"),
+    ("look at a mug under the desklamp", "mug", 1, "desklamp", "look_at_obj_in_light"),
+])
+def test_public_goal_contract(goal, obj, count, recep, family):
+    state = EpisodeState.start(f"Your task is to: {goal}.", 60)
+    assert (state.target_object, state.target_count, state.target_receptacle,
+            state.task_family, state.goal_parse_status) == (obj, count, recep, family, "PARSED")
+
+
+def test_unparsed_goal_keeps_unknown_count_and_original_public_text():
+    from experiments.external_real.alfworld_stateful_runner import SubgoalPlanner
+    goal = "do something unspecified"
+    state = EpisodeState.start(f"Your task is to: {goal}", 60)
+    assert state.goal == goal
+    assert state.target_count is None and state.target_object is None
+    assert state.goal_parse_status == "UNPARSED"
+    assert "unresolved" in SubgoalPlanner.next_subgoal(state, ["look"])
+    assert not state.completed_subgoals
+
+
+def test_two_object_progress_requires_distinct_acknowledged_instances():
+    from experiments.external_real.alfworld_stateful_runner import SubgoalPlanner
+    state = EpisodeState.start("Your task is to: put two keychain in dresser", 60)
+    put1 = "put keychain 1 in/on dresser 1"
+    state.observe("Nothing happens.", put1)
+    assert not state.placed_target_objects
+    state.observe("You put keychain 1 in/on dresser 1.", put1)
+    state.observe("You put keychain 1 in/on dresser 1.", put1)
+    assert state.placed_target_objects == ["keychain 1"]
+    assert "place_object" not in state.completed_subgoals
+    assert SubgoalPlanner.next_subgoal(state, ["go to drawer 1"]).startswith("locate the goal object")
+    state.observe("You cannot put keychain 2 in/on dresser 1.", "put keychain 2 in/on dresser 1")
+    assert len(state.placed_target_objects) == 1
+    state.observe("You put keychain 2 in/on dresser 1.", "put keychain 2 in/on dresser 1")
+    assert state.placed_target_objects == ["keychain 1", "keychain 2"]
+    assert "place_object" in state.completed_subgoals
+    state.observe("You pick up keychain 1 from dresser 1.", "take keychain 1 from dresser 1")
+    assert state.placed_target_objects == ["keychain 2"]
+    assert "place_object" not in state.completed_subgoals
+
+
+def test_real_prompt_path_carries_corrected_target_and_count_without_provider():
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
+    from experiments.skill_evolution.attribution import LENGTH_CONTROL
+    class Capture:
+        def complete_text(self, messages):
+            return messages
+    state = EpisodeState.start("Your task is to: put two keychain in dresser", 60)
+    progress, _ = HistoryCompressor().render(state, [])
+    messages = DeepSeekStatefulClient.choose_action(Capture(), state, ["look"], LENGTH_CONTROL, progress, None)
+    prompt = messages[1]["content"]
+    assert '"target_object": "keychain"' in prompt and '"target_count": 2' in prompt
+    assert "Current subgoal: locate the goal object" in prompt
+    assert f"Reusable skill: {LENGTH_CONTROL}\n" in prompt
+
+
+def test_two_object_state_never_overrides_official_failure():
+    env = ReplayEnvironment([
+        "Your task is to: put two keychain in dresser",
+        "You put keychain 1 in/on dresser 1.",
+        "You put keychain 2 in/on dresser 1.",
+    ], [["put keychain 1 in/on dresser 1"], ["put keychain 2 in/on dresser 1"]], won=False)
+    result = run_episode(env, ReplayClient(["put keychain 1 in/on dresser 1", "put keychain 2 in/on dresser 1"]), max_steps=2)
+    assert "place_object" in result["state"]["completed_subgoals"]
+    assert result["success"] is False
+    assert result["environment_won"] is False and result["environment_done"] is True
+
+
 
 @pytest.mark.parametrize("transform", ["clean", "heat", "cool"])
 def test_native_transformation_acknowledgements_require_positive_result(transform):
