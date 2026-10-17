@@ -773,3 +773,43 @@ or provider spool was created. USD6/720calls and the original cohort remain
 unchanged; the first reset-exposed cluster is explicitly declared. Model
 price/fingerprint checks, unknown-goal stop and protected outcomes remain
 in force. No new provider experiment or Skill efficacy was measured.
+
+The human then explicitly approved revised manifest7a0fe372, including
+re-execution of the reset-exposed first cluster. The native-goals D1a ran
+at caed074f18968c0cba1b6076921b3673e119161b from2026-10-17T09:31:48.203757Z
+to09:38:12.160852Z, exit0/COMPLETED. All12 planned tasks started and produced
+valid official successes (six families,2/2 each); failures0, unknown0,
+not-started0. Raw receipts/intents/responses/usage ledgers all229, unresolved
+intents0, outstanding reservations null; no identity/usage drift. Model was
+deepseek-flash, fingerprint e72d3c7f663d3e1383b00b3884cb4501, thinking enabled.
+Input299570, completion33287 (including31315 reasoning), cache-hit384 and
+cache-miss299186 tokens. Frozen peak-price measured-cache estimate is
+USD0.129702504 of the USD6 cap, not a provider bill. Environment steps226;
+three rejected decisions occurred in one successfully completed cool/pan
+episode. The two longest successful trajectories used52 and59 actions.
+
+Main reviewed the public action sequences and the actual runner/LENGTH/v1
+rules. Repeated negative-location searching is observable, but the existing
+v1 already explicitly contains that bookkeeping rule; it is DUPLICATE, not
+a new Skill and not grounds to reactivate v1. One narrow TRIGGER_PRIORITY
+hypothesis has one independent discovery source: when go-to R is absent
+but examine R is listed, use the listed inspection rather than repeating
+the absent navigation. The cool/pan episode requested the absent navigation
+three times, then self-corrected and succeeded. Existing generic admissibility
+constraints are acknowledged; only the specific inspection-affordance
+conditional is distinct. Self-correction and another successful use of an
+accessible adjacent receptacle are recorded as counterevidence against a
+general inability claim. This is an actionable, unreplicated hypothesis,
+not proven efficacy or a second independent source. Decision is
+D1B_APPROVAL_REQUIRED: no G2/proposal, no new Skill, no outer/gate/final/ACRE,
+and no new provider stage is automatically authorized.
+
+One offline closeout syntax error was corrected before final outputs;
+the raw run was not changed or repeated. The reviewed Markdown/JSON/bundle
+were generated exclusively under skill-evolution-phase8-1-d1a-native-goals
+and copied to E:/DATA/EvoSPE with matching transfer digests. Historical
+evidence and paper numbers remain unchanged. R0 remains historical34
+records/4 real contrasts/28 clusters/0 qualified new R1 candidates. This
+single LENGTH arm cannot estimate repair, regression, Skill benefit,
+conditional efficiency gain, or routing headroom. The first cluster's prior
+reset remains declared, and no protected outer/gate/final outcome was read.
