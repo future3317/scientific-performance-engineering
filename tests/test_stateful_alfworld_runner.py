@@ -246,7 +246,7 @@ def test_public_goal_contract(goal, obj, count, recep, family):
 
 
 def test_unparsed_goal_keeps_unknown_count_and_original_public_text():
-    from experiments.external_real.alfworld_stateful_runner import SubgoalPlanner
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient, SubgoalPlanner
     goal = "do something unspecified"
     state = EpisodeState.start(f"Your task is to: {goal}", 60)
     assert state.goal == goal
@@ -254,6 +254,11 @@ def test_unparsed_goal_keeps_unknown_count_and_original_public_text():
     assert state.goal_parse_status == "UNPARSED"
     assert "unresolved" in SubgoalPlanner.next_subgoal(state, ["look"])
     assert not state.completed_subgoals
+    class NoRequest:
+        def complete_text(self, messages):
+            pytest.fail("unparsed policy goal must stop before any provider request")
+    with pytest.raises(ValueError, match="public_goal_unparsed"):
+        DeepSeekStatefulClient.choose_action(NoRequest(), state, ["look"], None, "", None)
 
 
 def test_two_object_progress_requires_distinct_acknowledged_instances():

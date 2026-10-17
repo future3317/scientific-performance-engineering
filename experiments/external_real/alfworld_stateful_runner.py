@@ -390,6 +390,8 @@ class DeepSeekStatefulClient:
         progress: str,
         replan_reason: str | None,
     ) -> dict[str, Any]:
+        if state.goal_parse_status != "PARSED":
+            raise ValueError("public_goal_unparsed: stop before requesting an action")
         skill_text = skill or "No reusable skill is provided."
         prompt = (
             "Choose exactly one command from the admissible list. Never invent commands or infer hidden state.\n"
