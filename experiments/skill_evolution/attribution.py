@@ -22,6 +22,7 @@ from .evaluation import _paired_counts, _request_cost, receipt_outcome
 
 ARMS = ("OFF", "LENGTH", "SKILL")
 E1_ARMS = ("LENGTH", "V1_PLUS_LENGTH")
+HARNESS_ARMS = ("H0_BASE", "H1_REJECTION_MEMORY")
 LENGTH_CONTROL = "Be concise. Do not produce unnecessary explanation. Return the next valid action efficiently."
 RESOURCE_FIELDS = ("provider_calls", "input_tokens", "completion_tokens", "reasoning_tokens",
                    "final_content_tokens", "total_tokens", "cache_hit_tokens", "cache_miss_tokens",
@@ -39,6 +40,10 @@ def public_model_price_table(page: bytes) -> str:
 def arm_texts(skill: SkillContract | None, *, design: str = "attribution") -> dict[str, str | None]:
     if design == "length_discovery":
         return {"LENGTH": LENGTH_CONTROL}
+    if design == "harness_rejection":
+        if skill is not None:
+            raise ValueError("rejection-memory comparison does not inject a Skill")
+        return {arm: LENGTH_CONTROL for arm in HARNESS_ARMS}
     if skill is None:
         raise ValueError("attribution requires a frozen Skill")
     if re.search(r"\b(?:be concise|concise sentence|unnecessary explanation|avoid re.deriving|brief answer)\b", skill.body, re.I):
@@ -252,16 +257,21 @@ def select_conditional_plan(parent, excluded_clusters, excluded_templates, *, se
 def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], skill: SkillContract | None) -> None:
     design = manifest.get("design", "attribution")
     discovery = design == "length_discovery"
+    harness = design == "harness_rejection"
     split = "train_dev" if discovery else "train_inner"
-    if manifest.get("stage") != ("length_discovery" if discovery else "skill_attribution") or manifest.get("split") != split:
+    expected_stage = "length_discovery" if discovery else "harness_pair" if harness else "skill_attribution"
+    if manifest.get("stage") != expected_stage or manifest.get("split") != split:
         raise ValueError("frozen design requires its declared study stage and split")
     if manifest.get("split_manifest_sha256") != manifest_digest(parent):
         raise ValueError("parent split identity mismatch")
-    if not discovery and (skill is None or manifest.get("skill_digest") != skill.digest or manifest.get("skill_body_sha256") != skill.body_digest):
+    if harness and (skill is not None or manifest.get("skill_digest") is not None
+                    or manifest.get("skill_body_sha256") is not None):
+        raise ValueError("rejection-memory comparison must not inject or identify a Skill")
+    if not discovery and not harness and (skill is None or manifest.get("skill_digest") != skill.digest or manifest.get("skill_body_sha256") != skill.body_digest):
         raise ValueError("frozen skill identity mismatch")
     if discovery and (skill is not None or manifest.get("skill_digest") is not None):
         raise ValueError("LENGTH discovery does not inject a Skill")
-    arms = ("LENGTH",) if discovery else E1_ARMS if design == "conditional_increment" else ARMS
+    arms = ("LENGTH",) if discovery else HARNESS_ARMS if harness else E1_ARMS if design == "conditional_increment" else ARMS
     if manifest.get("arms") != list(arms) or manifest.get("treatments") != arm_texts(skill, design=design):
         raise ValueError("arm content differs from the frozen study design")
     members = {r["task_id"]: r for r in parent["task_membership"]}
@@ -273,6 +283,10 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
             raise ValueError("task is not eligible inner metadata")
         if discovery and (member.get("identity_status") != "IDENTIFIED" or member.get("exposure") not in {"new_train_dev", "unexposed"}):
             raise ValueError("discovery task is exposed or unidentified")
+        if harness and (member.get("identity_status") != "IDENTIFIED"
+                        or member.get("exposure") not in {"new_train_inner", "unexposed"}
+                        or task.get("family") != member.get("task_type")):
+            raise ValueError("harness task is exposed, unidentified, or mismatched to its family")
         if any(task.get(k) != member.get(k) for k in ("task_id", "cluster_id", "template_id", "gamefile")):
             raise ValueError("task identity differs from immutable parent")
         if task["cluster_id"] in seen | excluded or task["template_id"] in templates | set(manifest["excluded_templates"]):
@@ -282,6 +296,23 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
         seen.add(task["cluster_id"]); templates.add(task["template_id"])
     if manifest.get("thinking") != "enabled" or manifest.get("max_retries") != 0:
         raise ValueError("model configuration changed")
+    if harness:
+        if manifest.get("harness_variants") != {"H0_BASE": "H0", "H1_REJECTION_MEMORY": "H1"}:
+            raise ValueError("harness arms must map to the frozen H0/H1 runner variants")
+        for key, value in (("max_steps", 60), ("max_calls", 1440), ("max_calls_per_episode", 60),
+                           ("max_input_per_request", 32768), ("max_completion_per_request", 8192),
+                           ("max_total_usd", "6"), ("max_usd_per_episode", "1.25"),
+                           ("max_episode_wall_seconds", 3600)):
+            if manifest.get(key) != value:
+                raise ValueError("harness frozen baseline configuration changed: " + key)
+        if manifest.get("response_identity_binding") != "predeclared" or len(manifest.get("expected_response_identity", [])) != 2:
+            raise ValueError("harness comparison requires a frozen model/fingerprint binding")
+        families = Counter(r["task_type"] for r in parent["task_membership"]
+                           if r["task_id"] in {t["task_id"] for t in manifest["plan"]})
+        if len(manifest["plan"]) != 12 or len(families) != 6 or set(families.values()) != {2}:
+            raise ValueError("harness comparison requires twelve clusters, two per native family")
+        if Counter(t["arm_order"][0] for t in manifest["plan"]) != Counter({a: 6 for a in arms}):
+            raise ValueError("harness comparison requires balanced first-arm order")
     if discovery:
         for key,value in (("max_steps",60),("max_calls",720),("max_calls_per_episode",60),
                           ("max_input_per_request",32768),("max_completion_per_request",8192)):
@@ -376,6 +407,14 @@ def _save_summary(output: Path, report: Mapping[str, Any]) -> None:
     os.replace(temporary,output/"report.json")
 
 
+def _safety_baseline_arm(manifest: Mapping[str, Any], arms: Sequence[str]) -> str:
+    if tuple(arms) == E1_ARMS:
+        return "LENGTH"
+    if manifest.get("design") == "harness_rejection":
+        return "H0_BASE"
+    return "OFF"
+
+
 def summarize_spooled(manifest,pricing):
     """Regenerate derived output from durable terminal episodes, with no SDK or approval renewal."""
     source=Path(manifest["spool_dir"])/"episodes.jsonl"
@@ -400,16 +439,18 @@ def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path,
     validate_manifest(manifest,parent,skill)
     if manifest["controller_commit"] != revision or str(output) != manifest["output_dir"]:
         raise ValueError("run revision/output identity mismatch")
-    if manifest.get("design")=="length_discovery":
+    if manifest.get("design") in {"length_discovery", "harness_rejection"}:
         if manifest.get("pricing_sha256")!=manifest_digest(pricing):
-            raise ValueError("discovery pricing snapshot identity mismatch")
+            raise ValueError("frozen pricing snapshot identity mismatch")
         for key,approved_key in (("max_calls","max_provider_calls"),("max_total_usd","max_total_usd"),
-                                 ("max_usd_per_episode","max_usd_per_episode"),("max_wall_seconds","max_wall_seconds")):
+                                 ("max_usd_per_episode","max_usd_per_episode"),("max_wall_seconds","max_wall_seconds"),
+                                 ("max_calls_per_episode","max_calls_per_episode"),
+                                 ("max_episode_wall_seconds","max_episode_wall_seconds")):
             if str(manifest[key]) != str(approval.get(approved_key)):
                 raise ProviderBudgetExceeded("discovery_approval_cap_mismatch:"+key)
     budget=ApprovedProviderBudget(manifest,approval,pricing,controller_commit=revision,
         stage=manifest["stage"],model=manifest["model"],base_url=manifest["base_url"])
-    if manifest.get("design")=="length_discovery" and client_factory is None:
+    if manifest.get("design") in {"length_discovery", "harness_rejection"} and client_factory is None:
         from urllib.request import urlopen
         with urlopen(pricing["pricing_source_url"],timeout=30)as response:
             table=public_model_price_table(response.read())
@@ -511,7 +552,7 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
                 env.close()
             row["prompt_treatment_present"]=arm!="OFF"
             row["skill_injected"]=row["skill_rendered"]=has_skill
-            row["length_control_injected"]=arm in E1_ARMS
+            row["length_control_injected"] = arm in E1_ARMS or manifest.get("design") == "harness_rejection"
             row["actual_new_model_rollout"]=row["evidence_origin"]=="REAL_AGENT"
             row["receipt_sha256"]=manifest_digest(row)
             _append(events,{"event":"COMPLETED","trial_id":trial,"episode":row})
@@ -523,7 +564,7 @@ def _run_frozen_arms(manifest,skill,pricing,budget,journal,output,revision,
                 _save_summary(output,report)
                 return report
             cluster_rows = {r["arm"]: r for r in completed.values() if r["cluster_id"] == task["cluster_id"]}
-            baseline="LENGTH" if arms == E1_ARMS else "OFF"
+            baseline = _safety_baseline_arm(manifest, arms)
             if baseline in cluster_rows and receipt_outcome(cluster_rows[baseline]) is True and any(
                 receipt_outcome(cluster_rows[a]) is False for a in arms if a != baseline and a in cluster_rows
             ):

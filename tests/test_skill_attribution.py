@@ -2,14 +2,16 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
+import random
 from types import SimpleNamespace
 import pytest
 
 from core.acre.resource_budget import manifest_digest
 from core.skills import SkillContract
 from experiments.skill_evolution.attribution import (
-    ARMS, E1_ARMS, LENGTH_CONTROL, arm_fingerprints, arm_texts, diagnose_failure, conditional_increment_decision,
+    ARMS, E1_ARMS, HARNESS_ARMS, LENGTH_CONTROL, arm_fingerprints, arm_texts, diagnose_failure, conditional_increment_decision,
     episode_metrics, main, run_attribution, summarize_attribution, summarize_spooled, validate_manifest, select_conditional_plan,
+    _safety_baseline_arm,
 )
 
 
@@ -57,6 +59,40 @@ def test_e1_selection_freshness_balance_and_validation():
     m["plan"][1]["arm_order"]=m["plan"][0]["arm_order"]
     with pytest.raises(ValueError,match="balanced"):
         validate_manifest(m,parent,s)
+
+
+def test_harness_rejection_manifest_is_skill_free_and_has_two_frozen_runner_arms():
+    from experiments.external_real.alfworld_runner import TASK_TYPE_NAMES
+    members=[{**task(i*3+j), "task_type": family, "family": family, "split": "train_inner",
+              "confirmatory_eligible": True, "identity_status": "IDENTIFIED", "exposure": "new_train_inner"}
+             for i,family in enumerate(TASK_TYPE_NAMES) for j in range(3)]
+    parent={"task_membership":members}
+    plan=select_conditional_plan(parent,set(),set(),seed=97)
+    starts=["H0_BASE"]*6+["H1_REJECTION_MEMORY"]*6
+    random.Random(101).shuffle(starts)
+    for row,first in zip(plan,starts):
+        row["family"]=next(member["task_type"] for member in members if member["task_id"]==row["task_id"])
+        row["arm_order"]=[first, next(arm for arm in HARNESS_ARMS if arm!=first)]
+    manifest={"stage":"harness_pair", "design":"harness_rejection", "split":"train_inner",
+        "split_manifest_sha256":manifest_digest(parent), "skill_digest":None, "skill_body_sha256":None,
+        "arms":list(HARNESS_ARMS), "treatments":arm_texts(None,design="harness_rejection"),
+        "harness_variants":{"H0_BASE":"H0", "H1_REJECTION_MEMORY":"H1"},
+        "excluded_clusters":[], "excluded_templates":[], "plan":plan, "seed":97,
+        "thinking":"enabled", "max_retries":0, "max_steps":60, "max_calls":1440,
+        "max_calls_per_episode":60, "max_input_per_request":32768, "max_completion_per_request":8192,
+        "max_total_usd":"6", "max_usd_per_episode":"1.25", "max_episode_wall_seconds":3600,
+        "response_identity_binding":"predeclared", "expected_response_identity":["deepseek-flash","test-fingerprint"]}
+    assert manifest["treatments"]=={"H0_BASE":LENGTH_CONTROL,"H1_REJECTION_MEMORY":LENGTH_CONTROL}
+    validate_manifest(manifest,parent,None)
+    manifest["harness_variants"]["H1_REJECTION_MEMORY"]="H0"
+    with pytest.raises(ValueError,match="map"):
+        validate_manifest(manifest,parent,None)
+
+
+def test_harness_stop_rule_uses_unmodified_H0_as_the_safety_baseline():
+    assert _safety_baseline_arm({"design":"harness_rejection"},HARNESS_ARMS)=="H0_BASE"
+    assert _safety_baseline_arm({"design":"conditional_increment"},E1_ARMS)=="LENGTH"
+    assert _safety_baseline_arm({"design":"attribution"},ARMS)=="OFF"
 
 
 def skill():
