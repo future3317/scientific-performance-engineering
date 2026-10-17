@@ -707,3 +707,34 @@ persist complete model/fingerprint metadata and usage, then binds that pair;
 subsequent drift or missing identity stops before an action is released.
 There is no separate connection/ping request and no historical fingerprint
 substitution. Existing predeclared-identity campaigns retain their contract.
+
+The authorized Flash-1017 run used source
+da48b0448d5b5cb4fa06275727429e66dcce2cf8 and manifest
+6db19176dcd80bbcb3298a900e4c95a492e914a363607953499a13e743869979.
+Server validation passed101 targeted and701 full-suite tests (8 warnings,
+exit0; overlapping counts). Zero-provider freezing retained the original
+12-task cohort/order/seed and USD6/720calls. The actual launch on
+2026-10-17 at08:54:34 UTC terminated at08:54:39 UTC with operational exit0
+and STOP_UNKNOWN: planned12, started1, terminal receipts1, success0,
+failure0, unknown1, not-started11. There were0 provider intents,0 responses,
+0 usage-ledger calls,0 environment actions and USD0 estimated consumption.
+
+The first native public goal was "examine the laptop with the desklamp."
+The parser at alfworld_stateful_runner.py:48 accepts "look at" but not
+"examine"; run_episode stops at the explicit goal_parse_uncertain guard
+before requesting an action. Public-goal-only replay confirmed UNPARSED
+without another environment reset or provider call. This is a policy-relevant
+Agent contract gap, not a task failure or Skill discovery result. The fixture
+suite passed but did not cover this native wording. The terminal receipt's
+actual_new_model_rollout=true is assigned from evidence_origin and must not
+be read as proof of an actual model request: the durable call records are0.
+
+Scientific status is D1A_AGENT_CONTRACT_INVALID; evidence is incomplete,
+and qualified new mechanisms are NOT_ASSESSED rather than zero. The first
+cluster is now exposed by reset;11 remain not-started. No request bound an
+actual model/fingerprint. No retry, replacement, parser change, D1b/G2/outer/
+gate/final/ACRE run is authorized by this closeout. A parser correction and
+any future execution need a separately frozen runtime and explicit approval.
+The stopped run's original evidence is retained in
+skill-evolution-phase8-1-d1a-flash1017; historical evidence and paper numbers
+are unchanged.

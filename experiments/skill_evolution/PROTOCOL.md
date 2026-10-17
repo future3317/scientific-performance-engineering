@@ -670,6 +670,16 @@ and metering; later changes or missing fields stop before action execution.
 This adds no connectivity request and does not change tasks or the Agent
 policy. Historical predeclared identities are not retroactively relaxed.
 
+The authorized Flash-1017 D1a (run source da48b04; manifest6db19176) stopped
+after its first native reset, before any provider request: the public goal
+"examine the laptop with the desklamp." is UNPARSED. Operational exit0/
+STOP_UNKNOWN is not completion: planned12, started1, unknown1, not-started11,
+0 calls/USD0. Status D1A_AGENT_CONTRACT_INVALID supersedes readiness for
+this runtime. The exposed first cluster cannot silently be called pristine;
+do not restart, replace tasks or treat the remaining11 as negative evidence.
+Any parser fix and subsequent execution require a new runtime and explicit
+approval. No Skill or routing efficacy was measured.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
