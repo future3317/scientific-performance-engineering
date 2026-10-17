@@ -238,11 +238,60 @@ import pytest
     ("put a hot apple in fridge", "apple", 1, "fridge", "pick_heat_then_place_in_recep"),
     ("put a cool cup in cabinet", "cup", 1, "cabinet", "pick_cool_then_place_in_recep"),
     ("look at a mug under the desklamp", "mug", 1, "desklamp", "look_at_obj_in_light"),
+    ("examine the laptop with the desklamp", "laptop", 1, "desklamp", "look_at_obj_in_light"),
+    # The six supported families each have two public goal_library templates.
+    ("clean some mug and put it in cabinet", "mug", 1, "cabinet", "pick_clean_then_place_in_recep"),
+    ("heat some mug and put it in cabinet", "mug", 1, "cabinet", "pick_heat_then_place_in_recep"),
+    ("cool some mug and put it in cabinet", "mug", 1, "cabinet", "pick_cool_then_place_in_recep"),
+    ("look at mug under the desklamp", "mug", 1, "desklamp", "look_at_obj_in_light"),
 ])
 def test_public_goal_contract(goal, obj, count, recep, family):
     state = EpisodeState.start(f"Your task is to: {goal}.", 60)
     assert (state.target_object, state.target_count, state.target_receptacle,
             state.task_family, state.goal_parse_status) == (obj, count, recep, family, "PARSED")
+
+
+@pytest.mark.parametrize("won", [False, True])
+def test_native_examine_goal_reaches_online_action_path_without_provider(monkeypatch, won):
+    import sys
+    from types import SimpleNamespace
+    from experiments.external_real.alfworld_stateful_runner import DeepSeekStatefulClient
+    from experiments.skill_evolution.attribution import LENGTH_CONTROL
+
+    requests = []
+
+    def create(**request):
+        requests.append(request)
+        return SimpleNamespace(
+            id="public-goal-regression", model="fake-model", system_fingerprint="fake-fingerprint",
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content="Action: use desklamp 1", reasoning_content="Action: must-not-execute"),
+                finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20),
+        )
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(
+        OpenAI=lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
+    ))
+    env = ReplayEnvironment([
+        "Inventory: laptop 1.\nYour task is to: examine the laptop with the desklamp.",
+        "You turn on the desklamp 1.",
+    ], [["use desklamp 1"]], won=won)
+    client = DeepSeekStatefulClient("fake-key", "https://api.deepseek.com", "deepseek-flash")
+    result = run_episode(env, client, skill=LENGTH_CONTROL, max_steps=1)
+
+    assert len(requests) == 1
+    prompt = requests[0]["messages"][1]["content"]
+    assert '"target_object": "laptop"' in prompt and '"target_count": 1' in prompt
+    assert '"task_family": "look_at_obj_in_light"' in prompt
+    assert "use the requested light with the held goal object" in prompt
+    assert f"Reusable skill: {LENGTH_CONTROL}\n" in prompt
+    assert env.passed == ["use desklamp 1"]
+    assert result["env_steps"] == result["provider_calls"] == 1
+    assert result["trajectory"][0]["response_field_used"] == "message.content"
+    assert result["trajectory"][0]["invalid_action"] is False
+    assert result["environment_won"] is won and result["environment_done"] is True
+    assert result["success"] is won
 
 
 def test_unparsed_goal_keeps_unknown_count_and_original_public_text():

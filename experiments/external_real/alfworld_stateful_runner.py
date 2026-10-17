@@ -19,7 +19,7 @@ from experiments.external_real.alfworld_runner import (
 )
 
 
-POLICY_REVISION = "alfworld-stateful-public-goal-count"
+POLICY_REVISION = "alfworld-stateful-public-goal-light"
 _TRANSFORMATIONS = ("clean", "heat", "cool")
 _STATE_HISTORY_LIMIT = 12
 _SEEN_ENTITY_LIMIT = 32
@@ -49,7 +49,7 @@ def _parse_public_goal(goal: str) -> dict[str, Any]:
     """Parse public ALFWorld goal language, never task files or teacher state."""
     text = goal.strip().casefold().rstrip(".!")
     match = re.fullmatch(
-        r"(?:put|find|pick up|take|clean|heat|cool|look at)\s+"
+        r"(?:put|find|pick up|take|clean|heat|cool|look at|examine)\s+"
         r"(?:(?P<quantity>a|an|the|some|two|2)\s+)?"
         r"(?:(?P<state>clean(?:ed)?|heat(?:ed)?|cool(?:ed)?|hot|cold)\s+)?"
         r"(?P<object>[a-z][a-z -]*?)"
@@ -73,7 +73,7 @@ def _parse_public_goal(goal: str) -> dict[str, Any]:
             obj = obj[:-1]
     count = 2 if match["quantity"] in {"two", "2"} else 1
     transform = _transformation_from_goal(goal)
-    light = text.startswith("look at ")
+    light = text.startswith(("look at ", "examine "))
     family = ("look_at_obj_in_light" if light else "pick_two_obj_and_place" if count == 2 else
               f"pick_{transform}_then_place_in_recep" if transform else "pick_and_place_simple")
     return {"object_type": obj, "receptacle_type": match["receptacle"],
