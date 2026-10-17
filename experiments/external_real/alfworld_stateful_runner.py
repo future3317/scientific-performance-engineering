@@ -107,6 +107,49 @@ def _mentions(entity: str, text: str) -> bool:
     return bool(re.search(rf"\b{re.escape(entity)}\b", text.casefold()))
 
 
+def _rejection_event(raw_output: str, finish_reason: str | None,
+                     observation: str, admissible_actions: Sequence[str],
+                     previous: Mapping[str, Any] | None, turn_index: int) -> dict[str, Any]:
+    match = re.search(r"^\s*(?:action|command)\s*:\s*(.*?)\s*$", raw_output,
+                      flags=re.IGNORECASE | re.MULTILINE)
+    requested = match.group(1).strip().strip("`\"'") if match else None
+    code = ("OUTPUT_TRUNCATED" if finish_reason == "length" or not raw_output.strip() else
+            "NOT_ADMISSIBLE" if requested else "INVALID_FORMAT")
+    actions_digest = manifest_digest({"commands": list(admissible_actions)})
+    state_digest = manifest_digest({"observation": observation,
+                                    "admissible_commands": list(admissible_actions)})
+    same_state = bool(previous and previous.get("action_key") == (requested or "").casefold()
+                      and previous.get("admissible_digest") == actions_digest
+                      and previous.get("visible_state_digest") == state_digest)
+    return {
+        "turn_index": turn_index,
+        "requested_action": requested[:80] if requested else None,
+        "rejection_code": code,
+        "admissible_digest": actions_digest,
+        "visible_state_digest": state_digest,
+        "consecutive_same_state_count": (previous.get("consecutive_same_state_count", 0) + 1
+                                          if same_state else 1),
+        "env_step_called": False,
+        "action_key": (requested or "").casefold(),
+    }
+
+
+def _rejection_feedback(events: Sequence[Mapping[str, Any]]) -> str | None:
+    if not events:
+        return None
+    lines = ["Prior validator feedback (historical; recheck the current admissible list):"]
+    for event in events[-3:]:
+        if event["rejection_code"] == "NOT_ADMISSIBLE":
+            lines.append(
+                f"- Requested {event['requested_action']!r}; rejection: NOT_ADMISSIBLE "
+                f"(not in that turn's list), "
+                f"did not execute; same-state repeats: {event['consecutive_same_state_count']}."
+            )
+        else:
+            lines.append(f"- Prior response was {event['rejection_code']}; no environment action executed.")
+    return "\n".join(lines)[:500]
+
+
 @dataclass
 class EpisodeState:
     """Episode memory derived only from visible observations and actions."""
@@ -639,8 +682,12 @@ def run_episode(
     skill_version: str | None = None,
     receipt_metadata: Mapping[str, Any] | None = None,
     expected_gamefiles: Sequence[str] | None = None,
+    harness_variant: str = "H0",
 ) -> dict[str, Any]:
     from experiments.skill_evolution.native_verifier import official_outcome
+
+    if harness_variant not in {"H0", "H1"}:
+        raise ValueError("harness_variant must be H0 or H1")
 
     started_at = time.perf_counter()
     observations, infos = environment.reset()
@@ -654,6 +701,7 @@ def run_episode(
     history: list[dict[str, Any]] = []
     progress_events: list[dict[str, Any]] = []
     trajectory: list[dict[str, Any]] = []
+    rejected_action_events: list[dict[str, Any]] = []
     replan_reason: str | None = None
     termination_reason = "step_limit"
     won: bool | None = None
@@ -663,7 +711,9 @@ def run_episode(
         state.remaining_steps = max_steps - step_index
         progress, chars = compressor.render(state, history)
         try:
-            completion = client.choose_action(state, admissible, skill, progress, replan_reason)
+            visible_replan = (_rejection_feedback(rejected_action_events) or replan_reason
+                              if harness_variant == "H1" else replan_reason)
+            completion = client.choose_action(state, admissible, skill, progress, visible_replan)
         except PublicGoalUnparsed:
             termination_reason = "goal_parse_uncertain"
             progress_events.append({"step": step_index, "kind": "goal_parse_uncertain"})
@@ -686,6 +736,13 @@ def run_episode(
             break
         action, invalid_reason = guard.select(str(completion.get("raw_output", "")), admissible)
         if action is None:
+            previous_rejection = rejected_action_events[-1] if rejected_action_events else None
+            rejection = _rejection_event(
+                str(completion.get("raw_output", "")), completion.get("finish_reason"),
+                observation, admissible, previous_rejection, step_index,
+            )
+            rejected_action_events.append(rejection)
+            rejected_action_events[:] = rejected_action_events[-3:]
             trajectory.append({
                 "step": step_index,
                 "observation": observation,
@@ -693,10 +750,12 @@ def run_episode(
                 "selected_action": None,
                 "invalid_action": True,
                 "fallback_reason": invalid_reason,
+                "rejection_event": {k: v for k, v in rejection.items() if k != "action_key"},
                 "prompt_chars_by_section": chars,
                 **completion,
             })
-            progress_events.append({"step": step_index, "kind": "replan", "reason": invalid_reason})
+            progress_events.append({"step": step_index, "kind": "replan", "reason": invalid_reason,
+                                    "rejection_event": {k: v for k, v in rejection.items() if k != "action_key"}})
             replan_reason = invalid_reason
             continue
 
@@ -777,6 +836,7 @@ def run_episode(
         **dict(receipt_metadata or {}),
         "schema_version": 2,
         "policy_revision": POLICY_REVISION,
+        "harness_variant": harness_variant,
         "split": (receipt_metadata or {}).get("split", "train"),
         "success": success,
         "status": status,
