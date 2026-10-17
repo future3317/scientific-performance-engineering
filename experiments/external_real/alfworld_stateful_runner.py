@@ -26,6 +26,10 @@ _SEEN_ENTITY_LIMIT = 32
 _DEEPSEEK_MAX_TOKENS = 8192
 
 
+class PublicGoalUnparsed(ValueError):
+    """No action request can be made until the public goal is understood."""
+
+
 def _prompt_token_bound(messages: Sequence[Mapping[str, str]]) -> int:
     """Bound this exact prompt by UTF-8 content bytes plus chat framing.
 
@@ -391,7 +395,7 @@ class DeepSeekStatefulClient:
         replan_reason: str | None,
     ) -> dict[str, Any]:
         if state.goal_parse_status != "PARSED":
-            raise ValueError("public_goal_unparsed: stop before requesting an action")
+            raise PublicGoalUnparsed("public_goal_unparsed: stop before requesting an action")
         skill_text = skill or "No reusable skill is provided."
         prompt = (
             "Choose exactly one command from the admissible list. Never invent commands or infer hidden state.\n"
@@ -642,6 +646,10 @@ def run_episode(
         progress, chars = compressor.render(state, history)
         try:
             completion = client.choose_action(state, admissible, skill, progress, replan_reason)
+        except PublicGoalUnparsed:
+            termination_reason = "goal_parse_uncertain"
+            progress_events.append({"step": step_index, "kind": "goal_parse_uncertain"})
+            break
         except ProviderBudgetExceeded as exc:
             termination_reason = "provider_budget_exhausted"
             progress_events.append({
@@ -735,12 +743,13 @@ def run_episode(
         admissible = list(_scalar(next_infos, "admissible_commands") or [])
 
     success = None if termination_reason in {
-        "policy_error", "environment_error", "provider_budget_exhausted", "verifier_inconclusive"
+        "policy_error", "environment_error", "provider_budget_exhausted", "verifier_inconclusive", "goal_parse_uncertain"
     } else (won if won is not None else None)
     if not any("reward" in row for row in trajectory) and any(row["invalid_action"] for row in trajectory):
         termination_reason = "api_contract_failure"
         success = None
     status = {"policy_error": "PROVIDER_FAILURE", "environment_error": "ENVIRONMENT_FAILURE",
+              "goal_parse_uncertain": "GOAL_PARSE_UNCERTAIN",
               "provider_budget_exhausted": "BUDGET_EXHAUSTED", "verifier_inconclusive": "INCONCLUSIVE",
               "api_contract_failure": "API_CONTRACT_FAILURE",
               "agent_policy_failure": "AGENT_POLICY_FAILURE"}.get(

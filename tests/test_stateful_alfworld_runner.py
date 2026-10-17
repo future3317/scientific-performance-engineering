@@ -259,6 +259,13 @@ def test_unparsed_goal_keeps_unknown_count_and_original_public_text():
             pytest.fail("unparsed policy goal must stop before any provider request")
     with pytest.raises(ValueError, match="public_goal_unparsed"):
         DeepSeekStatefulClient.choose_action(NoRequest(), state, ["look"], None, "", None)
+    class Policy(NoRequest):
+        choose_action = DeepSeekStatefulClient.choose_action
+    env = ReplayEnvironment([f"Your task is to: {goal}", "Must not execute"], [["look"]])
+    result = run_episode(env, Policy(), max_steps=1)
+    assert result["status"] == "GOAL_PARSE_UNCERTAIN" and result["success"] is None
+    assert result["provider_calls"] == result["env_steps"] == 0
+    assert env.passed == [] and result["trajectory"] == []
 
 
 def test_two_object_progress_requires_distinct_acknowledged_instances():
