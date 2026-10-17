@@ -275,16 +275,22 @@ class SubgoalPlanner:
         if "place_object" in state.completed_subgoals:
             return "verify visible task completion; otherwise replan from the latest observation"
         visible_observation = state.last_observation.casefold().replace(state.goal.casefold(), "")
+        # Already placed instances are not the remaining object in a two-object goal.
+        for item in state.placed_target_objects:
+            visible_observation = re.sub(rf"\b{re.escape(item)}\b", "", visible_observation)
+        remaining_actions = [action for action in admissible_actions if not any(
+            _mentions(item, action) for item in state.placed_target_objects
+        )]
         held = state.target_object is not None and state.inventory is not None and any(
             _mentions(state.target_object, item) for item in state.inventory
         )
         if state.target_object and not held:
             object_visible = _mentions(state.target_object, visible_observation) or any(
-                _mentions(state.target_object, action) for action in admissible_actions
+                _mentions(state.target_object, action) for action in remaining_actions
             )
             matching_pickup = any(
                 action.casefold().startswith(("pick up ", "take ")) and _mentions(state.target_object, action)
-                for action in admissible_actions
+                for action in remaining_actions
             )
             if matching_pickup or object_visible:
                 return "acquire the visible goal object and confirm the inventory change"
