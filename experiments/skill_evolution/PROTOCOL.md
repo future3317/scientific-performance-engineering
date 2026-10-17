@@ -661,6 +661,15 @@ native reset. The historical expected fingerprint was not replaced or bypassed.
 Status is BLOCKED_PREFLIGHT with12 not-started, not a negative discovery result.
 Any new-model identity/protocol revision requires explicit authorization.
 
+The subsequent Flash-1017 authorization is limited to the unchanged D1a12
+LENGTH tasks and USD6/720calls. Its manifest explicitly declares
+response_identity_binding=first_formal_response with a frozen documented
+model/price table and no guessed expected fingerprint. The first charged
+task response binds a nonempty model/fingerprint pair after durable storage
+and metering; later changes or missing fields stop before action execution.
+This adds no connectivity request and does not change tasks or the Agent
+policy. Historical predeclared identities are not retroactively relaxed.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to

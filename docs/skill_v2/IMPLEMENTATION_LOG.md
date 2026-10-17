@@ -698,3 +698,12 @@ not D1_STOP_NO_SIGNAL. A new-model revision needs explicit authorization;
 there is no automatic retry or continuation into D1b/G2/outer/ACRE.
 The immutable preflight deliverables remain at the phase8.1 root; the blocked
 launch closeout is separated under d1a_execution. No protected outcome was read.
+
+The human subsequently authorized Flash-1017 for the same12 LENGTH tasks and
+USD6/720calls. This permits a separate prospectively frozen model revision,
+not a retry of any episode (none had started). The documented model/price
+table remains a prelaunch hard gate. The first formal task response must
+persist complete model/fingerprint metadata and usage, then binds that pair;
+subsequent drift or missing identity stops before an action is released.
+There is no separate connection/ping request and no historical fingerprint
+substitution. Existing predeclared-identity campaigns retain their contract.

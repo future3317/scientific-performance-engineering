@@ -39,7 +39,7 @@ def _budget():
                                   base_url="https://api.deepseek.com")
 
 
-def _response(content="Action: look"):
+def _response(content="Action: look", model="deepseek-flash-v1", fingerprint="fingerprint"):
     message = SimpleNamespace(content=content, reasoning_content="PRIVATE REASONING MUST NOT BE SAVED")
     usage = SimpleNamespace(
         prompt_tokens=31, completion_tokens=9, prompt_cache_hit_tokens=4,
@@ -47,8 +47,8 @@ def _response(content="Action: look"):
         completion_tokens_details=SimpleNamespace(reasoning_tokens=6),
     )
     choice = SimpleNamespace(message=message, finish_reason="stop")
-    return SimpleNamespace(choices=[choice], usage=usage, model="deepseek-flash-v1",
-                           id="response-1", system_fingerprint="fingerprint")
+    return SimpleNamespace(choices=[choice], usage=usage, model=model,
+                           id=f"response-{content}", system_fingerprint=fingerprint)
 
 
 def _client(journal, budget, provider, persist_budget=None):
@@ -63,6 +63,7 @@ def _client(journal, budget, provider, persist_budget=None):
     client.max_input_per_request = 10_000
     client.persist_budget = persist_budget
     client.response_identity = None
+    client.require_response_identity = False
     client.response_ids = set()
     client.receipt_journal = journal
     client._episode_context = None
@@ -195,4 +196,62 @@ def test_interrupted_usage_index_append_recovers_from_atomic_response_once(tmp_p
     assert budget.calls_reserved==1
     assert sum(e['event']=='usage_ledger'for e in recovered.events())==1
     assert (spool/'journal.incomplete-tail').read_bytes()==b'{"event":"usage_ledger"'
+
+
+def test_opt_in_identity_binds_only_after_complete_pair_and_detects_drift(tmp_path):
+    journal = DurableProviderJournal(tmp_path / "server-spool")
+    responses = iter([_response(), _response("Action: open", fingerprint="other")])
+    budget = _budget()
+    client = _client(journal, budget, lambda **_: next(responses))
+    client.require_response_identity = True
+    assert client.complete_text(_messages())["raw_output"] == "Action: look"
+    with pytest.raises(RuntimeError, match="identity changed"):
+        client.complete_text(_messages())
+    assert budget.calls_reserved == 2
+    assert budget.usd_used > 0
+    assert len(list((tmp_path / "server-spool" / "receipts").glob("*.json"))) == 2
+
+
+@pytest.mark.parametrize("model,fingerprint", [(None, "fingerprint"), ("model", "")])
+def test_opt_in_missing_identity_is_saved_charged_and_stops(tmp_path, model, fingerprint):
+    journal = DurableProviderJournal(tmp_path / "server-spool")
+    budget = _budget()
+    client = _client(journal, budget, lambda **_: _response(model=model, fingerprint=fingerprint))
+    client.require_response_identity = True
+    with pytest.raises(RuntimeError, match="requires nonempty"):
+        client.complete_text(_messages())
+    receipt = next((tmp_path / "server-spool" / "receipts").glob("*.json"))
+    import json
+    assert json.loads(receipt.read_text(encoding="utf-8"))["model"] == model
+    assert budget.calls_reserved == 1
+    assert budget.usd_used > 0
+    assert budget.stopped
+
+
+def test_opt_in_replay_restores_identity_from_existing_journal(tmp_path):
+    journal = DurableProviderJournal(tmp_path / "server-spool")
+    first = _client(journal, _budget(), lambda **_: _response())
+    first.require_response_identity = True
+    first.complete_text(_messages())
+    budget = _budget()
+    journal.restore_budget(budget)
+    replay = _client(journal, budget, lambda **_: pytest.fail("saved response should replay"))
+    replay.require_response_identity = True
+    replay.complete_text(_messages())
+    assert replay.response_identity == ("deepseek-flash-v1", "fingerprint")
+
+
+def test_opt_in_saved_response_cannot_rebind_an_existing_identity(tmp_path):
+    journal = DurableProviderJournal(tmp_path / "server-spool")
+    first = _client(journal, _budget(), lambda **_: _response())
+    first.require_response_identity = True
+    first.complete_text(_messages())
+    budget = _budget()
+    journal.restore_budget(budget)
+    replay = _client(journal, budget, lambda **_: pytest.fail("no duplicate provider request"))
+    replay.require_response_identity = True
+    replay.response_identity = ("deepseek-flash-v1", "different")
+    with pytest.raises(RuntimeError, match="identity changed"):
+        replay.complete_text(_messages())
+    assert budget.calls_reserved == 1 and budget.stopped
 

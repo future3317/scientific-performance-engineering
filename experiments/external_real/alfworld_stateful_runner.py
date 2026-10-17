@@ -373,6 +373,7 @@ class DeepSeekStatefulClient:
         self.max_completion_tokens = max_completion_tokens
         self.persist_budget = persist_budget
         self.response_identity: tuple[Any, Any] | None = None
+        self.require_response_identity = False
         self.response_ids: set[str] = set()
         self.receipt_journal: Any = None
         self._episode_context: tuple[str, str, str | None] | None = None
@@ -450,7 +451,17 @@ class DeepSeekStatefulClient:
                     raise RuntimeError("call journal.restore_budget(budget) before replaying a saved response")
                 if self.budget is not None and self.budget.stopped:
                     raise ProviderBudgetExceeded(self.budget.stop_reason or "recovered_budget_stopped")
-                self.response_identity = (saved_response.get("model"), saved_response.get("system_fingerprint"))
+                identity = (saved_response.get("model"), saved_response.get("system_fingerprint"))
+                if getattr(self, "require_response_identity", False):
+                    if not all(isinstance(value, str) and value for value in identity):
+                        if self.budget is not None:
+                            self.budget.stop("provider_response_identity_missing")
+                        raise RuntimeError("provider response identity is missing from saved receipt")
+                    if self.response_identity is not None and identity != self.response_identity:
+                        if self.budget is not None:
+                            self.budget.stop("provider_model_identity_changed")
+                        raise RuntimeError("provider model identity changed within a frozen run")
+                self.response_identity = identity
                 return self._result_from_durable_receipt(saved_response)
         if self.budget is not None:
             self.budget.reserve(input_bound, self.max_completion_tokens)
@@ -563,6 +574,13 @@ class DeepSeekStatefulClient:
                 raise RuntimeError("duplicate provider response id")
             self.response_ids.add(response_id)
         identity = (getattr(response, "model", None), getattr(response, "system_fingerprint", None))
+        if getattr(self, "require_response_identity", False) and not all(
+                isinstance(value, str) and value for value in identity):
+            if self.budget is not None:
+                self.budget.stop("provider_response_identity_missing")
+                if self.persist_budget is not None:
+                    self.persist_budget(self.budget.as_dict())
+            raise RuntimeError("provider response identity requires nonempty model and system_fingerprint")
         if self.response_identity is not None and identity != self.response_identity:
             if self.budget is not None:
                 self.budget.stop("provider_model_identity_changed")
