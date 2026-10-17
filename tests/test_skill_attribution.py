@@ -302,7 +302,7 @@ def test_complete_arm_resume_after_summary_failure_never_constructs_provider_or_
         def __init__(self,gamefile):self.gamefile=gamefile
         def reset(self):
             resets.append(1)
-            return ["Your task is to: inspect the target."],{"admissible_commands":[["look"]],"extra.gamefile":[self.gamefile]}
+            return ["Your task is to: put a keychain in dresser."],{"admissible_commands":[["look"]],"extra.gamefile":[self.gamefile]}
         def step(self,actions):
             assert actions==["look"]
             return ["Done."],[1],[True],{"won":[True],"admissible_commands":[["look"]]}
