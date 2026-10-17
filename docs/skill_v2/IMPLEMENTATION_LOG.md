@@ -835,3 +835,30 @@ Phase8.2 closeout rule forbids D1c: after complete valid24 discovery tasks,
 0–1 independent sources pause this text-Skill direction; two sources only
 permit a separately approved proposal or harness study according to the
 actual intervention type. Opportunity absence is not causal falsification.
+
+Phase8.2 preflight closed at D1B_READY_FOR_APPROVAL: zero new provider calls,
+zero native resets, twelve NOT_STARTED tasks. Frozen manifest
+aaae0c3be80d8431447cc85442d6044714438e1113257317ebe54645f83fe4a5
+pins tested run source df99ddbe83d30314255cd98bc024ed059d1f7043; nine
+recorded production modules match D1a caed074 byte-for-byte. Server targeted
+tests:89 passed in14.45s, exit0. Current-source full suite NOT_RUN; historical
+708passed is not substituted. Real CLI dry run exited0 without execution.
+Original cohort positions13–24, seed31, six families with two tasks each
+have zero historical/protected collisions.
+
+D1a raw revalidation confirms12 successes,0 failures/unknown,229 calls,
+226 environment actions and USD0.129702504 estimated peak-price cost (not
+bill); all229 prompt hashes replay exactly. Primary opportunity counts are
+6 clusters/20 turns/24 fixture-turn pairs; literal counts12/216/253. One
+behavioral-error source has three rejected navigation decisions and later
+self-corrects; no confirmed novel algorithm. Rejected command/count are
+absent from recent prompt history, leaving a harness-feedback confound.
+The report's initial source-sequence selection assertion failed before
+output creation; restricting the illustration to its four actual turns
+fixed analysis only, not raw evidence.
+
+Unified report/JSON/bundle were generated under the new RESULTS root's
+preflight/ and copied to E:/DATA/EvoSPE/skill-evolution-phase8-2-d1b/preflight.
+The approval template remains disabled; USD6/720calls needs separate explicit
+approval. No live output/spool/automation was created.499 historical files
+match and zero protected outcomes were read.

@@ -720,6 +720,18 @@ opportunities pause this ALFWorld text-Skill direction without D1c. Incomplete
 or mismatched evidence cannot be reported as zero signal. No application
 state authorizes the next provider stage.
 
+Phase8.2 preflight is complete, not a completed D1b experiment. Manifest
+aaae0c3be80d8431447cc85442d6044714438e1113257317ebe54645f83fe4a5
+pins run source df99ddbe83d30314255cd98bc024ed059d1f7043, the actual D1a
+model/fingerprint pair, and unchanged Agent/LENGTH behavior. All12 tasks
+remain NOT_STARTED; approval flags are false. Server targeted89 passed/exit0
+and CLI dry-run exit0 are zero-provider evidence only. USD6 is a hard cap
+independent of720calls: the full-token envelope costs USD14.155776 at
+peak/no-cache prices, so budget may stop the batch before all12 finish.
+No retry/replacement/automatic continuation is authorized. Preflight artifacts
+distinguish primary6-cluster/20-turn from literal12-cluster/216-turn
+opportunity denominators; neither is an efficacy estimate.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
