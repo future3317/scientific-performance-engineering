@@ -1,5 +1,48 @@
 # Skill-evolution implementation and zero-provider study
 
+## Current Phase8: evidence-first discovery, no new provider authorization
+
+Current v1 remains V1_STOPPED_AFTER_E1; NO-GO is candidate-specific, not a
+claim that all textual Skills fail. Phase8 raw reconstruction checks12E1
+pairs/24episodes/474responses and matching usage rows. LENGTH-minus-PLUS
+observed costs decompose exactly into all +USD0.016458288,
+both-success -USD0.016824528 and both-fail +USD0.033282816. No-cache totals
+are -USD0.0111636,-USD0.0307860,+USD0.0196224 respectively. Cheaper failures
+are not successful-efficiency evidence. All historical records stay unchanged.
+
+Both shared failures remain observational source evidence, not a new v2:
+multi-object traces show LOOP_OR_NO_PROGRESS with guard/horizon termination;
+cool-then-place reaches the60-step endpoint before visible target acquisition.
+Neither arm reaches a target pickup/placement on either cluster. No causal
+correction or eligible new mechanism is established by the two common failures.
+
+R0 is independent of Skill generation. Its scoped census has34inventory rows:
+30executable-only fixtures with real paired n=0 and4historical real contrasts
+over3cohorts/28distinct ALFWorld clusters (Phase5 controls are shared). Success
+repair/regression counts remain0; both-success cost directions are mixed,
+with no validated pre-execution separator. Qualified new R1 candidates=0.
+The reported LogicBench80-row result was not reconstructed from available
+in-scope raw receipts and is not counted as newly verified paired evidence.
+
+The original D1 24-task draft/order is retained, not resampled. A full execution
+protocol is newly frozen prospectively under
+RESULTS/skill-evolution-phase8-evidence-first/phase8/D1_MANIFEST_V1.json;
+this must not be backdated as a complete Phase7 preregistration. D1a=first12,
+D1b=remaining12, each six families twice, LENGTH-only train_dev discovery.
+confirmatory_eligible=false is intentional. The existing attribution CLI now
+supports that single-arm mode without a Skill, using the same native Agent,
+provider client, budget ledger and durable journal. The frozen model/fingerprint
+and public price table are checked; unknown or interrupted execution cannot
+silently restart. No second Agent/router/client or core Skill DSL is introduced.
+
+D1a requires new explicit approval: USD6/720calls per batch, USD1.25/60decisions/
+3600s per episode,43200s per stage. Token ceilings32768input/8192completion per
+request imply USD14.155776 at full720-call reservation, so the USD6 cap may
+stop remaining tasks NOT_STARTED. No proposal, patch, D1b, R1, outer, gate or
+final access follows automatically. Current-source test receipts and the exact
+approval card/command are stored with the unified PHASE8 report/JSON/bundle;
+historical674passed at e480f32 is not relabeled as a new full-suite result.
+
 ## Current Phase7 closeout: fixed-v1 conditional increment
 
 E1 completed on dbcloud/equivcompiler at 2026-10-16T17:29:09Z, exit0,

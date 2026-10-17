@@ -580,6 +580,27 @@ not-measured status. Equal task execution is not equal total compute.
 
 ## Fixed-Skill conditional increment and source discovery
 
+Phase8 D1 reuses the persisted24-task Phase7 draft in its original order and
+freezes the previously incomplete execution protocol prospectively. D1a is
+the first12, D1b the remaining12, with separate approvals. The same attribution
+CLI runs a single LENGTH arm under design/stage length_discovery and split
+train_dev, no Skill argument. It uses the existing native Agent/client/journal;
+newly frozen model/fingerprint, public model-price table, source SHA, cohort
+identity, splits, exposures and budgets remain binding. No request is made
+by dry-run. Developer-source tasks with confirmatory_eligible=false are valid
+discovery sources but never confirmatory efficacy data.
+
+After a complete D1 batch, at least two independent D1 source clusters with
+the same public trigger/legal action gap, a genuinely distinct mechanism and
+no fatal observed counterexample permit only a proposal-approval request.
+One qualifying independent source permits only a D1b-approval request using
+the unchanged remaining tasks. No qualifying source means D1_STOP_NO_SIGNAL;
+unknown or incomplete evidence blocks continuation. No new proposal/router
+is authorized by any of these outcomes. Textual procedures, salience/trigger
+interventions and structured-state/executable helpers are distinct treatments;
+their provenance/claims remain separate in the research ledger, without
+rewriting immutable historical Skill contracts.
+
 Phase7 E1 uses fresh train_inner semantic clusters and two independently reset
 arms: unchanged LENGTH, versus unchanged LENGTH followed by two newlines and
 the original frozen v1 body in the same user-message treatment slot. It tests

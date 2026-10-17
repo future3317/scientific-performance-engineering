@@ -29,6 +29,13 @@ RESOURCE_FIELDS = ("provider_calls", "input_tokens", "completion_tokens", "reaso
                    "provider_usd_estimate", "peak_usd_estimate", "off_peak_usd_estimate", "no_cache_usd_estimate", "wall_seconds")
 
 
+def public_model_price_table(page: bytes) -> str:
+    """Compare the model table, not unrelated changing documentation sections."""
+    import html
+    text=" ".join(html.unescape(re.sub(r"<[^>]+>"," ",page.decode())).split())
+    return text.split("MODEL deepseek-flash",1)[1].split("(1) Use",1)[0]
+
+
 def arm_texts(skill: SkillContract | None, *, design: str = "attribution") -> dict[str, str | None]:
     if design == "length_discovery":
         return {"LENGTH": LENGTH_CONTROL}
@@ -247,7 +254,7 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
     discovery = design == "length_discovery"
     split = "train_dev" if discovery else "train_inner"
     if manifest.get("stage") != ("length_discovery" if discovery else "skill_attribution") or manifest.get("split") != split:
-        raise ValueError("attribution requires approved inner stage")
+        raise ValueError("frozen design requires its declared study stage and split")
     if manifest.get("split_manifest_sha256") != manifest_digest(parent):
         raise ValueError("parent split identity mismatch")
     if not discovery and (skill is None or manifest.get("skill_digest") != skill.digest or manifest.get("skill_body_sha256") != skill.body_digest):
@@ -256,7 +263,7 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
         raise ValueError("LENGTH discovery does not inject a Skill")
     arms = ("LENGTH",) if discovery else E1_ARMS if design == "conditional_increment" else ARMS
     if manifest.get("arms") != list(arms) or manifest.get("treatments") != arm_texts(skill, design=design):
-        raise ValueError("arm content differs from frozen OFF/LENGTH/SKILL design")
+        raise ValueError("arm content differs from the frozen study design")
     members = {r["task_id"]: r for r in parent["task_membership"]}
     seen, templates = set(), set()
     excluded = set(manifest["excluded_clusters"])
@@ -282,6 +289,8 @@ def validate_manifest(manifest: Mapping[str, Any], parent: Mapping[str, Any], sk
                 raise ValueError("discovery frozen baseline configuration changed: " + key)
         if not manifest.get("expected_response_identity") or len(manifest["expected_response_identity"])!=2:
             raise ValueError("discovery requires the historical model/fingerprint identity")
+        if not manifest.get("public_model_price_table"):
+            raise ValueError("discovery requires its frozen public model/price table")
         cohort=manifest["discovery_cohort"]
         if manifest.get("discovery_cohort_sha256") != manifest_digest(cohort):
             raise ValueError("discovery cohort identity changed")
@@ -386,12 +395,20 @@ def run_attribution(manifest, parent, skill, approval, pricing, *, output: Path,
     if manifest["controller_commit"] != revision or str(output) != manifest["output_dir"]:
         raise ValueError("run revision/output identity mismatch")
     if manifest.get("design")=="length_discovery":
+        if manifest.get("pricing_sha256")!=manifest_digest(pricing):
+            raise ValueError("discovery pricing snapshot identity mismatch")
         for key,approved_key in (("max_calls","max_provider_calls"),("max_total_usd","max_total_usd"),
                                  ("max_usd_per_episode","max_usd_per_episode"),("max_wall_seconds","max_wall_seconds")):
             if str(manifest[key]) != str(approval.get(approved_key)):
                 raise ProviderBudgetExceeded("discovery_approval_cap_mismatch:"+key)
     budget=ApprovedProviderBudget(manifest,approval,pricing,controller_commit=revision,
         stage=manifest["stage"],model=manifest["model"],base_url=manifest["base_url"])
+    if manifest.get("design")=="length_discovery" and client_factory is None:
+        from urllib.request import urlopen
+        with urlopen(pricing["pricing_source_url"],timeout=30)as response:
+            table=public_model_price_table(response.read())
+        if table != manifest["public_model_price_table"]:
+            raise ProviderBudgetExceeded("public_model_pricing_drift")
     from .receipt_journal import DurableProviderJournal
     output.mkdir(parents=True,exist_ok=True)
     config=output/"run_config.json"
