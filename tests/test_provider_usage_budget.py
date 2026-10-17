@@ -46,7 +46,7 @@ def _response(input_tokens=40, completion_tokens=5, **usage_fields):
 
 
 def _choose(client):
-    state = EpisodeState.start("Your task is to: look.", 2)
+    state = EpisodeState.start("Your task is to: put a keychain in dresser.", 2)
     return client.choose_action(state, ["look"], None, "progress", None)
 
 
@@ -196,7 +196,7 @@ class _Environment:
         self.steps = 0
 
     def reset(self):
-        return ["Your task is to: look."], {"admissible_commands": [["look"]]}
+        return ["Your task is to: put a keychain in dresser."], {"admissible_commands": [["look"]]}
 
     def step(self, actions):
         self.steps += 1
