@@ -862,3 +862,48 @@ preflight/ and copied to E:/DATA/EvoSPE/skill-evolution-phase8-2-d1b/preflight.
 The approval template remains disabled; USD6/720calls needs separate explicit
 approval. No live output/spool/automation was created.499 historical files
 match and zero protected outcomes were read.
+
+The user's subsequent explicit "授权" approved only that frozen D1b card.
+Approval PHASE82-D1B-USER-APPROVED-20261017 ran once at df99ddb, CPU-only
+equivcompiler,2026-10-17T12:00:29–12:16:26UTC, exit0. Planned/started/completed
+12/12/12, notstarted0, official9success/3failure/0unknown.351 durable calls,
+349 environment actions,2 rejected decisions; input474231,completion122600
+(reasoning119713 subset),cachehit256/miss473975. Peak measured-cache estimate
+USD0.289314036 of USD6, no-cacheUSD0.2893893, actual bill UNKNOWN. Model and
+fingerprint match D1a; effort remains NOT_EXPLICITLY_SENT. All351 production
+prompt hashes replayed and intents/responses/ledgers reconcile; reservations
+null, usage known. Both recorded processes stopped before closeout. No retry,
+replacement, extra probe or subsequent experiment was run.
+
+D1b family S/F/U:light1/1/0,simple2/0/0,clean1/1/0,cool2/0/0,heat2/0/0,
+two-object1/1/0. Failure traces show split destination-instance placement
+followed by verification loops; using a light without acquiring the target;
+and negative-search revisits leaving too little time to place a cleaned
+kettle. The destination-instance symptom has one source and no hidden oracle
+confirmation; the other proposed reminders duplicate existing planner/v1.
+
+Primary D1b opportunities8clusters/42turns/50fixture-turn pairs,1missed
+cluster/2rejections,1direct-inspection cluster/4decisions,0unknown. Literal
+12/339/453 with8direct-inspection clusters. Combined D1a+D1b primary14/62/74,
+two missed sources/five rejected decisions; literal24/555/706. Counts are
+discovery, not paired efficacy. D1a+D1b official21/24,580calls,575envactions,
+USD0.419016540 estimated; D1a prior-reset exposure remains declared.
+
+Main's public-trace semantic review selects HARNESS_FIX_CANDIDATE: two
+independent successful episodes repeat absent navigation despite legal-list
+instructions and lack rejected-command details in recent history. D1b
+recovers with open rather than examine, disproving a mandatory-examine
+interpretation; another D1b cluster correctly inspects four fixtures without
+a Skill. No qualifying novel text strategy has two sources. Thus current
+text-Skill generation is NO_GO/paused; only a separately approved Agent
+study may follow. No causal benefit of a feedback fix is claimed. G2,D1c,
+inner,outer,ACRE and final remain unauthorized.
+
+Unified live report/JSON/sanitized bundle were generated exclusively at the
+new root and copied with matching digests to E:/DATA/EvoSPE.499 historical
+files were rechecked byte-identical; protected outcome reads remain0. One
+auxiliary report serialization error (integer distribution keys) was fixed
+before final outputs, without modifying or rerunning any experiment. Existing
+89 targeted tests at run HEAD remain the test receipt; no new full suite was
+claimed. Historical708passed@caed074 remains historical only. Automation
+was not activated; there is no remaining live process to monitor.
