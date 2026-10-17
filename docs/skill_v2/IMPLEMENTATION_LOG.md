@@ -813,3 +813,25 @@ records/4 real contrasts/28 clusters/0 qualified new R1 candidates. This
 single LENGTH arm cannot estimate repair, regression, Skill benefit,
 conditional efficiency gain, or routing headroom. The first cluster's prior
 reset remains declared, and no protected outer/gate/final outcome was read.
+
+Phase8.2 is zero-provider preparation only. The original remaining12 D1
+contexts will be extracted without resampling; D1b still needs its own
+explicit USD6/720call approval. New discovery_audit functions only inspect
+saved public trajectories and do not participate in Agent decisions. They
+reconstruct pre-action state and production prompts, separate rejected
+decisions from environment actions, and retain both a literal affordance
+denominator and a narrower unresolved-search/uninspected/noncurrent-fixture
+denominator. Neither definition uses the subsequent chosen action to select
+opportunities. Correct inspection and other legal alternatives are reported
+separately, with overlapping source/handling cluster counts explicit.
+
+The D1a trigger review must authenticate all229 saved prompt hashes, retain
+the52/59-action official successes, and compare the failed-decision feedback
+against the existing runner/LENGTH/v1 before making any novelty claim. A
+generic rejection note without the rejected action in recent history is a
+possible harness-feedback confound, not a proven new text Skill. This work
+does not modify the runner, prompt, parser, budget ledger or verifier. The
+Phase8.2 closeout rule forbids D1c: after complete valid24 discovery tasks,
+0–1 independent sources pause this text-Skill direction; two sources only
+permit a separately approved proposal or harness study according to the
+actual intervention type. Opportunity absence is not causal falsification.

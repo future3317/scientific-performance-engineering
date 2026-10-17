@@ -704,6 +704,22 @@ Only the original frozen remaining12 discovery contexts may be proposed
 for D1b, with a separate runtime/manifest/budget approval before any call.
 No held-out, gate, final, or ACRE stage is enabled by D1a completion.
 
+Phase8.2 adds read-only opportunity accounting, not a policy change. Freeze
+both literal absent-navigation/listed-inspection exposure and the primary
+uninspected noncurrent fixture during unresolved public search before D1b.
+Report opportunity, missed, direct-inspection, other-legal-action and unknown
+clusters separately; a single cluster may show both rejection and recovery.
+Count independent support per reviewed mechanism, never per invalid turn.
+D1b is the unchanged second half of original24, LENGTH-only and independently
+approved. Its observed model/fingerprint must match D1a to pool discovery
+evidence; no explicit effort parameter is added. The runtime byte comparison
+excludes only new read-only analysis/tests/docs, not behavioral modules.
+After valid24: two nonduplicate text/trigger sources permit a G2 application;
+two harness sources permit a harness-study application;0–1 or insufficient
+opportunities pause this ALFWorld text-Skill direction without D1c. Incomplete
+or mismatched evidence cannot be reported as zero signal. No application
+state authorizes the next provider stage.
+
 The fixture includes two-sided alpha 0.05 planning approximations for paired
 effects 0.05, 0.10, and 0.20; 20, 40, 80, and 160 independent clusters; and a
 discordant-pair-rate assumption of 0.25. The approximation is intended to
