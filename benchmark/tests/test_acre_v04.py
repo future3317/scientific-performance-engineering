@@ -124,3 +124,20 @@ def test_formal_family_grammar_deduplicates_lattice_equivalent_candidates():
     candidates = grammar.candidates(contexts)
 
     assert len(candidates) < 10_000
+
+
+def test_validation_compares_synthesis_outcome_without_search_timing():
+    from copy import deepcopy
+    from benchmark.boundary.families import run_boundary_family
+    from scripts.validate_acre import deterministic_boundary_outcome
+
+    first = run_boundary_family('compile')
+    second = deepcopy(first)
+    second['result']['provenance']['search_elapsed_seconds'] += 1
+    assert deterministic_boundary_outcome(first) == deterministic_boundary_outcome(second)
+    assert first['result']['provenance']['search_elapsed_seconds'] != second['result']['provenance']['search_elapsed_seconds']
+    second['predicate'] = {'all': []}
+    assert deterministic_boundary_outcome(first) != deterministic_boundary_outcome(second)
+    second = deepcopy(first)
+    second['result']['provenance']['search_exhausted'] = 'changed'
+    assert deterministic_boundary_outcome(first) != deterministic_boundary_outcome(second)
