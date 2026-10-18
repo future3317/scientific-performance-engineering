@@ -35,6 +35,13 @@ def _ordered_models(eligible: list[str], lineages: list[str]) -> list[str]:
     return sorted(eligible, key=lambda model: (lineage_order[_lineage(model)], model))
 
 
+def _initialize_run_root(run_root: Path) -> None:
+    frozen_artifacts = ("MODEL_API_MATRIX.json", "RUN_MANIFEST.json", "APPROVAL_BINDING.json")
+    if run_root.exists() and any((run_root / name).exists() for name in frozen_artifacts):
+        raise FileExistsError(f"study artifacts already exist in {run_root}")
+    run_root.mkdir(parents=True, exist_ok=True)
+
+
 def _source_digest(root: Path, model: str) -> str:
     folder = root / "torchbenchmark" / "models" / model
     hasher = hashlib.sha256()
@@ -57,7 +64,7 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
                  seed: int = 20261018) -> dict[str, Any]:
     tb_root, project = Path(torchbench_root).resolve(), Path(project_root).resolve()
     run_root = Path(output_root).resolve()
-    run_root.mkdir(parents=True, exist_ok=False)
+    _initialize_run_root(run_root)
     cache_root = run_root / "model-cache"
     os.environ["TORCH_HOME"] = str(cache_root / "torch")
     os.environ["HF_HOME"] = str(cache_root / "huggingface")
@@ -217,6 +224,7 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
         "cuda_build": torch.version.cuda,
         "intervention": {"baseline": "eager", "candidate": "torch.compile(model, backend='inductor', mode='default', dynamic=None)"},
         "device": device,
+        "gpu_uuid": gpu_uuid if device == "cuda" else None,
         "seed": seed,
         "provider_calls": 0,
         "sampling_unit": "model_lineage",
