@@ -1,0 +1,14 @@
+{
+  "intervention_id": "EVOSPE_RT_COMPILE_DEFAULT_V1",
+  "baseline": {"name": "eager", "call": "model(*inputs)"},
+  "candidate": {
+    "name": "torch_compile_inductor_default",
+    "call": "torch.compile(model, backend='inductor', mode='default', dynamic=None)",
+    "backend": "inductor",
+    "mode": "default",
+    "dynamic": null
+  },
+  "scope": "eval_inference_only",
+  "status": "frozen_candidate_not_runtime_verified",
+  "provider_calls": 0
+}

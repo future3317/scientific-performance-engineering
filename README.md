@@ -16,6 +16,30 @@ the executable SPE-EvoBench calibration harness.
 
 ## What is current
 
+The completed fixed-intervention study is documented in
+[`experiments/real_intervention_v3/README.md`](experiments/real_intervention_v3/README.md).
+It produced 90 development/calibration pair records out of 108 planned, with
+19 valid pairs across six families, all cold-negative. Only three calibration
+families were valid against the required five, so 18 final pairs were not
+started: `UNDERPOWERED_NOT_FINAL`. Both ACRE variants were `ACRE_NOT_FITTED`;
+these results do not establish learned-gate or scientific-task efficacy.
+The [experiment registry](docs/experiment_registry.md) records the separate
+measurement, analysis and evidence identities. Raw results remain outside Git.
+
+The October skill-evolution development study is documented in
+[`docs/skill_v2/IMPLEMENTATION_LOG.md`](docs/skill_v2/IMPLEMENTATION_LOG.md), with
+the executable provider-free protocol at
+[`experiments/skill_evolution/PROTOCOL.md`](experiments/skill_evolution/PROTOCOL.md).
+It preserves the September evidence and separates agent, skill-content, and
+routing effects. Its synthetic qualification is implementation evidence;
+real-task efficacy requires the independent staged study described there.
+
+The historical Phase2 execution/approval boundary is recorded in
+[`PHASE2_EXECUTION_REPORT.md`](docs/skill_v2/PHASE2_EXECUTION_REPORT.md).
+The train-only entry is `python -m experiments.skill_evolution.real_study`;
+it is provider-free by default and requires exact staged approval for `--live`.
+Official teacher success is not autonomous Agent or Skill efficacy.
+
 The production path is:
 
 ```text
@@ -154,8 +178,9 @@ The authoritative cross-repository mapping is
 The manifest SHA256 is
 `b978c74f52b0f10a1b595d84c26c84f5ba5ab8278c161fea20d7bf80ad404b0c`.
 The benchmark freeze tag captures the docs-inclusive `main` checkout at the
-freeze point; subsequent `main` commits here are documentation-only and do not
-change frozen evidence. The manifest's `benchmark_commit` identifies the
+freeze point. Later development merged into `main` has separate source and
+experiment identities and does not change frozen evidence or the freeze tag.
+The manifest's `benchmark_commit` identifies the
 evidence-producing benchmark source commit. The controller and paper
 repositories have their own local freeze-tag targets, and the manifest is the
 cross-repository authority.

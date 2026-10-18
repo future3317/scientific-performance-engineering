@@ -39,3 +39,44 @@ Manifest SHA256: `b978c74f52b0f10a1b595d84c26c84f5ba5ab8278c161fea20d7bf80ad404b
 - Any future evidence must record its exact benchmark/controller revisions,
   protocol, seed policy, environment, command receipt, and digest before it is
   eligible for a paper claim.
+
+## Post-freeze fixed-intervention study
+
+`EVOSPE_RT_V3_20261018` is a separate exploratory identity, not a revision of
+the September freeze or its historical hosted feasibility v3.
+
+- Current evidence root: `/home/workspace/lrh/RESULTS/evospe-rt-v3-20261019-gpu-resume`.
+- Frozen manifest digest: `890b32e9befbf303b231f10c0c60090e318905993541c0437088d7d4f3a8abbd`.
+- Protocol source: `463f2833d7580d9cf068665bd92793cba6ec421b`;
+  inherited measurement: `9d5a9ebe568ad3824882937a9ae078f61910954d`;
+  resumed measurement: `49ee7d8293beaef8a4a67944eaaa236cba1c69e5`.
+- Zero-GPU analysis: `1ad8ad2aedd947c04997f3200be3a60249341cb1`;
+  study documentation: `8e67b9340c72b4c605ee26320338c862a832a7af`.
+- Runtime: equivcompiler Python; torch 2.6.0+cu126, torchvision 0.21.0+cu126,
+  Triton 3.2.0, RTX 4090. Original GPU UUID
+  `GPU-ff4b8a6c-b1ad-8ae1-d2e8-741a64fd24a1` contributed 16 valid pairs;
+  resumed GPU UUID `GPU-f190a619-3c7d-72a9-4f20-40d7b7d35c20` contributed 3.
+- Frozen design: 18 families, 10 development / 5 calibration / 3 final;
+  H=1/16/128, seed 31, two AB/BA sessions, 108 planned pairs.
+- Outcome: 90 pair records, 19 valid, 11 numeric failures, 6 cache
+  infrastructure errors, 1 baseline failure, 53 unresolved. Two interrupted
+  candidate attempts overlap the unresolved count and were not retried.
+- Valid subset: six independent families; all 19 cold effects negative;
+  family-equal mean log benefit -3.599646, 95% family-bootstrap CI
+  [-3.98265, -3.23516] (seed 101, 10,000 draws).
+- Release: `UNDERPOWERED_NOT_FINAL`, valid calibration families 3/5;
+  18 final pairs unstarted. Both ACRE variants: `ACRE_NOT_FITTED`.
+- Claim boundary: real model computation with materialized/miniature inputs,
+  not dataset accuracy, scientific time-to-quality, universal compiler harm,
+  or selective-gate efficacy. Cold timing includes compilation and H forwards,
+  not process startup/model-input setup or the complete job lifecycle.
+- Full net deployment utility and complete resource costs remain unknown;
+  observed parent windows are not GPU busy seconds. The historical 5619-second
+  baseline parent window exceeded the declared 900-second cap.
+
+The evidence bundle, member hashes, raw receipts, final exits and tests remain
+in that RESULTS root; the local delivery is under
+`E:/DATA/evospe-rt-v3-20261019-gpu-resume`. See the
+[study README](../experiments/real_intervention_v3/README.md) for the execution
+contract. Neither integration into `main` nor future code maintenance
+reauthorizes measurements or changes the immutable run identities.

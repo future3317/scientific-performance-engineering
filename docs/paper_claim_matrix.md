@@ -3,6 +3,17 @@
 This file is the manuscript claim boundary. A result is usable only within the
 scope recorded here; hosted feasibility and efficacy are intentionally separate.
 
+## Contents
+
+- [C1 — Typed applicability certificates](#c1--typed-applicability-certificates)
+- [C2 — Safety–coverage trade-off](#c2--safetycoverage-trade-off)
+- [C3 — Resource-aware evidence governance](#c3--resource-aware-evidence-governance)
+- [C4 — Lifecycle governance](#c4--lifecycle-governance)
+- [C5 — Treatment-coupled observability and partial identification](#c5--treatment-coupled-observability-and-partial-identification)
+- [C6 — Hosted end-to-end efficacy](#c6--hosted-end-to-end-efficacy)
+- [Frozen status lines](#frozen-status-lines)
+- [Post-freeze exploratory fixed-intervention evidence](#post-freeze-exploratory-fixed-intervention-evidence)
+
 ## C1 — Typed applicability certificates
 
 - Paper location: RQ1 / applicability identification.
@@ -78,3 +89,22 @@ RESULTS_CLAIMED = FALSE
 
 Freeze manifest: `docs/EVOSPE_EVIDENCE_FREEZE_20260905.json`
 Manifest SHA256: `b978c74f52b0f10a1b595d84c26c84f5ba5ab8278c161fea20d7bf80ad404b0c`
+
+## Post-freeze exploratory fixed-intervention evidence
+
+The following is separate from C1-C6 and does not revise their frozen numbers.
+Identity and source mapping are in
+[the experiment registry](experiment_registry.md#post-freeze-fixed-intervention-study).
+
+| Proposed statement | Status and evidence | Limit |
+|---|---|---|
+| Cold compilation did not amortize in the observed valid H=1/16/128 subset | Exploratory: 19 valid pairs, six independent families; family-mean log benefit -3.599646, family-bootstrap 95% CI [-3.98265, -3.23516] | Selected valid subset only; 90 dev/cal records include failures and unresolved outcomes. Not universal compiler harm or complete-job time. |
+| Steady latency can improve while cold-inclusive latency worsens | Descriptive: valid-pair median steady speedup 1.152485; 15 faster / 4 slower, while all 19 cold effects were negative | No dataset accuracy or scientific time-to-quality result. |
+| ACRE improves selective deployment over simple baselines | Unsupported: both variants `ACRE_NOT_FITTED`; no canonical store/support certificates | Zero-coverage fallback is not learned gate efficacy. |
+| Independent final efficacy was established | Not run: 3/5 valid calibration families; 18 final pairs unopened | `UNDERPOWERED_NOT_FINAL`; no final superiority or global-reuse claim. |
+
+Six cache permission/missing-file failures are infrastructure outcomes, not
+known model harm. Unknown deployed outcomes keep full net utility and risk
+point estimates unknown; observed counts and bounds remain in the separate
+study report. Raw labels, frozen predictions, historical RESULTS and paper
+numbers were not changed during zero-GPU closeout or repository integration.

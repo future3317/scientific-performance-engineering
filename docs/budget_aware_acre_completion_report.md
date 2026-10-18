@@ -1,5 +1,18 @@
 # Budget-aware ACRE completion report
 
+## Contents
+
+- [Scope and evidence boundary](#scope-and-evidence-boundary)
+- [Implemented changes](#implemented-changes)
+- [Verification](#verification)
+- [Provider-free resource evidence](#provider-free-resource-evidence)
+- [Condition-blind calibration closure](#condition-blind-calibration-closure)
+- [Historical hosted funnel](#historical-hosted-funnel)
+- [Supported and unsupported claims](#supported-and-unsupported-claims)
+- [Paper closure](#paper-closure)
+- [Remaining limitations](#remaining-limitations)
+- [Commit and provenance summary](#commit-and-provenance-summary)
+
 Date: 2026-09-05
 
 ## Scope and evidence boundary

@@ -1,5 +1,17 @@
 # Budget-Aware ACRE and Hosted-Execution Feasibility Plan
 
+## Contents
+
+- [Goal](#goal)
+- [Current root causes and abstraction mapping](#current-root-causes-and-abstraction-mapping)
+- [Architecture and invariants](#architecture-and-invariants)
+- [Tests (TDD order)](#tests-tdd-order)
+- [Provider-free experimental plan](#provider-free-experimental-plan)
+- [Hosted decision rule](#hosted-decision-rule)
+- [Evidence and paper policy](#evidence-and-paper-policy)
+- [Rollback strategy](#rollback-strategy)
+- [Completion criteria](#completion-criteria)
+
 > **Status:** saved before production changes on 2026-09-02. This is the
 > execution plan for the current revision; historical formal evidence remains
 > immutable.

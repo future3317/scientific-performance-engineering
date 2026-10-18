@@ -66,7 +66,21 @@ def main() -> None:
         parent_predicate=None,
     )
     assert narrowed.status in {"identified", "underidentified"}
-    assert 0 < len(narrowed.version_space) <= len(result.version_space)
+    # A newly observed numeric value expands the declared threshold vocabulary.
+    # Monotone cardinality is only valid for a fixed vocabulary; incremental
+    # synthesis must instead equal a fresh fit on the same complete evidence.
+    fresh = StatisticalCEGIS(grammar).synthesize(
+        positive=[BoundaryObservation("p", contexts[0], 0.2, True, 0.1, 0.3)],
+        counterexamples=[BoundaryObservation("c", contexts[1], -0.1, True, -0.3, -0.05), second_counterexample],
+        parent_predicate=None,
+    )
+    assert narrowed.version_space and narrowed.version_space == fresh.version_space
+    assert all(
+        match_predicate(predicate, contexts[0])
+        and not match_predicate(predicate, contexts[1])
+        and not match_predicate(predicate, second_counterexample.context)
+        for predicate in narrowed.version_space
+    )
 
     uncertain = synthesizer.synthesize(
         positive=[BoundaryObservation("p", contexts[0], 0.2, True, 0.1, 0.3)],

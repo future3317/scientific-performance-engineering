@@ -324,14 +324,17 @@ def run_budget_aware_ablation(*, root: Path | None = None, seed: int = 7) -> dic
     }
 
 
-def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256) -> dict[str, Any]:
-    """Stress the reserve contract without provider calls or hidden labels.
+def run_budget_aware_reserve_stress(
+    *, seed: int = 7, schedule_count: int = 256, reserve_enabled: bool = True,
+) -> dict[str, Any]:
+    """Stress the reserve contract and its matched no-reserve control.
 
     Each seeded schedule is replayed at three levels of optional-evidence
-    slack.  The schedule and query sequence are identical across levels, so
-    differences reflect only available optional budget.  The measured
-    outcome is operational: optional work admitted/abstained and scheduled
-    cells completed.  It is not a utility or efficacy estimate.
+    slack.  The schedule and query sequence are identical across levels and
+    reserve modes.  With ``reserve_enabled=False``, optional evolution may
+    consume the scheduled execution envelope before tasks are replayed.  The
+    measured outcome is operational: optional work admitted/abstained and
+    scheduled cells completed.  It is not a utility or efficacy estimate.
     """
     from core.acre.resource_budget import ExecutionReserveBudget
 
@@ -362,9 +365,10 @@ def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256)
         queries = tuple(rng.choice(query_costs) for _ in range(rng.randint(2, 8)))
         reserve = float(sum(minimums))
         for level, slack in slack_by_level.items():
+            total_budget = reserve + slack
             ledger = ExecutionReserveBudget(
-                total_budget=reserve + slack,
-                scheduled_minimums=minimums,
+                total_budget=total_budget,
+                scheduled_minimums=minimums if reserve_enabled else (),
             )
             admitted = 0
             abstained = 0
@@ -377,9 +381,17 @@ def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256)
                 else:
                     abstained += 1
             completed = 0
-            while ledger.task_index < len(ledger.scheduled_minimums):
-                ledger = ledger.advance_task()
-                completed += 1
+            if reserve_enabled:
+                while ledger.task_index < len(ledger.scheduled_minimums):
+                    ledger = ledger.advance_task()
+                    completed += 1
+            else:
+                remaining = max(0.0, total_budget - ledger.evolution_spent)
+                for minimum_cost in minimums:
+                    if remaining + 1e-12 < minimum_cost:
+                        break
+                    remaining -= minimum_cost
+                    completed += 1
             row = summary[level]
             row["scheduled_cells"] += length
             row["scheduled_cells_completed"] += completed
@@ -405,6 +417,8 @@ def run_budget_aware_reserve_stress(*, seed: int = 7, schedule_count: int = 256)
         "provider_calls": 0,
         "seed": int(seed),
         "schedule_count": int(schedule_count),
+        "reserve_enabled": bool(reserve_enabled),
+        "resource_policy": "execution_reserve" if reserve_enabled else "no_execution_reserve",
         "design": {
             "schedule_lengths": list(schedule_lengths),
             "minimum_execution_costs": list(minimum_costs),
@@ -454,12 +468,15 @@ def main() -> int:
     parser.add_argument("--component-ablation", action="store_true")
     parser.add_argument("--budget-aware-ablation", action="store_true")
     parser.add_argument("--budget-aware-stress", action="store_true")
+    parser.add_argument("--budget-aware-no-reserve", action="store_true")
     args = parser.parse_args()
-    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.budget_aware_ablation, args.budget_aware_stress))
+    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.budget_aware_ablation, args.budget_aware_stress, args.budget_aware_no_reserve))
     if selected_modes > 1:
         parser.error("provider-free experiment modes are mutually exclusive")
     if args.budget_aware_stress:
         report = run_budget_aware_reserve_stress(seed=args.seed)
+    elif args.budget_aware_no_reserve:
+        report = run_budget_aware_reserve_stress(seed=args.seed, reserve_enabled=False)
     elif args.budget_aware_ablation:
         report = run_budget_aware_ablation(root=root, seed=args.seed)
     elif args.component_ablation:
