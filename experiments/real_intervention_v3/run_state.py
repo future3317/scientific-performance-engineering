@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 from experiments.real_intervention_v2.paired_executor import _gpu_snapshot, _run_worker
@@ -35,6 +36,14 @@ def source_identity() -> str:
 
 def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
             timeout: int, environment: dict | None = None) -> dict:
+    if (root/'RESOURCE_CONTRACT.json').exists():
+        contract=read(root/'RESOURCE_CONTRACT.json')
+        elapsed=time.time()-contract['started_unix']
+        if elapsed+timeout > contract['wall_cap_seconds']:
+            raise RuntimeError('study wall cap cannot accommodate next arm')
+        used=sum(p.stat().st_size for p in root.rglob('*') if p.is_file())
+        if used > contract['disk_cap_bytes']:
+            raise RuntimeError('study disk cap reached')
     folder = root / 'raw' / key
     folder.mkdir(parents=True, exist_ok=True)
     spec_digest = digest(spec)
@@ -58,10 +67,23 @@ def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
                 'CUBLAS_WORKSPACE_CONFIG': ':4096:8'})
     env.update(environment or {})
     before = _gpu_snapshot(gpu)
+    if before is None or 'error' in before:
+        raise RuntimeError('GPU telemetry unavailable before worker')
     command = [sys.executable, '-m', module, '--spec', str(folder / 'spec.json'),
                '--output', str(folder / 'result.json')]
     start = time.perf_counter()
-    code, out, err, timed_out, cpu = _run_worker(command, env, timeout)
+    samples=[dict(unix=time.time(),snapshot=before)]
+    stop=threading.Event()
+    def sample():
+        while not stop.wait(5):
+            samples.append({'unix':time.time(),'snapshot':_gpu_snapshot(gpu)})
+    monitor=threading.Thread(target=sample,daemon=True)
+    monitor.start()
+    try:
+        code, out, err, timed_out, cpu = _run_worker(command, env, timeout)
+    finally:
+        stop.set()
+        monitor.join(timeout=10)
     (folder / 'stdout.log').write_text(out)
     (folder / 'stderr.log').write_text(err)
     result = read(folder / 'result.json') if (folder / 'result.json').exists() else {
@@ -69,6 +91,7 @@ def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
     result.update({'returncode': code, 'timed_out': timed_out, 'parent_wall_s': time.perf_counter()-start,
                    'child_cpu_s': cpu, 'gpu_telemetry_before': before,
                    'gpu_telemetry_after': _gpu_snapshot(gpu), 'spec_digest': spec_digest,
+                   'gpu_telemetry_samples':samples,
                    'cache_root': str(cache), 'environment_overrides': environment or {}})
     dump(folder / 'receipt.json', result)
     return result

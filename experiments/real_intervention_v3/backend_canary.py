@@ -11,6 +11,20 @@ import traceback
 from .run_state import dump, read
 
 
+def healthy(receipts: list[dict]) -> bool:
+    if len(receipts)!=3:
+        return False
+    caches=set()
+    for row in receipts:
+        if row.get('status')!='valid' or len(row.get('compiled_graphs',[]))!=2:
+            return False
+        if not all(g.get('generated_kernel_count',0)>0 and g.get('numeric_valid')
+                   for g in row['compiled_graphs']):
+            return False
+        caches.add(row['identity']['cache'])
+    return len(caches)==3
+
+
 def canary(spec: dict) -> dict:
     import torch
     import triton
