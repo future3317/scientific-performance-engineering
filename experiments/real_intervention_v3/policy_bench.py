@@ -282,7 +282,8 @@ def _family_ci(rows: Sequence[Mapping[str, Any]], *, replicates: int = 10_000, s
     rng = random.Random(seed)
     draws = sorted(statistics.fmean(means[names[rng.randrange(len(names))]] for _ in names) for _ in range(replicates))
     return {"lower": draws[int(0.025 * (replicates - 1))], "upper": draws[int(0.975 * (replicates - 1))],
-            "unit": "family", "families": len(names), "seed": seed, "replicates": replicates}
+            "unit": "family", "estimand": "family-equal mean net seconds per pair",
+            "families": len(names), "seed": seed, "replicates": replicates}
 
 
 def evaluate_policies(pairs: list[dict[str, Any]], frozen: dict[str, Any]) -> list[dict[str, Any]]:
@@ -312,6 +313,12 @@ def evaluate_policies(pairs: list[dict[str, Any]], frozen: dict[str, Any]) -> li
             n = len(routed)
             deployed = [row for row in routed if row["deploy"]]
             missing_deployed = any(row["deployed_outcome_missing"] for row in deployed)
+            unknown_deployed = sum(row["deployed_outcome_missing"] for row in deployed)
+            unknown_harm = sum(row["deployed_outcome_missing"] and not row["candidate_failure"] for row in deployed)
+            observed_deployed_harm = sum(row["harm"] for row in deployed)
+            harm_known = unknown_deployed == 0
+            conditional_harm_rate = observed_deployed_harm / len(deployed) if deployed and harm_known else None
+            unconditional_harm_rate = sum(row["harm"] for row in routed) / n if n and harm_known else None
             observed_net = sum(row["observed_saving_seconds"] for row in routed)
             all_known = not missing_deployed
             ci_rows = [dict(row, observed_saving_seconds=row["observed_saving_seconds"] - row["gate_overhead_seconds"])
@@ -322,9 +329,14 @@ def evaluate_policies(pairs: list[dict[str, Any]], frozen: dict[str, Any]) -> li
                 "n_pairs": n,
                 "coverage": len(deployed) / n if n else None,
                 "deployed": len(deployed), "harm_unconditional_count": sum(row["harm"] for row in routed),
-                "harm_unconditional_rate": sum(row["harm"] for row in routed) / n if n else None,
-                "harm_deployed_count": sum(row["harm"] for row in deployed),
-                "conditional_harm_rate": sum(row["harm"] for row in deployed) / len(deployed) if deployed else None,
+                "harm_unconditional_rate": unconditional_harm_rate,
+                "harm_unconditional_rate_lower": sum(row["harm"] for row in routed) / n if n else None,
+                "harm_unconditional_rate_upper": (sum(row["harm"] for row in routed) + unknown_harm) / n if n else None,
+                "harm_deployed_count": observed_deployed_harm,
+                "unknown_deployed_count": unknown_deployed,
+                "conditional_harm_rate": conditional_harm_rate,
+                "conditional_harm_rate_lower": observed_deployed_harm / len(deployed) if deployed else None,
+                "conditional_harm_rate_upper": (observed_deployed_harm + unknown_harm) / len(deployed) if deployed else None,
                 "unsafe_deployment_count": sum(row["unsafe_deployment"] for row in routed),
                 "candidate_failure_count": sum(row["candidate_failure"] for row in routed),
                 "candidate_correct_count": sum(row["candidate_correct"] for row in routed),
@@ -344,7 +356,8 @@ def evaluate_policies(pairs: list[dict[str, Any]], frozen: dict[str, Any]) -> li
 
 def write_policy_csv(path: Path, policy_results: Sequence[Mapping[str, Any]]) -> None:
     fields = ("policy", "split", "n_pairs", "coverage", "deployed", "harm_unconditional_count", "harm_unconditional_rate",
-              "harm_deployed_count", "conditional_harm_rate", "unsafe_deployment_count", "candidate_failure_count",
+              "harm_unconditional_rate_lower", "harm_unconditional_rate_upper", "harm_deployed_count", "unknown_deployed_count",
+              "conditional_harm_rate", "conditional_harm_rate_lower", "conditional_harm_rate_upper", "unsafe_deployment_count", "candidate_failure_count",
               "candidate_correct_count", "missing_count", "missed_benefit_seconds", "observed_net_seconds_vs_never",
               "total_net_seconds_vs_never", "net_after_gate_seconds", "gate_overhead_seconds", "family_bootstrap_95_ci_seconds")
     with Path(path).open("w", newline="", encoding="utf-8") as stream:

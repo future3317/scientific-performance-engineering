@@ -55,6 +55,26 @@ def test_policy_counts_candidate_failure_and_preserves_missed_benefit_and_undefi
     assert threshold["family_bootstrap_95_ci_seconds"]["families"] == 2
     assert threshold["family_bootstrap_95_ci_seconds"]["lower"] == 0
     assert threshold["family_bootstrap_95_ci_seconds"]["upper"] == 0
+    assert threshold["family_bootstrap_95_ci_seconds"]["estimand"] == "family-equal mean net seconds per pair"
+
+
+def test_missing_deployed_outcome_makes_harm_rates_unknown_with_observed_bounds():
+    observed_harm = pair("harm", "family-a", baseline=8, candidate=10)
+    unknown = pair("unknown", "family-b", status="PLATFORM_LINK_OR_INSTALL", s1="error", candidate=None)
+    frozen = {"development": {"horizon_threshold": 1000,
+                               "simple_supervised": {"feature": None, "threshold": None, "positive_above": True}},
+              "acre": {"configured": False, "status": "ACRE_NOT_FITTED"}}
+    always = next(row for row in evaluate_policies([observed_harm, unknown], frozen) if row["policy"] == "ALWAYS")
+    assert always["harm_deployed_count"] == 1
+    assert always["unknown_deployed_count"] == 1
+    assert always["conditional_harm_rate"] is None
+    assert always["conditional_harm_rate_lower"] == 0.5
+    assert always["conditional_harm_rate_upper"] == 1
+    assert always["harm_unconditional_rate"] is None
+    assert always["harm_unconditional_rate_lower"] == 0.5
+    assert always["harm_unconditional_rate_upper"] == 1
+    assert always["total_net_seconds_vs_never"] is None
+    assert always["family_bootstrap_95_ci_seconds"] is None
 
 
 def test_pair_status_alone_classifies_candidate_harm():

@@ -53,3 +53,35 @@ admission and canary code is unchanged. A started unknown arm stays unresolved
 and is never executed again; other prespecified, unstarted arms continue. The
 prior root is preserved and every inherited receipt retains its original
 source identity.
+
+## Observed interrupted execution
+
+Measurement source `9d5a9ebe568ad3824882937a9ae078f61910954d` ran in
+`evospe-rt-v3-20261018-monitor-corrected`. A server reboot interrupted the
+study; its launcher exit code was not persisted. The last DLRM S1 has an
+intent but no terminal receipt and must not be retried. No GPU continuation
+was launched during closeout.
+
+The frozen design contains 108 pairs across 18 families (10 development,
+5 calibration, 3 final). There are 86 closed pairs: 16 valid, 52 unresolved,
+11 numerical mismatches, 6 compile-execution errors, and 1 baseline failure.
+The six compile errors concern cache permissions/missing files, not proven
+model incompatibility. Original labels/receipts remain unchanged; derived
+analysis separates infrastructure failures from candidate harm.
+
+All 16 valid cold-inclusive effects are negative. They cover only three
+development and two calibration families. This selected valid subset does
+not establish universal compile harm. Three valid calibration families are
+missing from the required five, final outcomes remain unopened, and policy
+fitting was not reached. The scientific decision is
+`UNDERPOWERED_NOT_FINAL`; neither learned ACRE efficacy nor threshold
+superiority has been established. Never/Always scores are descriptive
+controls on partial observed splits, not independent final validation.
+
+The measurement revision's full CPU-only suite completed with 788 passed,
+8 warnings, exit 0 (1227.61 seconds). Subsequent zero-GPU scoring corrections
+keep unknown deployed harm/utility unknown and label the family-mean
+per-pair seconds CI separately from total net seconds. Their revision and
+targeted test receipt are recorded in the closeout bundle, separately from
+the measurement source. Unknown attempt resource costs remain unknown;
+observed parent session windows are not actual GPU busy time.
