@@ -137,3 +137,51 @@ def test_inductor_canary_cannot_be_satisfied_by_eager_aa():
     assert healthy(rows)
     rows[1]['compiled_graphs'][0]['generated_kernel_count']=0
     assert not healthy(rows)
+
+
+def test_gpu_migration_never_compares_arms_on_different_devices():
+    a={'status':'valid','weights_sha256':'a','inputs_sha256':'b',
+       'runtime_identity':{'device_uuid':'old-gpu'}}
+    b=dict(a,runtime_identity={'device_uuid':'new-gpu'})
+    assert classify_pair(a,b)=='SESSION_NOISE_UNRESOLVED'
+    assert classify_pair(a,dict(a))=='VALID_PAIR'
+
+
+def test_gpu_migration_requires_real_compiler_canary_not_inherited_health(tmp_path,monkeypatch):
+    from experiments.real_intervention_v3 import run_all
+    calls=[]
+    def execute_canary(root,key,module,spec,gpu,timeout,environment):
+        calls.append((key,gpu))
+        return {'status':'valid','compiled_graphs':[{'generated_kernel_count':1,'numeric_valid':True}]*2,
+                'identity':{'cache':key}}
+    monkeypatch.setattr(run_all,'execute',execute_canary)
+    result=run_all.qualify_migrated_gpu(tmp_path,'gpu3','source',{})
+    assert len(result)==3
+    assert calls==[('canary-runtime-'+str(i),'gpu3') for i in range(3)]
+    run_all.qualify_migrated_gpu(tmp_path,'gpu3','source',{})
+    assert len(calls)==3
+    dump(tmp_path/'CANARY_RUNTIME.json',[{'status':'error'}]*3)
+    with pytest.raises(RuntimeError,match='stop without changing intervention'):
+        run_all.qualify_migrated_gpu(tmp_path,'gpu3','source',{})
+
+
+def test_runtime_gpu_override_preserves_frozen_cohort_and_completed_pair(tmp_path,monkeypatch):
+    from experiments.real_intervention_v3 import paired_study
+    contexts=[{'context_id':name,'split':'development','order_bit':0,'family':name,'model':name,
+               'source':'torchvision','horizon':1,'batch':1} for name in ['old','new']]
+    frozen={'contexts':contexts,'sessions':1,'gpu_uuid':'old-gpu','selected_intervention':'compile'}
+    dump(tmp_path/'FROZEN_MANIFEST.json',frozen)
+    before=(tmp_path/'FROZEN_MANIFEST.json').read_bytes()
+    dump(tmp_path/'pairs'/'old-session-0.json',{'pair_id':'old-session-0','status':'VALID_PAIR'})
+    calls=[]
+    def run(root,key,module,spec,gpu,timeout,env):
+        calls.append((spec['arm'],gpu))
+        return {'status':'valid','inputs_sha256':'input','weights_sha256':'weights',
+                'runtime_identity':{'device_uuid':gpu}}
+    monkeypatch.setattr(paired_study,'execute',run)
+    result=paired_study.measure(tmp_path,dict(frozen,gpu_uuid='new-gpu',arm_timeout_seconds=900),'development',{})
+    assert calls==[('S0','new-gpu'),('S1','new-gpu')]
+    assert result[0]=={'pair_id':'old-session-0','status':'VALID_PAIR'}
+    assert result[1]['status']=='VALID_PAIR'
+    assert result[1]['runtime_gpu_uuid']=='new-gpu'
+    assert (tmp_path/'FROZEN_MANIFEST.json').read_bytes()==before
