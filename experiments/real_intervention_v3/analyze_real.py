@@ -81,6 +81,7 @@ def analyze(pairs: list[dict[str, Any]]) -> dict[str, Any]:
     for status in PAIR_STATUSES:
         status_counts.setdefault(status, 0)
     by_split: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    by_source: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     valid_effects: list[dict[str, Any]] = []
     horizons: dict[str, list[dict[str, Any]]] = defaultdict(list)
     resources: dict[str, dict[str, float]] = defaultdict(lambda: {"gpu_seconds": 0.0, "cpu_seconds": 0.0, "wall_seconds": 0.0,
@@ -89,12 +90,14 @@ def analyze(pairs: list[dict[str, Any]]) -> dict[str, Any]:
         split = str(pair.get("split", "UNKNOWN"))
         family = str(pair.get("family", "UNKNOWN"))
         by_split[split].append(pair)
+        by_source[str(pair.get("source", "UNKNOWN"))].append(pair)
         valid, baseline, candidate = _valid_pair(pair)
         if valid:
             assert baseline is not None and candidate is not None
             if baseline > 0 and candidate > 0:
                 feature = pair.get("features") if isinstance(pair.get("features"), Mapping) else {}
                 effect = {"pair_id": pair.get("pair_id"), "family": family, "split": split,
+                          "source": str(pair.get("source", "UNKNOWN")),
                           "horizon": feature.get("horizon", pair.get("horizon")),
                           "baseline_seconds": baseline, "candidate_seconds": candidate,
                           "log_benefit": math.log(baseline / candidate), "speedup": baseline / candidate}
@@ -133,6 +136,15 @@ def analyze(pairs: list[dict[str, Any]]) -> dict[str, Any]:
                                           "mean": statistics.fmean(values) if values else None}
                                     for arm, values in steady_state[split].items()}}
 
+    source_summary = {}
+    for source, rows in sorted(by_source.items()):
+        source_effects = [row for row in valid_effects if row["source"] == source]
+        source_summary[source] = {
+            "input_kind": "REAL_MODEL_MATERIALIZED_INPUT" if source == "torchvision" else "TORCHBENCH_MINIATURE_INPUT" if source == "torchbench" else "UNSPECIFIED_INPUT_KIND",
+            "pairs": len(rows), "status_counts": dict(sorted(Counter(str(row.get("status", "MISSING_STATUS")) for row in rows).items())),
+            "effects": _effect_summary(source_effects),
+        }
+
     candidate_failure_statuses = {"INTERVENTION_MODEL_UNSUPPORTED", "INTERVENTION_NUMERIC_MISMATCH"}
     return {
         "n_pairs": len(pairs),
@@ -143,6 +155,7 @@ def analyze(pairs: list[dict[str, Any]]) -> dict[str, Any]:
                                 "session_noise_unresolved_pairs": status_counts["SESSION_NOISE_UNRESOLVED"],
                                 "valid_pairs": status_counts["VALID_PAIR"]},
         "split_summary": split_summary,
+        "source_strata": source_summary,
         "overall_effects": _effect_summary(valid_effects),
         "per_horizon": {horizon: _effect_summary(rows) for horizon, rows in sorted(horizons.items())},
         "statistical_unit": "architecture/model family; contexts and horizons are repeated observations",

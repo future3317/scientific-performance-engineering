@@ -4,7 +4,7 @@ import pytest
 
 from experiments.real_intervention_v3.model_split import split_families
 from experiments.real_intervention_v3.release_final import eligibility
-from experiments.real_intervention_v3.paired_study import classify_pair
+from experiments.real_intervention_v3.paired_study import classify_pair, measure
 from experiments.real_intervention_v3.run_state import dump, execute
 from experiments.real_intervention_v3.run_all import baseline_pool
 
@@ -29,6 +29,11 @@ def test_final_stays_closed_without_five_valid_calibration_families():
     p+=[{'family':'dev','split':'development','status':'VALID_PAIR'}]
     assert not eligibility(p,m)['qualified']
     assert eligibility(p,m)['missing_valid_calibration_families']==1
+
+
+def test_policy_cannot_read_candidate_final_before_freeze(tmp_path):
+    with pytest.raises(RuntimeError,match='closed'):
+        measure(tmp_path,{'contexts':[]},'final',{})
 
 
 def test_missing_cuda_utils_marks_platform_invalid_not_candidate_harm():

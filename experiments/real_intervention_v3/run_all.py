@@ -49,6 +49,9 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
         if read(root/'RUN_IDENTITY.json')!=binding:
             raise RuntimeError('resume source/config/environment identity differs')
     else: dump(root/'RUN_IDENTITY.json',binding)
+    if (root/'RUN_COMPLETE.json').exists():
+        print('ALREADY_COMPLETE',json.dumps(read(root/'RUN_COMPLETE.json')),flush=True)
+        return
     protocol=dict(cfg,source_commit=sha,registered_unix=start)
     if not (root/'EXECUTION_PROTOCOL.json').exists():
         dump(root/'EXECUTION_PROTOCOL.json',protocol)
@@ -56,6 +59,9 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
         dump(root/'RESOURCE_CONTRACT.json',dict(started_unix=start,wall_cap_seconds=cfg['wall_cap_seconds'],
                                                disk_cap_bytes=cfg['disk_cap_bytes'],concurrency=1,cpu_threads=1,
                                                gpu_uuid=cfg['gpu_uuid']))
+    if not (root/'SOURCE_PATCH.diff').exists():
+        patch=subprocess.check_output(['git','diff','57a93a941d7b435fb5389ec2291892a591c9996b',sha])
+        (root/'SOURCE_PATCH.diff').write_bytes(patch)
     os.environ.update({'OMP_NUM_THREADS':'1','OPENBLAS_NUM_THREADS':'1','MKL_NUM_THREADS':'1'})
     # Model code is preinstalled; prevent accidental dataset/weight downloads.
     os.environ.update({'HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1'})

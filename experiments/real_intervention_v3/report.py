@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import io
 import json
 import tarfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-_BUNDLE_SUFFIXES = {".json", ".jsonl", ".log", ".stderr", ".err", ".md", ".csv", ".txt"}
+_BUNDLE_SUFFIXES = {".json", ".jsonl", ".log", ".stderr", ".err", ".md", ".csv", ".txt", ".diff"}
 _EXCLUDED_PARTS = {"cache", "caches", "__pycache__", "weights", "checkpoints", "checkpoint", "models"}
 _EXCLUDED_SUFFIXES = {".pt", ".pth", ".bin", ".safetensors", ".onnx", ".engine", ".so", ".dll"}
 
@@ -43,7 +42,7 @@ def _markdown(metrics: Mapping[str, Any], pairs: Sequence[Mapping[str, Any]], po
         "## Paired evidence", "",
         f"Pairs: {len(pairs)} total; {denom.get('valid_pairs', 0)} valid; {denom.get('candidate_failure_pairs', 0)} candidate failures; {denom.get('baseline_invalid_pairs', 0)} baseline invalid; {denom.get('platform_invalid_pairs', 0)} platform invalid; {denom.get('session_noise_unresolved_pairs', 0)} unresolved.", "",
         f"For valid, correct pairs, median speedup is {overall.get('median_speedup')}; context equal-weighted mean log benefit is {overall.get('context_equal_weighted_mean_log_benefit')}; family equal-weighted mean is {overall.get('family_equal_weighted_mean_log_benefit')} (family bootstrap 95% CI {ci_text}; {overall.get('n_families', 0)} independent families).", "",
-        "Performance describes real PyTorch model code with materialized inputs or TorchBench miniature inputs. It does not establish dataset accuracy, scientific time-to-quality, or automatic Skill generation efficacy.", "",
+        "Torchvision rows are `REAL_MODEL_MATERIALIZED_INPUT`; TorchBench rows are `TORCHBENCH_MINIATURE_INPUT`. Both measure real PyTorch model computation paths, but neither establishes dataset accuracy, scientific time-to-quality, or automatic Skill generation efficacy.", "",
         "## Policy evaluation", "",
         "Each policy is scored by split. Candidate execution failures remain in the denominator and an attempted failed deployment is unsafe. Missing deployed outcomes make total net seconds unknown; no finite penalty or synthetic duration is assigned.", "",
         "| Policy | Split | Coverage | Harm / all | Harm / deployed | Unsafe | Missing | Net seconds vs NEVER | Gate seconds |",
@@ -51,7 +50,8 @@ def _markdown(metrics: Mapping[str, Any], pairs: Sequence[Mapping[str, Any]], po
     ]
     for item in policies:
         net = item.get("total_net_seconds_vs_never")
-        lines.append(f"| {item.get('policy')} | {item.get('split')} | {item.get('coverage')} | {item.get('harm_unconditional_count')} | {item.get('conditional_harm_rate')} | {item.get('unsafe_deployment_count')} | {item.get('missing_count')} | {net if net is not None else 'unknown'} | {item.get('gate_overhead_seconds')} |")
+        role = " (scoring only)" if item.get("role") == "scoring_only" else ""
+        lines.append(f"| {item.get('policy')}{role} | {item.get('split')} | {item.get('coverage')} | {item.get('harm_unconditional_count')} | {item.get('conditional_harm_rate')} | {item.get('unsafe_deployment_count')} | {item.get('missing_count')} | {net if net is not None else 'unknown'} | {item.get('gate_overhead_seconds')} |")
     acre_status = extra.get("policy_freeze", {}).get("acre", {}).get("status", "ACRE status in POLICY_FREEZE.json")
     lines.extend(["", f"ACRE fit status: `{acre_status}`. If no governed rule store/support certificate was available, ACRE abstains and is reported as not fitted.", "",
                   "## Release and resources", "",
@@ -84,7 +84,7 @@ def _collect_bundle_files(root: Path, extra: Mapping[str, Any]) -> dict[str, Pat
         try:
             name = path.relative_to(root.resolve()).as_posix()
         except ValueError:
-        name = Path("external") / path.name
+            name = Path("external") / path.name
             name = name.as_posix()
         if path.is_file() and _is_bundle_evidence(Path(name)):
             if name in selected and selected[name].resolve() != path:
@@ -122,7 +122,7 @@ def write_report(root: Path, metrics: dict[str, Any], pairs: list[dict[str, Any]
         for pair in pairs:
             stream.write(json.dumps(pair, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n")
 
-    fields = ("policy", "split", "n_pairs", "coverage", "deployed", "harm_unconditional_count", "harm_unconditional_rate",
+    fields = ("policy", "role", "split", "n_pairs", "coverage", "deployed", "harm_unconditional_count", "harm_unconditional_rate",
               "harm_deployed_count", "conditional_harm_rate", "unsafe_deployment_count", "candidate_failure_count",
               "candidate_correct_count", "missing_count", "missed_benefit_seconds", "observed_net_seconds_vs_never",
               "total_net_seconds_vs_never", "net_after_gate_seconds", "gate_overhead_seconds", "family_bootstrap_95_ci_seconds")
