@@ -21,6 +21,12 @@ MODEL_CANDIDATES = (
     "dlrm", "fastNLP_Bert", "maml", "pytorch_CycleGAN_and_pix2pix",
     "pytorch_unet", "Super_SloMo",
 )
+BATCH_SIZES = (1,)
+ISOLATED_MODEL_DEPENDENCIES = {
+    "onnx": "1.17.0",
+    "protobuf": "5.29.5",
+    "dominate": "2.9.1",
+}
 
 
 def _lineage(model: str) -> str:
@@ -83,6 +89,13 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
         name: hashlib.sha256((project / "experiments" / "real_intervention_v2" / name).read_bytes()).hexdigest()
         for name in ("worker.py", "adapters.py")
     })
+    for package, expected_version in ISOLATED_MODEL_DEPENDENCIES.items():
+        actual_version = subprocess.run(
+            [sys.executable, "-c", f"from importlib.metadata import version; print(version('{package}'))"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        if actual_version != expected_version:
+            raise ValueError(f"isolated dependency {package} must be {expected_version}, found {actual_version}")
     benchmark_source_bytes = sum(path.stat().st_size for path in tb_root.rglob("*")
                                  if path.is_file() and ".git" not in path.parts)
     if benchmark_source_bytes > 10737418240:
@@ -98,7 +111,7 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
 
     for model in MODEL_CANDIDATES:
         model_rows = []
-        for batch_size in (1, 2):
+        for batch_size in BATCH_SIZES:
             row = {"model": model, "batch_size": batch_size, "adapter": "torchbench"}
             try:
                 network, inputs = load_model(row, "cpu")
@@ -133,10 +146,9 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
             api_matrix.append({"model": model, "batch_size": batch_size, **record})
         if not all(row["status"] == "api_eligible" for row in model_rows):
             materialized.pop((model, 1), None)
-            materialized.pop((model, 2), None)
 
     eligible = [model for model in MODEL_CANDIDATES
-                if (model, 1) in materialized and (model, 2) in materialized]
+                if (model, 1) in materialized]
     lineages = sorted({_lineage(model) for model in eligible},
                       key=lambda name: hashlib.sha256(f"{seed}:{name}".encode()).hexdigest())
     n_dev = int(len(lineages) * 0.5)
@@ -148,7 +160,7 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
     ordered = _ordered_models(eligible, lineages)
     for model in ordered:
         source_digest = materialized[(model, 1)]["model_source_digest"]
-        for batch_size in (1, 2):
+        for batch_size in BATCH_SIZES:
             metadata = materialized[(model, batch_size)]
             for horizon in (1, 16, 128):
                 seed_row = {"model": model, "batch_size": batch_size, "horizon": horizon, "seed": seed}
@@ -185,13 +197,14 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
 
     manifest = {
         "schema_version": 1,
-        "run_id": "evospe-rt-v2-real-compile-support-20261018-deterministic-metadata-r1",
+        "run_id": "evospe-rt-v2-real-compile-support-20261018-deterministic-metadata-b1-r2",
         "cohort_selection": {
             "rule": "all model lineages in the pinned TorchBench candidate pool with eval_deterministic=true metadata",
             "candidate_models": list(MODEL_CANDIDATES),
             "eval_deterministic_metadata": candidate_metadata,
-            "admission_requires_batch_sizes": [1, 2],
+            "admission_requires_batch_sizes": list(BATCH_SIZES),
             "runtime_outcome_replacement": False,
+            "isolated_model_dependencies": ISOLATED_MODEL_DEPENDENCIES,
         },
         "source_commit": source_commit,
         "torchbench_commit": benchmark_commit,
@@ -237,6 +250,7 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
         "gpu_uuid": gpu_uuid, "intervention_id": manifest["intervention_id"],
         "intervention_code_digest": intervention_code_digest,
         "contexts_digest": digest(contexts), "aa_control_context_ids": manifest["aa_control_context_ids"],
+        "cohort_selection": manifest["cohort_selection"],
         "determinism": manifest["determinism"],
         "resource_caps": manifest["resource_caps"],
     }
