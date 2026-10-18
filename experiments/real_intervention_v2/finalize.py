@@ -44,6 +44,33 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _aa_diagnostics(root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    by_id = {row["context_id"]: row for row in manifest["contexts"]}
+    rows = [_read_json(path) for path in sorted((root / "aa" / "pairs").glob("*.json"))]
+    reasons: dict[str, int] = {}
+    per_context = []
+    for row in rows:
+        reason = row.get("correctness", {}).get("reason") or "passed"
+        reasons[reason] = reasons.get(reason, 0) + 1
+        context = by_id[row["context_id"]]
+        per_context.append({
+            "context_id": row["context_id"],
+            "model": context["model"],
+            "lineage_id": context["lineage_id"],
+            "correctness_passed": bool(row.get("correctness", {}).get("passed")),
+            "correctness_reason": row.get("correctness", {}).get("reason"),
+            "arm_status": {name: arm.get("status") for name, arm in row.get("arms", {}).items()},
+        })
+    return {
+        "scheduled_contexts": len(manifest.get("aa_control_context_ids", [])),
+        "completed_contexts": len(rows),
+        "correctness_passed": sum(bool(row.get("correctness", {}).get("passed")) for row in rows),
+        "correctness_failed": sum(not bool(row.get("correctness", {}).get("passed")) for row in rows),
+        "failure_reasons": reasons,
+        "per_context": per_context,
+    }
+
+
 def _percentile(values: list[float], q: float) -> float | None:
     if not values:
         return None
@@ -106,6 +133,12 @@ def finalize(run_root: str | Path) -> dict[str, Any]:
     policy_results = _read_json(root / "POLICY_RESULTS.json") if (root / "POLICY_RESULTS.json").exists() else None
     raw_pairs = [_read_json(path) for path in sorted((root / "pairs").glob("*.json"))]
     contexts = aggregate_sessions(raw_pairs) if raw_pairs else []
+    aa_diagnostics = _aa_diagnostics(root, manifest)
+    admission_rows = _read_json(root / "MODEL_API_MATRIX.json")
+    admission_counts: dict[str, int] = {}
+    for row in admission_rows:
+        status_name = str(row.get("status", "unknown"))
+        admission_counts[status_name] = admission_counts.get(status_name, 0) + 1
     if (root / "PAIRS.jsonl").exists() or (root / "METRICS.json").exists() or (root / "EVIDENCE_BUNDLE.tar.gz").exists():
         raise FileExistsError("final outputs already exist; refusing to replace evidence")
 
@@ -150,6 +183,8 @@ def finalize(run_root: str | Path) -> dict[str, Any]:
         "contexts": {"scheduled": len(manifest["contexts"]), "paired_contexts_observed": len(contexts),
                       "paired_sessions_scheduled": manifest["planned_pair_sessions"],
                       "paired_sessions_observed": len(raw_pairs)},
+        "model_admission": {"matrix_rows": len(admission_rows), "status_counts": admission_counts,
+                            "eligible_lineages": len({row["lineage_id"] for row in manifest["contexts"]})},
         "effect_by_split": _effect_summary(contexts, float((policy or {}).get("minimum_effect_log", 0.04879016416943205)),
                                              int(manifest["seed"])),
         "resource_usage": state.get("resource_usage", {}),
@@ -157,9 +192,16 @@ def finalize(run_root: str | Path) -> dict[str, Any]:
         "policy_frozen": {"policy_digest": policy.get("policy_digest"),
                           "final_decision_digest": policy.get("final_decision_digest"),
                           "acre_status": policy.get("acre_status")} if policy else None,
+        "aa_diagnostics": aa_diagnostics,
+        "s1_started": any(row.get("arms", {}).get("compile", {}).get("status") != "not_started"
+                           for row in raw_pairs),
+        "final_outcomes_accessed": bool(policy_results) or any(
+            row.get("context", {}).get("split") == "final_untouched" for row in raw_pairs),
         "policy_results": policy_results,
         "science_external_zinc": "NOT_RUN",
         "raw_pair_receipts": raw_pair_hashes,
+        "raw_aa_receipts": {str(path.relative_to(root)): _sha(path.read_bytes())
+                             for path in sorted((root / "aa" / "pairs").glob("*.json"))},
         "source_paths": {"manifest": "RUN_MANIFEST.json", "approval": "APPROVAL_BINDING.json",
                          "progress": "RUN_PROGRESS.json"},
     }
@@ -180,16 +222,33 @@ def finalize(run_root: str | Path) -> dict[str, Any]:
         report.append(f"- `{split}`: n={summary['valid_contexts']} valid contexts across {summary['valid_independent_lineages']} lineages; "
                       f"positive={summary['positive']}, negative={summary['negative']}, unresolved={summary['unresolved']}; "
                       f"mean log benefit={summary['mean_log_benefit']}; 95% lineage-bootstrap CI={summary['lineage_cluster_bootstrap_95_ci']}")
-    report.extend(["", "## Interpretation boundary", "",
-                   "This is real TorchBench model-code runtime evidence for a fixed compile intervention. It does not validate automatic Skill generation or scientific-dataset time-to-quality. ACRE was scored only through the frozen policy path; where no governed support certificate existed, it abstained.",
-                   "", "## Artifacts", "", "See `METRICS.json`, `PAIRS.jsonl`, `ACRE_POLICY_TABLE.csv`, and the sanitized evidence bundle."])
+    if policy_results is None:
+        report.extend(["", "## Interpretation boundary", "",
+                       (f"The run stopped at the A/A precondition: {aa_diagnostics['correctness_passed']} of "
+                        f"{aa_diagnostics['completed_contexts']} completed controls passed output correctness. "
+                        f"No S0/S1 pair was started, no policy was frozen, and final outcomes were not accessed. "
+                        "This run supports no intervention-efficacy or routing claim.")])
+    else:
+        report.extend(["", "## Interpretation boundary", "",
+                       "This is real TorchBench model-code runtime evidence for a fixed compile intervention. It does not validate automatic Skill generation or scientific-dataset time-to-quality. ACRE was scored only through the frozen policy path; where no governed support certificate existed, it abstained."])
+    report.extend(["", "## Artifacts", "", "See `METRICS.json`, `PAIRS.jsonl`, `ACRE_POLICY_TABLE.csv`, and the sanitized evidence bundle."])
     report_bytes = ("\n".join(report) + "\n").encode()
-    paper_ready = ("# Results paper-ready summary\n\n"
-                   "The study evaluates one fixed executable intervention: eager execution versus `torch.compile` with the inductor backend and default mode. Models are pinned to the TorchBench source commit and split by model lineage before S0/S1 outcomes. The primary estimand is cold-inclusive model-job wall time over the planned inference horizon; warm repeated timing is reported separately.\n\n"
-                   "## New evidence\n\n"
-                   f"Run status: **{state['status']}**. The frozen cohort contains {metrics['model_lineages']['scheduled']} model lineages and {len(manifest['contexts'])} planned contexts; {len(contexts)} contexts have observed paired sessions. Provider calls are zero. See `METRICS.json` for split-specific validity, effects, uncertainty, failures, resource use, and frozen-policy results.\n\n"
-                   "## Claim boundary\n\n"
-                   "These measurements concern runtime behavior of real benchmark model implementations under one fixed compile intervention. They do not establish that ACRE or automatic skill generation improves scientific training quality. Any routing result is conditional on the frozen pre-execution policy and observed final receipts; pairwise oracle is a post-hoc upper bound only. PyG ZINC was not run in this result root.\n").encode()
+    if policy_results is None:
+        paper_ready = ("# Results paper-ready summary\n\n"
+                       f"Run status: **{state['status']}**. The predeclared A/A gate completed {aa_diagnostics['completed_contexts']} controls; "
+                       f"{aa_diagnostics['correctness_passed']} passed output correctness. The runner therefore started no eager-versus-compile pairs, "
+                       "froze no policy, and did not access final outcomes. Provider calls were zero.\n\n"
+                       "## Claim boundary\n\n"
+                       "This is an engineering-validity stop, not a negative efficacy estimate: the intervention effect was not measured. "
+                       "No ACRE, routing, or compile-benefit claim follows from this run. See `METRICS.json` and the evidence bundle for the admission matrix, "
+                       "A/A receipts, correctness failures, and resource accounting.\n").encode()
+    else:
+        paper_ready = ("# Results paper-ready summary\n\n"
+                       "The study evaluates one fixed executable intervention: eager execution versus `torch.compile` with the inductor backend and default mode. Models are pinned to the TorchBench source commit and split by model lineage before S0/S1 outcomes. The primary estimand is cold-inclusive model-job wall time over the planned inference horizon; warm repeated timing is reported separately.\n\n"
+                       "## New evidence\n\n"
+                       f"Run status: **{state['status']}**. The frozen cohort contains {metrics['model_lineages']['scheduled']} model lineages and {len(manifest['contexts'])} planned contexts; {len(contexts)} contexts have observed paired sessions. Provider calls are zero. See `METRICS.json` for split-specific validity, effects, uncertainty, failures, resource use, and frozen-policy results.\n\n"
+                       "## Claim boundary\n\n"
+                       "These measurements concern runtime behavior of real benchmark model implementations under one fixed compile intervention. They do not establish that ACRE or automatic skill generation improves scientific training quality. Any routing result is conditional on the frozen pre-execution policy and observed final receipts; pairwise oracle is a post-hoc upper bound only. PyG ZINC was not run in this result root.\n").encode()
 
     outputs = {
         "PAIRS.jsonl": pairs_bytes,
