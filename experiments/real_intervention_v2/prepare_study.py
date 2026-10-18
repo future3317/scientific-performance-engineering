@@ -30,6 +30,11 @@ def _lineage(model: str) -> str:
     return "bert" if model in {"BERT_pytorch", "hf_Bert"} else model
 
 
+def _ordered_models(eligible: list[str], lineages: list[str]) -> list[str]:
+    lineage_order = {lineage: index for index, lineage in enumerate(lineages)}
+    return sorted(eligible, key=lambda model: (lineage_order[_lineage(model)], model))
+
+
 def _source_digest(root: Path, model: str) -> str:
     folder = root / "torchbenchmark" / "models" / model
     hasher = hashlib.sha256()
@@ -157,6 +162,7 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
                         "gate_calibration" if index < n_dev + n_cal else "final_untouched")
               for index, lineage in enumerate(lineages)}
     contexts = []
+    ordered = _ordered_models(eligible, lineages)
     for model in ordered:
         source_digest = materialized[(model, 1)]["model_source_digest"]
         for batch_size in (1, 2):
