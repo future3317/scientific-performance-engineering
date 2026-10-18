@@ -1,5 +1,15 @@
 # Hosted A/reset Feasibility Failure Forensics
 
+## Contents
+
+- [Follow-up: schedule-fixed v2 calibration pilot](#follow-up-schedule-fixed-v2-calibration-pilot-2026-09-04)
+- [Scope and decision](#scope-and-decision)
+- [Frozen identities and evidence roots](#frozen-identities-and-evidence-roots)
+- [Six-cell execution funnel](#six-cell-execution-funnel)
+- [CORE: correctness failures](#core-correctness-failures)
+- [SCIML: token-limit failures](#sciml-token-limit-failures)
+- [Current status and bounded next action](#current-status-and-bounded-next-action)
+
 Initial report date: 2026-09-03; v2 follow-up: 2026-09-04
 
 ## Follow-up: schedule-fixed v2 calibration pilot (2026-09-04)
