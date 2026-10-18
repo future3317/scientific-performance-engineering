@@ -19,6 +19,15 @@ PAIR_STATUSES = (
 _TIME_KEYS = ("total_cold_inclusive_s", "total_cold_inclusive_seconds", "total_cold_inclusive_timing_seconds")
 
 
+def infrastructure_error(pair: Mapping[str, Any]) -> bool:
+    """Identify observed filesystem failures without rewriting receipt labels."""
+    arm = pair.get("S1")
+    if pair.get("status") != "INTERVENTION_MODEL_UNSUPPORTED" or not isinstance(arm, Mapping):
+        return False
+    error = " ".join(str(arm.get(key, "")) for key in ("error_type", "error", "traceback"))
+    return any(kind in error for kind in ("PermissionError", "FileNotFoundError"))
+
+
 def _time(receipt: Mapping[str, Any], keys: Sequence[str]) -> float | None:
     for key in keys:
         value = receipt.get(key)
@@ -161,7 +170,8 @@ def analyze(pairs: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "n_pairs": len(pairs),
         "failure_denominator": {"all_pairs": len(pairs), "status_counts": dict(sorted(status_counts.items())),
-                                "candidate_failure_pairs": sum(status_counts[s] for s in candidate_failure_statuses),
+                                "candidate_failure_pairs": sum(pair.get("status") in candidate_failure_statuses and not infrastructure_error(pair) for pair in pairs),
+                                "infrastructure_execution_error_pairs": sum(infrastructure_error(pair) for pair in pairs),
                                 "platform_invalid_pairs": status_counts["PLATFORM_LINK_OR_INSTALL"],
                                 "baseline_invalid_pairs": status_counts["BASELINE_INVALID"],
                                 "session_noise_unresolved_pairs": status_counts["SESSION_NOISE_UNRESOLVED"],

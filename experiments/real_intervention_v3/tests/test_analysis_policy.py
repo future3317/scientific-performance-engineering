@@ -77,7 +77,7 @@ def test_missing_deployed_outcome_makes_harm_rates_unknown_with_observed_bounds(
     assert always["family_bootstrap_95_ci_seconds"] is None
 
 
-def test_pair_status_alone_classifies_candidate_harm():
+def test_model_failure_status_classifies_harm_without_filesystem_errors():
     from experiments.real_intervention_v3.policy_bench import _candidate_failure
 
     model_failure = pair("unsupported", "family-u", status="INTERVENTION_MODEL_UNSUPPORTED", s1="error", candidate=None)
@@ -93,6 +93,30 @@ def test_pair_status_alone_classifies_candidate_harm():
                   if row["policy"] == "ALWAYS")
     assert always["candidate_failure_count"] == 2
     assert always["unsafe_deployment_count"] == 2
+
+
+def test_filesystem_errors_keep_raw_labels_but_not_known_model_harm():
+    import copy
+    for error in ("PermissionError: /cache/triton/cuda_utils.so", "FileNotFoundError: /cache/inductor/kernel.py"):
+        failed = pair("infra", "family-i", status="INTERVENTION_MODEL_UNSUPPORTED", s1="error", candidate=None)
+        failed["S1"]["error"] = error
+        original = copy.deepcopy(failed)
+        counts = analyze([failed])["failure_denominator"]
+        assert counts["candidate_failure_pairs"] == 0
+        assert counts["infrastructure_execution_error_pairs"] == 1
+        assert counts["status_counts"]["INTERVENTION_MODEL_UNSUPPORTED"] == 1
+        frozen = {"development": {"horizon_threshold": 1000,
+                  "simple_supervised": {"feature": None, "threshold": None, "positive_above": True}},
+                  "acre": {"configured": False}}
+        always = next(row for row in evaluate_policies([failed], frozen) if row["policy"] == "ALWAYS")
+        assert always["deployed"] == 1
+        assert always["unsafe_deployment_count"] == always["harm_deployed_count"] == 0
+        assert always["unknown_deployed_count"] == 1
+        assert always["conditional_harm_rate"] is None
+        assert always["conditional_harm_rate_lower"] == 0
+        assert always["conditional_harm_rate_upper"] == 1
+        assert always["total_net_seconds_vs_never"] is None
+        assert failed == original
 
 
 def test_freeze_uses_only_development_and_records_release_and_acre_not_fitted(tmp_path):

@@ -10,7 +10,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .analyze_real import _time
+from .analyze_real import _time, infrastructure_error
 
 
 POLICIES = ("NEVER", "ALWAYS", "HORIZON_ONLY", "SIMPLE_SUPERVISED", "ORIGINAL_ACRE", "REGIME_AWARE_ACRE", "ORACLE")
@@ -42,7 +42,7 @@ def _valid_candidate(pair: Mapping[str, Any]) -> tuple[bool, float | None, float
 
 
 def _candidate_failure(pair: Mapping[str, Any]) -> bool:
-    return pair.get("status") in {"INTERVENTION_MODEL_UNSUPPORTED", "INTERVENTION_NUMERIC_MISMATCH"}
+    return pair.get("status") in {"INTERVENTION_MODEL_UNSUPPORTED", "INTERVENTION_NUMERIC_MISMATCH"} and not infrastructure_error(pair)
 
 
 def _label(pair: Mapping[str, Any]) -> int | None:
