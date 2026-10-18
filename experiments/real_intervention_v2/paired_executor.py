@@ -149,6 +149,7 @@ def run_pair(
         env = os.environ.copy()
         env["TORCHINDUCTOR_CACHE_DIR"] = str(cache)
         env["PYTHONPATH"] = str(project) + os.pathsep + env.get("PYTHONPATH", "")
+        env["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
         if device.startswith("cuda"):
             gpu_uuid = context.get("gpu_uuid")
             if not gpu_uuid:
