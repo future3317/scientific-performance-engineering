@@ -1,5 +1,9 @@
 # Public-Benchmark Prospective Evaluation Implementation Plan
 
+## Contents
+
+- [Global Constraints](#global-constraints)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement and validate a benchmark-native prospective evaluation path, starting with a ScienceWorld smoke and stopping safely when its pre-registered gates fail.

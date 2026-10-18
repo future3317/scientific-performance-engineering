@@ -1,5 +1,16 @@
 # EvoSPE / ACRE Phase3 execution report
 
+## Contents
+
+- [A. Repository, identities and protection](#a-repository-identities-and-protection)
+- [B. Data split and final reserve](#b-data-split-and-final-reserve)
+- [C. Provider authorization and execution](#c-provider-authorization-and-execution)
+- [D. Real no-Skill diagnostic](#d-real-no-skill-diagnostic)
+- [E. Real model Skill evolution](#e-real-model-skill-evolution)
+- [F. Independent outer and ACRE evidence](#f-independent-outer-and-acre-evidence)
+- [G. Server tests and code delivery](#g-server-tests-and-code-delivery)
+- [H. Scientific boundary and next decision](#h-scientific-boundary-and-next-decision)
+
 Source: `EvoSPE_Codex_Phase3_Skill_Efficacy_and_ACRE_Taskbook_20261016.md`,
 read completely. This is zero-provider preparation, not a completed efficacy
 experiment. T1–T4 have no user spending authorization.

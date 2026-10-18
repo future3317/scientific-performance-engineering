@@ -1,5 +1,17 @@
 # EvoSPE Phase2 execution report
 
+## Contents
+
+- [1. Repository / commit / evidence identity](#1-repository--commit--evidence-identity)
+- [2. Implementation by work package](#2-implementation-by-work-package)
+- [3. Real Agent viability](#3-real-agent-viability)
+- [4. Model-driven Skill evolution](#4-model-driven-skill-evolution)
+- [5. Fixed-Skill gate and held-out](#5-fixed-skill-gate-and-held-out)
+- [6. Total cost and budgets](#6-total-cost-and-budgets)
+- [7. Test integrity and scientific claim scope](#7-test-integrity-and-scientific-claim-scope)
+- [8. Artifacts and no-overwrite proof](#8-artifacts-and-no-overwrite-proof)
+- [9. Approved real B execution and decision](#9-approved-real-b-execution-and-decision)
+
 Source: `EvoSPE_Codex_Phase2_Real_Efficacy_Taskbook_20261016.md`, especially
 sections 0 and 12. This is a new study, not a revision of historical results.
 
