@@ -21,6 +21,7 @@ from benchmark.boundary.families import family_cases, run_boundary_family
 from benchmark.boundary.baselines import (
     _distance,
     _grammar_for,
+    _shortest_positive_rule,
     _workload,
     predict_applicability,
 )
@@ -440,6 +441,7 @@ def run_support_boundary_package(
             "layers": {},
             "matched_coverage": {},
             "counterexample_dose": {},
+            "frozen_policy": {},
         }
         for name, policy in layers.items():
             predictions = predict_applicability(policy, evidence, evaluation, family=family)
@@ -462,6 +464,22 @@ def run_support_boundary_package(
 
         positives = [item for item in evidence if item.positive_anchor()]
         counterexamples = [item for item in evidence if item.certified_counterexample()]
+        full_synthesis = StatisticalCEGIS(_grammar_for(family)).synthesize(
+            positive=positives,
+            counterexamples=counterexamples,
+            parent_predicate=None,
+        )
+        global_predicate = _shortest_positive_rule(positives, family)
+        family_record["frozen_policy"] = {
+            "full_acre_predicate": full_synthesis.predicate,
+            "global_utility_predicate": global_predicate,
+            "matched_positive_threshold": threshold,
+            "positive_contexts": [dict(item.context) for item in positives],
+            "observed_contexts": [
+                {"context": dict(item.context), "positive": bool(item.positive_anchor())}
+                for item in evidence
+            ],
+        }
         for dose in (0.0, 0.25, 0.5, 1.0):
             per_family: list[dict[str, Any]] = []
             for subset_seed in range(subset_seeds):
@@ -573,6 +591,127 @@ def run_support_boundary_package(
             "summary": dose_summary,
         },
         "interpretation": "provider-free mechanism diagnostics; family-cluster intervals use family means, subset seeds are descriptive repeats and pooled counts have no iid binomial confidence claim; no hosted efficacy claim",
+    }
+
+
+def _context_workload(context: dict[str, Any]) -> dict[str, Any]:
+    workload = context.get("workload")
+    return workload if isinstance(workload, dict) else context
+
+
+def _frozen_positive_similarity(context: dict[str, Any], positive_contexts: list[dict[str, Any]]) -> float:
+    if not positive_contexts:
+        return 0.0
+    return max(
+        1.0 / (1.0 + _distance(_context_workload(anchor), _context_workload(context)))
+        for anchor in positive_contexts
+    )
+
+
+def _replication_policy_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total = sum(
+        int(row["metrics"][metric])
+        for row in rows
+        for metric in ("tp", "fp", "fn", "tn")
+    )
+    unsupported = sum(int(row["metrics"]["fp"]) for row in rows)
+    return {
+        "raw_counts": {
+            metric: sum(int(row["metrics"][metric]) for row in rows)
+            for metric in ("tp", "fp", "fn", "tn")
+        },
+        "unsupported_all": unsupported / total if total else 0.0,
+        "family_cluster": {
+            metric: _bootstrap_mean(
+                [float(row["metrics"][metric]) for row in rows if row["metrics"][metric] is not None],
+                seed=14000 + len(metric),
+            )
+            for metric in ("unsafe_generalization_rate", "recall", "abstention_rate")
+        },
+    }
+
+
+def run_support_boundary_replication(
+    frozen_package: dict[str, Any], *, surface_count: int = 100, seeds: tuple[int, ...] = (8, 9, 10, 11, 12),
+) -> dict[str, Any]:
+    """Evaluate frozen policies on new contexts without refitting or relabeling."""
+    if not seeds:
+        raise ValueError("at least one replication seed is required")
+    if frozen_package.get("seed") in seeds:
+        raise ValueError("replication seeds must not include the frozen package source seed")
+    frozen_by_family = {row["family"]: row["frozen_policy"] for row in frozen_package["family_rows"]}
+    policies = ("activation", "global_utility_no_ce", "nearest", "matched_coverage", "full_acre")
+    replications: list[dict[str, Any]] = []
+    for seed in seeds:
+        family_rows: dict[str, list[dict[str, Any]]] = {policy: [] for policy in policies}
+        for family in PILOT_FAMILIES:
+            frozen = frozen_by_family[family]
+            sealed = family_cases(family, surface_count=surface_count, seed=seed)["sealed_boundary_pool"]
+            evaluation = sorted(sealed[1::2], key=lambda item: item.observation_id)
+            truth = {item.observation_id: item.expected_applicable for item in evaluation}
+            for policy in policies:
+                predictions: dict[str, bool] = {}
+                for item in evaluation:
+                    if policy == "activation":
+                        predictions[item.observation_id] = True
+                    elif policy == "global_utility_no_ce":
+                        predicate = frozen["global_utility_predicate"]
+                        predictions[item.observation_id] = bool(predicate and match_predicate(predicate, item.context))
+                    elif policy == "full_acre":
+                        predicate = frozen["full_acre_predicate"]
+                        predictions[item.observation_id] = bool(predicate and match_predicate(predicate, item.context))
+                    elif policy == "matched_coverage":
+                        predictions[item.observation_id] = _frozen_positive_similarity(
+                            item.context, frozen["positive_contexts"],
+                        ) >= float(frozen["matched_positive_threshold"])
+                    else:
+                        nearest = min(
+                            frozen["observed_contexts"],
+                            key=lambda candidate: (
+                                _distance(_context_workload(candidate["context"]), _context_workload(item.context)),
+                                json.dumps(candidate["context"], sort_keys=True),
+                            ),
+                        )
+                        predictions[item.observation_id] = bool(nearest["positive"])
+                family_rows[policy].append({
+                    "family": family,
+                    "seed": seed,
+                    "metrics": evaluate_applicability(predictions, truth),
+                })
+        replications.append({
+            "seed": seed,
+            "evaluation_context_count": sum(
+                sum(int(row["metrics"][metric]) for metric in ("tp", "fp", "fn", "tn"))
+                for row in family_rows["full_acre"]
+            ),
+            "policies": {policy: _replication_policy_summary(rows) for policy, rows in family_rows.items()},
+            "family_rows": family_rows,
+        })
+    aggregate_over_seeds: dict[str, Any] = {}
+    for policy in policies:
+        raw_counts = {
+            metric: sum(int(replication["policies"][policy]["raw_counts"][metric]) for replication in replications)
+            for metric in ("tp", "fp", "fn", "tn")
+        }
+        total = sum(raw_counts.values())
+        seed_risks = [float(replication["policies"][policy]["unsupported_all"]) for replication in replications]
+        aggregate_over_seeds[policy] = {
+            "raw_counts": raw_counts,
+            "unsupported_all": raw_counts["fp"] / total if total else 0.0,
+            "seed_level_unsupported_all": _bootstrap_mean(seed_risks, seed=15000 + len(policy)),
+        }
+    return {
+        "schema_version": 1,
+        "provider_calls": 0,
+        "analysis": "frozen_support_boundary_replication",
+        "policy_source": "frozen_support_boundary_package",
+        "source_seed": frozen_package["seed"],
+        "fit_seeds": [],
+        "surface_count": surface_count,
+        "seeds": list(seeds),
+        "replications": replications,
+        "aggregate_over_seeds": aggregate_over_seeds,
+        "interpretation": "provider-free frozen-policy replication; no hosted efficacy claim",
     }
 
 
@@ -719,11 +858,14 @@ def main() -> int:
     parser.add_argument("--method-efficacy-only", action="store_true")
     parser.add_argument("--component-ablation", action="store_true")
     parser.add_argument("--support-boundary-package", action="store_true")
+    parser.add_argument("--support-boundary-replication", action="store_true")
+    parser.add_argument("--frozen-support-boundary", type=Path)
+    parser.add_argument("--replication-seeds", default="8,9,10,11,12")
     parser.add_argument("--budget-aware-ablation", action="store_true")
     parser.add_argument("--budget-aware-stress", action="store_true")
     parser.add_argument("--budget-aware-no-reserve", action="store_true")
     args = parser.parse_args()
-    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.support_boundary_package, args.budget_aware_ablation, args.budget_aware_stress, args.budget_aware_no_reserve))
+    selected_modes = sum(bool(value) for value in (args.method_efficacy_only, args.component_ablation, args.support_boundary_package, args.support_boundary_replication, args.budget_aware_ablation, args.budget_aware_stress, args.budget_aware_no_reserve))
     if selected_modes > 1:
         parser.error("provider-free experiment modes are mutually exclusive")
     if args.budget_aware_stress:
@@ -736,6 +878,12 @@ def main() -> int:
         report = run_provider_free_ablation(root=root, surface_count=args.surface_count, seed=args.seed)
     elif args.support_boundary_package:
         report = run_support_boundary_package(surface_count=args.surface_count, seed=args.seed)
+    elif args.support_boundary_replication:
+        if args.frozen_support_boundary is None:
+            parser.error("--support-boundary-replication requires --frozen-support-boundary")
+        frozen = json.loads(args.frozen_support_boundary.read_text(encoding="utf-8"))
+        seeds = tuple(int(value) for value in args.replication_seeds.split(",") if value.strip())
+        report = run_support_boundary_replication(frozen, surface_count=args.surface_count, seeds=seeds)
     elif args.method_efficacy_only:
         report = run_method_efficacy(surface_count=args.surface_count, seed=args.seed)
     else:
