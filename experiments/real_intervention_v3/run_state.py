@@ -50,16 +50,30 @@ def source_identity() -> str:
 
 
 def inherit_interrupted_study(prior: Path, root: Path) -> None:
-    """Keep the frozen cohort and completed evidence after a monitor-only correction."""
+    """Inherit immutable completed evidence after the observed monitor failure or reboot."""
     if (root/'INHERITED_ATTEMPTS.json').exists():
         return
     if (root/'RUN_IDENTITY.json').exists():
         raise RuntimeError('inheritance must precede the new execution identity')
-    if read(prior/'RUN_EXIT.json')['returncode']==0:
+    if (prior/'RUN_COMPLETE.json').exists():
         raise RuntimeError('completed studies are not continued')
-    cause=read(prior/'FATAL_CAUSE.json')
-    if 'FileNotFoundError' not in cause['traceback'] or 'rglob' not in cause['traceback']:
-        raise RuntimeError('this continuation only corrects the observed live-cache monitor failure')
+    prior_exit=read(prior/'RUN_EXIT.json') if (prior/'RUN_EXIT.json').exists() else None
+    if prior_exit is not None:
+        if prior_exit['returncode']==0:
+            raise RuntimeError('completed studies are not continued')
+        cause=read(prior/'FATAL_CAUSE.json')
+        if 'FileNotFoundError' not in cause['traceback'] or 'rglob' not in cause['traceback']:
+            raise RuntimeError('unrecognized interruption; inspect before continuation')
+        interruption={'reason':'live_cache_monitor_failure','observed_exit':prior_exit}
+    else:
+        # A later host boot proves that pre-boot attempts cannot still be running.
+        boot=next(int(line.split()[1]) for line in Path('/proc/stat').read_text().splitlines()
+                  if line.startswith('btime '))
+        starts=[read(prior/'STUDY_LAUNCH.json')['started_unix']]
+        starts += [read(p)['started_unix'] for p in (prior/'raw').glob('*/intent.json')]
+        if max(starts)>=boot:
+            raise RuntimeError('no terminal exit and no subsequent server reboot; do not resume')
+        interruption={'reason':'server_reboot','observed_exit':None,'subsequent_boot_unix':boot}
     old_source=read(prior/'RUN_IDENTITY.json')['source_commit']
     unchanged=['arm_worker.py','source_adapters.py','model_admission.py','numerical_checks.py','backend_canary.py']
     paths=['experiments/real_intervention_v3/'+name for name in unchanged]
@@ -84,7 +98,8 @@ def inherit_interrupted_study(prior: Path, root: Path) -> None:
     dump(root/'INHERITED_ATTEMPTS.json',{'prior_root':str(prior),'prior_source_commit':old_source,
                                        'execution_source_commit':source_identity(),
                                        'unknown_attempts':unknown,
-                                       'unknown_cpu_seconds':None,'prior_exit':read(prior/'RUN_EXIT.json'),
+                                       'unknown_cpu_seconds':None,'prior_exit':prior_exit,'interruption':interruption,
+                                       'prior_inheritance':read(prior/'INHERITED_ATTEMPTS.json') if (prior/'INHERITED_ATTEMPTS.json').exists() else None,
                                        'policy':'unknown attempts remain unresolved and are never executed again'})
 
 
@@ -109,7 +124,7 @@ def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
             return read(folder / 'receipt.json')
         inherited=root/'INHERITED_ATTEMPTS.json'
         if inherited.exists() and key in read(inherited)['unknown_attempts']:
-            return {'status':'unknown','reason':'prior_monitor_interruption_no_retry',
+            return {'status':'unknown','reason':'prior_interruption_no_retry',
                     'inherited_intent':read(inherited)['unknown_attempts'][key],
                     'derived_status_only':True}
         raise RuntimeError('unknown in-flight attempt; inspect, do not retry: ' + key)
