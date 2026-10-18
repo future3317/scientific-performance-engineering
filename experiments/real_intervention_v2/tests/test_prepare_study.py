@@ -1,6 +1,8 @@
 import pytest
 
 from experiments.real_intervention_v2.prepare_study import (
+    BATCH_SIZES,
+    ISOLATED_MODEL_DEPENDENCIES,
     MODEL_CANDIDATES,
     _determinism_metadata,
     _initialize_run_root,
@@ -13,6 +15,12 @@ def test_deterministic_cohort_is_the_frozen_pinned_metadata_set():
         "dlrm", "fastNLP_Bert", "maml", "pytorch_CycleGAN_and_pix2pix",
         "pytorch_unet", "Super_SloMo",
     )
+    assert BATCH_SIZES == (1,)
+    assert ISOLATED_MODEL_DEPENDENCIES == {
+        "onnx": "1.17.0",
+        "protobuf": "5.29.5",
+        "dominate": "2.9.1",
+    }
 
 
 def test_candidate_metadata_must_declare_deterministic_eval(tmp_path):
