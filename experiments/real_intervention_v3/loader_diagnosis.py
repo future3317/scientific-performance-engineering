@@ -30,6 +30,12 @@ def diagnose(old: Path, root: Path) -> dict:
                          'linker': commands})
     manifest = read(old / 'RUN_MANIFEST.json')
     old_pairs=[__import__('json').loads(line) for line in (old/'PAIRS.jsonl').read_text().splitlines() if line.strip()]
+    packages = {}
+    for name in ['torch', 'torchvision', 'triton']:
+        try:
+            packages[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            packages[name] = None
     result = {'old_status': 'V2_EXPLORATORY_PLATFORM_LIMITED',
               'arm_counts': dict(Counter(r['status'] for _, r in rows)),
               'cuda_utils_failure_count': len(errors), 'evidence': evidence,
@@ -37,7 +43,8 @@ def diagnose(old: Path, root: Path) -> dict:
               'old_pair_sessions':len(old_pairs),
               'old_metrics':read(old/'METRICS.json'),
               'python': sys.executable,
-              'packages': {k: importlib.metadata.version(k) for k in ['torch', 'torchvision', 'triton']},
+              'packages': packages,
+              'missing_packages': [name for name, version in packages.items() if version is None],
               'LD_LIBRARY_PATH': os.environ.get('LD_LIBRARY_PATH'),
               'cause': 'loader ENOENT at recorded cache artifact; later file existence alone cannot establish historical cause'}
     dump(root / 'LOADER_DIAGNOSIS.json', result)
