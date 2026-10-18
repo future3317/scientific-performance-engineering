@@ -39,6 +39,8 @@ def test_load_pinned_benchmark_validates_task_ids(tmp_path) -> None:
     view = load_pinned_benchmark("scienceworld", path, expected_commit="sw-commit")
     assert view.benchmark == "scienceworld"
     assert view.instances[0]["instance_id"] == "a"
+    assert view.claimed_commit == "sw-commit"
+    assert view.commit_verified is False
 
 
 def test_paired_instance_ids_must_match() -> None:

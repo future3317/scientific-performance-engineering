@@ -1,4 +1,4 @@
-"""Pinned SkillGen-compatible benchmark views and outcome adapters."""
+"""SkillGen-compatible benchmark views and outcome adapters."""
 
 from __future__ import annotations
 
@@ -24,7 +24,8 @@ SCORING_ONLY_FIELDS = frozenset(
 class BenchmarkView:
     benchmark: str
     dataset_path: str
-    expected_commit: str
+    claimed_commit: str
+    commit_verified: bool
     instances: tuple[dict[str, Any], ...]
 
 
@@ -35,7 +36,13 @@ def load_pinned_benchmark(benchmark: str, dataset_path: str | Path, *, expected_
     ids = [str(item.get("instance_id")) for item in instances]
     if not instances or any(item == "None" for item in ids) or len(set(ids)) != len(ids):
         raise ValueError(f"benchmark instances must have unique instance_id: {path}")
-    return BenchmarkView(str(benchmark), str(path), str(expected_commit), instances)
+    return BenchmarkView(
+        benchmark=str(benchmark),
+        dataset_path=str(path),
+        claimed_commit=str(expected_commit),
+        commit_verified=False,
+        instances=instances,
+    )
 
 
 def build_public_context(instance: dict[str, Any]) -> dict[str, Any]:

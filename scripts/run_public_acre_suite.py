@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import random
+import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -95,10 +96,38 @@ def _router_decision(client: OpenAI, model: str, context: dict[str, Any], skill_
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         return False, "router_invalid_json", usage
-    value = parsed.get("apply", False)
-    if isinstance(value, str):
-        value = value.strip().lower() in {"true", "yes", "1"}
-    return bool(value), str(parsed.get("reason", "no_reason"))[:240], usage
+    if not isinstance(parsed, dict):
+        return False, "router_invalid_response", usage
+    value = parsed.get("apply")
+    if not isinstance(value, bool):
+        return False, "router_invalid_apply", usage
+    return value, str(parsed.get("reason", "no_reason"))[:240], usage
+
+
+def _verify_skillgen_revision(skillgen_root: Path, expected_commit: str) -> str:
+    """Return HEAD only when the checkout matches the requested revision."""
+    try:
+        actual = subprocess.run(
+            ["git", "-C", str(skillgen_root), "rev-parse", "--verify", "HEAD^{commit}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        expected = subprocess.run(
+            ["git", "-C", str(skillgen_root), "rev-parse", "--verify", f"{expected_commit}^{{commit}}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(
+            "skillgen_root must be a Git checkout and --skillgen-commit must resolve to a commit"
+        ) from exc
+    if actual != expected:
+        raise ValueError(
+            f"SkillGen checkout revision mismatch: expected {expected}, found {actual}"
+        )
+    return actual
 
 
 def _agent_prompt(instance: dict[str, Any], skill_text: str | None) -> str:
@@ -247,6 +276,10 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260915)
     parser.add_argument("--revision", default="public-acre-skillgen-suite-20260915-v1")
     args = parser.parse_args()
+    args.skillgen_commit_claimed = args.skillgen_commit
+    args.skillgen_commit = _verify_skillgen_revision(
+        args.skillgen_root.resolve(), args.skillgen_commit
+    )
     args.out_root.mkdir(parents=True, exist_ok=True)
     started = time.time()
     reports = {}
@@ -258,6 +291,7 @@ def main() -> int:
         "schema_version": 1,
         "revision": args.revision,
         "skillgen_commit": args.skillgen_commit,
+        "skillgen_commit_claimed": args.skillgen_commit_claimed,
         "benchmarks": list(args.benchmarks),
         "model": args.model,
         "train_n": args.train_n,
