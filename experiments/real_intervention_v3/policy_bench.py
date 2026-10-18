@@ -42,11 +42,7 @@ def _valid_candidate(pair: Mapping[str, Any]) -> tuple[bool, float | None, float
 
 
 def _candidate_failure(pair: Mapping[str, Any]) -> bool:
-    status = pair.get("status")
-    arm = pair.get("S1")
-    return status in {"INTERVENTION_MODEL_UNSUPPORTED", "INTERVENTION_NUMERIC_MISMATCH"} or (
-        isinstance(arm, Mapping) and arm.get("status") in {"error", "numeric_mismatch"}
-    )
+    return pair.get("status") in {"INTERVENTION_MODEL_UNSUPPORTED", "INTERVENTION_NUMERIC_MISMATCH"}
 
 
 def _label(pair: Mapping[str, Any]) -> int | None:
@@ -212,7 +208,7 @@ def _acre_route(pair: Mapping[str, Any], frozen: Mapping[str, Any], *, regime_aw
         return False, 0.0, "ACRE_NOT_FITTED"
     engine = AcreEngine.from_store(store)
     features = _features(pair)
-    context = pair.get("acre_context", features.get("acre_context", pair.get("context", features)))
+    context = pair.get("acre_context", features.get("acre_context"))
     if not isinstance(context, Mapping):
         return False, 0.0, "missing_preexecution_context"
     regimes = None

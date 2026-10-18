@@ -20,10 +20,22 @@ def classify_pair(s0: dict, s1: dict) -> str:
     for field in ['inputs_sha256','weights_sha256']:
         if s0.get(field) != s1.get(field):
             raise RuntimeError('paired identity differs: '+field)
+    for receipt in [s0,s1]:
+        for key in ['gpu_telemetry_before','gpu_telemetry_after']:
+            snapshot=receipt.get(key)
+            if snapshot and ('error' in snapshot or snapshot.get('compute_processes')):
+                return 'SESSION_NOISE_UNRESOLVED'
     return 'VALID_PAIR'
 
 
 def measure(root: Path, manifest: dict, split: str, environment: dict) -> list[dict]:
+    if split=='final':
+        policy=root/'POLICY_FREEZE.json'
+        release=root/'FINAL_RELEASE.json'
+        if not policy.exists() or not release.exists() or not read(release)['qualified']:
+            raise RuntimeError('final candidate remains closed before qualified policy freeze')
+        if read(policy).get('manifest_digest') != manifest['manifest_digest']:
+            raise RuntimeError('final policy belongs to a different frozen cohort')
     pairs = []
     for context in manifest['contexts']:
         if context['split'] != split:

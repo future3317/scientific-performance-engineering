@@ -27,7 +27,7 @@ def test_nested_outputs_compare_metadata_finiteness_and_tolerance():
     expected = {"logits": (torch.tensor([1.0, 2.0]), [torch.tensor([3.0])])}
     close = {"logits": (torch.tensor([1.0, 2.000001]), [torch.tensor([3.0])])}
     assert compare_outputs(expected, close, rtol=1e-4, atol=1e-5).passed
-    assert compare_outputs(expected, {"logits": torch.tensor([1.0, 2.0])}, rtol=1e-4, atol=1e-5).reason.startswith("output_type_mismatch")
+    assert compare_outputs(expected, {"logits": torch.tensor([1.0, 2.0])}, rtol=1e-4, atol=1e-5).reason.startswith("tensor_type_mismatch")
     assert compare_outputs(expected, {"logits": (torch.tensor([1.0, float("nan")]), [torch.tensor([3.0])])},
                            rtol=1e-4, atol=1e-5).reason.startswith("non_finite_output")
 
