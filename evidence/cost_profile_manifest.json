@@ -1,0 +1,21 @@
+{
+  "artifact": "cost_profile",
+  "artifact_sha256": "617d672bac3a82a30e9196820aa53cba478fd4bcc16488436e23b46a34d20736",
+  "benchmark_revision": "287a7e3343bc703b00ff5c6e7b8acfb240125af7",
+  "code_commit": "287a7e3343bc703b00ff5c6e7b8acfb240125af7",
+  "hosted_efficacy_status": "UNSUPPORTED",
+  "hosted_feasibility_status": "INSUFFICIENT",
+  "online_stopping_horizon_claim": false,
+  "provider_calls": 0,
+  "repetitions": 20,
+  "results_claimed": false,
+  "schema_version": 1,
+  "sealed_c_d_status": "NOT_RUN",
+  "stopping_horizon_source": "offline_replay",
+  "unrelated_working_tree_paths": [
+    " M benchmark/tests/test_method_efficacy.py",
+    " M scripts/run_pilot_surface_experiments.py"
+  ],
+  "warmup": 2,
+  "working_tree_dirty_at_freeze": true
+}

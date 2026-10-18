@@ -53,6 +53,25 @@ def _upper_binomial_bound(errors: int, total: int, confidence: float) -> float:
     return float(betaincinv(errors + 1, total - errors, confidence))
 
 
+def select_ltt_threshold(
+    scored_calibration: Sequence[tuple[float, bool]],
+    config: LTTConfig,
+) -> tuple[float | None, float | None, int, int]:
+    """Select the lowest calibrated score threshold with simultaneous risk control."""
+    thresholds = sorted(set(float(value) for value in config.threshold_grid))
+    simultaneous_confidence = 1.0 - (1.0 - config.confidence) / len(thresholds)
+    for threshold in thresholds:
+        selected = [unsupported for score, unsupported in scored_calibration if score >= threshold]
+        if not selected:
+            continue
+        deployed = len(selected)
+        errors = sum(bool(unsupported) for unsupported in selected)
+        upper = _upper_binomial_bound(errors, deployed, simultaneous_confidence)
+        if upper <= config.target_risk:
+            return threshold, upper, deployed, errors
+    return None, None, 0, 0
+
+
 @dataclass(frozen=True)
 class LTTLogisticPolicy:
     schema: TypedFeatureSchema
@@ -94,27 +113,18 @@ class LTTLogisticPolicy:
             (scorer.posterior(row["context"])[0], bool(row["unsupported"]))
             for row in calibration_rows
         ]
-        chosen: tuple[float, float, int, int] | None = None
-        thresholds = sorted(set(float(value) for value in config.threshold_grid))
-        simultaneous_confidence = 1.0 - (1.0 - config.confidence) / len(thresholds)
-        for threshold in thresholds:
-            selected = [item for item in scored_calibration if item[0] >= threshold]
-            if not selected:
-                continue
-            errors = sum(int(unsupported) for _, unsupported in selected)
-            upper = _upper_binomial_bound(errors, len(selected), simultaneous_confidence)
-            if upper <= config.target_risk:
-                chosen = (threshold, upper, len(selected), errors)
-                break
+        threshold, upper, deployed, unsupported = select_ltt_threshold(
+            scored_calibration, config
+        )
         return cls(
             schema=schema,
             config=config,
             coefficients=scorer.coefficients,
             covariance=scorer.covariance,
-            threshold=chosen[0] if chosen else None,
-            calibration_risk_upper=chosen[1] if chosen else None,
-            calibration_deployed=chosen[2] if chosen else 0,
-            calibration_unsupported=chosen[3] if chosen else 0,
+            threshold=threshold,
+            calibration_risk_upper=upper,
+            calibration_deployed=deployed,
+            calibration_unsupported=unsupported,
         )
 
     def _scorer(self) -> RSCBModel:
@@ -165,4 +175,4 @@ class LTTLogisticPolicy:
         }
 
 
-__all__ = ["LTTConfig", "LTTLogisticPolicy"]
+__all__ = ["LTTConfig", "LTTLogisticPolicy", "select_ltt_threshold"]
