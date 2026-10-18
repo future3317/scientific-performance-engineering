@@ -12,6 +12,7 @@
 - [Paper closure](#paper-closure)
 - [Remaining limitations](#remaining-limitations)
 - [Commit and provenance summary](#commit-and-provenance-summary)
+- [P0 support-policy frontier and cost profile (unverified)](#p0-support-policy-frontier-and-cost-profile-unverified)
 
 Date: 2026-09-05
 
@@ -303,3 +304,14 @@ fix and its verification. The
 resource evidence remains bound to
 `59fe1a5bd4af06d368eecb1ffd6e50df161fb384` and the historical formal evidence
 remains bound to its original benchmark/controller revisions.
+
+## P0 support-policy frontier and cost profile (unverified)
+
+No execution receipt or source artifact is available here for the proposed P0
+frontier or cost profile, so this snapshot makes no result or effect claim.
+Phase-scripted `scripted_revalidation` is a diagnostic, not an `AcreEngine`
+execution and must not be counted as an ACRE result. In particular, this text
+does not establish matched-coverage or Full ACRE empirical evidence. The frozen
+provider-free mechanism/resource claims, results, and evidence identities above
+remain unchanged. Revisit this section only when the relevant receipts and raw
+artifacts are available and verified.

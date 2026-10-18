@@ -150,6 +150,13 @@ static review, or GPU utilization trace as a campaign-level speedup claim.
   [`EXPERIMENT_WORKFLOW.md`](references/EXPERIMENT_WORKFLOW.md), then load only
   the route relevant to the workload.
 - `scripts/`: validators, replay, telemetry, and contract tests.
+- Offline analysis entries:
+  [`run_support_boundary_analysis.py`](scripts/run_support_boundary_analysis.py),
+  [`run_support_boundary_sensitivity.py`](scripts/run_support_boundary_sensitivity.py),
+  and [`audit_public_skillsbench.py`](scripts/audit_public_skillsbench.py).
+  These are provider-free analysis tools, not new experimental results.
+  Lifecycle controls are phase-scripted diagnostics, not `AcreEngine` runs;
+  upstream inventory never authorizes a prospective experiment by itself.
 - `benchmark/`: frozen family catalog, task packages, harness, formal driver,
   boundary/interaction pilots, and task matrix.
 - `experience/`, `evolution/`, `rules/`, `registry/`: evidence and rule state.
