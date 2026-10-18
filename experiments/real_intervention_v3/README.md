@@ -10,7 +10,10 @@ dataset accuracy or training time-to-quality.
 - [Observed interrupted execution](#observed-interrupted-execution)
 - [Completed authorized GPU continuation](#completed-authorized-gpu-continuation)
 
-Run on dbcloud in the dedicated worktree with the equivcompiler interpreter:
+The measurement used a dedicated dbcloud worktree and the equivcompiler
+interpreter. The recorded command below is historical: do not rerun it against
+the completed result root. Current maintenance/tests use the canonical server
+checkout; any new measurement requires a separately approved identity.
 
 ```bash
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -u \

@@ -126,6 +126,37 @@ def test_provider_free_ablation_reports_common_contract_and_components() -> None
     assert len(report["lifecycle"]["episodes"]) == 3
 
 
+def test_support_boundary_package_keeps_calibration_and_evaluation_separate() -> None:
+    from scripts.run_pilot_surface_experiments import run_support_boundary_package
+
+    report = run_support_boundary_package(surface_count=12, seed=7, subset_seeds=2)
+
+    assert report["provider_calls"] == 0
+    assert report["family_count"] == 11
+    assert report["layers"][-1] == "full_acre"
+    assert all(
+        row["calibration_count"] > 0 and row["evaluation_count"] > 0
+        for row in report["family_rows"]
+    )
+    assert report["counterexample_dose"]["subset_seeds"] == 2
+    assert set(report["counterexample_dose"]["summary"]) == {"0.0", "0.25", "0.5", "1.0"}
+    assert "pooled_unsupported_upper_95_if_zero" not in report["counterexample_dose"]["summary"]["1.0"]
+    assert "subset_seed_summary" in report["family_rows"][0]["counterexample_dose"]["1.0"]
+
+
+def test_matched_coverage_can_select_zero_deployment_with_unit_similarity(monkeypatch) -> None:
+    from types import SimpleNamespace
+    from scripts import run_pilot_surface_experiments as pilot
+
+    observation = SimpleNamespace(observation_id="cal", positive_anchor=lambda: True)
+    monkeypatch.setattr(pilot, "predict_applicability", lambda *args, **kwargs: {"cal": False})
+    monkeypatch.setattr(pilot, "_positive_similarity", lambda *args: 1.0)
+    threshold, coverage, _ = pilot._matched_positive_threshold([observation], [observation], family="compile")
+    assert coverage == 0.0
+    assert threshold > 1.0
+    assert pilot._matched_positive_predictions([observation], [observation], threshold) == {"cal": False}
+
+
 def test_relation_metrics_separate_coverage_from_resolved_accuracy() -> None:
     from benchmark.interaction.factorial_bench import relation_recovery_metrics
 
