@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from benchmark.boundary.ltt import LTTConfig, LTTLogisticPolicy
+from benchmark.boundary.ltt import LTTConfig, LTTLogisticPolicy, select_ltt_threshold
 from benchmark.boundary.typed_features import TypedFeatureSchema
 from benchmark.boundary.policy_eval import Decision
 
@@ -78,3 +78,20 @@ def test_threshold_selection_uses_simultaneous_not_pointwise_bounds() -> None:
     # 60 error-free observations pass a pointwise 95% bound, but not either
     # threshold's 97.5% bound required for selecting from two candidates.
     assert policy.threshold is None
+
+
+def test_shared_ltt_threshold_selection_does_not_certify_zero_deployments() -> None:
+    selected = select_ltt_threshold(
+        [(0.1, False)],
+        LTTConfig(threshold_grid=(0.5, 0.8), target_risk=0.05, confidence=0.95),
+    )
+    assert selected == (None, None, 0, 0)
+
+
+def test_shared_ltt_threshold_selection_applies_bonferroni_correction() -> None:
+    # 60 error-free observations do not pass the per-threshold 97.5% upper bound.
+    selected = select_ltt_threshold(
+        [(0.9, False)] * 60,
+        LTTConfig(threshold_grid=(0.0, 0.1), target_risk=0.05, confidence=0.95),
+    )
+    assert selected == (None, None, 0, 0)

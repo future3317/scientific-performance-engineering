@@ -16,6 +16,11 @@ the executable SPE-EvoBench calibration harness.
 
 ## What is current
 
+Historical public-audit and external-native tools are retained under
+`benchmark/external/` and `experiments/external_real/`. Their original reports
+remain separately scoped; integrating code does not validate those results,
+change the September freeze, or authorize provider or formal runs.
+
 The completed fixed-intervention study is documented in
 [`experiments/real_intervention_v3/README.md`](experiments/real_intervention_v3/README.md).
 It produced 90 development/calibration pair records out of 108 planned, with
