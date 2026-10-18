@@ -59,6 +59,14 @@ def validate_method_ownership(root: Path) -> list[str]:
     return errors
 
 
+def deterministic_boundary_outcome(report: dict) -> dict:
+    """Compare synthesis decisions and provenance, not measured search duration."""
+    result = report['result']
+    provenance = {key: value for key, value in result['provenance'].items()
+                  if key != 'search_elapsed_seconds'}
+    return {**report, 'result': {**result, 'provenance': provenance}}
+
+
 def validate(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     errors.extend(validate_method_ownership(root))
@@ -85,7 +93,7 @@ def validate(root: Path = ROOT) -> list[str]:
                 errors.append(f"{family}: empty {pool_name}")
         first = run_boundary_family(family)
         second = run_boundary_family(family)
-        if first != second:
+        if deterministic_boundary_outcome(first) != deterministic_boundary_outcome(second):
             errors.append(f"{family}: synthesis is not deterministic")
         if first["status"] not in {"identified", "underidentified"} or first["sealed_errors"]:
             errors.append(f"{family}: boundary synthesis failed: {first}")
