@@ -14,6 +14,16 @@ class NumericalComparison:
     reason: str | None = None
 
 
+def configure_determinism(torch: Any) -> None:
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+
+
 def nested_digest(value: Any) -> str:
     """Hash nested tensors by logical values and structure, independent of device."""
     import torch

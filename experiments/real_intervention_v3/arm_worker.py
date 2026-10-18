@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
-import tempfile
+import os
 import time
 import traceback
 from pathlib import Path
@@ -13,6 +12,17 @@ from typing import Any
 
 def _sync(torch: Any) -> None:
     torch.cuda.synchronize()
+
+
+def _strict_compile_setup(torch: Any, receipt: dict[str, Any]):
+    import torch._dynamo
+
+    torch._dynamo.config.suppress_errors = False
+    receipt["dynamo_suppress_errors"] = bool(torch._dynamo.config.suppress_errors)
+    from torch._inductor import metrics
+
+    metrics.reset()
+    return metrics
 
 
 def _cpu_tree(value: Any) -> Any:
@@ -42,25 +52,19 @@ def _validate_spec(spec: dict[str, Any]) -> None:
         raise ValueError("batch and horizon must be positive")
     if spec["source"] == "torchbench" and not spec.get("torchbench_root"):
         raise ValueError("torchbench_root is required for TorchBench models")
-    if spec["arm"] == "S0" and not spec.get("reference_path"):
-        raise ValueError("S0 requires reference_path to persist its output")
-    if spec["arm"] == "S1" and not spec.get("reference_path"):
-        raise ValueError("S1 requires the frozen S0 reference_path")
+    if not spec.get("reference_path"):
+        raise ValueError("both arms require the frozen admission reference_path")
 
 
 def run(spec: dict[str, Any]) -> dict[str, Any]:
     _validate_spec(spec)
-    # Inductor reads this during import. Each worker gets a private cold cache.
-    with tempfile.TemporaryDirectory(prefix="real-intervention-v3-inductor-") as cache_dir:
-        if spec["intervention"] == "compile" and spec["arm"] == "S1":
-            os.environ["TORCHINDUCTOR_CACHE_DIR"] = cache_dir
-        return _run_with_cache(spec, cache_dir)
+    return _run(spec)
 
 
-def _run_with_cache(spec: dict[str, Any], cache_dir: str) -> dict[str, Any]:
+def _run(spec: dict[str, Any]) -> dict[str, Any]:
     import torch
 
-    from .numerical_checks import compare_outputs, nested_digest
+    from .numerical_checks import compare_outputs, configure_determinism, nested_digest
     from .source_adapters import load_model
 
     started_wall = time.perf_counter()
@@ -68,19 +72,16 @@ def _run_with_cache(spec: dict[str, Any], cache_dir: str) -> dict[str, Any]:
     receipt: dict[str, Any] = {
         "status": "error", "arm": spec["arm"], "intervention": spec["intervention"],
         "source": spec["source"], "model": spec["model"], "family": spec["family"],
-        "horizon": int(spec["horizon"]), "cache_scope": "fresh_worker_private" if spec["intervention"] == "compile" else "not_applicable",
-        "cache_id": Path(cache_dir).name if spec["intervention"] == "compile" else None,
+        "horizon": int(spec["horizon"]),
+        "cache_scope": "parent_managed_durable" if spec["intervention"] == "compile" else "not_applicable",
+        "cache_paths": {key: os.environ.get(key) for key in ("TORCHINDUCTOR_CACHE_DIR", "TRITON_CACHE_DIR", "CUDA_CACHE_PATH")},
     }
     try:
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
+        configure_determinism(torch)
         torch.manual_seed(int(spec["seed"]))
         random.seed(int(spec["seed"]))
-        try:
-            import numpy as np
-            np.random.seed(int(spec["seed"]))
-        except ImportError:
-            pass
+        import numpy as np
+        np.random.seed(int(spec["seed"]))
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(int(spec["seed"]))
 
@@ -90,19 +91,26 @@ def _run_with_cache(spec: dict[str, Any], cache_dir: str) -> dict[str, Any]:
         receipt["setup_module_and_data_s"] = time.perf_counter() - setup_start
         receipt["weights_sha256"] = nested_digest(model.state_dict())
         receipt["inputs_sha256"] = nested_digest(inputs)
+        properties = torch.cuda.get_device_properties(0)
+        device_uuid = getattr(properties, "uuid", None)
+        if device_uuid is None:
+            visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+            device_uuid = visible if visible and not visible.isdigit() else None
         receipt["runtime_identity"] = {
             "torch": torch.__version__, "torch_cuda": torch.version.cuda,
             "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
             "device_name": torch.cuda.get_device_name(0),
             "device_capability": list(torch.cuda.get_device_capability(0)),
             "device_index": torch.cuda.current_device(),
-            "device_uuid": getattr(torch.cuda.get_device_properties(0), "uuid", None),
+            "device_uuid": str(device_uuid) if device_uuid is not None else None,
         }
         torch.cuda.reset_peak_memory_stats()
 
+        inductor_metrics = None
         initialize_start = time.perf_counter()
         if spec["arm"] == "S1":
             if spec["intervention"] == "compile":
+                inductor_metrics = _strict_compile_setup(torch, receipt)
                 model = torch.compile(model, backend="inductor", mode="default", dynamic=None)
             else:
                 model = model.to(memory_format=torch.channels_last)
@@ -115,6 +123,8 @@ def _run_with_cache(spec: dict[str, Any], cache_dir: str) -> dict[str, Any]:
             output = model(*inputs)
             _sync(torch)
             receipt["first_execution_s"] = time.perf_counter() - first_start
+            if inductor_metrics is not None:
+                receipt["generated_kernel_count"] = int(inductor_metrics.generated_kernel_count)
 
             remaining_start = time.perf_counter()
             for _ in range(int(spec["horizon"]) - 1):
@@ -130,24 +140,16 @@ def _run_with_cache(spec: dict[str, Any], cache_dir: str) -> dict[str, Any]:
             receipt["steady_state_10_calls_s"] = time.perf_counter() - steady_start
         receipt["steady_state_per_step_s"] = receipt["steady_state_10_calls_s"] / 10
 
-        if spec["arm"] == "S0":
-            reference = _cpu_tree(primary_output)
-            reference_path = Path(spec["reference_path"])
-            reference_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(reference, reference_path)
-            receipt["reference_sha256"] = nested_digest(reference)
-            receipt["correctness"] = {"passed": True, "tensor_count": None, "reason": "baseline_reference"}
-        else:
-            reference = torch.load(spec["reference_path"], map_location="cpu", weights_only=False)
-            candidate = _cpu_tree(primary_output)
-            rtol = float(spec.get("correctness", {}).get("rtol", 1e-4))
-            atol = float(spec.get("correctness", {}).get("atol", 1e-5))
-            comparison = compare_outputs(reference, candidate, rtol=rtol, atol=atol)
-            receipt["correctness"] = comparison.__dict__
-            receipt["reference_sha256"] = nested_digest(reference)
-            receipt["output_sha256"] = nested_digest(candidate)
-            if not comparison.passed:
-                receipt["status"] = "numeric_mismatch"
+        reference = torch.load(spec["reference_path"], map_location="cpu", weights_only=False)
+        candidate = _cpu_tree(primary_output)
+        rtol = float(spec.get("correctness", {}).get("rtol", 1e-4))
+        atol = float(spec.get("correctness", {}).get("atol", 1e-5))
+        comparison = compare_outputs(reference, candidate, rtol=rtol, atol=atol)
+        receipt["correctness"] = comparison.__dict__
+        receipt["reference_sha256"] = nested_digest(reference)
+        receipt["output_sha256"] = nested_digest(candidate)
+        if not comparison.passed:
+            receipt["status"] = "numeric_mismatch"
 
         receipt["peak_allocated_bytes"] = torch.cuda.max_memory_allocated()
         receipt["peak_reserved_bytes"] = torch.cuda.max_memory_reserved()

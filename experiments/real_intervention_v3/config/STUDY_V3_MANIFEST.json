@@ -3,6 +3,7 @@
   "old_results": "/home/workspace/lrh/RESULTS/evospe-rt-v2/20261018-one-shot-deterministic-b1-r2",
   "torchbench_root": "/home/workspace/lrh/DATA/evospe-rt-v2/torchbench",
   "torchbench_commit": "61227cc119913f01e78e8e115a68208c4ca0541b",
+  "workload_dependency_overlay": "/home/workspace/lrh/RESULTS/evospe-rt-v2/20261018-one-shot-deterministic-b1-r2/dependencies",
   "gpu_uuid": "GPU-ff4b8a6c-b1ad-8ae1-d2e8-741a64fd24a1",
   "seed": 31,
   "horizons": [1, 16, 128],

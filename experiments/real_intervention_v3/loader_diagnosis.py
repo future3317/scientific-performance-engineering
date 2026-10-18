@@ -29,10 +29,13 @@ def diagnose(old: Path, root: Path) -> dict:
                          'so_path': str(so), 'artifact_exists_now': bool(so and so.exists()),
                          'linker': commands})
     manifest = read(old / 'RUN_MANIFEST.json')
+    old_pairs=[__import__('json').loads(line) for line in (old/'PAIRS.jsonl').read_text().splitlines() if line.strip()]
     result = {'old_status': 'V2_EXPLORATORY_PLATFORM_LIMITED',
               'arm_counts': dict(Counter(r['status'] for _, r in rows)),
               'cuda_utils_failure_count': len(errors), 'evidence': evidence,
               'old_source': manifest['source_commit'],
+              'old_pair_sessions':len(old_pairs),
+              'old_metrics':read(old/'METRICS.json'),
               'python': sys.executable,
               'packages': {k: importlib.metadata.version(k) for k in ['torch', 'torchvision', 'triton']},
               'LD_LIBRARY_PATH': os.environ.get('LD_LIBRARY_PATH'),
