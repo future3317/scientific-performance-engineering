@@ -59,8 +59,8 @@ source identity.
 Measurement source `9d5a9ebe568ad3824882937a9ae078f61910954d` ran in
 `evospe-rt-v3-20261018-monitor-corrected`. A server reboot interrupted the
 study; its launcher exit code was not persisted. The last DLRM S1 has an
-intent but no terminal receipt and must not be retried. No GPU continuation
-was launched during closeout.
+intent but no terminal receipt and must not be retried. Its original exit
+remains unknown; the later authorized continuation is summarized below.
 
 The frozen design contains 108 pairs across 18 families (10 development,
 5 calibration, 3 final). There are 86 closed pairs: 16 valid, 52 unresolved,
@@ -85,3 +85,53 @@ per-pair seconds CI separately from total net seconds. Their revision and
 targeted test receipt are recorded in the closeout bundle, separately from
 the measurement source. Unknown attempt resource costs remain unknown;
 observed parent session windows are not actual GPU busy time.
+
+## Completed authorized GPU continuation
+
+The continuation `evospe-rt-v3-20261019-gpu-resume` measured source
+`49ee7d8293beaef8a4a67944eaaa236cba1c69e5` and exited 0. Its complete
+CPU-only suite finished with 796 passed, 8 warnings, exit 0 (694.80 seconds).
+GitHub Actions run 39143772397 also succeeded. Later analysis revisions are
+recorded separately in `CLOSEOUT.json`; they do not change measurement code,
+raw labels, the frozen manifest, or policy predictions.
+
+Of 108 planned pairs, 90 development/calibration pair records closed and
+18 final pairs remained unstarted. There are 19 valid pairs, 11 numerical
+violations, 6 cache infrastructure errors, 1 baseline failure, and 53
+unresolved pairs. Two interrupted candidate attempts remain unknown and
+were never retried; they overlap the unresolved count, not extra samples.
+The 19 valid effects span six families (3 development, 3 calibration), all
+cold-negative. Calibration remains two valid families short of five:
+`UNDERPOWERED_NOT_FINAL`, with no independent final efficacy claim.
+
+The valid-subset context-median S0/S1 speedup is 0.0312933; the family-equal
+mean log benefit is -3.599646 (95% family-bootstrap CI [-3.98265, -3.23516],
+seed 101, 10,000 draws). This selected subset does not imply universal
+compiler harm. The primary timer includes compilation and H forwards but
+excludes model/input construction, process startup, hashing, correctness
+checks and teardown: it is not full end-to-end job time. Separate steady
+latencies exclude compilation and must not replace the cold objective.
+
+Six historical PermissionError/FileNotFoundError cache failures retain their
+raw labels; cause-aware analysis treats them as unknown infrastructure
+outcomes rather than established model harm. Always has unknown full net
+utility/risk; descriptive observed counts and bounds are retained. The
+frozen threshold and supervised policies abstain. Both ACRE variants are
+`ACRE_NOT_FITTED`, not demonstrations of learned gate efficacy. CIs for net
+seconds describe a family-equal per-pair mean, not the total net sum.
+
+The old GPU supplied 16 valid pairs; GPU3 supplied three additional valid
+DLRM pairs after three independent real compiler canaries passed. Reports
+stratify by observed physical UUID; same model and GPU type do not make
+these independent model families. Before future authorized GPU launches,
+scan all GPUs, prefer idle GPU3 then an idle same-model card, fix the chosen
+UUID for the execution, and never migrate within an S0/S1 pair or kill
+another user's process.
+
+All prior roots are preserved. Complete CPU cost for the two unknown arms
+and actual GPU busy seconds remain unknown, not zero. The historical
+5619-second parent window exceeded the declared 900-second arm cap; its
+cause is unestablished and the cap cannot be claimed satisfied. No provider
+calls, new measurements, policy refitting, or additional models are part of
+the zero-GPU closeout. The top-level report and hash-closed evidence bundle
+are delivered under `E:/DATA/evospe-rt-v3-20261019-gpu-resume`.
