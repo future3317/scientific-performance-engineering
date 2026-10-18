@@ -14,15 +14,12 @@ from .adapters import load_model
 from .contracts import digest, validate_manifest
 
 
-# Fixed before outcomes. Each entry is one architecture/model lineage; variants
-# of the same named family are not counted as separate lineages in this cohort.
+# New study identity, frozen before its outcomes. The entire TorchBench candidate
+# pool is the pinned metadata's eval_deterministic=true set; admission failures
+# remain failures and are never replaced using runtime results.
 MODEL_CANDIDATES = (
-    "alexnet", "densenet121", "mobilenet_v2", "mnasnet1_0", "resnet18",
-    "shufflenet_v2_x1_0", "squeezenet1_1", "vgg16", "timm_efficientnet",
-    "timm_nfnet", "timm_regnet", "timm_resnest", "timm_vision_transformer",
-    "basic_gnn_edgecnn", "basic_gnn_gcn", "basic_gnn_gin", "basic_gnn_sage",
-    "BERT_pytorch", "hf_Albert", "hf_Bart", "hf_Bert", "hf_GPT2",
-    "pytorch_unet", "pyhpc_turbulent_kinetic_energy",
+    "dlrm", "fastNLP_Bert", "maml", "pytorch_CycleGAN_and_pix2pix",
+    "pytorch_unet", "Super_SloMo",
 )
 
 
@@ -51,12 +48,17 @@ def _source_digest(root: Path, model: str) -> str:
     return hasher.hexdigest()
 
 
-def _torchvision_digest(model: str, network: Any) -> str:
-    import inspect
-    import torchvision
-    source = Path(inspect.getsourcefile(network.__class__) or models.__file__)
-    return digest({"model": model, "torchvision_version": str(torchvision.__version__),
-                   "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
+def _determinism_metadata(tb_root: Path) -> dict[str, str]:
+    flags = {}
+    for model in MODEL_CANDIDATES:
+        metadata_path = tb_root / "torchbenchmark" / "models" / model / "metadata.yaml"
+        values = [line.partition(":")[2].strip().lower()
+                  for line in metadata_path.read_text(encoding="utf-8").splitlines()
+                  if line.partition(":")[0].strip() == "eval_deterministic"]
+        if values != ["true"]:
+            raise ValueError(f"{model} is not declared eval_deterministic=true in pinned metadata")
+        flags[model] = values[0]
+    return flags
 
 
 def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
@@ -65,6 +67,7 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
     tb_root, project = Path(torchbench_root).resolve(), Path(project_root).resolve()
     run_root = Path(output_root).resolve()
     _initialize_run_root(run_root)
+    candidate_metadata = _determinism_metadata(tb_root)
     cache_root = run_root / "model-cache"
     os.environ["TORCH_HOME"] = str(cache_root / "torch")
     os.environ["HF_HOME"] = str(cache_root / "huggingface")
@@ -134,33 +137,6 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
 
     eligible = [model for model in MODEL_CANDIDATES
                 if (model, 1) in materialized and (model, 2) in materialized]
-    fallback = len(eligible) < 2
-    if fallback:
-        materialized.clear()
-        api_matrix.append({"status": "torchbench_api_blocked", "eligible_candidates": eligible,
-                           "fallback_reason": "fewer_than_two_candidate_models_materialized"})
-        fallback_models = ("resnet18", "mobilenet_v3_small", "squeezenet1_0")
-        for model in fallback_models:
-            for batch_size in (1, 2):
-                row = {"model": model, "batch_size": batch_size, "adapter": "torchvision",
-                       "input_shape": [batch_size, 3, 224, 224], "seed": seed}
-                try:
-                    network, inputs = load_model(row, "cpu")
-                    record = {"status": "api_eligible", "input_shapes": [list(inputs[0].shape)],
-                              "input_dtypes": [str(inputs[0].dtype).replace("torch.", "")],
-                              "model_parameter_count": sum(p.numel() for p in network.parameters()),
-                              "model_source_digest": _torchvision_digest(model, network),
-                              "isolated_cache_bytes_after_model": cache_bytes(),
-                              "input_source_type": "materialized_random_tensor"}
-                    materialized[(model, batch_size)] = record
-                    api_matrix.append({"model": model, "batch_size": batch_size,
-                                       "adapter": "torchvision", **record})
-                except Exception as exc:
-                    api_matrix.append({"model": model, "batch_size": batch_size,
-                                       "adapter": "torchvision", "status": "api_unavailable",
-                                       "error_type": type(exc).__name__, "error": str(exc)[:500]})
-        eligible = [model for model in fallback_models
-                    if (model, 1) in materialized and (model, 2) in materialized]
     lineages = sorted({_lineage(model) for model in eligible},
                       key=lambda name: hashlib.sha256(f"{seed}:{name}".encode()).hexdigest())
     n_dev = int(len(lineages) * 0.5)
@@ -179,9 +155,9 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
                 context = {
                     "lineage_id": _lineage(model),
                     "split": splits[_lineage(model)],
-                    "benchmark_source": "TORCHVISION_REAL_MODEL_MATERIALIZED_INPUT" if fallback else "TORCHBENCH",
+                    "benchmark_source": "TORCHBENCH",
                     "benchmark_commit": benchmark_commit,
-                    "adapter": "torchvision" if fallback else "torchbench",
+                    "adapter": "torchbench",
                     "model": model,
                     "model_id": model,
                     "task_mode": "eval",
@@ -204,19 +180,23 @@ def freeze_study(*, torchbench_root: str | Path, output_root: str | Path,
                         {"session_id": "session-2", "order": "compile_first"},
                     ],
                 }
-                if fallback:
-                    context["input_shape"] = metadata["input_shapes"][0]
-                    context["input_source_type"] = "materialized_random_tensor"
                 context["context_id"] = digest({key: value for key, value in context.items() if key != "context_id"})
                 contexts.append(context)
 
     manifest = {
         "schema_version": 1,
-        "run_id": "evospe-rt-v2-real-compile-support-20261018-r1",
+        "run_id": "evospe-rt-v2-real-compile-support-20261018-deterministic-metadata-r1",
+        "cohort_selection": {
+            "rule": "all model lineages in the pinned TorchBench candidate pool with eval_deterministic=true metadata",
+            "candidate_models": list(MODEL_CANDIDATES),
+            "eval_deterministic_metadata": candidate_metadata,
+            "admission_requires_batch_sizes": [1, 2],
+            "runtime_outcome_replacement": False,
+        },
         "source_commit": source_commit,
         "torchbench_commit": benchmark_commit,
-        "benchmark_source": "TORCHVISION_REAL_MODEL_MATERIALIZED_INPUT" if fallback else "TORCHBENCH",
-        "fallback_reason": "torchbench_api_blocked_fewer_than_two_models" if fallback else None,
+        "benchmark_source": "TORCHBENCH",
+        "fallback_reason": None,
         "benchmark_source_bytes": benchmark_source_bytes,
         "intervention_id": "EVOSPE_RT_COMPILE_DEFAULT_V1",
         "intervention_code_digest": intervention_code_digest,
