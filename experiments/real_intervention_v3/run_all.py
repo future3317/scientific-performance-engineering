@@ -126,7 +126,8 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
                            cfg['gpu_uuid'],cfg['admission_timeout_seconds'],environment)
         admission.append(dict(row,result=result))
         if result.get('status')=='valid' and result.get('admission_status')=='ADMITTED_BASELINE_ONLY':
-            admitted.append(dict(spec,parameter_count=result.get('parameter_count',0)))
+            admitted.append(dict(spec,parameter_count=result.get('parameter_count',0),
+                                 actual_input_shapes=result.get('actual_input_shapes',{})))
         print('ADMISSION',key,result.get('admission_status',result['status']),flush=True)
     dump(root/'MODEL_ADMISSION.json',admission)
     with (root/'MODEL_ADMISSION_MATRIX.csv').open('w',newline='') as f:

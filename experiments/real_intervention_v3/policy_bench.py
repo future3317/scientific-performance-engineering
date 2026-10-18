@@ -14,7 +14,7 @@ from .analyze_real import _time
 
 
 POLICIES = ("NEVER", "ALWAYS", "HORIZON_ONLY", "SIMPLE_SUPERVISED", "ORIGINAL_ACRE", "REGIME_AWARE_ACRE", "ORACLE")
-_PREEXEC_FEATURES = {"horizon", "batch", "parameter_count", "input_height", "input_width", "input_channels",
+_PREEXEC_FEATURES = {"horizon", "batch", "parameter_count", "input_height", "input_width", "input_channels", "input_numel",
                      "sequence_length", "hidden_size", "num_heads", "depth", "width", "num_parameters",
                      "num_nodes", "num_edges", "num_features", "num_classes"}
 _FORBIDDEN_FEATURE_PARTS = ("time", "latency", "benefit", "speedup", "saving", "output", "receipt", "status", "error", "candidate", "compile", "correctness", "oom", "session", "order", "split")
@@ -94,7 +94,7 @@ def _fit_stump(dev: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     samples = [(row, label) for row, label in samples if label is not None]
     if samples and all(label == 0 for _, label in samples):
         return {"feature": None, "threshold": None, "positive_above": True, "fit_status": "NO_POSITIVE_OUTCOME"}
-    feature_names = sorted({key for row, _ in samples for key in _numeric_preexec(row) if key != "horizon"})
+    feature_names = sorted({key for row, _ in samples for key in _numeric_preexec(row)})
     if not samples or not feature_names:
         return {"feature": None, "threshold": None, "positive_above": True, "fit_status": "NO_FIT_DATA"}
     family_n: dict[str, int] = defaultdict(int)

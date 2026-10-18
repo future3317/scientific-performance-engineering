@@ -38,9 +38,19 @@ def _valid_pair(pair: Mapping[str, Any]) -> tuple[bool, float | None, float | No
     return baseline is not None and candidate is not None, baseline, candidate
 
 
+def _context_rows(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    by_context: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_context[str(row["context_id"])].append(row)
+    return [{"context_id": context, "family": str(items[0]["family"]),
+             "log_benefit": statistics.fmean(float(item["log_benefit"]) for item in items),
+             "speedup": statistics.median(float(item["speedup"]) for item in items)}
+            for context, items in by_context.items()]
+
+
 def _family_means(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     by_family: dict[str, list[float]] = defaultdict(list)
-    for row in rows:
+    for row in _context_rows(rows):
         by_family[str(row["family"])].append(float(row["log_benefit"]))
     return {family: statistics.fmean(values) for family, values in by_family.items()}
 
@@ -63,15 +73,16 @@ def _bootstrap_ci(values: Mapping[str, float], *, seed: int = 101, replicates: i
 
 def _effect_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     if not rows:
-        return {"n_pairs": 0, "n_families": 0, "context_equal_weighted_mean_log_benefit": None,
+        return {"n_pairs": 0, "n_contexts": 0, "n_families": 0, "context_equal_weighted_mean_log_benefit": None,
                 "family_equal_weighted_mean_log_benefit": None, "median_speedup": None, "family_bootstrap_95_ci": None}
     family_means = _family_means(rows)
-    context_mean = statistics.fmean(float(row["log_benefit"]) for row in rows)
+    contexts = _context_rows(rows)
+    context_mean = statistics.fmean(float(row["log_benefit"]) for row in contexts)
     family_mean = statistics.fmean(family_means.values())
-    return {"n_pairs": len(rows), "n_families": len(family_means),
+    return {"n_pairs": len(rows), "n_contexts": len(contexts), "n_families": len(family_means),
             "context_equal_weighted_mean_log_benefit": context_mean,
             "family_equal_weighted_mean_log_benefit": family_mean,
-            "median_speedup": statistics.median(float(row["speedup"]) for row in rows),
+            "median_speedup": statistics.median(float(row["speedup"]) for row in contexts),
             "family_bootstrap_95_ci": _bootstrap_ci(family_means)}
 
 
@@ -97,6 +108,7 @@ def analyze(pairs: list[dict[str, Any]]) -> dict[str, Any]:
             if baseline > 0 and candidate > 0:
                 feature = pair.get("features") if isinstance(pair.get("features"), Mapping) else {}
                 effect = {"pair_id": pair.get("pair_id"), "family": family, "split": split,
+                          "context_id": str(pair.get("context_id", "|".join(map(str, (family, pair.get("model"), pair.get("source"), split, feature.get("horizon", pair.get("horizon")), feature.get("batch")))))),
                           "source": str(pair.get("source", "UNKNOWN")),
                           "horizon": feature.get("horizon", pair.get("horizon")),
                           "baseline_seconds": baseline, "candidate_seconds": candidate,
