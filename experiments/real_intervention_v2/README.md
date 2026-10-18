@@ -1,41 +1,31 @@
 # Real fixed-intervention study (v2)
 
-This channel evaluates the fixed inference intervention
-`torch.compile(..., backend="inductor", mode="default", dynamic=None)` against
-eager execution. It does not claim that EvoSPE invented or generated this
-optimization.
+The intervention is fixed eager inference versus
+torch.compile(..., backend="inductor", mode="default", dynamic=None). It is
+an evaluation of an existing PyTorch optimization, not an EvoSPE-generated
+optimization or a scientific-training result.
 
-## Current run: A/A validity stop
+## Latest measured cohort
 
-The server run `evospe-rt-v2-real-compile-support-20261018-r1` used TorchBench
-commit `61227cc119913f01e78e8e115a68208c4ca0541b`. Ten lineages were admitted
-and 66 contexts / 132 paired sessions were scheduled. Before S1, five
-pre-registered eager-vs-eager controls were completed: one passed output
-correctness and four failed with `numerical_mismatch:output`. The A/A gate
-therefore stopped the run. No S0/S1 session started, no policy was frozen, and
-no final outcome was accessed. This is a validity stop, not an intervention
-efficacy result.
+Run: evospe-rt-v2-real-compile-support-20261018-deterministic-metadata-b1-r2
 
-The finalized result is in
-`/home/workspace/lrh/RESULTS/evospe-rt-v2/20261018-one-shot-r3` on `dbcloud`.
-It records zero provider calls, 214.516 GPU seconds, 78.992 CPU seconds,
-223.553 wall seconds, 931,208,260 downloaded bytes, and 923,315,109 bytes in
-the experiment directory. The sanitized evidence bundle contains the
-manifest, aggregate outputs, and A/A receipts; raw server receipts remain on
-the server. No efficacy or routing claim is supported by this run.
+- TorchBench: 61227cc119913f01e78e8e115a68208c4ca0541b
+- Execution source: dd2939ea295ed86f0c1c0ade2ccaa5fb57bbda4a
+- Cohort: all six pinned TorchBench models declaring eval_deterministic: true; batch size 1 only. Admission retained four lineages and recorded two unavailable candidates without replacement.
+- Results: 12 contexts, 24/24 paired sessions, 4 lineages (2 development, 1 calibration, 1 final); underpowered against the 18-lineage final-claim minimum.
+- A/A: 2/2 controls passed. Eight of 24 main sessions were paired-valid; 16 were invalid/unresolved.
+- Development: 3 valid contexts, all negative for compile; mean log benefit −0.559, lineage-bootstrap 95% CI [−0.967, −0.355]. Calibration had zero valid contexts. The single final lineage (MAML) had no valid arm outcomes.
+- Compile failures were dominated by Triton cuda_utils.so load failures; MAML also failed the eager inference path with a missing autograd graph. ACRE abstained because no certified support rule was available.
+- Provider calls: 0. GPU 1,011.424 s; CPU 789.419 s; wall 1,597.672 s; downloaded/cache bytes 561,498,722; result-root bytes 659,244,320.
 
-Do not resume this frozen cohort, relax the correctness threshold, or replace
-models based on the observed A/A results. Any follow-up must establish a new
-pre-registered study identity and pass correctness controls before measuring
-S1.
+This is exploratory TorchBench runtime evidence with an underpowered cohort.
+It does not support an ACRE superiority, broad generalization, automatic Skill
+generation, or scientific-dataset time-to-quality claim. The earlier
+20261018-one-shot-r3 cohort remains preserved as an A/A validity stop; it
+started no S0/S1 sessions. Do not resume either cohort, relax correctness, or
+replace models based on their observed outcomes. Any follow-up requires a new
+study identity and a predeclared correctness/admission plan.
 
-## Frozen intervention contract
-
-- `S0`: eager inference.
-- `S1`: `torch.compile(module, backend="inductor", mode="default", dynamic=None)`.
-- Primary performance metric, if a future valid run is authorized: total job
-  wall-clock time including cold compilation.
-- Correctness, A/A validity, and the declared resource contract are gates;
-  failed controls are not performance observations.
-- Policy comparisons, including the canonical `AcreEngine.route`, require
-  valid paired outcomes. The pairwise oracle is post-hoc scoring only.
+Full receipts and the sanitized evidence bundle are in
+/home/workspace/lrh/RESULTS/evospe-rt-v2/20261018-one-shot-deterministic-b1-r2
+on dbcloud; the raw receipts remain server-side.
