@@ -49,7 +49,8 @@ def test_both_arm_failure_not_converted_to_zero_seconds():
 
 
 def test_two_arm_same_weights_and_inputs_sha256():
-    baseline={'status':'valid','weights_sha256':'a','inputs_sha256':'b'}
+    baseline={'status':'valid','weights_sha256':'a','inputs_sha256':'b',
+              'runtime_identity':{'device_uuid':'same-gpu'}}
     assert classify_pair(baseline,dict(baseline))=='VALID_PAIR'
     with pytest.raises(RuntimeError,match='identity'):
         classify_pair(baseline,dict(baseline,weights_sha256='c'))
@@ -145,6 +146,7 @@ def test_gpu_migration_never_compares_arms_on_different_devices():
     b=dict(a,runtime_identity={'device_uuid':'new-gpu'})
     assert classify_pair(a,b)=='SESSION_NOISE_UNRESOLVED'
     assert classify_pair(a,dict(a))=='VALID_PAIR'
+    assert classify_pair(a,dict(a,runtime_identity={}))=='SESSION_NOISE_UNRESOLVED'
 
 
 def test_gpu_migration_requires_real_compiler_canary_not_inherited_health(tmp_path,monkeypatch):
