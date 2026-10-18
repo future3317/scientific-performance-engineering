@@ -21,6 +21,9 @@ def classify_pair(s0: dict, s1: dict) -> str:
     for field in ['inputs_sha256','weights_sha256']:
         if s0.get(field) != s1.get(field):
             raise RuntimeError('paired identity differs: '+field)
+    devices=[r.get('runtime_identity',{}).get('device_uuid') for r in [s0,s1]]
+    if all(devices) and devices[0] != devices[1]:
+        return 'SESSION_NOISE_UNRESOLVED'
     for receipt in [s0,s1]:
         for key in ['gpu_telemetry_before','gpu_telemetry_after']:
             snapshot=receipt.get(key)
@@ -64,6 +67,7 @@ def measure(root: Path, manifest: dict, split: str, environment: dict) -> list[d
                               'input_channels':image[1] if image else 0,
                               'input_numel':sum(math.prod(shape) for shape in shapes)},
                   'context_id':context['context_id']}
+            pair['runtime_gpu_uuid']=manifest['gpu_uuid']
             dump(path,pair);pairs.append(pair)
             print('PAIR',key,context['family'],status,flush=True)
             if status=='PLATFORM_LINK_OR_INSTALL':

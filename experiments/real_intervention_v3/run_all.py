@@ -28,7 +28,22 @@ def baseline_pool(universe: list[dict]) -> list[dict]:
             (r['source']=='torchbench' and r['model'] in tb)]
 
 
-def main_run(config: Path, root: Path, resume: bool) -> None:
+def qualify_migrated_gpu(root: Path, gpu: str, source: str, environment: dict) -> list[dict]:
+    from .backend_canary import healthy
+    path=root/'CANARY_RUNTIME.json'
+    if path.exists():
+        rows=read(path)
+    else:
+        rows=[execute(root,'canary-runtime-'+str(i),'experiments.real_intervention_v3.backend_canary',
+                      {'graphs':['elementwise_reduction','conv_linear'],'source':source,'gpu_uuid':gpu},
+                      gpu,180,environment) for i in range(3)]
+        dump(path,rows)
+    if not healthy(rows):
+        raise RuntimeError('migrated GPU compiler canary failed; stop without changing intervention')
+    return rows
+
+
+def main_run(config: Path, root: Path, resume: bool, runtime_gpu: str | None = None) -> None:
     from .loader_diagnosis import diagnose
     from .backend_canary import healthy
     from .paired_study import measure
@@ -40,6 +55,8 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
     from .report import write_report
 
     cfg=read(config)
+    if runtime_gpu is not None:
+        cfg=dict(cfg,gpu_uuid=runtime_gpu)
     sha=source_identity()
     start=time.time()
     binding={'source_commit':sha,'execution_id':root.name,'config_digest':digest(cfg),'python':sys.executable,'gpu_uuid':cfg['gpu_uuid'],
@@ -89,6 +106,16 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
                       for i in range(3)]
             dump(root/'CANARY_ISOLATED.json',canaries)
     primary='compile' if healthy(canaries) else 'channels_last'
+    if (root/'FROZEN_MANIFEST.json').exists():
+        frozen=read(root/'FROZEN_MANIFEST.json')
+        if cfg['gpu_uuid'] != frozen['gpu_uuid']:
+            if primary != frozen['selected_intervention'] or primary != 'compile':
+                raise RuntimeError('GPU migration cannot change the frozen intervention')
+            canaries=qualify_migrated_gpu(root,cfg['gpu_uuid'],sha,environment)
+            dump(root/'GPU_MIGRATION.json',{'frozen_gpu_uuid':frozen['gpu_uuid'],
+                                         'runtime_gpu_uuid':cfg['gpu_uuid'],
+                                         'frozen_manifest_digest':frozen['manifest_digest'],
+                                         'policy':'completed pairs unchanged; only unstarted arms use the new GPU; no unknown retry'})
     dump(root/'BACKEND_SELECTION.json',{'selected_intervention':primary,'environment':environment,
                                       'canary_passed':sum(r['status']=='valid' for r in canaries),
                                       'fallback_reason':None if primary=='compile' else 'compiler platform canary failed'})
@@ -96,6 +123,10 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
         '# Backend canary\n\nOriginal independent processes: '+str(sum(r['status']=='valid' for r in original))+
         '/3 passed. Two GPU graphs per process; kernel generation, execution, synchronization and numerical checks required.\n\n'+
         'Selected intervention: '+primary+'. See raw/canary-* and LOADER_DIAGNOSIS.json for full logs.\n')
+    if (root/'CANARY_RUNTIME.json').exists():
+        with (root/'BACKEND_CANARY_REPORT.md').open('a') as report:
+            report.write('\nMigrated runtime GPU '+cfg['gpu_uuid']+': 3/3 independent real compiler canaries passed. '
+                         'See CANARY_RUNTIME.json and GPU_MIGRATION.json; prior qualification is not relabeled.\n')
     # Reuse the already-installed workload-only optional dependencies read-only.
     # Torch/Triton still resolve from equivcompiler, as demonstrated by canaries.
     if cfg.get('workload_dependency_overlay'):
@@ -158,15 +189,16 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
                 contexts.append(c)
         manifest['contexts']=contexts;manifest['manifest_digest']=digest(manifest)
         dump(root/'FROZEN_MANIFEST.json',manifest)
+    execution_manifest=dict(manifest,gpu_uuid=cfg['gpu_uuid'])
     pairs=[]
     for split in ['development','calibration']:
-        pairs+=measure(root,manifest,split,environment)
+        pairs+=measure(root,execution_manifest,split,environment)
     release=eligibility(pairs,manifest);dump(root/'FINAL_RELEASE.json',release)
     dev=[p for p in pairs if p['split']=='development'];cal=[p for p in pairs if p['split']=='calibration']
     frozen=freeze_policies(dev,cal,root)
     dump(root/'POLICY_FREEZE.json',dict(frozen,release=release,manifest_digest=manifest['manifest_digest']))
     if release['qualified']:
-        pairs+=measure(root,manifest,'final',environment)
+        pairs+=measure(root,execution_manifest,'final',environment)
     metrics=analyze(pairs)
     policies=evaluate_policies(pairs,frozen)
     raw=[read(p) for p in (root/'raw').glob('*/receipt.json')]
@@ -192,13 +224,14 @@ def main():
     p.add_argument('--study-config',type=Path,required=True);p.add_argument('--results-root',type=Path,required=True)
     p.add_argument('--mode',choices=['full'],default='full');p.add_argument('--resume-safe',action='store_true')
     p.add_argument('--prior-results',type=Path)
+    p.add_argument('--gpu',help='explicit authorized runtime GPU UUID; never rewrites the frozen cohort')
     args=p.parse_args();args.results_root.mkdir(parents=True,exist_ok=True)
     with (args.results_root/'run.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         try:
             if args.prior_results:
                 inherit_interrupted_study(args.prior_results,args.results_root)
-            main_run(args.study_config,args.results_root,args.resume_safe)
+            main_run(args.study_config,args.results_root,args.resume_safe,args.gpu)
         except Exception as exc:
             dump(args.results_root/'FATAL_CAUSE.json',{'error':str(exc),'traceback':traceback.format_exc(),
                                                       'action':'inspect exact failed receipt; never repeat an unknown attempt'})
