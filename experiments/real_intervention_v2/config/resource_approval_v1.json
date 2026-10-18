@@ -1,0 +1,44 @@
+{
+  "experiment_family": "EVOSPE_RT_V2_REAL_COMPILE_SUPPORT",
+  "approved": false,
+  "permission_scope_requested": [
+    "install pinned TorchBench dependency in an isolated experiment location",
+    "download only model inputs required by the frozen cohort, within cap",
+    "run baseline noise, correctness, paired development/calibration/final study, and offline policy replay",
+    "run PyG ZINC external validation only if the same approved caps still permit it"
+  ],
+  "benchmark_git_commit": "61227cc119913f01e78e8e115a68208c4ca0541b",
+  "provider_call_cap": 0,
+  "provider_usd_cap": 0,
+  "requested_gpu_minutes": 2880,
+  "requested_cpu_wall_seconds": 172800,
+  "requested_storage_bytes": 53687091200,
+  "requested_external_download_bytes": 10737418240,
+  "proposed_gpu_uuid": "GPU-ff4b8a6c-b1ad-8ae1-d2e8-741a64fd24a1",
+  "gpu_binding_rule": "Use only this UUID after launch-time availability and co-tenancy checks; if unavailable, stop rather than silently switch devices.",
+  "resource_basis": {
+    "planned_model_lineages": 24,
+    "context_configs_per_lineage": 6,
+    "paired_sessions_per_context": 2,
+    "planned_context_pairs": 288,
+    "planned_arm_processes": 576,
+    "gpu_cap_minutes_per_arm_process_average": 5.0,
+    "interpretation": "Resource ceiling, not a runtime estimate or guarantee of completion. A cap reached before final yields budget-censored results; no top-up or replacement contexts."
+  },
+  "observed_server": {
+    "python": "3.11.15",
+    "torch": "2.6.0+cu126",
+    "cuda_build": "12.6",
+    "torchvision": "0.21.0+cu126",
+    "pyg": "2.8.0",
+    "gpus": "6x NVIDIA RTX 4090 24 GiB",
+    "results_filesystem_available_bytes_at_census": 263036518400,
+    "torchbench_installed": false
+  },
+  "usd_cost_estimate": null,
+  "usd_cost_note": "No server GPU billing rate is available in the observed account; only provider/API spend is definitively capped at USD 0.",
+  "run_identity": null,
+  "approval_timestamp_utc": null,
+  "approval_subject": null,
+  "caps_are_proposals_not_authorized_usage": true
+}
