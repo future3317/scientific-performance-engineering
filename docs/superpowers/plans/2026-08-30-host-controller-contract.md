@@ -1,5 +1,13 @@
 # DeepSeek Host Controller Contract Implementation Plan
 
+## Contents
+
+- [Global Constraints](#global-constraints)
+- [Task 1: Frozen Limits and Agent Attestation](#task-1-frozen-limits-and-agent-attestation)
+- [Task 2: Usage Accounting and Controlled Outcome Receipts](#task-2-usage-accounting-and-controlled-outcome-receipts)
+- [Task 3: Runtime and Contract Materializer](#task-3-runtime-and-contract-materializer)
+- [Task 4: Validation and Non-Sealed Evidence](#task-4-validation-and-non-sealed-evidence)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Enforce the approved DeepSeek host-controller budget partitions, preserve receipts on controlled exhaustion, and materialize a reproducible trusted-host contract without changing frozen benchmark evidence.
