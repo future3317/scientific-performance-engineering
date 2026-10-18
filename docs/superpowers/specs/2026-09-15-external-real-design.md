@@ -1,5 +1,20 @@
 # Public-Benchmark Prospective Evaluation Design
 
+## Contents
+
+- [Goal](#goal)
+- [Scope and evidence boundary](#scope-and-evidence-boundary)
+- [Reused abstractions](#reused-abstractions)
+- [Data flow](#data-flow)
+- [Core data contracts](#core-data-contracts)
+- [Information-flow invariants](#information-flow-invariants)
+- [Splits and skill lifecycle](#splits-and-skill-lifecycle)
+- [Policy freeze and shared outcomes](#policy-freeze-and-shared-outcomes)
+- [Metrics and statistics](#metrics-and-statistics)
+- [Failure handling and gates](#failure-handling-and-gates)
+- [Artifacts](#artifacts)
+- [Claim policy](#claim-policy)
+
 ## Goal
 
 Build one `experiments/external_real/` production path for benchmark-native,

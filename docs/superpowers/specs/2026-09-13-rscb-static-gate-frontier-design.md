@@ -1,5 +1,17 @@
 # RSCB, Static-Test Gate, and Support Frontiers
 
+## Contents
+
+- [Scope and invariants](#scope-and-invariants)
+- [Policy interface and shared evaluator](#policy-interface-and-shared-evaluator)
+- [RSCB-LCB](#rscb-lcb)
+- [Support-decision regret](#support-decision-regret)
+- [Static-Test Gate](#static-test-gate)
+- [Frontiers and abstention analysis](#frontiers-and-abstention-analysis)
+- [Higher-order bundle screening](#higher-order-bundle-screening)
+- [Cost profile and artifacts](#cost-profile-and-artifacts)
+- [Claim decision table](#claim-decision-table)
+
 ## Scope and invariants
 
 This revision adds provider-free comparison policies and frozen frontier
