@@ -18,7 +18,7 @@ def _digest(value: Any) -> str:
         if isinstance(item, torch.Tensor):
             tensor = item.detach().cpu().contiguous()
             hasher.update(str((tuple(tensor.shape), str(tensor.dtype))).encode())
-            hasher.update(tensor.view(torch.uint8).numpy().tobytes())
+            hasher.update(tensor.reshape(-1).view(torch.uint8).numpy().tobytes())
         elif isinstance(item, dict):
             for key in sorted(item):
                 hasher.update(str(key).encode()); visit(item[key])
@@ -40,6 +40,9 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
     import torch
     from .adapters import load_model
     worker_started = time.perf_counter()
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
 
