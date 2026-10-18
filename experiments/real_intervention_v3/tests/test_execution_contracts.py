@@ -88,6 +88,41 @@ def test_inherited_unknown_attempt_never_launches_again(tmp_path,monkeypatch):
     assert classify_pair({'status':'valid'},result)=='SESSION_NOISE_UNRESOLVED'
 
 
+def test_reboot_inherits_closed_pairs_and_both_unknowns_without_fabricating_exit(tmp_path,monkeypatch):
+    from experiments.real_intervention_v3 import run_state
+    prior=tmp_path/'prior';current=tmp_path/'current'
+    dump(prior/'RUN_IDENTITY.json',{'source_commit':'old'})
+    dump(prior/'STUDY_LAUNCH.json',{'started_unix':10})
+    dump(prior/'FROZEN_MANIFEST.json',{'contexts':[]})
+    dump(prior/'pairs'/'closed.json',{'status':'VALID_PAIR'})
+    for name in ['old_unknown','reboot_unknown']:
+        dump(prior/'raw'/name/'intent.json',{'started_unix':20,'spec_digest':digest({})})
+    dump(prior/'INHERITED_ATTEMPTS.json',{'unknown_attempts':{'old_unknown':'original/intent.json'}})
+    original_read=Path.read_text
+    monkeypatch.setattr(Path,'read_text',lambda p,*a,**k:'btime 100\n' if str(p)=='/proc/stat' else original_read(p,*a,**k))
+    monkeypatch.setattr(run_state,'source_identity',lambda:'new')
+    monkeypatch.setattr(run_state.subprocess,'check_output',lambda *a,**k:b'')
+    run_state.inherit_interrupted_study(prior,current)
+    inherited=run_state.read(current/'INHERITED_ATTEMPTS.json')
+    assert inherited['prior_exit'] is None
+    assert inherited['interruption']['reason']=='server_reboot'
+    assert set(inherited['unknown_attempts'])=={'old_unknown','reboot_unknown'}
+    assert run_state.read(current/'pairs'/'closed.json')['status']=='VALID_PAIR'
+    assert not (prior/'RUN_EXIT.json').exists()
+    for name in inherited['unknown_attempts']:
+        assert execute(current,name,'unused',{},'unused',1)['status']=='unknown'
+
+
+def test_missing_exit_without_subsequent_reboot_cannot_resume(tmp_path,monkeypatch):
+    from experiments.real_intervention_v3 import run_state
+    prior=tmp_path/'prior'
+    dump(prior/'STUDY_LAUNCH.json',{'started_unix':100})
+    original_read=Path.read_text
+    monkeypatch.setattr(Path,'read_text',lambda p,*a,**k:'btime 50\n' if str(p)=='/proc/stat' else original_read(p,*a,**k))
+    with pytest.raises(RuntimeError,match='no subsequent server reboot'):
+        run_state.inherit_interrupted_study(prior,tmp_path/'new')
+
+
 def test_no_model_selected_using_s1_outcome():
     universe=[{'source':'torchvision','model':'resnet18','family':'resnet','observed_speedup':-10},
               {'source':'torchvision','model':'resnet50','family':'resnet','observed_speedup':100}]
