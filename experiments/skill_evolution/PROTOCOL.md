@@ -1,5 +1,19 @@
 # Skill evolution qualification protocol
 
+## Contents
+
+- [Status and boundary](#status-and-boundary)
+- [Synthetic qualification fixture](#synthetic-qualification-fixture)
+- [Current Phase2 execution boundary](#current-phase2-execution-boundary)
+- [Earlier paper-driven real-study order (planning history)](#earlier-paper-driven-real-study-order-planning-history)
+- [Proposed real Phase I: three-episode readiness diagnostic](#proposed-real-phase-i-three-episode-readiness-diagnostic)
+- [Train-side development and final-design freeze](#train-side-development-and-final-design-freeze)
+- [Shared outcome evaluation and cost](#shared-outcome-evaluation-and-cost)
+- [Learned ACRE qualification mode](#learned-acre-qualification-mode)
+- [Future phases and estimands](#future-phases-and-estimands)
+- [Fixed-Skill conditional increment and source discovery](#fixed-skill-conditional-increment-and-source-discovery)
+- [Power table interpretation](#power-table-interpretation)
+
 ## Status and boundary
 
 Current continuation: Phase6 incremental procedural value taskbook (PHASE6-R1).

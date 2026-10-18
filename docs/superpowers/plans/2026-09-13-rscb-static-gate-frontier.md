@@ -1,5 +1,9 @@
 # RSCB, Static-Test Gate, and Support Frontier Implementation Plan
 
+## Contents
+
+- [Global Constraints](#global-constraints)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Add frozen provider-free RSCB-LCB and Static-Test Gate baselines, a shared policy evaluator, support-decision frontiers, abstention decomposition, and measured cost-profile artifacts without changing Full ACRE or any hosted/formal status.

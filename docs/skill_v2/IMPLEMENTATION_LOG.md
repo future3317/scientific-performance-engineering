@@ -1,5 +1,17 @@
 # Skill-evolution implementation and zero-provider study
 
+## Contents
+
+- [Current Phase8: evidence-first discovery, no new provider authorization](#current-phase8-evidence-first-discovery-no-new-provider-authorization)
+- [Current Phase7 closeout: fixed-v1 conditional increment](#current-phase7-closeout-fixed-v1-conditional-increment)
+- [October 16 Phase2 continuation](#october-16-phase2-continuation)
+- [Revisions and artifacts](#revisions-and-artifacts)
+- [Completed implementation](#completed-implementation)
+- [Observed results](#observed-results)
+- [Validation record](#validation-record)
+- [Provider configuration update](#provider-configuration-update)
+- [Remaining real-study work](#remaining-real-study-work)
+
 ## Current Phase8: evidence-first discovery, no new provider authorization
 
 Current v1 remains V1_STOPPED_AFTER_E1; NO-GO is candidate-specific, not a
