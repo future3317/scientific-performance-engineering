@@ -13,6 +13,7 @@ import platform
 import subprocess
 import time
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 _ENV_KEYS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "CUDA_VISIBLE_DEVICES")
@@ -90,10 +91,8 @@ def _number(value: str) -> int | float | str:
 
 def _optional_pyg_version() -> str | None:
     try:
-        import torch_geometric  # noqa: PLC0415
-
-        return str(torch_geometric.__version__)
-    except Exception:
+        return version("torch-geometric")
+    except PackageNotFoundError:
         return None
 
 
