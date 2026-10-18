@@ -5,6 +5,11 @@ torchvision and pinned TorchBench implementations. Randomly initialized
 weights and materialized inputs establish numerical/system behavior, not
 dataset accuracy or training time-to-quality.
 
+## Contents
+
+- [Observed interrupted execution](#observed-interrupted-execution)
+- [Completed authorized GPU continuation](#completed-authorized-gpu-continuation)
+
 Run on dbcloud in the dedicated worktree with the equivcompiler interpreter:
 
 ```bash
