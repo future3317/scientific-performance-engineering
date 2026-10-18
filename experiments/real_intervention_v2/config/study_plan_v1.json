@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "experiment_id": "evospe-rt-v2-real-compile-support",
+  "external_benchmark": {
+    "name": "pytorch/benchmark",
+    "commit": "61227cc119913f01e78e8e115a68208c4ca0541b",
+    "selection_rule": "freeze eligible model lineages from public metadata before any S1 outcome; do not select by runtime result"
+  },
+  "primary_estimand": "synchronized host wall seconds for the complete predeclared inference horizon, including cold compile and first execution",
+  "secondary_estimands": ["warm per-call median", "peak allocated/reserved memory", "compile failures", "OOM", "correctness"],
+  "intervention_config": "intervention_compile_v1.json",
+  "splits": ["development", "gate_calibration", "final_untouched"],
+  "sampling_unit": "model_lineage",
+  "target_model_lineages": 24,
+  "split_fractions": {"development": 0.5, "gate_calibration": 0.25, "final_untouched": 0.25},
+  "context_axes": {"batch_multipliers": [1, 2], "planned_horizons": [1, 16, 128], "shape_mode": "static", "dtype": "float32"},
+  "paired_sessions_per_context": 2,
+  "minimum_independent_lineages_for_final_claim": 18,
+  "provider_calls": 0,
+  "execution_authorized": false,
+  "notes": [
+    "TorchBench is not installed in the observed equivcompiler environment; no dependency or data download is authorized yet.",
+    "Do not open final outcomes until every policy and metric is frozen.",
+    "No model list is declared outcome-selected; final eligible cohort is to be deterministically frozen from the pinned source before execution."
+  ]
+}
