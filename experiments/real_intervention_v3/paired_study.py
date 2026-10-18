@@ -22,7 +22,7 @@ def classify_pair(s0: dict, s1: dict) -> str:
         if s0.get(field) != s1.get(field):
             raise RuntimeError('paired identity differs: '+field)
     devices=[r.get('runtime_identity',{}).get('device_uuid') for r in [s0,s1]]
-    if all(devices) and devices[0] != devices[1]:
+    if not all(devices) or devices[0] != devices[1]:
         return 'SESSION_NOISE_UNRESOLVED'
     for receipt in [s0,s1]:
         for key in ['gpu_telemetry_before','gpu_telemetry_after']:
