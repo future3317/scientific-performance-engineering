@@ -5,7 +5,7 @@ import pytest
 from experiments.real_intervention_v3.model_split import split_families
 from experiments.real_intervention_v3.release_final import eligibility
 from experiments.real_intervention_v3.paired_study import classify_pair, measure
-from experiments.real_intervention_v3.run_state import dump, execute
+from experiments.real_intervention_v3.run_state import dump, execute, directory_bytes, digest
 from experiments.real_intervention_v3.run_all import baseline_pool
 
 
@@ -59,6 +59,33 @@ def test_resume_same_identity_no_duplicate_arm_processes(tmp_path):
     dump(tmp_path/'raw'/'x'/'intent.json',{'spec_digest':'wrong'})
     with pytest.raises(RuntimeError,match='identity'):
         execute(tmp_path,'x','unused',{},'unused',1)
+
+
+def test_live_cache_meter_tolerates_triton_removing_temporary_directory(tmp_path,monkeypatch):
+    from experiments.real_intervention_v3 import run_state
+    (tmp_path/'kept').write_bytes(b'12345')
+    temporary=tmp_path/'tmp.pid_1';temporary.mkdir()
+    (temporary/'kernel').write_bytes(b'temporary')
+    def live_walk(root):
+        yield str(root),['tmp.pid_1'],['kept']
+        (temporary/'kernel').unlink();temporary.rmdir()
+        yield str(temporary),[],['kernel']
+    monkeypatch.setattr(run_state.os,'walk',live_walk)
+    assert directory_bytes(tmp_path)==5
+
+
+def test_inherited_unknown_attempt_never_launches_again(tmp_path,monkeypatch):
+    from experiments.real_intervention_v3 import run_state
+    spec={'arm':'S1','reference_path':'prior/reference.pt'}
+    dump(tmp_path/'raw'/'x'/'intent.json',{'spec_digest':digest(spec)})
+    dump(tmp_path/'INHERITED_ATTEMPTS.json',{'unknown_attempts':{'x':'prior/raw/x/intent.json'}})
+    def forbidden(*args,**kwargs):
+        raise AssertionError('must not launch a previously started unknown arm')
+    monkeypatch.setattr(run_state.subprocess,'Popen',forbidden)
+    result=execute(tmp_path,'x','unused',spec,'unused',1)
+    assert result['status']=='unknown'
+    assert 'total_cold_inclusive_s' not in result
+    assert classify_pair({'status':'valid'},result)=='SESSION_NOISE_UNRESOLVED'
 
 
 def test_no_model_selected_using_s1_outcome():

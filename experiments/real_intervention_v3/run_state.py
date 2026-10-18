@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import resource
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -29,10 +30,62 @@ def digest(data) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
+def directory_bytes(root: Path) -> int:
+    """Count a live compiler cache without requiring its temporary files to persist."""
+    total=0
+    for parent, directories, files in os.walk(root):
+        for name in files:
+            try:
+                total+=(Path(parent)/name).stat().st_size
+            except FileNotFoundError:
+                # Triton publishes by rename and removes the temporary directory.
+                continue
+    return total
+
+
 def source_identity() -> str:
     if subprocess.check_output(['git', 'status', '--porcelain'], text=True).strip():
         raise RuntimeError('execution requires a clean worktree')
     return subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+
+
+def inherit_interrupted_study(prior: Path, root: Path) -> None:
+    """Keep the frozen cohort and completed evidence after a monitor-only correction."""
+    if (root/'INHERITED_ATTEMPTS.json').exists():
+        return
+    if (root/'RUN_IDENTITY.json').exists():
+        raise RuntimeError('inheritance must precede the new execution identity')
+    if read(prior/'RUN_EXIT.json')['returncode']==0:
+        raise RuntimeError('completed studies are not continued')
+    cause=read(prior/'FATAL_CAUSE.json')
+    if 'FileNotFoundError' not in cause['traceback'] or 'rglob' not in cause['traceback']:
+        raise RuntimeError('this continuation only corrects the observed live-cache monitor failure')
+    old_source=read(prior/'RUN_IDENTITY.json')['source_commit']
+    unchanged=['arm_worker.py','source_adapters.py','model_admission.py','numerical_checks.py','backend_canary.py']
+    paths=['experiments/real_intervention_v3/'+name for name in unchanged]
+    if subprocess.check_output(['git','diff',old_source,'HEAD','--',*paths]):
+        raise RuntimeError('qualification or measurement semantics changed; cannot inherit evidence')
+    names=['LOADER_DIAGNOSIS.json','LOADER_TRACEBACKS.txt','CANARY_ORIGINAL.json','CANARY_ISOLATED.json',
+           'STUDY_DECISION_TREE.json','MODEL_UNIVERSE.json','BASELINE_POOL.json','MODEL_ADMISSION.json',
+           'MODEL_ADMISSION_MATRIX.csv','FROZEN_MANIFEST.json','BACKEND_CANARY_REPORT.md','ENVIRONMENT.json']
+    root.mkdir(parents=True,exist_ok=True)
+    for name in names:
+        if (prior/name).exists(): shutil.copy2(prior/name,root/name)
+    prior_evidence=root/'prior_execution';prior_evidence.mkdir()
+    for name in ['FATAL_CAUSE.json','RUN_EXIT.json','RUN_IDENTITY.json','RUN.log','SOURCE_PATCH.diff',
+                 'FULL_PYTEST.log','FULL_PYTEST_EXIT.json']:
+        if (prior/name).exists(): shutil.copy2(prior/name,prior_evidence/name)
+    if (prior/'validation-complete-topology').exists():
+        shutil.copytree(prior/'validation-complete-topology',prior_evidence/'validation-complete-topology')
+    shutil.copytree(prior/'raw',root/'raw')
+    if (prior/'pairs').exists(): shutil.copytree(prior/'pairs',root/'pairs')
+    unknown={p.parent.name:str(p) for p in (prior/'raw').glob('*/intent.json')
+             if not (p.parent/'receipt.json').exists()}
+    dump(root/'INHERITED_ATTEMPTS.json',{'prior_root':str(prior),'prior_source_commit':old_source,
+                                       'execution_source_commit':source_identity(),
+                                       'unknown_attempts':unknown,
+                                       'unknown_cpu_seconds':None,'prior_exit':read(prior/'RUN_EXIT.json'),
+                                       'policy':'unknown attempts remain unresolved and are never executed again'})
 
 
 def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
@@ -42,7 +95,7 @@ def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
         elapsed=time.time()-contract['started_unix']
         if elapsed+timeout > contract['wall_cap_seconds']:
             raise RuntimeError('study wall cap cannot accommodate next arm')
-        used=sum(p.stat().st_size for p in root.rglob('*') if p.is_file())
+        used=directory_bytes(root)
         if used > contract['disk_cap_bytes']:
             raise RuntimeError('study disk cap reached')
     folder = root / 'raw' / key
@@ -54,6 +107,11 @@ def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
             raise RuntimeError('resume identity differs: ' + key)
         if (folder / 'receipt.json').exists():
             return read(folder / 'receipt.json')
+        inherited=root/'INHERITED_ATTEMPTS.json'
+        if inherited.exists() and key in read(inherited)['unknown_attempts']:
+            return {'status':'unknown','reason':'prior_monitor_interruption_no_retry',
+                    'inherited_intent':read(inherited)['unknown_attempts'][key],
+                    'derived_status_only':True}
         raise RuntimeError('unknown in-flight attempt; inspect, do not retry: ' + key)
     before = _gpu_snapshot(gpu)
     if before is None or 'error' in before:
@@ -90,7 +148,7 @@ def execute(root: Path, key: str, module: str, spec: dict, gpu: str,
                     limit_reason='worker_timeout'
                 if (root/'RESOURCE_CONTRACT.json').exists():
                     contract=read(root/'RESOURCE_CONTRACT.json')
-                    used=sum(p.stat().st_size for p in root.rglob('*') if p.is_file())
+                    used=directory_bytes(root)
                     if used>=contract['disk_cap_bytes']:
                         limit_reason='study_storage_cap'
                 if limit_reason:

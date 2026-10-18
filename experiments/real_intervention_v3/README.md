@@ -42,3 +42,14 @@ server-side; the evidence bundle includes unique recomputable records and an
 index. No provider/API request is involved. Runtime caps are one GPU, one
 worker, one native thread per process, 900 seconds per arm, 48 hours wall,
 and 50 GiB within the new result root.
+
+The first v3 attempt exposed a runner error when the disk monitor traversed a
+Triton temporary directory concurrently with its removal. Its first S1 was
+interrupted before a pair completed. `directory_bytes` now tolerates those
+normal cache publications. A new execution root may use `--prior-results` to
+retain the identical frozen cohort and completed qualification evidence after
+this monitor-only correction. The loader checks that the model, numerical,
+admission and canary code is unchanged. A started unknown arm stays unresolved
+and is never executed again; other prespecified, unstarted arms continue. The
+prior root is preserved and every inherited receipt retains its original
+source identity.
