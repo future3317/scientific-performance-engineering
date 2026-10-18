@@ -15,7 +15,7 @@ import sys
 import time
 import traceback
 
-from .run_state import digest, dump, execute, read, source_identity
+from .run_state import digest, dump, execute, read, source_identity, directory_bytes, inherit_interrupted_study
 
 
 def baseline_pool(universe: list[dict]) -> list[dict]:
@@ -42,7 +42,7 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
     cfg=read(config)
     sha=source_identity()
     start=time.time()
-    binding={'source_commit':sha,'config_digest':digest(cfg),'python':sys.executable,'gpu_uuid':cfg['gpu_uuid'],
+    binding={'source_commit':sha,'execution_id':root.name,'config_digest':digest(cfg),'python':sys.executable,'gpu_uuid':cfg['gpu_uuid'],
              'packages':{k:importlib.metadata.version(k) for k in ['torch','torchvision','triton']}}
     binding['environment_digest']=digest({k:v for k,v in binding.items() if k!='source_commit'})
     if (root/'RUN_IDENTITY.json').exists():
@@ -115,7 +115,16 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
         pool=[r for r in pool if r['source']=='torchvision' and r['family'] not in {'vit','swin','maxvit'}]
     dump(root/'BASELINE_POOL.json',pool)
     admitted=[];admission=[]
-    for row in pool:
+    inherited=(root/'INHERITED_ATTEMPTS.json').exists()
+    if inherited:
+        admission=read(root/'MODEL_ADMISSION.json')
+        frozen_manifest=read(root/'FROZEN_MANIFEST.json')
+        seen=set()
+        for context in frozen_manifest['contexts']:
+            key=(context['source'],context['model'])
+            if key not in seen:
+                admitted.append(context);seen.add(key)
+    for row in ([] if inherited else pool):
         key=row['source']+'-'+row['model']
         spec=dict(row,batch=1,shape=[3,224,224],seed=cfg['seed'],torchbench_root=cfg['torchbench_root'],
                   horizon=1,correctness=cfg['correctness'],reference_path=str(root/'references'/(key+'.pt')))
@@ -164,7 +173,8 @@ def main_run(config: Path, root: Path, resume: bool) -> None:
     resources={'provider_calls':0,'parent_wall_seconds':time.time()-start,
                'child_cpu_seconds':sum(r.get('child_cpu_s',0) for r in raw),
                'gpu_session_window_seconds':sum(r.get('parent_wall_s',0) for r in raw),
-               'downloads_bytes':0,'disk_bytes':sum(p.stat().st_size for p in root.rglob('*') if p.is_file())}
+               'downloads_bytes':0,'disk_bytes':directory_bytes(root),
+               'inherited_unknown_attempts':read(root/'INHERITED_ATTEMPTS.json') if inherited else None}
     extra={'status':release['status'],'release':release,'identity':binding,'selected_intervention':primary,
            'canary_passed':sum(r['status']=='valid' for r in canaries),'baseline_pool':len(pool),
            'baseline_valid':len(admitted),'family_split':manifest['family_split'],
@@ -181,10 +191,14 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument('--study-config',type=Path,required=True);p.add_argument('--results-root',type=Path,required=True)
     p.add_argument('--mode',choices=['full'],default='full');p.add_argument('--resume-safe',action='store_true')
+    p.add_argument('--prior-results',type=Path)
     args=p.parse_args();args.results_root.mkdir(parents=True,exist_ok=True)
     with (args.results_root/'run.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        try: main_run(args.study_config,args.results_root,args.resume_safe)
+        try:
+            if args.prior_results:
+                inherit_interrupted_study(args.prior_results,args.results_root)
+            main_run(args.study_config,args.results_root,args.resume_safe)
         except Exception as exc:
             dump(args.results_root/'FATAL_CAUSE.json',{'error':str(exc),'traceback':traceback.format_exc(),
                                                       'action':'inspect exact failed receipt; never repeat an unknown attempt'})
