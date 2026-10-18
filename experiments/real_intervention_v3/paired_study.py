@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import random
+import math
 
 from .run_state import dump, execute, read
 
@@ -52,11 +53,16 @@ def measure(root: Path, manifest: dict, split: str, environment: dict) -> list[d
                 arms[arm] = execute(root,key+'-'+arm,'experiments.real_intervention_v3.arm_worker',
                                     spec,manifest['gpu_uuid'],manifest['arm_timeout_seconds'],environment)
             status=classify_pair(arms['S0'],arms['S1'])
+            shapes=list(context.get('actual_input_shapes',{}).values())
+            image=next((shape for shape in shapes if len(shape)==4),None)
             pair={'pair_id':key,'family':context['family'],'model':context['model'],
                   'source':context['source'],'split':split,'horizon':context['horizon'],
                   'session':session,'order':order,'status':status,'S0':arms['S0'],'S1':arms['S1'],
                   'features':{'horizon':context['horizon'],'batch':context['batch'],
-                              'parameter_count':context.get('parameter_count',0)},
+                              'parameter_count':context.get('parameter_count',0),
+                              'input_height':image[-2] if image else 0,'input_width':image[-1] if image else 0,
+                              'input_channels':image[1] if image else 0,
+                              'input_numel':sum(math.prod(shape) for shape in shapes)},
                   'context_id':context['context_id']}
             dump(path,pair);pairs.append(pair)
             print('PAIR',key,context['family'],status,flush=True)
