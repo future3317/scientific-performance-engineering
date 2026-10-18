@@ -169,6 +169,7 @@ def finalize(run_root: str | Path) -> dict[str, Any]:
         })
     pairs_bytes = b"".join((json.dumps(_redact(row), sort_keys=True, allow_nan=False) + "\n").encode()
                            for row in pair_lines)
+    scheduled_lineages = len({row["lineage_id"] for row in manifest["contexts"]})
     metrics = {
         "experiment": manifest["run_id"],
         "status": state["status"],
@@ -177,7 +178,9 @@ def finalize(run_root: str | Path) -> dict[str, Any]:
         "torchbench_commit": manifest["torchbench_commit"],
         "intervention_id": manifest["intervention_id"],
         "provider_calls": 0,
-        "model_lineages": {"scheduled": len({row["lineage_id"] for row in manifest["contexts"]}),
+        "model_lineages": {"scheduled": scheduled_lineages,
+                            "minimum_for_final_claim": 18,
+                            "power_status": "adequate" if scheduled_lineages >= 18 else "underpowered",
                             "by_split": {split: len({row["lineage_id"] for row in manifest["contexts"] if row["split"] == split})
                                          for split in ("development", "gate_calibration", "final_untouched")}},
         "contexts": {"scheduled": len(manifest["contexts"]), "paired_contexts_observed": len(contexts),
@@ -213,6 +216,8 @@ def finalize(run_root: str | Path) -> dict[str, Any]:
               f"- Source commit: `{manifest['source_commit']}`",
               f"- Intervention: `{manifest['intervention_id']}` (`torch.compile`, inductor/default)",
               f"- Model lineages: {metrics['model_lineages']['scheduled']} scheduled",
+              f"- Lineage support status: {metrics['model_lineages']['power_status']} "
+              f"(minimum for final claim: {metrics['model_lineages']['minimum_for_final_claim']})",
               f"- Contexts: {len(contexts)} observed / {len(manifest['contexts'])} scheduled",
               f"- Matched sessions: {len(raw_pairs)} observed / {manifest['planned_pair_sessions']} scheduled",
               f"- Provider calls: 0", "",
