@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import itertools
+import hashlib
 import json
+import math
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from core.predicates import match_predicate
 
 
-SYNTHESIZER_VERSION = "acre-predicate-synth-v2"
+SYNTHESIZER_VERSION = "acre-predicate-synth-v3"
 
 
 def _lookup(context: Mapping[str, Any], path: str) -> Any:
@@ -50,6 +53,15 @@ def predicate_complexity(predicate: Mapping[str, Any]) -> dict[str, int]:
         if literals == 0:
             literals = len(predicate)
     return {"depth": depth, "literals": literals, "description_length": len(_key(predicate))}
+
+
+@dataclass(frozen=True)
+class PredicateSearchResult:
+    candidates: tuple[dict[str, Any], ...]
+    search_exhausted: bool
+    candidates_examined: int
+    elapsed_seconds: float
+    vocabulary_digest: str
 
 
 @dataclass(frozen=True)
@@ -98,9 +110,11 @@ class PredicateGrammar:
         complexity = predicate_complexity(predicate)
         return complexity["depth"] <= self.max_depth and complexity["literals"] <= self.max_literals
 
-    def _atoms(self, contexts: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    def _atoms(self, contexts: list[Mapping[str, Any]], *, deadline: float | None = None) -> list[dict[str, Any]]:
         atoms: list[dict[str, Any]] = []
         for feature in self.features:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
             path, kind = feature["path"], feature["type"]
             values = [_lookup(context, path) for context in contexts]
             values = [value for value in values if value is not None]
@@ -111,6 +125,8 @@ class PredicateGrammar:
                     raise ValueError(f"formal predicate grammar requires frozen thresholds for {path}")
                 thresholds = configured if configured else sorted({(left + right) / 2.0 for left, right in zip(numeric, numeric[1:])})
                 for threshold in thresholds:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        return sorted(atoms, key=_key)
                     atoms.extend(({"compare": {path: {"lte": threshold}}}, {"compare": {path: {"gte": threshold}}}))
             elif kind == "version":
                 atoms.extend({"version": {path: value}} for value in sorted(set(values), key=_key))
@@ -118,21 +134,56 @@ class PredicateGrammar:
                 atoms.extend({"equals": {path: value}} for value in sorted(set(values), key=_key))
         return sorted(atoms, key=_key)
 
-    def candidates(self, contexts: list[Mapping[str, Any]], parent_predicate: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        atoms = self._atoms(contexts)
+    def search_candidates(
+        self,
+        contexts: list[Mapping[str, Any]],
+        parent_predicate: dict[str, Any] | None = None,
+        *,
+        max_candidates: int | None = None,
+        max_wall_time: float | None = 30.0,
+        comparison_contexts: list[Mapping[str, Any]] | None = None,
+    ) -> PredicateSearchResult:
+        if max_candidates is not None and max_candidates < 1:
+            raise ValueError("max_candidates must be positive")
+        if max_wall_time is not None and max_wall_time <= 0:
+            raise ValueError("max_wall_time must be positive")
+        started = time.monotonic()
+
+        def expired() -> bool:
+            return max_wall_time is not None and time.monotonic() - started >= max_wall_time
+
+        deadline = started + max_wall_time if max_wall_time is not None else None
+        atoms = self._atoms(contexts, deadline=deadline)
+        if expired():
+            return PredicateSearchResult((), True, 0, time.monotonic() - started, "")
         fragments = atoms + [{"not": atom} for atom in atoms]
-        context_masks = [
-            sum(1 << index for index, context in enumerate(contexts) if match_predicate(fragment, context))
-            for fragment in fragments
-        ]
-        full_mask = (1 << len(contexts)) - 1
+        if max_candidates is None:
+            # Bound default work by the grammar's complete combination count;
+            # explicit caller caps remain unchanged.
+            max_candidates = sum(
+                math.comb(len(fragments), width)
+                for width in range(1, min(self.max_literals, len(fragments)) + 1)
+            )
+        signature_contexts = contexts + list(comparison_contexts or [])
+        context_masks = []
+        for fragment in fragments:
+            if expired():
+                return PredicateSearchResult((), True, 0, time.monotonic() - started, "")
+            context_masks.append(sum(1 << index for index, context in enumerate(signature_contexts) if match_predicate(fragment, context)))
+        full_mask = (1 << len(signature_contexts)) - 1
         fragment_keys = [_key(fragment) for fragment in fragments]
-        fragment_complexities = [predicate_complexity(fragment) for fragment in fragments]
-        representatives: dict[int, tuple[tuple[int, int, int, str], dict[str, Any]]] = {}
+        fragment_complexities = []
+        for fragment in fragments:
+            if expired():
+                return PredicateSearchResult((), True, 0, time.monotonic() - started, "")
+            fragment_complexities.append(predicate_complexity(fragment))
+        representatives: dict[Any, tuple[tuple[int, int, int, str], dict[str, Any]]] = {}
+        vocabulary_hasher = hashlib.sha256()
 
         def add(candidate: dict[str, Any], signature: int, candidate_key: str, depth: int, literals: int) -> None:
             if depth > self.max_depth or literals > self.max_literals:
                 return
+            vocabulary_hasher.update(candidate_key.encode("utf-8") + b"\n")
             priority = (len(candidate_key), depth, literals, candidate_key)
             current = representatives.get(signature)
             if current is None or priority < current[0]:
@@ -142,7 +193,7 @@ class PredicateGrammar:
             parent_key = _key(parent_predicate)
             parent_complexity = predicate_complexity(parent_predicate)
             parent_mask = sum(
-                1 << index for index, context in enumerate(contexts)
+                1 << index for index, context in enumerate(signature_contexts)
                 if match_predicate(parent_predicate, context)
             )
             # A specialization may preserve the parent or narrow it; it must
@@ -152,8 +203,16 @@ class PredicateGrammar:
             parent_key = None
             parent_complexity = None
             parent_mask = None
+        examined = 0
+        search_exhausted = expired()
         for width in range(1, min(self.max_literals, len(fragments)) + 1):
+            if search_exhausted:
+                break
             for selected_indices in itertools.combinations(range(len(fragments)), width):
+                if expired() or (max_candidates is not None and examined >= max_candidates):
+                    search_exhausted = True
+                    break
+                examined += 1
                 selected = tuple(fragments[index] for index in selected_indices)
                 selected_keys = tuple(fragment_keys[index] for index in selected_indices)
                 all_mask = full_mask
@@ -185,4 +244,34 @@ class PredicateGrammar:
                         add({"all": list(selected)}, all_mask, '{"all":[' + ','.join(selected_keys) + ']}', 1 + selected_depth, width)
                     if width > 1:
                         add({"any": list(selected)}, any_mask, '{"any":[' + ','.join(selected_keys) + ']}', 1 + selected_depth, width)
-        return [item[1] for item in sorted(representatives.values(), key=lambda item: item[0][3])]
+        search_exhausted = search_exhausted or expired()
+        return PredicateSearchResult(
+            candidates=tuple(item[1] for item in sorted(representatives.values(), key=lambda item: item[0][3])),
+            search_exhausted=search_exhausted,
+            candidates_examined=examined,
+            elapsed_seconds=time.monotonic() - started,
+            vocabulary_digest=vocabulary_hasher.hexdigest(),
+        )
+
+    def candidates(
+        self,
+        contexts: list[Mapping[str, Any]],
+        parent_predicate: dict[str, Any] | None = None,
+        *,
+        max_candidates: int | None = None,
+        max_wall_time: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Enumerate exactly for existing inspection callers, or honor explicit caps.
+
+        Production synthesis uses ``search_candidates`` with mandatory limits.
+        This original exact-enumeration API never returns a truncated set.
+        """
+        result = self.search_candidates(
+            contexts,
+            parent_predicate,
+            max_candidates=max_candidates,
+            max_wall_time=max_wall_time,
+        )
+        if result.search_exhausted:
+            raise RuntimeError("predicate search exhausted its configured budget")
+        return list(result.candidates)

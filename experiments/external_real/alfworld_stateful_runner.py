@@ -1,0 +1,994 @@
+"""Visible-state ALFWorld policy with bounded history and explicit progress."""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from core.acre.resource_budget import ApprovedProviderBudget, ProviderBudgetExceeded, ProviderUsageBudget, manifest_digest
+from experiments.external_real.alfworld_runner import (
+    _alfworld_config,
+    _scalar,
+    _select_game_files,
+    extract_action,
+    task_family_name,
+)
+
+
+POLICY_REVISION = "alfworld-stateful-public-goal-light"
+_TRANSFORMATIONS = ("clean", "heat", "cool")
+_STATE_HISTORY_LIMIT = 12
+_SEEN_ENTITY_LIMIT = 32
+_DEEPSEEK_MAX_TOKENS = 8192
+
+
+class PublicGoalUnparsed(ValueError):
+    """No action request can be made until the public goal is understood."""
+
+
+def _prompt_token_bound(messages: Sequence[Mapping[str, str]]) -> int:
+    """Bound this exact prompt by UTF-8 content bytes plus chat framing.
+
+    This is accounting, not a tokenizer: it assumes content tokenization uses
+    no more tokens than UTF-8 bytes and reserves 16 tokens per message plus 3
+    for the provider's chat framing/assistant prefix.
+    """
+    return sum(len(message["content"].encode("utf-8")) + 16 for message in messages) + 3
+
+
+def _goal_from_observation(observation: str) -> str:
+    match = re.search(r"(?:your task is to|task is to)\s*:?\s*(.+?)(?:\n|$)", observation, re.I)
+    return (match.group(1) if match else observation).strip()
+
+
+def _parse_public_goal(goal: str) -> dict[str, Any]:
+    """Parse public ALFWorld goal language, never task files or teacher state."""
+    text = goal.strip().casefold().rstrip(".!")
+    match = re.fullmatch(
+        r"(?:put|find|pick up|take|clean|heat|cool|look at|examine)\s+"
+        r"(?:(?P<quantity>a|an|the|some|two|2)\s+)?"
+        r"(?:(?P<state>clean(?:ed)?|heat(?:ed)?|cool(?:ed)?|hot|cold)\s+)?"
+        r"(?P<object>[a-z][a-z -]*?)"
+        r"(?:\s+and put (?:it|them))?"
+        r"(?:\s+(?:in|inside|on|onto|under|at|with|using)\s+(?:a |an |the )?"
+        r"(?P<receptacle>[a-z][a-z -]*?))?", text,
+    )
+    if not match:
+        return {"object_type": None, "receptacle_type": None, "target_count": None,
+                "task_family": None, "goal_parse_status": "UNPARSED"}
+    obj = match["object"]
+    # Public task nouns may be singular even after "two", or ordinarily plural.
+    if match["quantity"] in {"two", "2"}:
+        if obj == "knives":
+            obj = "knife"
+        elif obj.endswith("ies"):
+            obj = obj[:-3] + "y"
+        elif re.search(r"(?:sses|shes|ches|xes|zes)$", obj):
+            obj = obj[:-2]
+        elif obj.endswith("s") and not obj.endswith("ss"):
+            obj = obj[:-1]
+    count = 2 if match["quantity"] in {"two", "2"} else 1
+    transform = _transformation_from_goal(goal)
+    light = text.startswith(("look at ", "examine "))
+    family = ("look_at_obj_in_light" if light else "pick_two_obj_and_place" if count == 2 else
+              f"pick_{transform}_then_place_in_recep" if transform else "pick_and_place_simple")
+    return {"object_type": obj, "receptacle_type": match["receptacle"],
+            "target_count": count if match["receptacle"] else None, "task_family": family,
+            "goal_parse_status": "PARSED" if match["receptacle"] else "UNPARSED"}
+
+
+def _goal_entities(goal: str) -> tuple[str | None, str | None]:
+    parsed = _parse_public_goal(goal)
+    return parsed["object_type"], parsed["receptacle_type"]
+
+
+def _visible_inventory(observation: str) -> tuple[str, ...] | None:
+    match = re.search(r"(?:inventory|you are carrying|you have)\s*:?\s*([^\n.]+)", observation, re.I)
+    if not match:
+        return None
+    value = match.group(1).strip()
+    if not value or value.casefold() in {"nothing", "nothing."}:
+        return ()
+    return tuple(item.strip().casefold() for item in re.split(r",| and ", value) if item.strip())
+
+
+def _transformation_from_goal(goal: str) -> str | None:
+    lowered = goal.casefold()
+    return next((action for action in _TRANSFORMATIONS if re.search(
+        rf"\b{action}(?:ed|ing)?\b" + (r"|\bhot\b" if action == "heat" else r"|\bcold\b" if action == "cool" else ""),
+        lowered)), None)
+
+
+def _mentions(entity: str, text: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(entity)}\b", text.casefold()))
+
+
+def _rejection_event(raw_output: str, finish_reason: str | None,
+                     observation: str, admissible_actions: Sequence[str],
+                     previous: Mapping[str, Any] | None, turn_index: int) -> dict[str, Any]:
+    match = re.search(r"^\s*(?:action|command)\s*:\s*(.*?)\s*$", raw_output,
+                      flags=re.IGNORECASE | re.MULTILINE)
+    requested = match.group(1).strip().strip("`\"'") if match else None
+    code = ("OUTPUT_TRUNCATED" if finish_reason == "length" or not raw_output.strip() else
+            "NOT_ADMISSIBLE" if requested else "INVALID_FORMAT")
+    actions_digest = manifest_digest({"commands": list(admissible_actions)})
+    state_digest = manifest_digest({"observation": observation,
+                                    "admissible_commands": list(admissible_actions)})
+    same_state = bool(previous and previous.get("action_key") == (requested or "").casefold()
+                      and previous.get("admissible_digest") == actions_digest
+                      and previous.get("visible_state_digest") == state_digest)
+    return {
+        "turn_index": turn_index,
+        "requested_action": requested[:80] if requested else None,
+        "rejection_code": code,
+        "admissible_digest": actions_digest,
+        "visible_state_digest": state_digest,
+        "consecutive_same_state_count": (previous.get("consecutive_same_state_count", 0) + 1
+                                          if same_state else 1),
+        "env_step_called": False,
+        "action_key": (requested or "").casefold(),
+    }
+
+
+def _rejection_feedback(events: Sequence[Mapping[str, Any]]) -> str | None:
+    if not events:
+        return None
+    lines = ["Prior validator feedback (historical; recheck the current admissible list):"]
+    for event in events[-3:]:
+        if event["rejection_code"] == "NOT_ADMISSIBLE":
+            lines.append(
+                f"- Requested {event['requested_action']!r}; rejection: NOT_ADMISSIBLE "
+                f"(not in that turn's list), "
+                f"did not execute; same-state repeats: {event['consecutive_same_state_count']}."
+            )
+        else:
+            lines.append(f"- Prior response was {event['rejection_code']}; no environment action executed.")
+    return "\n".join(lines)[:500]
+
+
+@dataclass
+class EpisodeState:
+    """Episode memory derived only from visible observations and actions."""
+
+    goal: str
+    current_room_or_location: str | None = None
+    visited_locations: list[str] = field(default_factory=list)
+    seen_objects_and_receptacles: list[str] = field(default_factory=list)
+    inventory: tuple[str, ...] | None = None
+    target_object: str | None = None
+    target_receptacle: str | None = None
+    target_count: int | None = None
+    task_family: str | None = None
+    goal_parse_status: str = "UNKNOWN"
+    placed_target_objects: list[str] = field(default_factory=list)
+    required_transformation: str | None = None
+    completed_subgoals: list[str] = field(default_factory=list)
+    open_containers: list[str] = field(default_factory=list)
+    last_actions: list[str] = field(default_factory=list)
+    progress_markers: list[str] = field(default_factory=list)
+    stuck_counter: int = 0
+    remaining_steps: int = 0
+    last_observation: str = ""
+    fact_sources: dict[str, dict[str, Any]] = field(default_factory=dict)
+    observation_step: int = -1
+
+    @classmethod
+    def start(cls, observation: str, remaining_steps: int) -> "EpisodeState":
+        goal = _goal_from_observation(observation)
+        parsed = _parse_public_goal(goal)
+        state = cls(
+            goal=goal,
+            target_object=parsed["object_type"],
+            target_receptacle=parsed["receptacle_type"],
+            target_count=parsed["target_count"],
+            task_family=parsed["task_family"],
+            goal_parse_status=parsed["goal_parse_status"],
+            required_transformation=_transformation_from_goal(goal),
+            remaining_steps=remaining_steps,
+        )
+        state.observe(observation)
+        return state
+
+    def observe(self, observation: str, action: str | None = None) -> None:
+        self.observation_step += 1
+        previous = self.last_observation
+        self.last_observation = observation
+        location = re.search(r"you are in (?:the )?([^.!\n]+)", observation, re.I)
+        if not location:
+            location = re.search(r"you arrive at (?:the )?([^.!\n]+)", observation, re.I)
+        if location:
+            value = location.group(1).strip().casefold()
+            self.current_room_or_location = value
+            self.fact_sources["location"] = {"status": "known", "step": self.observation_step}
+            if value not in self.visited_locations:
+                self.visited_locations.append(value)
+                self.visited_locations = self.visited_locations[-_STATE_HISTORY_LIMIT:]
+                self.progress_markers.append(f"location_seen:{value}")
+        inventory = _visible_inventory(observation)
+        if inventory is not None:
+            contradicted = self.inventory is not None and inventory != self.inventory
+            self.fact_sources["inventory"] = {"status": "known", "step": self.observation_step,
+                                              "previous_contradicted": contradicted}
+            if self.inventory != inventory:
+                self.progress_markers.append("inventory_observed")
+            if self.target_object and any(_mentions(self.target_object, item) for item in inventory):
+                if "acquire_object" not in self.completed_subgoals:
+                    self.completed_subgoals.append("acquire_object")
+                    self.progress_markers.append("subgoal_observed:acquire_object")
+            self.inventory = inventory
+        names = re.findall(r"\b(?:[a-z][a-z -]*\s+\d+|[a-z]+(?:[ -][a-z]+)*)\b", observation.casefold())
+        for name in names[:32]:
+            normalized = name.strip()
+            if normalized and normalized not in self.seen_objects_and_receptacles:
+                self.seen_objects_and_receptacles.append(normalized)
+        self.seen_objects_and_receptacles = self.seen_objects_and_receptacles[-_SEEN_ENTITY_LIMIT:]
+        for container in re.findall(r"(?:open|opened)\s+(?:the\s+)?([\w -]+?)(?:\s+\d+)?(?:\b|[,.])", observation, re.I):
+            normalized = container.strip().casefold()
+            if normalized and normalized not in self.open_containers:
+                self.open_containers.append(normalized)
+        self.open_containers = self.open_containers[-_STATE_HISTORY_LIMIT:]
+
+        visible = observation.casefold()
+        if self.goal:
+            visible = visible.replace(self.goal.casefold(), "")
+        if self.target_object and _mentions(self.target_object, visible) and "locate_object" not in self.completed_subgoals:
+            self.completed_subgoals.append("locate_object")
+            self.progress_markers.append("subgoal_observed:locate_object")
+        transform = self.required_transformation
+        descriptor = {"clean": r"clean(?:ed)?", "heat": r"(?:heat(?:ed)?|hot)",
+                      "cool": r"(?:cool(?:ed)?|cold)"}.get(transform, "")
+        transform_observed = (transform and self.target_object and _mentions(self.target_object, visible)
+                              and re.search(rf"\byou\s+{transform}(?:ed)?\b|\b(?:is|now)\s+(?:(?:a|an)\s+)?{descriptor}\b", visible))
+        if transform_observed and transform not in self.completed_subgoals:
+            self.completed_subgoals.append(transform)
+            self.progress_markers.append(f"subgoal_observed:{transform}")
+            self.fact_sources[str(transform)] = {"status": "known", "step": self.observation_step}
+        if action:
+            self.last_actions.append(action)
+            self.last_actions = self.last_actions[-8:]
+            self._record_action_acknowledgement(observation, action)
+        self.progress_markers = self.progress_markers[-_STATE_HISTORY_LIMIT:]
+        if observation != previous:
+            self.stuck_counter = 0
+
+    def _record_action_acknowledgement(self, observation: str, action: str) -> None:
+        """Apply task-state changes only when ALFWorld visibly acknowledges success."""
+        text = observation.casefold().replace(self.goal.casefold(), "")
+        action = action.casefold().strip()
+        pickup = re.match(r"(?:pick up|take)\s+(?:the\s+)?([\w -]+?)(?:\s+from\b|$)", action)
+        if pickup and self.target_object and _mentions(self.target_object, pickup.group(1)):
+            item = pickup.group(1).strip()
+            if re.search(rf"\byou\s+(?:pick up|take)\s+(?:the\s+)?{re.escape(item)}\b", text):
+                inventory = list(self.inventory or ())
+                if item not in inventory:
+                    inventory.append(item)
+                self.inventory = tuple(inventory)
+                if item in self.placed_target_objects:
+                    self.placed_target_objects.remove(item)
+                    if "place_object" in self.completed_subgoals:
+                        self.completed_subgoals.remove("place_object")
+                self.fact_sources["inventory"] = {"status": "known", "step": self.observation_step}
+                if "acquire_object" not in self.completed_subgoals:
+                    self.completed_subgoals.append("acquire_object")
+                    self.progress_markers.append("subgoal_acknowledged:acquire_object")
+
+        transformation = next((value for value in _TRANSFORMATIONS if action.startswith(value + " ")), None)
+        if transformation and self.target_object and _mentions(self.target_object, action) and re.search(
+            rf"\byou\s+{transformation}(?:ed)?\b|\b(?:is|now)\s+{transformation}(?:ed)?\b", text
+        ):
+            if transformation not in self.completed_subgoals:
+                self.completed_subgoals.append(transformation)
+                self.progress_markers.append(f"subgoal_acknowledged:{transformation}")
+                self.fact_sources[transformation] = {"status": "known", "step": self.observation_step}
+
+        placement = re.match(r"(?:put|place|move)\s+(?:the\s+)?([\w -]+?)\s+(?:in/on|in|inside|on|onto|to)\s+(.+)$", action)
+        if (
+            placement and self.target_object and self.target_receptacle
+            and _mentions(self.target_object, placement.group(1))
+            and _mentions(self.target_receptacle, placement.group(2))
+        ):
+            item, destination = placement.group(1).strip(), placement.group(2).strip()
+            acknowledged = re.search(
+                rf"\byou\s+(?:put|place|move)\s+(?:the\s+)?{re.escape(item)}\s+(?:in/on|in|inside|on|onto|to)\s+(?:the\s+)?{re.escape(destination)}\b",
+                text,
+            )
+            if acknowledged:
+                if self.inventory is not None:
+                    self.inventory = tuple(value for value in self.inventory if not _mentions(item, value))
+                    self.fact_sources["inventory"] = {"status": "known", "step": self.observation_step}
+                # Count distinct publicly acknowledged object instances, not commands.
+                identifiable = self.target_count == 1 or re.search(r"\s\d+$", item)
+                if identifiable and item not in self.placed_target_objects:
+                    self.placed_target_objects.append(item)
+                    self.progress_markers.append(f"placement_acknowledged:{item}")
+                if (self.target_count is not None
+                        and len(self.placed_target_objects) >= self.target_count
+                        and "place_object" not in self.completed_subgoals):
+                    self.completed_subgoals.append("place_object")
+                    self.progress_markers.append("subgoal_acknowledged:place_object")
+
+
+class SubgoalPlanner:
+    """Choose a textual subgoal from state facts, without environment oracle data."""
+
+    @staticmethod
+    def next_subgoal(state: EpisodeState, admissible_actions: Sequence[str]) -> str:
+        if state.goal_parse_status != "PARSED":
+            return "interpret the original public goal; target requirements are unresolved, not completed"
+        if "place_object" in state.completed_subgoals:
+            return "verify visible task completion; otherwise replan from the latest observation"
+        visible_observation = state.last_observation.casefold().replace(state.goal.casefold(), "")
+        # Already placed instances are not the remaining object in a two-object goal.
+        for item in state.placed_target_objects:
+            visible_observation = re.sub(rf"\b{re.escape(item)}\b", "", visible_observation)
+        remaining_actions = [action for action in admissible_actions if not any(
+            _mentions(item, action) for item in state.placed_target_objects
+        )]
+        held = state.target_object is not None and state.inventory is not None and any(
+            _mentions(state.target_object, item) for item in state.inventory
+        )
+        if state.target_object and not held:
+            object_visible = _mentions(state.target_object, visible_observation) or any(
+                _mentions(state.target_object, action) for action in remaining_actions
+            )
+            matching_pickup = any(
+                action.casefold().startswith(("pick up ", "take ")) and _mentions(state.target_object, action)
+                for action in remaining_actions
+            )
+            if matching_pickup or object_visible:
+                return "acquire the visible goal object and confirm the inventory change"
+            return "locate the goal object using visible observations and admissible navigation actions"
+        if state.required_transformation and state.required_transformation not in state.completed_subgoals:
+            return f"perform and visibly confirm the required {state.required_transformation} transformation"
+        if state.task_family == "look_at_obj_in_light":
+            return "use the requested light with the held goal object; verify only through the environment"
+        if state.target_receptacle and not _mentions(state.target_receptacle, visible_observation):
+            return "locate the goal receptacle using admissible navigation actions"
+        if state.target_receptacle and "place_object" not in state.completed_subgoals:
+            return "place the goal object in the requested receptacle and inspect the result"
+        return "verify visible task completion; otherwise replan from the latest observation"
+
+
+class HistoryCompressor:
+    """Render compact state and recent events; report characters, not fake tokens."""
+
+    def __init__(self, recent_events: int = 6) -> None:
+        self.recent_events = recent_events
+
+    def render(self, state: EpisodeState, history: Sequence[Mapping[str, Any]]) -> tuple[str, dict[str, int]]:
+        state_text = json.dumps(asdict(state), ensure_ascii=False, sort_keys=True)
+        history_text = json.dumps(list(history[-self.recent_events :]), ensure_ascii=False, sort_keys=True)
+        sections = {"state_chars": state_text, "recent_history_chars": history_text}
+        unknowns = [name for name in ("inventory", "location", state.required_transformation)
+                    if name and name not in state.fact_sources]
+        return "\n".join((f"Visible state: {state_text}", f"Unknown facts: {', '.join(unknowns) or 'none'}",
+                          f"Recent events: {history_text}")), {
+            key: len(value) for key, value in sections.items()
+        }
+
+
+class ExecutionGuard:
+    def __init__(self, repeat_limit: int = 3) -> None:
+        if repeat_limit < 1:
+            raise ValueError("repeat_limit must be positive")
+        self.repeat_limit = repeat_limit
+        self._signature_counts: dict[tuple[Any, ...], int] = {}
+
+    def select(self, raw_output: str, admissible_actions: Sequence[str]) -> tuple[str | None, str | None]:
+        action = extract_action(raw_output, admissible_actions)
+        return (action, None) if action is not None else (None, "action_not_admissible")
+
+    def observe_result(self, state: EpisodeState, previous_observation: str, observation: str, action: str) -> str | None:
+        signature = (state.current_room_or_location, state.inventory,
+                     tuple(state.completed_subgoals), tuple(state.placed_target_objects), observation, action.casefold())
+        self._signature_counts[signature] = self._signature_counts.get(signature, 0) + 1
+        count = self._signature_counts[signature]
+        # Returning to the same observed state/action is also a loop, even
+        # when each navigation step changes the observation (A -> B -> A).
+        state.stuck_counter = count if observation == previous_observation or count > 1 else 0
+        return "repeated_state_action" if state.stuck_counter >= self.repeat_limit else None
+
+
+class DeepSeekStatefulClient:
+    """Small provider adapter; construction is explicit and never done by fixtures."""
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        temperature: float = 0.0,
+        budget: ProviderUsageBudget | None = None,
+        max_completion_tokens: int = _DEEPSEEK_MAX_TOKENS,
+        persist_budget: Any = None,
+    ) -> None:
+        from openai import OpenAI
+
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=120.0, max_retries=0)
+        self.base_url = base_url
+        self.model = model
+        self.temperature = temperature
+        self.budget = budget
+        self.max_completion_tokens = max_completion_tokens
+        self.persist_budget = persist_budget
+        self.response_identity: tuple[Any, Any] | None = None
+        self.require_response_identity = False
+        self.response_ids: set[str] = set()
+        self.receipt_journal: Any = None
+        self._episode_context: tuple[str, str, str | None] | None = None
+        self._episode_turn = 0
+
+    def set_episode_context(self, episode_id: str, arm: str,
+                            skill_version: str | None = None) -> None:
+        """Set stable receipt identity before running one episode arm."""
+        if not episode_id or not arm:
+            raise ValueError("episode_id and arm are required for durable receipts")
+        self._episode_context = (episode_id, arm, skill_version)
+        self._episode_turn = 0
+
+    def choose_action(
+        self,
+        state: EpisodeState,
+        admissible_actions: Sequence[str],
+        skill: str | None,
+        progress: str,
+        replan_reason: str | None,
+    ) -> dict[str, Any]:
+        if state.goal_parse_status != "PARSED":
+            raise PublicGoalUnparsed("public_goal_unparsed: stop before requesting an action")
+        skill_text = skill or "No reusable skill is provided."
+        prompt = (
+            "Choose exactly one command from the admissible list. Never invent commands or infer hidden state.\n"
+            f"Reusable skill: {skill_text}\n"
+            f"Goal: {state.goal}\n{progress}\n"
+            f"Current subgoal: {SubgoalPlanner.next_subgoal(state, admissible_actions)}\n"
+            f"Replan note: {replan_reason or 'none'}\n"
+            f"Current observation: {state.last_observation}\n"
+            "Admissible commands:\n" + "\n".join(f"- {item}" for item in admissible_actions)
+            + "\nReply only as Action: <exact command>."
+        )
+        messages = [
+            {"role": "system", "content": "Follow the action format exactly."},
+            {"role": "user", "content": prompt},
+        ]
+        return self.complete_text(messages)
+
+    def complete_text(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        """Shared metered final-content path for actions and Skill proposals.
+
+        This text-only protocol deliberately does not send native API tools.
+        Private reasoning is neither executable nor persisted in exported traces.
+        """
+        input_bound = _prompt_token_bound(messages)
+        usd_before = self.budget.usd_used if isinstance(self.budget, ApprovedProviderBudget) else None
+        if input_bound > getattr(self, "max_input_per_request", input_bound):
+            raise ProviderBudgetExceeded("per_request_input_cap")
+        journal = getattr(self, "receipt_journal", None)
+        intent: dict[str, Any] | None = None
+        call_id: str | None = None
+        prompt_identity = manifest_digest({"messages": messages})
+        if journal is not None:
+            configuration_identity = manifest_digest({
+                "model": self.model, "base_url": getattr(self, "base_url", None),
+                "temperature": self.temperature, "max_completion_tokens": self.max_completion_tokens,
+                "thinking": {"type": "enabled"},
+            })
+            if self._episode_context is None:
+                raise RuntimeError("set_episode_context is required when receipt journaling is enabled")
+            episode_id, arm, skill_version = self._episode_context
+            turn = self._episode_turn
+            call_id = f"{episode_id}/{arm}/{skill_version or 'none'}/turn-{turn}"
+            self._episode_turn += 1
+            saved_response = journal.existing_response(
+                call_id=call_id, episode_id=episode_id, arm=arm,
+                skill_version=skill_version, turn=turn,
+                prompt_identity=prompt_identity,
+                configuration_identity=configuration_identity,
+            )
+            if saved_response is not None:
+                if self.budget is not None and not journal.budget_was_restored(self.budget):
+                    raise RuntimeError("call journal.restore_budget(budget) before replaying a saved response")
+                if self.budget is not None and self.budget.stopped:
+                    raise ProviderBudgetExceeded(self.budget.stop_reason or "recovered_budget_stopped")
+                identity = (saved_response.get("model"), saved_response.get("system_fingerprint"))
+                if getattr(self, "require_response_identity", False):
+                    if not all(isinstance(value, str) and value for value in identity):
+                        if self.budget is not None:
+                            self.budget.stop("provider_response_identity_missing")
+                        raise RuntimeError("provider response identity is missing from saved receipt")
+                    if self.response_identity is not None and identity != self.response_identity:
+                        if self.budget is not None:
+                            self.budget.stop("provider_model_identity_changed")
+                        raise RuntimeError("provider model identity changed within a frozen run")
+                self.response_identity = identity
+                return self._result_from_durable_receipt(saved_response)
+        if self.budget is not None:
+            self.budget.reserve(input_bound, self.max_completion_tokens)
+        if journal is not None:
+            try:
+                intent = journal.reserve_intent(
+                    call_id=call_id, episode_id=episode_id, arm=arm,
+                    skill_version=skill_version, turn=turn,
+                    prompt_identity=prompt_identity,
+                    configuration_identity=configuration_identity,
+                    input_token_bound=input_bound,
+                    completion_token_bound=self.max_completion_tokens,
+                )
+            except BaseException:
+                if self.budget is not None:
+                    self.budget.mark_unknown("durable_provider_intent_failed")
+                raise
+            if intent is not None:
+                raise RuntimeError("provider receipt appeared after intent preflight")
+        if journal is None and self.budget is not None and self.persist_budget is not None:
+            self.persist_budget(self.budget.as_dict())
+        started = time.perf_counter()
+        try:
+            request_timeout = ({"timeout": max(0.001, min(120.0, self.budget.remaining_wall_seconds))}
+                               if isinstance(self.budget, ApprovedProviderBudget) else {})
+            response = self.client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_completion_tokens,
+                extra_body={"thinking": {"type": "enabled"}},
+                messages=messages,
+                **request_timeout,
+            )
+        except Exception:
+            if self.budget is not None:
+                self.budget.mark_unknown("provider_exception_usage_unknown")
+                if self.persist_budget is not None:
+                    self.persist_budget(self.budget.as_dict())
+            raise
+        latency = time.perf_counter() - started
+        usage = getattr(response, "usage", None)
+        if journal is not None:
+            choice = response.choices[0]
+            message = choice.message
+            content = message.content or ""
+            response_id = getattr(response, "id", None)
+            details = getattr(usage, "completion_tokens_details", None)
+            raw_receipt = {
+                "call_id": call_id, "episode_id": episode_id, "arm": arm,
+                "skill_version": skill_version, "turn": turn,
+                "prompt_identity": prompt_identity,
+                "configuration_identity": configuration_identity,
+                "content": content,
+                "input_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", None),
+                "cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", None),
+                "reasoning_tokens": getattr(details, "reasoning_tokens", None),
+                "model": getattr(response, "model", None), "response_id": response_id,
+                "system_fingerprint": getattr(response, "system_fingerprint", None),
+                "finish_reason": getattr(choice, "finish_reason", None),
+                "latency_seconds": latency,
+                "input_token_bound": input_bound,
+                "completion_token_bound": self.max_completion_tokens,
+                "saved_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            try:
+                journal.save_response(raw_receipt)
+            except BaseException:
+                if self.budget is not None:
+                    self.budget.mark_unknown("provider_response_receipt_write_failed")
+                    if self.persist_budget is not None:
+                        self.persist_budget(self.budget.as_dict())
+                raise
+        try:
+            input_tokens = getattr(usage, "prompt_tokens", None)
+            output_tokens = getattr(usage, "completion_tokens", None)
+            if self.budget is not None:
+                if (isinstance(input_tokens, int) and isinstance(output_tokens, int)
+                        and input_tokens >= 0 and output_tokens >= 0):
+                    if isinstance(self.budget, ApprovedProviderBudget):
+                        self.budget.record_usage(input_tokens, output_tokens,
+                            cache_hit_tokens=getattr(usage, "prompt_cache_hit_tokens", None),
+                            cache_miss_tokens=getattr(usage, "prompt_cache_miss_tokens", None))
+                    else:
+                        self.budget.record_usage(input_tokens, output_tokens)
+                else:
+                    self.budget.mark_unknown()
+        except Exception:
+            if self.budget is not None:
+                self.budget.mark_unknown()
+            raise
+        finally:
+            if journal is not None and self.budget is not None:
+                journal.mark_budget_restored(self.budget, raw_receipt)
+            if self.budget is not None and self.persist_budget is not None:
+                self.persist_budget(self.budget.as_dict())
+        if self.budget is not None and self.budget.stopped:
+            raise ProviderBudgetExceeded(self.budget.stop_reason or "provider_budget_stopped")
+        if journal is None:
+            message = response.choices[0].message
+            content = message.content or ""
+            response_id = getattr(response, "id", None)
+        if response_id is not None:
+            if response_id in self.response_ids:
+                if self.budget is not None:
+                    self.budget.stop("duplicate_provider_response_id")
+                    if self.persist_budget is not None:
+                        self.persist_budget(self.budget.as_dict())
+                raise RuntimeError("duplicate provider response id")
+            self.response_ids.add(response_id)
+        identity = (getattr(response, "model", None), getattr(response, "system_fingerprint", None))
+        if getattr(self, "require_response_identity", False) and not all(
+                isinstance(value, str) and value for value in identity):
+            if self.budget is not None:
+                self.budget.stop("provider_response_identity_missing")
+                if self.persist_budget is not None:
+                    self.persist_budget(self.budget.as_dict())
+            raise RuntimeError("provider response identity requires nonempty model and system_fingerprint")
+        if self.response_identity is not None and identity != self.response_identity:
+            if self.budget is not None:
+                self.budget.stop("provider_model_identity_changed")
+                if self.persist_budget is not None:
+                    self.persist_budget(self.budget.as_dict())
+            raise RuntimeError("provider model identity changed within a frozen run")
+        self.response_identity = identity
+        parser_input = content
+        return {
+            "raw_output": parser_input,
+            "prompt_sha256": manifest_digest({"messages": messages}),
+            "provider_raw": {"content": content},
+            "model_response_identity": getattr(response, "model", None),
+            "provider_response_id": response_id,
+            "system_fingerprint": getattr(response, "system_fingerprint", None),
+            "response_field_used": "message.content",
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cache_hit_tokens": getattr(usage, "prompt_cache_hit_tokens", None),
+            "cache_miss_tokens": getattr(usage, "prompt_cache_miss_tokens", None),
+            "reasoning_tokens": getattr(getattr(usage, "completion_tokens_details", None), "reasoning_tokens", None),
+            "finish_reason": getattr(response.choices[0], "finish_reason", None),
+            "latency_seconds": latency,
+            "estimated_provider_usd": (str(self.budget.usd_used - usd_before)
+                                       if usd_before is not None else None),
+        }
+
+    def _result_from_durable_receipt(self, receipt: Mapping[str, Any]) -> dict[str, Any]:
+        """Return the saved final content without another provider call or ledger charge."""
+        return {
+            "raw_output": receipt["content"],
+            "prompt_sha256": receipt["prompt_identity"],
+            "provider_raw": {"content": receipt["content"]},
+            "model_response_identity": receipt.get("model"),
+            "provider_response_id": receipt.get("response_id"),
+            "system_fingerprint": receipt.get("system_fingerprint"),
+            "response_field_used": "message.content",
+            "input_tokens": receipt.get("input_tokens"),
+            "output_tokens": receipt.get("completion_tokens"),
+            "cache_hit_tokens": receipt.get("cache_hit_tokens"),
+            "cache_miss_tokens": receipt.get("cache_miss_tokens"),
+            "reasoning_tokens": receipt.get("reasoning_tokens"),
+            "finish_reason": receipt.get("finish_reason"),
+            "latency_seconds": receipt.get("latency_seconds"),
+            "estimated_provider_usd": None,
+        }
+
+
+def run_episode(
+    environment: Any,
+    client: Any,
+    skill: str | None = None,
+    max_steps: int = 60,
+    *,
+    repeat_limit: int = 3,
+    skill_version: str | None = None,
+    receipt_metadata: Mapping[str, Any] | None = None,
+    expected_gamefiles: Sequence[str] | None = None,
+    harness_variant: str = "H0",
+) -> dict[str, Any]:
+    from experiments.skill_evolution.native_verifier import official_outcome
+
+    if harness_variant not in {"H0", "H1"}:
+        raise ValueError("harness_variant must be H0 or H1")
+
+    started_at = time.perf_counter()
+    observations, infos = environment.reset()
+    actual_gamefile = _scalar(infos, "extra.gamefile") if expected_gamefiles is not None else None
+    if expected_gamefiles is not None and actual_gamefile not in expected_gamefiles:
+        raise ValueError("environment reset outside the frozen task manifest")
+    observation = str(observations[0])
+    admissible = list(_scalar(infos, "admissible_commands") or [])
+    state = EpisodeState.start(observation, max_steps)
+    planner, guard, compressor = SubgoalPlanner(), ExecutionGuard(repeat_limit), HistoryCompressor()
+    history: list[dict[str, Any]] = []
+    progress_events: list[dict[str, Any]] = []
+    trajectory: list[dict[str, Any]] = []
+    rejected_action_events: list[dict[str, Any]] = []
+    replan_reason: str | None = None
+    termination_reason = "step_limit"
+    won: bool | None = None
+    done: bool | None = None
+
+    for step_index in range(max_steps):
+        state.remaining_steps = max_steps - step_index
+        progress, chars = compressor.render(state, history)
+        try:
+            visible_replan = (_rejection_feedback(rejected_action_events) or replan_reason
+                              if harness_variant == "H1" else replan_reason)
+            completion = client.choose_action(state, admissible, skill, progress, visible_replan)
+        except PublicGoalUnparsed:
+            termination_reason = "goal_parse_uncertain"
+            progress_events.append({"step": step_index, "kind": "goal_parse_uncertain"})
+            break
+        except ProviderBudgetExceeded as exc:
+            termination_reason = "provider_budget_exhausted"
+            progress_events.append({
+                "step": step_index,
+                "kind": "provider_budget_exhausted",
+                "reason": str(exc),
+            })
+            break
+        except Exception as exc:  # external client errors are terminal evidence, not hidden retries
+            termination_reason = "policy_error"
+            trajectory.append({"step": step_index, "observation": observation,
+                               "selected_action": None, "invalid_action": False,
+                               "failure_stage": "provider", "exception_type": type(exc).__name__,
+                               "input_tokens": None, "output_tokens": None})
+            progress_events.append({"step": step_index, "kind": "policy_error", "error": type(exc).__name__})
+            break
+        action, invalid_reason = guard.select(str(completion.get("raw_output", "")), admissible)
+        if action is None:
+            previous_rejection = rejected_action_events[-1] if rejected_action_events else None
+            rejection = _rejection_event(
+                str(completion.get("raw_output", "")), completion.get("finish_reason"),
+                observation, admissible, previous_rejection, step_index,
+            )
+            rejected_action_events.append(rejection)
+            rejected_action_events[:] = rejected_action_events[-3:]
+            trajectory.append({
+                "step": step_index,
+                "observation": observation,
+                "admissible_actions": admissible,
+                "selected_action": None,
+                "invalid_action": True,
+                "fallback_reason": invalid_reason,
+                "rejection_event": {k: v for k, v in rejection.items() if k != "action_key"},
+                "prompt_chars_by_section": chars,
+                **completion,
+            })
+            progress_events.append({"step": step_index, "kind": "replan", "reason": invalid_reason,
+                                    "rejection_event": {k: v for k, v in rejection.items() if k != "action_key"}})
+            replan_reason = invalid_reason
+            continue
+
+        try:
+            next_observations, rewards, dones, next_infos = environment.step([action])
+        except Exception as exc:
+            termination_reason = "environment_error"
+            trajectory.append({"step": step_index, "observation": observation,
+                               "admissible_actions": admissible, "selected_action": action,
+                               "invalid_action": False, "failure_stage": "environment",
+                               "exception_type": type(exc).__name__, **completion})
+            progress_events.append({"step": step_index, "kind": "environment_error", "error": type(exc).__name__})
+            break
+        next_observation = str(next_observations[0])
+        previous_observation = observation
+        state.observe(next_observation, action)
+        cycle_reason = guard.observe_result(state, previous_observation, next_observation, action)
+        done = bool(dones[0])
+        native_won = _scalar(next_infos, "won")
+        won = bool(native_won) if native_won is not None else None
+        event = {
+            "step": step_index,
+            "action": action,
+            "observation_changed": next_observation != observation,
+            "subgoal": planner.next_subgoal(state, admissible),
+            "completed_subgoals": list(state.completed_subgoals),
+            "stuck_counter": state.stuck_counter,
+        }
+        history.append(event)
+        progress_events.append({"step": step_index, "kind": "action_result", **event})
+        trajectory.append({
+            "step": step_index,
+            "observation": observation,
+            "admissible_actions": admissible,
+            "selected_action": action,
+            "invalid_action": False,
+            "reward": rewards[0],
+            "done": done,
+            "won": won,
+            "subgoal": event["subgoal"],
+            "completed_subgoals": list(state.completed_subgoals),
+            "stuck_counter": state.stuck_counter,
+            "prompt_chars_by_section": chars,
+            **completion,
+        })
+        native_status = official_outcome(done, won)["status"]
+        if native_status in {"INCONCLUSIVE", "VERIFIER_INCONSISTENT"}:
+            termination_reason = "verifier_inconclusive"
+            break
+        if done:
+            termination_reason = "success" if won else "environment_done"
+            if won:
+                state.completed_subgoals.append("environment_verified_completion")
+            break
+        replan_reason = cycle_reason
+        if cycle_reason:
+            progress_events.append({"step": step_index, "kind": "replan", "reason": cycle_reason})
+            if state.stuck_counter >= 2 * repeat_limit:
+                termination_reason = "agent_policy_failure"
+                break
+        observation = next_observation
+        admissible = list(_scalar(next_infos, "admissible_commands") or [])
+
+    success = None if termination_reason in {
+        "policy_error", "environment_error", "provider_budget_exhausted", "verifier_inconclusive", "goal_parse_uncertain"
+    } else (won if won is not None else None)
+    if not any("reward" in row for row in trajectory) and any(row["invalid_action"] for row in trajectory):
+        termination_reason = "api_contract_failure"
+        success = None
+    status = {"policy_error": "PROVIDER_FAILURE", "environment_error": "ENVIRONMENT_FAILURE",
+              "goal_parse_uncertain": "GOAL_PARSE_UNCERTAIN",
+              "provider_budget_exhausted": "BUDGET_EXHAUSTED", "verifier_inconclusive": "INCONCLUSIVE",
+              "api_contract_failure": "API_CONTRACT_FAILURE",
+              "agent_policy_failure": "AGENT_POLICY_FAILURE"}.get(
+                  termination_reason, "VERIFIED_SUCCESS" if success is True else
+                  "VERIFIED_FAILURE" if success is False else "INCONCLUSIVE")
+    return {
+        **dict(receipt_metadata or {}),
+        "schema_version": 2,
+        "policy_revision": POLICY_REVISION,
+        "harness_variant": harness_variant,
+        "split": (receipt_metadata or {}).get("split", "train"),
+        "success": success,
+        "status": status,
+        "environment_won": won,
+        "environment_done": done,
+        "model_response_identity": (client.response_identity[0] if getattr(client, "response_identity", None)
+                                    else (receipt_metadata or {}).get("model_response_identity")),
+        "system_fingerprint": (client.response_identity[1] if getattr(client, "response_identity", None) else None),
+        "wall_seconds": time.perf_counter() - started_at,
+        "provider_calls": len(trajectory),
+        "input_tokens": (sum(row["input_tokens"] for row in trajectory)
+                         if trajectory and all(type(row.get("input_tokens")) is int for row in trajectory) else None),
+        "completion_tokens": (sum(row["output_tokens"] for row in trajectory)
+                              if trajectory and all(type(row.get("output_tokens")) is int for row in trajectory) else None),
+        **({"gamefile": actual_gamefile} if expected_gamefiles is not None else {}),
+        "steps": len(trajectory),
+        "env_steps": sum("reward" in row for row in trajectory),
+        "skill_version": skill_version,
+        "skill_proposed": None,
+        "skill_retrieved": None,
+        "skill_rendered": skill is not None,
+        "skill_injected": skill is not None,
+        "skill_read_or_used": "unknown",
+        "activation_source": "prompt_rendering" if skill else None,
+        "subgoal_followed": None,
+        "invalid_actions": sum(int(row["invalid_action"]) for row in trajectory),
+        "termination_reason": termination_reason,
+        "provider_budget": client.budget.as_dict() if getattr(client, "budget", None) is not None else None,
+        "state": asdict(state),
+        "progress_events": progress_events,
+        "trajectory": trajectory,
+    }
+
+
+def run_smoke(
+    data_root: Path,
+    output_dir: Path,
+    client: Any,
+    episodes: int = 3,
+    max_steps: int = 60,
+    seed: int = 0,
+    task_types: Sequence[int] = (3, 4, 5),
+    *,
+    plan: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=False)
+    budget = getattr(client, "budget", None)
+    (output_dir / "config.json").write_text(json.dumps({
+        "benchmark": "ALFWorld", "split": "train", "policy_revision": POLICY_REVISION,
+        "episodes": episodes, "max_steps": max_steps, "seed": seed,
+        "task_types": list(task_types), "model": getattr(client, "model", None),
+        "temperature": getattr(client, "temperature", None), "thinking": "enabled",
+        "max_completion_tokens": getattr(client, "max_completion_tokens", _DEEPSEEK_MAX_TOKENS),
+        "provider_budget": budget.as_dict() if budget is not None else None,
+        "readiness_plan": dict(plan) if plan is not None else None,
+        "run_manifest": getattr(client, "run_manifest", None),
+        "approval_scope": budget.approval if isinstance(budget, ApprovedProviderBudget) else None,
+    }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    from alfworld.agents.environment.alfred_tw_env import AlfredTWEnv
+
+    config = _alfworld_config(data_root, task_types, max_steps)
+    alfred = AlfredTWEnv(config, train_eval="train")
+    if plan is not None:
+        from experiments.skill_evolution.native_probe import probe_game_files
+        selected = probe_game_files(alfred.game_files, dict(plan))
+        if len(selected) != episodes:
+            raise ValueError("episode count differs from the frozen readiness plan")
+    else:
+        selected = _select_game_files(alfred.game_files, episodes, seed)
+    alfred.game_files = selected
+    alfred.num_games = len(selected)
+    environment = alfred.init_env(batch_size=1)
+    environment.seed(seed)
+    rows = []
+    try:
+        for _ in range(episodes):
+            if isinstance(budget, ApprovedProviderBudget):
+                try:
+                    budget.ensure_capacity(max_steps, max_steps * client.max_input_per_request,
+                                           max_steps * client.max_completion_tokens)
+                except ProviderBudgetExceeded:
+                    break
+            metadata = getattr(client, "receipt_metadata", None)
+            episode_kwargs = ({"receipt_metadata": metadata, "expected_gamefiles": selected}
+                              if metadata is not None else {})
+            row = run_episode(environment, client, max_steps=max_steps, **episode_kwargs)
+            if metadata is not None:
+                from experiments.skill_evolution.readiness import _train_identity
+                template, task_id = _train_identity(row["gamefile"])
+                if any(previous.get("task_id") == task_id for previous in rows):
+                    raise ValueError("duplicate native reset in the frozen readiness batch")
+                planned_task = next(item for item in plan["episodes"] if item["gamefile"] == row["gamefile"])
+                row.update(task_id=task_id, template_id=template, cluster_id=planned_task["cluster_id"],
+                           task_family=task_family_name(planned_task["task_type"]),
+                           trial_id=f"{metadata['run_id']}:{len(rows)}", seed=seed)
+                row["receipt_sha256"] = manifest_digest(row)
+            rows.append(row)
+            (output_dir / "results.json").write_text(json.dumps({
+                "benchmark": "ALFWorld", "split": "train", "status": "IN_PROGRESS",
+                "episodes": rows, "provider_budget": budget.as_dict() if budget is not None else None,
+            }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            if rows[-1]["termination_reason"] == "provider_budget_exhausted" or (budget is not None and budget.stopped):
+                break
+    finally:
+        environment.close()
+    result = {
+        "schema_version": 2,
+        "benchmark": "ALFWorld",
+        "split": "train",
+        "policy_revision": POLICY_REVISION,
+        "episodes": rows,
+        "scheduled_episodes": episodes,
+        "nonlaunched_episodes": episodes - len(rows),
+        "provider_budget": budget.as_dict() if budget is not None else None,
+        "summary": {
+            "episode_count": len(rows),
+            "success_rate": (sum(row["success"] is True for row in rows) / len(rows)
+                             if rows and all(row["success"] is not None for row in rows) else None),
+            "known_successes": sum(row["success"] is True for row in rows),
+            "missing_outcomes": sum(row["success"] is None for row in rows),
+            "invalid_actions": sum(row["invalid_actions"] for row in rows),
+            "termination_reasons": {
+                reason: sum(row["termination_reason"] == reason for row in rows)
+                for reason in sorted({row["termination_reason"] for row in rows})
+            },
+        },
+    }
+    if getattr(client, "receipt_metadata", None) is not None:
+        from experiments.skill_evolution.real_study import viability_gate
+        result["viability_gate"] = viability_gate(rows)
+        failures_report = ["# Train-side Agent readiness", "", str(result["viability_gate"]), "",
+                           "| Family | Planned | Started | Wins | Unknown | Termination |",
+                           "|---|---:|---:|---:|---:|---|"]
+        for family in sorted({item["task_family"] for item in plan["episodes"]}):
+            tasks = [item for item in plan["episodes"] if item["task_family"] == family]
+            family_rows = [row for row in rows if row["task_id"] in {item["task_id"] for item in tasks}]
+            failures_report.append(f"| {family} | {len(tasks)} | {len(family_rows)} | "
+                                   f"{sum(row['success'] is True for row in family_rows)} | "
+                                   f"{sum(row['success'] is None for row in family_rows)} | "
+                                   f"{', '.join(row['termination_reason'] for row in family_rows)} |")
+        (output_dir / "PER_FAMILY_AGENT_FAILURES.md").write_text("\n".join(failures_report) + "\n", encoding="utf-8")
+        (output_dir / "REPORT.md").write_text(
+            "# Real train readiness\n\n" + str(result["viability_gate"]) +
+            "\n\nSee PER_FAMILY_AGENT_FAILURES.md and full trajectories in results.json.\n", encoding="utf-8")
+    (output_dir / "results.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return result
+
+
+def main() -> None:
+    from experiments.skill_evolution.real_study import main as study_main
+    study_main()
+
+
+if __name__ == "__main__":
+    main()

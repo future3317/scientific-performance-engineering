@@ -1,0 +1,23 @@
+{
+  "provider_enabled": false,
+  "study_id": "skill_evolution_real_v2",
+  "run_id": null,
+  "controller_commit": null,
+  "model": "deepseek-flash",
+  "api_base_allowlist": ["https://api.deepseek.com"],
+  "permitted_stages": [],
+  "approved_manifest_sha256": null,
+  "approved_split_manifest_sha256": null,
+  "approved_by": null,
+  "approved_at_utc": null,
+  "approval_reference": null,
+  "expiration_utc": null,
+  "max_provider_calls": 0,
+  "max_input_tokens": 0,
+  "max_completion_tokens": 0,
+  "max_total_usd": 0,
+  "per_episode_max_steps": 0,
+  "per_request_max_completion_tokens": 0,
+  "max_failed_retries": 0,
+  "max_wall_seconds": 0
+}
