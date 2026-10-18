@@ -38,12 +38,21 @@ def _condition_summary(condition: str, artifact: dict[str, Any], seed: int, reps
 
 
 def analyze_treatment_artifacts(artifacts: dict[str, dict[str, Any]], *, bootstrap_seed: int, bootstrap_reps: int) -> dict[str, Any]:
+    paired_rows = {}
+    for condition in ("A", "C", "D"):
+        rows = artifacts[condition].get("rows", [])
+        by_id = {str(row["instance_id"]): row for row in rows}
+        if len(by_id) != len(rows):
+            raise ValueError(f"duplicate instance IDs in {condition}")
+        paired_rows[condition] = by_id
+    if not (set(paired_rows["A"]) == set(paired_rows["C"]) == set(paired_rows["D"])):
+        raise ValueError("paired treatment instance IDs must match across A/C/D")
     summaries = {
         condition: _condition_summary(condition, artifacts[condition], bootstrap_seed + index, bootstrap_reps)
         for index, condition in enumerate(("A", "C", "D"))
     }
-    c_rows = {str(row["instance_id"]): row for row in artifacts["C"].get("rows", [])}
-    d_rows = {str(row["instance_id"]): row for row in artifacts["D"].get("rows", [])}
+    c_rows = paired_rows["C"]
+    d_rows = paired_rows["D"]
     paired_deltas = [float(d_rows[key]["skill_score"]) - float(c_rows[key]["skill_score"]) for key in sorted(set(c_rows) & set(d_rows))]
     paired = _ci(paired_deltas, bootstrap_seed + 10, bootstrap_reps)
     paired.update({

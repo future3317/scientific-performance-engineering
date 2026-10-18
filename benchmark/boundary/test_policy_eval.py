@@ -46,6 +46,26 @@ def test_zero_deployment_has_undefined_conditional_risk() -> None:
     assert report["coverage"] == 0.0
     assert report["unsupported_deployed"] is None
     assert report["unsupported_deployed_defined"] is False
+    assert report["incremental_policy_utility"] == 0.0
+
+
+def test_incremental_policy_utility_uses_only_deployed_effects() -> None:
+    evaluation = [
+        {"id": "a", "family": "f", "seed": 1, "context": {"x": 0}},
+        {"id": "b", "family": "f", "seed": 1, "context": {"x": 1}},
+    ]
+    report = evaluate_policy(
+        lambda context: Decision("reuse" if context["x"] == 0 else "abstain", 1.0, 0.0, "test"),
+        calibration=[],
+        evaluation=evaluation,
+        score_records={
+            "a": {"tau": 0.8, "scientific_gate": True},
+            "b": {"tau": 0.4, "scientific_gate": True},
+        },
+        delta=0.0,
+    )
+
+    assert report["incremental_policy_utility"] == 0.4
 
 
 def test_support_decision_regret_respects_scientific_gate_and_margin() -> None:

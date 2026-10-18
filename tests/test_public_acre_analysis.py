@@ -5,6 +5,15 @@ import pytest
 from benchmark.external.treatment_analysis import analyze_treatment_artifacts
 
 
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_treatment_analysis_rejects_incomplete_or_duplicate_pairs(duplicate) -> None:
+    row = {"instance_id": "x", "baseline_score": 0.0, "skill_score": 0.0}
+    artifacts = {condition: {"rows": [dict(row)], "usage": []} for condition in ("A", "C", "D")}
+    artifacts["D"]["rows"] = [dict(row), dict(row)] if duplicate else []
+    with pytest.raises(ValueError, match="duplicate|must match"):
+        analyze_treatment_artifacts(artifacts, bootstrap_seed=1, bootstrap_reps=20)
+
+
 def test_treatment_analysis_separates_negative_transfer_and_paired_effect() -> None:
     artifacts = {
         "A": {"rows": [{"instance_id": "x", "baseline_score": 0.5, "skill_score": 0.5}], "usage": [], "skill_versions": []},

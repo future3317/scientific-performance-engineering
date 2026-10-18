@@ -22,6 +22,11 @@
 - Do not call a provider before the ScienceWorld smoke protocol and information-flow tests pass.
 - Do not use test outcomes, oracle support, or hidden evaluator results to tune policy thresholds.
 - Use one production path under `experiments/external_real/`; reuse existing ACRE and executor abstractions.
+- A candidate must pass execution viability and global verification before it is frozen; ACRE never repairs or mutates a skill.
+- Reject outcomes are `WITHHOLD_SKILL` at admission and `FALLBACK_TO_BASE_AGENT` at deployment.
+- Report `incremental_policy_utility = mean(Y_policy - Y_base)`; zero coverage has utility exactly zero.
+- Reuse valid upstream verification pairs as `SupportEvidence`; report them separately from ACRE additional queries.
+- Do not implement ACRE-R until the explicit verified-skill, evidence-adequacy, and strict-coverage conditions in the spec hold.
 
 ---
 
@@ -131,7 +136,29 @@
 - [ ] Implement the registered generation seed budget of at most three and persist every attempted seed.
 - [ ] Implement the viability report with both-pass, repair, regression, both-fail, effect distribution, and context-group counts.
 - [ ] Implement all registered policy baselines and full ACRE from training evidence only.
+- [x] Gate every candidate through execution viability and global verification before freezing; record `WITHHOLD_SKILL` without invoking ACRE repair.
+- [x] Convert contract-valid upstream verification pairs into `SupportEvidence(evidence_source="upstream_verification")` and label new ACRE queries separately.
+- [x] Keep ACRE support identification train-side only; unresolved support falls back to the base agent.
 - [ ] Run focused tests with offline fixtures, not provider calls.
+
+### Task 5A: Evidence-budget and fallback accounting
+
+**Files:**
+- Modify: `experiments/external_real/models.py`
+- Modify: `experiments/external_real/scorer.py`
+- Modify: `experiments/external_real/support.py`
+- Test: `tests/test_external_real_scorer.py`
+- Test: `tests/test_external_real_skill_pipeline.py`
+
+**Interfaces:**
+- `SupportEvidence.evidence_source: Literal["upstream_verification", "acre_additional_query"]`
+- `score_policies(...)` reports `incremental_policy_utility`, `official_score`, and `fallback_rate`.
+- `evidence_budget_grid(available_extra: int | None) -> tuple[int, ...]`
+
+- [x] Write failing tests for fallback selecting baseline score, exact zero utility at zero coverage, source-separated evidence counts, and fixed budget grids.
+- [x] Run those focused tests on the server and verify they fail for the expected missing-contract reasons.
+- [x] Implement the smallest source-tagged evidence and scorer changes without duplicating native execution.
+- [x] Run focused tests and inspect metric denominators.
 
 ### Task 6: ScienceWorld smoke protocol
 
@@ -152,6 +179,22 @@
 - [ ] Run the smoke on the server only after provider-use authorization is represented in the manifest and all local/server regression tests pass.
 - [ ] Evaluate environment validity, decision ordering, information-flow audit, evaluator validity, and ACRE coverage.
 - [ ] If any gate fails, persist diagnostics and stop before full ScienceWorld or another benchmark.
+
+### Task 6A: ContextAdapter and deferred ACRE-R contract
+
+**Files:**
+- Modify: `experiments/external_real/protocol.py`
+- Create: `experiments/external_real/context/adapter.py`
+- Test: `tests/test_external_real_protocol.py`
+
+**Interfaces:**
+- `ContextAdapter(mode: Literal["native_structured", "raw_task_to_typed"], ...)`
+- `ContextAdapter.extract(task: ExternalTask) -> Mapping[str, object]`
+
+- [x] Write failing tests for native structured extraction, parser metadata freeze, and evaluator-field rejection.
+- [x] Implement native structured mode first; keep raw-task parsing unavailable until its model, prompt, schema, and revision are in the manifest.
+- [x] Record the comparison as P1 and do not let it block the native ScienceWorld P0 smoke.
+- [x] Add an explicit deferred ACRE-R manifest validator requiring verified skill, adequate support evidence, strict coverage `< 0.10`, and `alpha in {0.05, 0.10, 0.20}`.
 
 ### Task 7: Tables, figures, report, and paper boundary update
 
