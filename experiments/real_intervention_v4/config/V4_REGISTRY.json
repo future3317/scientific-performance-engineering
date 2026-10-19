@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "primary_study_id": "EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261019",
+  "primary_intervention_id": "CHANNELS_LAST_EAGER_LAYOUT_V1",
+  "primary_comparison": {
+    "S0": "eager eval forward in original memory layout",
+    "S1": "same eager model and precision with channels_last conversion included in cold cost",
+    "secondary_mechanisms_forbidden": ["torch.compile", "AMP", "TF32"]
+  },
+  "secondary_study_id": "EVOSPE_REAL_INTERVENTION_V4_COMPILE_AMORTIZATION_20261019",
+  "secondary_intervention_id": "COMPILE_AMORTIZATION_V1",
+  "evidence_policy": {
+    "v3_roots_read_only": true,
+    "v3_unknown_attempts_replayed": false,
+    "final_outcomes_used_for_training": false,
+    "compile_secondary_can_replace_primary": false
+  }
+}
