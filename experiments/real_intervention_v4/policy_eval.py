@@ -253,8 +253,8 @@ def freeze_policy_set(development_pairs: Sequence[Mapping[str, Any]], *,
         "strongest_simple_selection_rule": (
             "development family-CV only; every fold must have zero known unsafe deployments, "
             "zero missing deployed outcomes, zero missing non-deployed baselines, "
-            "zero unknown decisions, and a score; then maximize "
-            "family-equal mean log benefit"
+            "zero unknown decisions, and a score; maximize family-equal mean log benefit, "
+            "then coverage, then prefer the earlier, simpler baseline"
         ),
     }
 
@@ -534,10 +534,11 @@ def _cross_validated_simple_baselines(
             ),
         })
     eligible = [row for row in summaries if row["eligible_for_selection"]]
+    policy_priority = {policy: index for index, policy in enumerate(_SIMPLE_POLICIES)}
     selected = max(
         eligible,
         key=lambda row: (row["family_equal_mean_log_benefit"],
-                         row["mean_deployment_coverage"], row["policy"]),
+                         row["mean_deployment_coverage"], -policy_priority[row["policy"]]),
     )["policy"] if eligible else None
     return {
         "method": "leave_one_independent_family_out",

@@ -9,7 +9,7 @@ import pytest
 
 from benchmark.families import family_predicate_grammar
 from core.acre import AcreEngine
-from core.acre.cegis import SynthesisCertificate, SynthesisResult
+from core.acre.cegis import SynthesisCertificate, SynthesisResult, synthesis_certificate_valid
 from core.acre.regimes import SupportScope
 from core.models import RevisionRef, RuleSpec, RuleState, TaskContext, identifier_digest
 from core.utility import utility_effect
@@ -232,7 +232,7 @@ def test_development_receipts_use_the_canonical_layout_grammar():
     assert all(event.evidence_role == "synthesis" for event in candidate.events)
     assert {event.independence_group for event in candidate.events} == {"family-dev"}
     assert engine.rule_states["CHANNELS_LAST"].status == "candidate"
-    assert candidate.synthesis.certificate is None
+    assert not synthesis_certificate_valid(candidate.synthesis)
 
 
 def test_development_multi_context_evidence_is_retained_but_clustered_by_family():
@@ -468,7 +468,7 @@ def test_calibration_promotes_reloads_and_routes_only_with_disjoint_family_pools
     engine = _stored_engine(tmp_path)
     candidate = _identified_candidate(engine)
     monkeypatch.setattr(bridge, "synthesis_certificate_valid", lambda result: True)
-    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: True)
+    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: result is not None)
     monkeypatch.setattr(regimes, "_scope_digest", lambda scope: "scope")
     monkeypatch.setattr(regimes, "context_in_decision_lattice", lambda *args: True)
     monkeypatch.setattr(typed_gate, "synthesis_certificate_valid", lambda result: True)
@@ -548,7 +548,7 @@ def test_calibration_insufficient_promotion_families_abstains_without_mutation(
     engine = _stored_engine(tmp_path)
     candidate = _identified_candidate(engine)
     monkeypatch.setattr(bridge, "synthesis_certificate_valid", lambda result: True)
-    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: True)
+    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: result is not None)
     monkeypatch.setattr(regimes, "_scope_digest", lambda scope: "scope")
     monkeypatch.setattr(regimes, "context_in_decision_lattice", lambda *args: True)
     monkeypatch.setattr(typed_gate, "synthesis_certificate_valid", lambda result: True)
@@ -582,7 +582,7 @@ def test_calibration_does_not_certify_a_family_missing_a_frozen_context_cell(
     engine = _stored_engine(tmp_path)
     candidate = _identified_candidate(engine)
     monkeypatch.setattr(bridge, "synthesis_certificate_valid", lambda result: True)
-    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: True)
+    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: result is not None)
     monkeypatch.setattr(regimes, "_scope_digest", lambda scope: "scope")
     monkeypatch.setattr(regimes, "context_in_decision_lattice", lambda *args: True)
     monkeypatch.setattr(typed_gate, "synthesis_certificate_valid", lambda result: True)
@@ -621,7 +621,7 @@ def test_calibration_family_contributes_across_contexts_but_counts_once(
     engine = _stored_engine(tmp_path)
     candidate = _identified_candidate(engine)
     monkeypatch.setattr(bridge, "synthesis_certificate_valid", lambda result: True)
-    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: True)
+    monkeypatch.setattr(regimes, "_identified_synthesis", lambda result: result is not None)
     monkeypatch.setattr(regimes, "_scope_digest", lambda scope: "scope")
     monkeypatch.setattr(regimes, "context_in_decision_lattice", lambda *args: True)
     monkeypatch.setattr(typed_gate, "synthesis_certificate_valid", lambda result: True)

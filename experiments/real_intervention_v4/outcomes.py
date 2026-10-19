@@ -525,20 +525,13 @@ def classify_pair(s0: Mapping[str, Any] | None, s1: Mapping[str, Any] | None, *,
                             "PAIR_IDENTITY", "REQUIRED_PAIR_IDENTITY_MISSING", receipt_hashes,
                             arm_states,
                             "Missing identity fields: " + ", ".join(missing))
-    if not isinstance(expected_gpu_uuid, str) or not expected_gpu_uuid.strip():
-        return PairValidity(ArmExecution.COMPLETE.value, Correctness.PASS.value,
-                            Comparability.UNKNOWN.value, PolicyEvidence.MISSING.value,
-                            "PAIR_IDENTITY", "SELECTED_GPU_UUID_MISSING", receipt_hashes,
-                            arm_states,
-                            "A matched pair requires the physical GPU UUID frozen before either arm starts")
-    if expected_gpu_uuid is not None and any(
-        arms[name].get("runtime_gpu_uuid") != expected_gpu_uuid for name in ("S0", "S1")
-    ):
+    mismatched = [field for field in identity_fields if arms["S0"].get(field) != arms["S1"].get(field)]
+    if mismatched:
         return PairValidity(ArmExecution.COMPLETE.value, Correctness.PASS.value,
                             Comparability.CONFOUNDED.value, PolicyEvidence.MISSING.value,
-                            "PAIR_IDENTITY", "RUNTIME_GPU_UUID_DIFFERS_FROM_SELECTED_DEVICE",
-                            receipt_hashes, arm_states,
-                            "Observed worker UUID does not match the UUID frozen for this pair")
+                            "PAIR_IDENTITY", "PAIRED_INPUT_SOURCE_OR_DEVICE_MISMATCH", receipt_hashes,
+                            arm_states,
+                            "Mismatched identity fields: " + ", ".join(mismatched))
     runtime_identities = {
         name: arms[name].get("runtime_identity") for name in ("S0", "S1")
     }
@@ -557,27 +550,31 @@ def classify_pair(s0: Mapping[str, Any] | None, s1: Mapping[str, Any] | None, *,
                             "PAIR_RUNTIME_IDENTITY", "CROSS_PROCESS_RUNTIME_IDENTITY_MISMATCH",
                             receipt_hashes, arm_states,
                             "Runtime differs between arms: " + ", ".join(sorted(runtime_differences)))
-    if expected_gpu_uuid is not None:
-        selected_gpu_differences = {
-            name: differences
-            for name in ("S0", "S1")
-            if (differences := selected_gpu_identity_differences(
-                dict(runtime_identities[name]), expected_gpu_uuid,
-            ))
-        }
-        if selected_gpu_differences:
-            return PairValidity(ArmExecution.COMPLETE.value, Correctness.PASS.value,
-                                Comparability.CONFOUNDED.value, PolicyEvidence.MISSING.value,
-                                "PAIR_RUNTIME_IDENTITY", "RUNTIME_IDENTITY_DIFFERS_FROM_SELECTED_DEVICE",
-                                receipt_hashes, arm_states,
-                                "Runtime GPU identity differs from the selected physical UUID")
-    mismatched = [field for field in identity_fields if arms["S0"].get(field) != arms["S1"].get(field)]
-    if mismatched:
+    if not isinstance(expected_gpu_uuid, str) or not expected_gpu_uuid.strip():
+        return PairValidity(ArmExecution.COMPLETE.value, Correctness.PASS.value,
+                            Comparability.UNKNOWN.value, PolicyEvidence.MISSING.value,
+                            "PAIR_IDENTITY", "SELECTED_GPU_UUID_MISSING", receipt_hashes,
+                            arm_states,
+                            "A matched pair requires the physical GPU UUID frozen before either arm starts")
+    if any(arms[name].get("runtime_gpu_uuid") != expected_gpu_uuid for name in ("S0", "S1")):
         return PairValidity(ArmExecution.COMPLETE.value, Correctness.PASS.value,
                             Comparability.CONFOUNDED.value, PolicyEvidence.MISSING.value,
-                            "PAIR_IDENTITY", "PAIRED_INPUT_SOURCE_OR_DEVICE_MISMATCH", receipt_hashes,
-                            arm_states,
-                            "Mismatched identity fields: " + ", ".join(mismatched))
+                            "PAIR_IDENTITY", "RUNTIME_GPU_UUID_DIFFERS_FROM_SELECTED_DEVICE",
+                            receipt_hashes, arm_states,
+                            "Observed worker UUID does not match the UUID frozen for this pair")
+    selected_gpu_differences = {
+        name: differences
+        for name in ("S0", "S1")
+        if (differences := selected_gpu_identity_differences(
+            dict(runtime_identities[name]), expected_gpu_uuid,
+        ))
+    }
+    if selected_gpu_differences:
+        return PairValidity(ArmExecution.COMPLETE.value, Correctness.PASS.value,
+                            Comparability.CONFOUNDED.value, PolicyEvidence.MISSING.value,
+                            "PAIR_RUNTIME_IDENTITY", "RUNTIME_IDENTITY_DIFFERS_FROM_SELECTED_DEVICE",
+                            receipt_hashes, arm_states,
+                            "Runtime GPU identity differs from the selected physical UUID")
     if exposure_match is None:
         return PairValidity(ArmExecution.COMPLETE.value, Correctness.PASS.value,
                             Comparability.UNKNOWN.value, PolicyEvidence.MISSING.value,

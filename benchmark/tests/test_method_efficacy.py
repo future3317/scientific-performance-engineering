@@ -109,12 +109,13 @@ def test_acre_full_requires_a_certified_counterexample() -> None:
 
 
 def test_method_efficacy_runner_covers_all_families_and_prefixes() -> None:
+    from benchmark.families import PILOT_FAMILIES
     from scripts.run_pilot_surface_experiments import run_method_efficacy
 
     report = run_method_efficacy(surface_count=12, seed=7)
 
     assert report["provider_calls"] == 0
-    assert report["family_count"] == 11
+    assert report["family_count"] == len(PILOT_FAMILIES)
     assert report["policies"] == [
         "always_apply",
         "observed_positive_only",
@@ -124,7 +125,7 @@ def test_method_efficacy_runner_covers_all_families_and_prefixes() -> None:
         "acre_full",
     ]
     assert report["evidence_prefixes"] == [1, 2, 4, 8, 16, "all"]
-    assert len(report["family_results"]) == 11
+    assert len(report["family_results"]) == len(PILOT_FAMILIES)
     assert set(report["aggregate"]) == set(report["policies"])
     assert "pairwise_acre" in report
     assert "nearest_experience" in report["pairwise_acre"]
@@ -152,12 +153,13 @@ def test_provider_free_ablation_reports_common_contract_and_components() -> None
 
 
 def test_support_boundary_package_keeps_calibration_and_evaluation_separate() -> None:
+    from benchmark.families import PILOT_FAMILIES
     from scripts.run_pilot_surface_experiments import run_support_boundary_package
 
     report = run_support_boundary_package(surface_count=12, seed=7, subset_seeds=2)
 
     assert report["provider_calls"] == 0
-    assert report["family_count"] == 11
+    assert report["family_count"] == len(PILOT_FAMILIES)
     assert report["layers"][-1] == "full_acre"
     assert all(
         row["calibration_count"] > 0 and row["evaluation_count"] > 0

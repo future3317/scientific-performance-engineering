@@ -135,7 +135,9 @@ def test_final_gate_counts_registered_and_eligible_families_separately():
         {"passes": True},
         {"split": _config()["split"],
          "acre": {"minimum_development_families": 8,
-                  "minimum_calibration_deploy_families": 10}},
+                  "minimum_calibration_deploy_families": 10,
+                  "minimum_calibration_support_families": 5,
+                  "minimum_calibration_non_support_families": 5}},
         dev_cal_terminal=True, policy_freeze={"status": "FROZEN"},
     )
 

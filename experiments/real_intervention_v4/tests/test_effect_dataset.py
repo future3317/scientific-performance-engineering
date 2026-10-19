@@ -59,7 +59,9 @@ class EffectDatasetTests(unittest.TestCase):
         self.assertEqual(final["valid_pair_count"], 4)
         self.assertAlmostEqual(final["family_equal_mean_log_benefit"], 0.0)
         self.assertEqual(final["denominators"]["planned"], 4)
-        self.assertIsNone(final["family_cluster_bootstrap_ci95_family_equal_mean_log_benefit"])
+        interval = final["family_cluster_bootstrap_ci95_family_equal_mean_log_benefit"]
+        self.assertLess(interval[0], 0.0)
+        self.assertGreater(interval[1], 0.0)
 
     def test_direction_and_cluster_interval_are_deterministic(self):
         records = [pair("a", "A", 2, 1), pair("b", "B", 3, 1)]
@@ -89,7 +91,8 @@ class EffectDatasetTests(unittest.TestCase):
                          ["unknown", "unsafe", "infra", "unstarted"])
         self.assertEqual(final["denominators"], {
             "planned": 4, "started": 3, "closed": 2, "valid": 0,
-            "unsafe": 1, "infra": 1, "unknown": 1, "unstarted": 1,
+            "unsafe": 1, "baseline_invalid": 0, "candidate_invalid": 0,
+            "infra": 1, "noise": 0, "unknown": 1, "unstarted": 1,
             "ineligible": 0,
         })
         self.assertIsNone(final["family_equal_mean_log_benefit"])

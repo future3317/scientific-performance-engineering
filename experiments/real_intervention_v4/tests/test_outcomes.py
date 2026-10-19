@@ -354,7 +354,7 @@ def test_illegal_state_transition_and_corrupt_event_fail_loudly(tmp_path):
         record_event(attempt, "started", {"identity": {}})
 
     event = attempt / "events" / "0000-intent.json"
-    event.parent.mkdir(parents=True)
+    event.parent.mkdir(parents=True, exist_ok=True)
     event.write_text("{broken", encoding="utf-8")
     recovered = recover_attempt(attempt, {})
     assert recovered["arm_execution"] == ArmExecution.UNKNOWN.value
