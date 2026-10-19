@@ -1,5 +1,5 @@
 {
-  "study_id": "EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261019",
+  "study_id": "EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_UUIDFIX",
   "intervention_id": "CHANNELS_LAST_EAGER_LAYOUT_V1",
   "source_pool": "V3_FROZEN_CANDIDATE_POOL_READ_ONLY",
   "v3_evidence_root": "RESULTS/evospe-rt-v3-20261019-gpu-resume",
