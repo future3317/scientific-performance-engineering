@@ -327,6 +327,7 @@ def _execute_arm_inner(*, results_root: Path, attempt_id: str, command: Sequence
     telemetry: list[dict[str, Any]] = []
     timed_out = False
     orphan_cleanup = False
+    pipe_cleanup_unresolved = False
     failure_stage: str | None = None
     cleanup_deadline: float | None = None
     term_deadline: float | None = None
@@ -481,13 +482,14 @@ def _execute_arm_inner(*, results_root: Path, attempt_id: str, command: Sequence
             alive_groups = _poll_groups(owned_groups)
             group_alive = bool(alive_groups)
             if parent_done and open_fds and not group_alive and not orphan_cleanup:
-                orphan_cleanup = True
-                failure_stage = "PIPE_HELD_OUTSIDE_WORKER_GROUP"
                 cleanup_deadline = min(now + cleanup_grace_seconds, deadline + cleanup_grace_seconds)
             if parent_done and not group_alive and not open_fds:
                 direct_returncode = process.returncode
                 break
             if cleanup_deadline is not None and now >= cleanup_deadline:
+                if parent_done and open_fds and not group_alive:
+                    pipe_cleanup_unresolved = True
+                    failure_stage = "PIPE_HELD_OUTSIDE_WORKER_GROUP"
                 direct_returncode = process.poll()
                 failure_stage = failure_stage or "CLEANUP_GRACE_EXHAUSTED"
                 break
@@ -501,6 +503,7 @@ def _execute_arm_inner(*, results_root: Path, attempt_id: str, command: Sequence
             if open_fds:
                 selector.select(timeout=min(0.05, max(0.0, (cleanup_deadline or deadline) - time.monotonic())))
         if open_fds:
+            pipe_cleanup_unresolved = True
             failure_stage = failure_stage or "PIPE_DRAIN_DEADLINE"
             for fd in tuple(open_fds):
                 try:
@@ -583,9 +586,14 @@ def _execute_arm_inner(*, results_root: Path, attempt_id: str, command: Sequence
                               "root_cause": f"WORKER_EXIT_{direct_returncode}"}
         refresh_owned_groups()
         remaining_group_pids = set().union(*(_process_group_pids(gid) for gid in owned_groups))
-        if orphan_cleanup or direct_returncode is None or remaining_group_pids:
-            result_payload["arm_execution"] = ArmExecution.UNKNOWN.value if direct_returncode is None or remaining_group_pids else ArmExecution.FAILED.value
+        if orphan_cleanup or pipe_cleanup_unresolved or direct_returncode is None or remaining_group_pids:
+            result_payload["arm_execution"] = (
+                ArmExecution.UNKNOWN.value
+                if pipe_cleanup_unresolved or direct_returncode is None or remaining_group_pids
+                else ArmExecution.FAILED.value
+            )
             result_payload["root_cause"] = (
+                "PIPE_HELD_OUTSIDE_WORKER_GROUP" if pipe_cleanup_unresolved else
                 "WORKER_PROCESS_GROUP_NOT_CLEAN" if remaining_group_pids else
                 "WORKER_DESCENDANT_REQUIRED_CLEANUP" if orphan_cleanup else
                 "WORKER_NOT_REAPED_WITHIN_CEILING"

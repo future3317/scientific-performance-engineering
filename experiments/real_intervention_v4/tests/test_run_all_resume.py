@@ -75,7 +75,11 @@ def _freeze_inputs():
     config = {
         "study_id": "v4-runner-test", "intervention_id": "CHANNELS_LAST_EAGER_LAYOUT_V1",
         "bootstrap_seed": 101, "bootstrap_repetitions": 20,
-        "effect_contract": {"primary_estimand": "family_equal"},
+        "effect_contract": {
+            "primary_estimand": "family_equal",
+            "minimum_material_log_benefit": 0.05,
+            "target_95pct_family_ci_half_width_log_benefit": 0.1,
+        },
         "acre": {
             "minimum_calibration_deploy_families": 10,
             "minimum_calibration_support_families": 5,
@@ -125,6 +129,7 @@ def test_qualification_cache_setup_is_inside_the_supervised_deadline(tmp_path, m
             "arm_timeout_seconds": 5, "cleanup_grace_seconds": 1,
             "term_grace_seconds": 0.2, "watchdog_heartbeat_seconds": 1,
             "gpu_sample_seconds": 1,
+            "gpu_selection": {"idle_memory_limit_mib": 1024},
         },
         root=tmp_path, gpu_uuid="GPU-test", wall_deadline=10,
         poll_seconds=0.1, repo=tmp_path,
@@ -296,7 +301,7 @@ def test_primary_pair_ledger_rebuilds_stale_valid_cache_from_invalid_raw_receipt
     assert rows[0]["classification"]["arm_execution"] == "UNKNOWN"
     assert rows[0]["terminal_pair"] is False
     assert refreshed["classification"]["arm_execution"] == "UNKNOWN"
-    assert json.loads((tmp_path / "PAIRS.jsonl").read_text(encoding="utf-8"))[0] == rows[0]
+    assert json.loads((tmp_path / "PAIRS.jsonl").read_text(encoding="utf-8").splitlines()[0]) == rows[0]
     assert run_all._dev_cal_closed(manifest, rows) is False
 
     closed_gate = run_all._gate(
