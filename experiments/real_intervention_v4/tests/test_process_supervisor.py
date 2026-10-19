@@ -409,6 +409,7 @@ def test_worker_start_gate_keeps_child_idle_until_started_event_is_durable(tmp_p
 def test_supervisor_death_before_started_event_cannot_release_worker(tmp_path):
     marker = tmp_path / "worker-ran-before-started"
     python = sys.executable
+    repo = Path(__file__).resolve().parents[3]
     wrapper = tmp_path / "supervisor-crash-before-started"
     wrapper.write_text(textwrap.dedent(f"""\
         #!{python}
@@ -416,6 +417,7 @@ def test_supervisor_death_before_started_event_cannot_release_worker(tmp_path):
         import sys
         from pathlib import Path
 
+        sys.path.insert(0, {str(repo)!r})
         from experiments.real_intervention_v4 import outcomes, process_supervisor
 
         original = outcomes.record_event
@@ -640,5 +642,5 @@ def test_host_timeout_preserves_unknown_after_durable_worker_start(tmp_path):
 
     assert result["arm_execution"] == ArmExecution.UNKNOWN.value
     assert not (folder / "receipt.json").exists()
-    events = [json.loads(path.read_text()) for path in (folder / "events").glob("*.json")]
+    events = [json.loads(path.read_text()) for path in sorted((folder / "events").glob("*.json"))]
     assert [event["kind"] for event in events] == ["intent", "started"]

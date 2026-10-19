@@ -512,6 +512,11 @@ def _execute_arm_inner(*, results_root: Path, attempt_id: str, command: Sequence
                     pass
                 open_fds.discard(fd)
         direct_returncode = process.poll()
+        if direct_returncode is not None and time.monotonic() >= deadline:
+            # The outer watchdog can signal the worker at the deadline before
+            # this supervisor gets another loop iteration.  Without a worker
+            # completion timestamp, that exit is a timeout, not a worker error.
+            observed_exit_after_deadline = True
         process.stdout.close()
         process.stderr.close()
         log_info = {name: capture.close() for name, capture in (("stdout", captures.get(pipe_fds["stdout"])),
@@ -574,7 +579,9 @@ def _execute_arm_inner(*, results_root: Path, attempt_id: str, command: Sequence
                                       "scientific_correctness": "UNASSESSED",
                                       "root_cause": str(worker_result.get("error_type") or worker_result.get("status") or "WORKER_ERROR"),
                                       "first_failure_stage": "MODEL_WORKER"}
-        elif timed_out:
+        elif timed_out or (observed_exit_after_deadline and direct_returncode != 0):
+            timed_out = True
+            failure_stage = failure_stage or "WORKER_DEADLINE"
             result_payload = {"arm_execution": ArmExecution.TIMEOUT.value,
                               "scientific_correctness": "UNASSESSED",
                               "first_failure_stage": failure_stage,
