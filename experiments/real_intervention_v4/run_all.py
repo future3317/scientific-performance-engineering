@@ -435,7 +435,8 @@ def _run_qualification(candidate: Mapping[str, Any], batch: int, *, config: Mapp
     )
     replicate = None
     correctness = None
-    if reference.get("arm_execution") == "COMPLETE":
+    within_process_aa = reference.get("s0_within_process_aa") or {}
+    if reference.get("arm_execution") == "COMPLETE" and within_process_aa.get("passed") is True:
         replicate = _run_qualification_phase(
             candidate, batch, "s0-replicate", config=config, root=root, gpu_uuid=gpu_uuid,
             wall_deadline=wall_deadline, poll_seconds=poll_seconds, repo=repo,
