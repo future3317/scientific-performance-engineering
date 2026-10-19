@@ -347,8 +347,34 @@ def _read_reference(torch: Any, reference_path: Path, metadata: Mapping[str, Any
     return reference
 
 
+def _s0_within_process_aa(model: Any, inputs: Any, *, rtol: float,
+                          atol: float) -> tuple[Any, dict[str, Any]]:
+    """Compare two untimed eager forwards in the same qualification process."""
+    import torch
+
+    from experiments.real_intervention_v3.numerical_checks import compare_outputs, nested_digest
+
+    with torch.inference_mode():
+        first = model(*inputs)
+        torch.cuda.synchronize()
+        first_cpu = _cpu_tree(first)
+        del first
+        replicate = model(*inputs)
+        torch.cuda.synchronize()
+        replicate_cpu = _cpu_tree(replicate)
+        del replicate
+    comparison = compare_outputs(first_cpu, replicate_cpu, rtol=rtol, atol=atol)
+    return first_cpu, {
+        "passed": bool(comparison.passed),
+        "comparison": comparison.__dict__,
+        "first_output_sha256": nested_digest(first_cpu),
+        "replicate_output_sha256": nested_digest(replicate_cpu),
+        "performance_timing_recorded": False,
+    }
+
+
 def qualify_s0_process(spec: Mapping[str, Any], *, phase: str) -> dict[str, Any]:
-    """Run one S0 eager forward; call reference and replicate in separate workers."""
+    """Run S0 within-process A/A, then cross-process reference/replicate checks."""
     import numpy as np
     import torch
 
@@ -370,17 +396,25 @@ def qualify_s0_process(spec: Mapping[str, Any], *, phase: str) -> dict[str, Any]
         runtime = capture_runtime(str(spec["gpu_uuid"]))
         stage = "S0_MODEL_LOAD"
         model, inputs = load_model(_model_spec(spec))
-        stage = "S0_FORWARD"
-        with torch.inference_mode():
-            output = model(*inputs)
-            torch.cuda.synchronize()
+        within_process_aa = None
+        if phase == "reference":
+            stage = "S0_WITHIN_PROCESS_AA"
+            output_cpu, within_process_aa = _s0_within_process_aa(
+                model, inputs, rtol=float(spec["correctness"]["rtol"]),
+                atol=float(spec["correctness"]["atol"]),
+            )
+        else:
+            stage = "S0_FORWARD"
+            with torch.inference_mode():
+                output = model(*inputs)
+                torch.cuda.synchronize()
+            output_cpu = _cpu_tree(output)
         kernel_path = (
             _profile_cuda_forward(model, inputs, torch)
             if phase == "replicate" else None
         )
         weights_digest = nested_digest(model.state_dict())
         inputs_digest = nested_digest(inputs)
-        output_cpu = _cpu_tree(output)
         output_digest = nested_digest(output_cpu)
         result: dict[str, Any] = {
             **context, "qualification_stage": phase_name, "arm": "S0",
@@ -391,6 +425,8 @@ def qualify_s0_process(spec: Mapping[str, Any], *, phase: str) -> dict[str, Any]
             "output_sha256": output_digest, "candidate_denominator": True,
             "performance_timing_recorded": False,
         }
+        if within_process_aa is not None:
+            result["s0_within_process_aa"] = within_process_aa
         if kernel_path is not None:
             result["cuda_kernel_path"] = kernel_path
         if phase == "reference":
@@ -404,12 +440,22 @@ def qualify_s0_process(spec: Mapping[str, Any], *, phase: str) -> dict[str, Any]
                 "output_sha256": output_digest,
                 "reference_file_sha256": reference_file_digest,
                 "runtime_identity": runtime,
+                "s0_within_process_aa": within_process_aa,
             }
             atomic_json(metadata_path, metadata)
-            result.update({
-                "status": "S0_REFERENCE_COMPLETE", "eligibility": "NOT_YET_QUALIFIED",
-                "reference_file_sha256": reference_file_digest,
-            })
+            if within_process_aa["passed"]:
+                result.update({
+                    "status": "S0_REFERENCE_COMPLETE", "eligibility": "NOT_YET_QUALIFIED",
+                    "reference_file_sha256": reference_file_digest,
+                })
+            else:
+                result.update({
+                    "status": "BASELINE_INVALID", "eligibility": "BASELINE_INVALID",
+                    "scientific_correctness": "FAIL",
+                    "first_failure_stage": "S0_WITHIN_PROCESS_AA",
+                    "root_cause": "S0_WITHIN_PROCESS_OUTPUT_MISMATCH",
+                    "reference_file_sha256": reference_file_digest,
+                })
             return result
 
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -508,6 +554,14 @@ def qualify_s1_process(spec: Mapping[str, Any]) -> dict[str, Any]:
     stage = "S0_REFERENCE_READ"
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if not (metadata.get("s0_within_process_aa") or {}).get("passed"):
+            return {
+                **context, "qualification_stage": "S1_CORRECTNESS",
+                "status": "NOT_RUN", "eligibility": "BASELINE_WITHIN_PROCESS_AA_NOT_PASSED",
+                "arm_execution": "NOT_STARTED", "scientific_correctness": "UNASSESSED",
+                "candidate_denominator": True, "performance_timing_recorded": False,
+                "reason": "S1 correctness requires a passed within-process S0 A/A",
+            }
         if not (metadata.get("s0_cross_process_aa") or {}).get("passed"):
             return {
                 **context, "qualification_stage": "S1_CORRECTNESS",
@@ -673,6 +727,21 @@ def aggregate_qualification(candidate: Mapping[str, Any], batch: int, *,
         skipped = {"S0_AA_REPLICATE": "NOT_RUN_S0_REFERENCE_FAILED",
                    "S1_CORRECTNESS": "NOT_RUN_S0_REFERENCE_FAILED"}
         complete = True
+    elif not isinstance(s0_reference.get("s0_within_process_aa"), Mapping):
+        selected = {
+            "status": "INCOMPLETE", "eligibility": "QUALIFICATION_INCOMPLETE",
+            "arm_execution": "UNKNOWN", "scientific_correctness": "UNKNOWN",
+            "first_failure_stage": "S0_WITHIN_PROCESS_AA_MISSING",
+            "reason": "S0 reference lacks a within-process A/A record",
+        }
+        skipped = {"S0_AA_REPLICATE": "NOT_RUN_WITHIN_PROCESS_AA_MISSING",
+                   "S1_CORRECTNESS": "NOT_RUN_WITHIN_PROCESS_AA_MISSING"}
+        complete = False
+    elif not s0_reference["s0_within_process_aa"].get("passed"):
+        selected = dict(s0_reference)
+        skipped = {"S0_AA_REPLICATE": "NOT_RUN_WITHIN_PROCESS_AA_FAILED",
+                   "S1_CORRECTNESS": "NOT_RUN_WITHIN_PROCESS_AA_FAILED"}
+        complete = True
     elif s0_replicate is None or s0_replicate.get("arm_execution") in {"UNKNOWN", "NOT_STARTED"}:
         replicate_execution = (
             s0_replicate.get("arm_execution") if s0_replicate is not None else "UNKNOWN"
@@ -716,12 +785,20 @@ def aggregate_qualification(candidate: Mapping[str, Any], batch: int, *,
     result["qualification_complete"] = complete
     result["phase_summary"] = {
         "S0_REFERENCE": s0_reference.get("status"),
+        "S0_WITHIN_PROCESS_AA": (
+            "PASS" if (s0_reference.get("s0_within_process_aa") or {}).get("passed") is True
+            else "FAIL" if (s0_reference.get("s0_within_process_aa") or {}).get("passed") is False
+            else "MISSING"
+        ),
         "S0_AA_REPLICATE": s0_replicate.get("status") if s0_replicate else skipped.get("S0_AA_REPLICATE"),
         "S1_CORRECTNESS": s1_correctness.get("status") if s1_correctness else skipped.get("S1_CORRECTNESS"),
     }
+    result["s0_within_process_aa"] = s0_reference.get("s0_within_process_aa")
     result["s0_cross_process_aa"] = (s0_replicate or {}).get("cross_process_correctness")
     if s0_reference.get("arm_execution") != "COMPLETE":
         result["failure_phase"] = "S0_REFERENCE"
+    elif result["phase_summary"]["S0_WITHIN_PROCESS_AA"] != "PASS":
+        result["failure_phase"] = "S0_WITHIN_PROCESS_AA"
     elif s0_replicate is None or s0_replicate.get("eligibility") != "S0_AA_PASS":
         result["failure_phase"] = "S0_AA_REPLICATE"
     elif result.get("eligibility") != "ELIGIBLE_CHANNELS_LAST_CORRECTNESS_ONLY":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from experiments.real_intervention_v4.qualification import (
     aggregate_qualification,
@@ -9,6 +10,13 @@ from experiments.real_intervention_v4.qualification import (
     has_cuda_kernel_events,
     has_pairable_kernel_exposure,
 )
+
+
+def _s0_reference():
+    return {
+        "status": "S0_REFERENCE_COMPLETE", "arm_execution": "COMPLETE",
+        "s0_within_process_aa": {"passed": True},
+    }
 
 
 class QualificationIdentityTests(unittest.TestCase):
@@ -21,8 +29,34 @@ class QualificationIdentityTests(unittest.TestCase):
             "family_id": "resnet",
         }
 
+    def test_within_process_s0_aa_detects_instability_without_timing_it(self):
+        import torch
+        from experiments.real_intervention_v4.qualification import _s0_within_process_aa
+
+        class RepeatedModel:
+            def __init__(self, unstable=False):
+                self.calls = 0
+                self.unstable = unstable
+
+            def __call__(self, value):
+                self.calls += 1
+                return value + (self.calls if self.unstable else 0)
+
+        with mock.patch("torch.cuda.synchronize", return_value=None):
+            output, stable = _s0_within_process_aa(
+                RepeatedModel(), (torch.tensor([1.0]),), rtol=0.0, atol=0.0,
+            )
+            _, unstable = _s0_within_process_aa(
+                RepeatedModel(unstable=True), (torch.tensor([1.0]),), rtol=0.0, atol=0.0,
+            )
+
+        self.assertEqual(output.tolist(), [1.0])
+        self.assertTrue(stable["passed"])
+        self.assertFalse(stable["performance_timing_recorded"])
+        self.assertFalse(unstable["passed"])
+
     def test_s1_compatibility_failure_is_not_baseline_invalid_or_dropped(self):
-        s0_reference = {"status": "S0_REFERENCE_COMPLETE", "arm_execution": "COMPLETE"}
+        s0_reference = _s0_reference()
         s0_replicate = {"status": "VALID", "arm_execution": "COMPLETE", "eligibility": "S0_AA_PASS"}
         s1 = {
             "status": "ERROR", "eligibility": "CHANNELS_LAST_EXECUTION_FAILURE",
@@ -44,7 +78,7 @@ class QualificationIdentityTests(unittest.TestCase):
     def test_s1_correctness_mismatch_remains_candidate_failure(self):
         row = aggregate_qualification(
             self.candidate, 8,
-            s0_reference={"status": "S0_REFERENCE_COMPLETE", "arm_execution": "COMPLETE"},
+            s0_reference=_s0_reference(),
             s0_replicate={"status": "VALID", "arm_execution": "COMPLETE", "eligibility": "S0_AA_PASS"},
             s1_correctness={
                 "status": "NUMERIC_MISMATCH", "eligibility": "CHANNELS_LAST_CORRECTNESS_FAILURE",
@@ -59,7 +93,7 @@ class QualificationIdentityTests(unittest.TestCase):
     def test_s0_aa_failure_prevents_s1_from_relabeling_it(self):
         row = aggregate_qualification(
             self.candidate, 1,
-            s0_reference={"status": "S0_REFERENCE_COMPLETE", "arm_execution": "COMPLETE"},
+            s0_reference=_s0_reference(),
             s0_replicate={
                 "status": "BASELINE_INVALID", "eligibility": "BASELINE_INVALID",
                 "arm_execution": "COMPLETE", "scientific_correctness": "FAIL",
@@ -74,6 +108,35 @@ class QualificationIdentityTests(unittest.TestCase):
         self.assertEqual(row["phase_summary"]["S1_CORRECTNESS"], "ERROR")
         self.assertEqual(row["failure_phase"], "S0_AA_REPLICATE")
         self.assertTrue(row["candidate_denominator"])
+
+    def test_within_process_s0_aa_failure_blocks_cross_process_and_s1(self):
+        row = aggregate_qualification(
+            self.candidate, 1,
+            s0_reference={
+                "status": "BASELINE_INVALID", "arm_execution": "COMPLETE",
+                "scientific_correctness": "FAIL",
+                "s0_within_process_aa": {"passed": False},
+            },
+            s0_replicate=None, s1_correctness=None,
+        )
+
+        self.assertEqual(row["eligibility"], "BASELINE_INVALID")
+        self.assertEqual(row["failure_phase"], "S0_WITHIN_PROCESS_AA")
+        self.assertEqual(row["phase_summary"]["S0_AA_REPLICATE"],
+                         "NOT_RUN_WITHIN_PROCESS_AA_FAILED")
+        self.assertTrue(row["qualification_complete"])
+
+    def test_missing_within_process_s0_aa_remains_incomplete(self):
+        row = aggregate_qualification(
+            self.candidate, 1,
+            s0_reference={"status": "S0_REFERENCE_COMPLETE", "arm_execution": "COMPLETE"},
+            s0_replicate=None, s1_correctness=None,
+        )
+
+        self.assertEqual(row["eligibility"], "QUALIFICATION_INCOMPLETE")
+        self.assertEqual(row["arm_execution"], "UNKNOWN")
+        self.assertEqual(row["failure_phase"], "S0_WITHIN_PROCESS_AA")
+        self.assertFalse(row["qualification_complete"])
 
     def test_pairability_requires_named_cuda_events_for_both_arms(self):
         captured = {
@@ -101,7 +164,7 @@ class QualificationIdentityTests(unittest.TestCase):
         }
         eligible = aggregate_qualification(
             self.candidate, 1,
-            s0_reference={"status": "S0_REFERENCE_COMPLETE", "arm_execution": "COMPLETE"},
+            s0_reference=_s0_reference(),
             s0_replicate={"status": "VALID", "arm_execution": "COMPLETE", "eligibility": "S0_AA_PASS"},
             s1_correctness=s1,
         )
@@ -112,7 +175,7 @@ class QualificationIdentityTests(unittest.TestCase):
         }}
         not_pairable = aggregate_qualification(
             self.candidate, 1,
-            s0_reference={"status": "S0_REFERENCE_COMPLETE", "arm_execution": "COMPLETE"},
+            s0_reference=_s0_reference(),
             s0_replicate={"status": "VALID", "arm_execution": "COMPLETE", "eligibility": "S0_AA_PASS"},
             s1_correctness=missing_s0,
         )
