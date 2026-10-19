@@ -22,7 +22,7 @@ All project execution is server-only, from the canonical repository and the
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python \
   -m experiments.real_intervention_v4.run_all \
   --config experiments/real_intervention_v4/config/PRIMARY_LAYOUT_STUDY.json \
-  --results-root /home/workspace/lrh/RESULTS/evospe-rt-v4/EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261019 \
+  --results-root /home/workspace/lrh/RESULTS/evospe-rt-v4/EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_UUIDFIX \
   --resume-safe
 ```
 
@@ -33,6 +33,10 @@ the engineering shakedown, then executes the frozen paired splits. An arm
 whose durable lifecycle started without a verified terminal receipt remains
 unknown and is never silently replayed. Each new arm has a unique cache scope;
 its hard deadline includes cleanup grace.
+
+The first UUID-prefix shakedown failure is preserved at
+`RESULTS/evospe-rt-v4/EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261019`;
+the repaired source runs under the new study identity above.
 
 The primary final gate is independent of ACRE promotion: it requires the
 pre-registered family minima, closed development/calibration evidence, a

@@ -2,7 +2,7 @@
 
 ## Identity
 
-- Primary study: `EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261019`.
+- Primary study: `EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_UUIDFIX`.
 - Intervention: `CHANNELS_LAST_EAGER_LAYOUT_V1`.
 - S0: eager, evaluation-mode FP32 forward in the model's original layout.
 - S1: same construction, weights, input, precision, and eager forward; the
