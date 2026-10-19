@@ -113,8 +113,11 @@ class QualificationIdentityTests(unittest.TestCase):
         row = aggregate_qualification(
             self.candidate, 1,
             s0_reference={
-                "status": "BASELINE_INVALID", "arm_execution": "COMPLETE",
+                "status": "BASELINE_INVALID", "eligibility": "BASELINE_INVALID",
+                "arm_execution": "COMPLETE",
                 "scientific_correctness": "FAIL",
+                "first_failure_stage": "S0_WITHIN_PROCESS_AA",
+                "root_cause": "S0_WITHIN_PROCESS_OUTPUT_MISMATCH",
                 "s0_within_process_aa": {"passed": False},
             },
             s0_replicate=None, s1_correctness=None,
