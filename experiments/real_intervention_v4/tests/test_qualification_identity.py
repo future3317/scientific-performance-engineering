@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from experiments.real_intervention_v4.qualification import (
@@ -9,6 +11,8 @@ from experiments.real_intervention_v4.qualification import (
     cross_process_qualification_identity_differences,
     has_cuda_kernel_events,
     has_pairable_kernel_exposure,
+    _read_reference,
+    _write_reference,
 )
 
 
@@ -28,6 +32,23 @@ class QualificationIdentityTests(unittest.TestCase):
             "family": "resnet",
             "family_id": "resnet",
         }
+
+    def test_s0_reference_uses_a_pytorch_compatible_atomic_tempfile(self):
+        import torch
+        from experiments.real_intervention_v3.numerical_checks import nested_digest
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reference_path = Path(temp_dir) / "references" / "resnet18.pt"
+            output = {"logits": torch.tensor([[1.0, 2.0]], dtype=torch.float32)}
+
+            reference_digest = _write_reference(torch, reference_path, output)
+            loaded = _read_reference(torch, reference_path, {
+                "reference_file_sha256": reference_digest,
+                "output_sha256": nested_digest(output),
+            })
+
+            self.assertEqual(list(reference_path.parent.iterdir()), [reference_path])
+            torch.testing.assert_close(loaded["logits"], output["logits"])
 
     def test_within_process_s0_aa_detects_instability_without_timing_it(self):
         import torch

@@ -322,7 +322,7 @@ def _write_reference(torch: Any, reference_path: Path, output: Any) -> str:
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            dir=reference_path.parent, prefix=".s0-aa-", delete=False,
+            dir=reference_path.parent, prefix="s0-aa-", suffix=".pt", delete=False,
         ) as handle:
             temporary = Path(handle.name)
         torch.save(_cpu_tree(output), temporary)

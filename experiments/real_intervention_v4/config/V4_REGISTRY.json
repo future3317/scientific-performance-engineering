@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "primary_study_id": "EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_UUIDFIX",
+  "primary_study_id": "EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_REFERENCE_WRITEFIX",
   "primary_intervention_id": "CHANNELS_LAST_EAGER_LAYOUT_V1",
   "primary_comparison": {
     "S0": "eager eval forward in original memory layout",
