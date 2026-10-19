@@ -198,8 +198,11 @@ def test_production_run_passes_selected_gpu_through_real_policy_freeze_and_route
     monkeypatch.setattr(run_all, "_load_or_build_manifest", lambda *_args, **_kwargs: manifest)
     monkeypatch.setattr(
         run_all, "_shakedown_roster",
-        lambda *_args: [{"pair_id": f"shake-{index}", "split": "development"}
-                        for index in range(12)],
+        lambda *_args: [
+            {"pair_id": f"shake-{index}", "split": "development",
+             "family_id": f"family-shake-{index}"}
+            for index in range(12)
+        ],
     )
     monkeypatch.setattr(run_all, "_update_resource_progress", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(run_all, "run_pair", lambda *_args, **_kwargs: {
