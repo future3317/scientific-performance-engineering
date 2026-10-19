@@ -22,7 +22,7 @@ All project execution is server-only, from the canonical repository and the
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python \
   -m experiments.real_intervention_v4.run_all \
   --config experiments/real_intervention_v4/config/PRIMARY_LAYOUT_STUDY.json \
-  --results-root /home/workspace/lrh/RESULTS/evospe-rt-v4/EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_UUIDFIX \
+  --results-root /home/workspace/lrh/RESULTS/evospe-rt-v4/EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_REFERENCE_WRITEFIX \
   --resume-safe
 ```
 
