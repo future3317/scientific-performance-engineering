@@ -1,0 +1,32 @@
+{
+  "study_id": "EVOSPE_REAL_INTERVENTION_V4_COMPILE_AMORTIZATION_20261019",
+  "intervention_id": "COMPILE_AMORTIZATION_V1",
+  "comparison_class": "systems",
+  "study_status": "SEPARATE_PREREGISTERED_SECONDARY_NOT_RUN_BY_PRIMARY_RUNNER",
+  "S0": "eager FP32 eval forward with original layout",
+  "S1": "torch.compile backend=inductor mode=default dynamic=null; no channels_last, AMP or TF32",
+  "deployment_contracts": [
+    {
+      "id": "COLD_NEW_GRAPH",
+      "cache_state": "EMPTY",
+      "costs": ["first_compile", "first_forward", "H_minus_1_forwards"]
+    },
+    {
+      "id": "PERSISTENT_CACHE_AVAILABLE",
+      "cache_state": "PREFILLED",
+      "costs": ["cache_read", "first_forward", "H_minus_1_forwards"],
+      "acquisition_cost_reported_separately": true,
+      "declared_reuse_counts": [1, 10, 100]
+    }
+  ],
+  "batches": [1, 8],
+  "horizons": [128, 1024, 4096],
+  "precision": "float32",
+  "independent_family_unit": "architecture lineage, never shapes, horizon or sessions",
+  "final_may_be_opened_only_after": [
+    "separate baseline-only roster and family split frozen",
+    "model-scale compile and cache reload canaries pass",
+    "engineering shakedown meets the preregistered reliability gate"
+  ],
+  "prohibition": "This secondary study cannot replace, modify, or be pooled with the CHANNELS_LAST_EAGER_LAYOUT_V1 primary study."
+}

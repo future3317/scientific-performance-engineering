@@ -355,6 +355,25 @@ def _compile(index: int, seed: int) -> Mapping[str, Any]:
     }
 
 
+def _channels_last(index: int, seed: int) -> Mapping[str, Any]:
+    """Canonical pre-execution feature lattice for image-layout applicability."""
+    batches = (1, 8)
+    horizons = (1, 16, 128, 1024)
+    spatial = (128, 224, 299, 384, 512)
+    height = spatial[(index + seed) % len(spatial)]
+    width = spatial[(index * 3 + seed) % len(spatial)]
+    channels = (1, 3, 4)[(index + seed) % 3]
+    return {
+        "batch": batches[(index + seed) % len(batches)],
+        "horizon": horizons[(index * 3 + seed) % len(horizons)],
+        "conv2d_module_count": (1, 4, 8, 16, 32)[(index + seed) % 5],
+        "input_channels": channels,
+        "input_height": height,
+        "input_width": width,
+        "difficulty_tier": ("easy", "medium", "hard")[(index + seed) % 3],
+    }
+
+
 def _graph_cache(index: int, seed: int) -> Mapping[str, Any]:
     displacement = 0.005 + ((index + seed) % 40) * 0.003
     return {
@@ -501,6 +520,13 @@ def _scalar_truth(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 _SPECS: tuple[FamilySpec, ...] = (
+    FamilySpec(
+        "channels_last", "GEN-CHANNELS-LAST", "spe_core", "CONTRACT-CHANNELS-LAST",
+        ("batch", "horizon", "conv2d_module_count", "input_channels", "input_height", "input_width"),
+        ("channels_last",), ("batch", "shape", "horizon"), _channels_last,
+        applicability=lambda parameters: int(parameters["conv2d_module_count"]) > 0,
+        scientific_truth=_truth_from_polarity,
+    ),
     FamilySpec("compile", "GEN-COMPILER", "spe_core", "CONTRACT-COMPILER-CACHE", ("logical_steps", "graph_size", "dynamic_shape_rate"), ("compile", "checkpoint"), ("software", "hardware", "scale", "model"), _compile, ("CORE-COMPILE-RECOMPILE-04", "CORE-COMPILE-DYNAMIC-11", "CORE-COMPILE-TINY-12", "CORE-KERNEL-FUSION-09R2"), _compile_applicability, _compile_truth, {"CORE-COMPILE-RECOMPILE-04": False, "CORE-COMPILE-DYNAMIC-11": True, "CORE-COMPILE-TINY-12": False, "CORE-KERNEL-FUSION-09R2": True}),
     FamilySpec("graph_cache", "GEN-GRAPH-CACHE", "sciml", "CONTRACT-ENERGY-FORCE", ("geometry_displacement", "skin", "graph_size", "dynamic_rate"), ("graph_cache", "geometry_motion"), ("software", "scale", "scientific_regime"), _graph_cache, ("SCIML-GNN-RAGGED-05R2", "SCIML-GNN-STATIC-GRAPH-CACHE-17R2", "SCIML-GNN-DYNAMIC-GRAPH-18R2", "SCIML-FORCE-AUTOGRAD-19R2", "SCIML-GRAPH-CACHE-INTERIOR-27"), _graph_applicability, _graph_truth, {"SCIML-GNN-RAGGED-05R2": True, "SCIML-GNN-STATIC-GRAPH-CACHE-17R2": True, "SCIML-GNN-DYNAMIC-GRAPH-18R2": True, "SCIML-FORCE-AUTOGRAD-19R2": True, "SCIML-GRAPH-CACHE-INTERIOR-27": True}),
     FamilySpec("h2d_pipeline", "GEN-H2D-PIPELINE", "spe_core", "CONTRACT-DATA-PIPELINE", ("batch_size", "worker_count", "prefetch_factor", "pin_memory"), ("pin_memory", "non_blocking", "prefetch"), ("hardware", "scale", "harness"), _h2d, ("CORE-H2D-PIPELINE-03R2", "CORE-DATALOADER-FANOUT-16R2", "CORE-H2D-OVERFANOUT-23R3", "CORE-H2D-PIPELINE-INTERIOR-32"), _h2d_applicability, _h2d_truth, {"CORE-H2D-PIPELINE-03R2": True, "CORE-DATALOADER-FANOUT-16R2": True, "CORE-H2D-OVERFANOUT-23R3": False, "CORE-H2D-PIPELINE-INTERIOR-32": True}),
@@ -518,6 +544,7 @@ _SPECS: tuple[FamilySpec, ...] = (
 # generator-index projections above remain useful for unmaterialized pools,
 # but never define an anchor's applicability.
 _EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
+    "channels_last": {},
     "compile": {
         "CORE-COMPILE-RECOMPILE-04": {"logical_steps": 128, "graph_size": 64, "dynamic_shape_rate": 0.0},
         "CORE-COMPILE-DYNAMIC-11": {"logical_steps": 128, "graph_size": 128, "dynamic_shape_rate": 0.3},
@@ -553,6 +580,14 @@ _EXPLICIT_ANCHORS: dict[str, dict[str, Mapping[str, Any]]] = {
 
 _CANONICAL_SPECS: list[FamilySpec] = []
 _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
+    "channels_last": (
+        {"path": "workload.batch", "type": "numeric"},
+        {"path": "workload.horizon", "type": "numeric"},
+        {"path": "workload.conv2d_module_count", "type": "numeric"},
+        {"path": "workload.input_channels", "type": "numeric"},
+        {"path": "workload.input_height", "type": "numeric"},
+        {"path": "workload.input_width", "type": "numeric"},
+    ),
     "compile": (
         {"path": "workload.logical_steps", "type": "numeric"},
         {"path": "workload.dynamic_shape_rate", "type": "numeric"},
@@ -608,6 +643,14 @@ _PREDICATE_FEATURES: dict[str, tuple[Mapping[str, str], ...]] = {
     ),
 }
 _THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
+    "channels_last": {
+        "workload.batch": (1.0, 8.0),
+        "workload.horizon": (1.0, 16.0, 128.0, 1024.0),
+        "workload.conv2d_module_count": (1.0, 4.0, 8.0, 16.0, 32.0),
+        "workload.input_channels": (1.0, 3.0, 4.0),
+        "workload.input_height": (128.0, 224.0, 299.0, 384.0, 512.0),
+        "workload.input_width": (128.0, 224.0, 299.0, 384.0, 512.0),
+    },
     "compile": {"workload.logical_steps": (64.0, 128.0, 192.0), "workload.dynamic_shape_rate": (0.0, 0.2, 0.4, 0.6), "workload.graph_size": (64.0, 128.0, 256.0, 320.0)},
     "graph_cache": {"workload.geometry_displacement": (0.02, 0.05, 0.08), "workload.dynamic_rate": (0.2, 0.6), "workload.graph_size": (64.0, 128.0, 256.0)},
     "h2d_pipeline": {"workload.worker_count": (2.0, 4.0, 6.0), "workload.batch_size": (32.0, 64.0, 4096.0), "workload.prefetch_factor": (2.0, 4.0)},
@@ -621,6 +664,7 @@ _THRESHOLDS: dict[str, dict[str, tuple[float, ...]]] = {
     "episode": {"workload.context_width": (2.0, 4.0, 8.0), "workload.drift_rate": (0.1, 0.3, 0.6)},
 }
 _SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
+    "channels_last": ("numerical_equivalence",),
     "compile": ("compile_correctness",),
     "graph_cache": ("energy_force_consistency",),
     "h2d_pipeline": ("batch_semantics_preserved",),
@@ -634,6 +678,7 @@ _SCIENTIFIC_INVARIANTS: dict[str, tuple[str, ...]] = {
     "episode": ("state_transition_valid",),
 }
 _ACTION_POLICY_GATES: dict[str, tuple[str, ...]] = {
+    "CONTRACT-CHANNELS-LAST": ("numerical_equivalence",),
     "CONTRACT-COMPILER-CACHE": ("compile_correctness",),
     "CONTRACT-COMPILER-FUSION": ("finite_output", "output_moment_match"),
     "CONTRACT-ENERGY-FORCE": ("energy_force_consistency",),

@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "seed": 20261019,
+  "algorithm": "sorted_unique_registered_family_lineage_ids_then_python_random.Random(seed).shuffle",
+  "assignment_order": ["development", "calibration", "final"],
+  "split_population": "all registered independent family lineages are assigned before qualification; qualification failures remain in their assigned split and denominator",
+  "confirmatory": {
+    "minimum_total_families": 23,
+    "minimum_development_families": 8,
+    "minimum_calibration_families": 10,
+    "minimum_calibration_support_families": 5,
+    "minimum_calibration_non_support_families": 5,
+    "minimum_final_families": 5,
+    "development_allocation": "remaining families after the frozen calibration and final minima"
+  },
+  "underpowered_exploratory": {
+    "development_family_cap": 8,
+    "calibration_family_cap": 10,
+    "residual_assignment": "final; never opened unless every confirmatory gate passes",
+    "final_opened": false
+  },
+  "primary_final_gate": "Open the independent primary final after the frozen family minima, terminal development/calibration pairs, passing 12-pair shakedown, and pre-final policy freeze. ACRE certification is required for ACRE deployment/scoring only, not for the primary effect or simple comparator final.",
+  "eligibility_roster_rule": "All registered source candidates and their mapped independent family lineages are assigned before qualification. Performance-blind baseline/channels_last correctness-only qualification controls measurement eligibility but never changes family assignment or denominator. No timing-based exclusions or re-splitting are allowed."
+}

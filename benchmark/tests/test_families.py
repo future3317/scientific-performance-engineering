@@ -10,7 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from benchmark.boundary.families import family_cases
 from benchmark.families import (
+    FAMILY_SPECS,
     all_anchor_instances,
+    family_predicate_grammar,
     family_instances,
     family_views,
     poisoning_transformation,
@@ -79,6 +81,26 @@ def test_projection_reads_fixture_values_not_declared_metadata() -> None:
         "compile",
         {"logical_steps": 192, "graph_size": 320, "dynamic_shape_rate": 0.2},
     ) == {"logical_steps": 192, "graph_size": 320, "dynamic_shape_rate": 0.2}
+
+
+def test_channels_last_grammar_uses_pre_execution_features_and_numerical_gate() -> None:
+    expected = (
+        "batch",
+        "horizon",
+        "conv2d_module_count",
+        "input_channels",
+        "input_height",
+        "input_width",
+    )
+    family = FAMILY_SPECS["channels_last"]
+    grammar = family_predicate_grammar("channels_last")
+
+    assert family.parameter_space == expected
+    assert tuple(feature["path"].removeprefix("workload.") for feature in grammar["features"]) == expected
+    assert all(feature["type"] == "numeric" for feature in grammar["features"])
+    generated = family_instances("channels_last", count=1, seed=0)[0].parameters
+    assert set(expected) <= generated.keys()
+    assert "numerical_equivalence" in family.policy_spec().required_gates
 
 
 def test_new_materialized_task_requires_executable_projection(monkeypatch, tmp_path) -> None:
