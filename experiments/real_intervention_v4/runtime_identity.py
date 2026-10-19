@@ -15,6 +15,14 @@ _CROSS_PROCESS_FIELDS = (
 )
 
 
+def _gpu_uuid_matches(observed: Any, expected: Any) -> bool:
+    if not isinstance(observed, str) or not isinstance(expected, str):
+        return False
+    observed_uuid = observed.removeprefix("GPU-")
+    expected_uuid = expected.removeprefix("GPU-")
+    return bool(observed_uuid) and observed_uuid == expected_uuid
+
+
 def cross_process_runtime_differences(reference: dict[str, Any],
                                      observed: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Compare stable hardware/software identity while ignoring PID and thread env."""
@@ -38,7 +46,7 @@ def selected_gpu_identity_differences(runtime: dict[str, Any], expected_gpu_uuid
     observed = {"device_uuid": runtime.get("device_uuid"), "driver.gpu_uuid": driver.get("gpu_uuid")}
     return {
         name: {"expected": expected[name], "observed": observed[name]}
-        for name in expected if expected[name] != observed[name]
+        for name in expected if not _gpu_uuid_matches(observed[name], expected[name])
     }
 
 
@@ -85,7 +93,7 @@ def capture_runtime(expected_gpu_uuid: str) -> dict[str, Any]:
         )
 
     property_uuid = getattr(properties, "uuid", None)
-    if property_uuid is not None and str(property_uuid) != expected_gpu_uuid:
+    if property_uuid is not None and not _gpu_uuid_matches(str(property_uuid), expected_gpu_uuid):
         raise RuntimeError(f"PyTorch device UUID {property_uuid} differs from selected UUID")
 
     packages: dict[str, str | None] = {}
