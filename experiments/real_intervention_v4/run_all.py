@@ -521,6 +521,11 @@ def _qualification_rows(universe: list[dict[str, Any]], config: Mapping[str, Any
                         root: Path, gpu_uuid: str, wall_deadline: float,
                         poll_seconds: float, repo: Path) -> list[dict[str, Any]]:
     rows = []
+    _update_resource_progress(
+        root, config, pair_id="QUALIFICATION_BASELINE", split="qualification",
+        pair_index=0, attempt_storage_delta=0, force_full_scan=True,
+    )
+    qualification_index = 1
     known = {(str(candidate["candidate_id"]), batch): root / "qualification" /
              f"qual-{''.join(char if char.isalnum() or char in '-_.' else '-' for char in str(candidate['candidate_id']))}-B{batch}.json"
              for candidate in universe for batch in (1, 8)}
@@ -546,6 +551,13 @@ def _qualification_rows(universe: list[dict[str, Any]], config: Mapping[str, Any
             )
             rows.append(row)
             _write_qualification_matrix(universe, rows, root)
+            _update_resource_progress(
+                root, config,
+                pair_id=f"QUALIFICATION:{candidate['candidate_id']}:B{batch}",
+                split="qualification", pair_index=qualification_index,
+                attempt_storage_delta=None, force_full_scan=True,
+            )
+            qualification_index += 1
         if time.monotonic() >= wall_deadline:
             break
     return rows
@@ -676,7 +688,10 @@ def _update_resource_progress(root: Path, config: Mapping[str, Any], *,
         "last_complete_root_scan_bytes": measured_bytes,
         "unreconciled_pair_attempt_growth_bytes": since_scan,
         "pair_id": pair_id, "split": split,
-        "accounting": "periodic quiescent result-root scans plus per-pair raw-attempt-directory byte deltas",
+        "accounting": (
+            "full quiescent scans before and after performance-blind qualification batches, "
+            "then periodic result-root scans plus per-pair raw-attempt-directory byte deltas"
+        ),
     }
     atomic_json(progress_path, record)
     if estimate > int(config["disk_cap_bytes"]):
