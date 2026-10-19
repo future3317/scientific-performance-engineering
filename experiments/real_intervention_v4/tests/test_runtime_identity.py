@@ -4,6 +4,7 @@ import unittest
 
 from experiments.real_intervention_v4.runtime_identity import (
     cross_process_runtime_differences,
+    _gpu_uuid_matches,
     selected_gpu_identity_differences,
 )
 
@@ -62,6 +63,36 @@ class RuntimeIdentityTests(unittest.TestCase):
             selected_gpu_identity_differences(observed, "GPU-a"),
             {"driver.gpu_uuid": {"expected": "GPU-a", "observed": "GPU-b"}},
         )
+
+    def test_uuid_comparison_accepts_the_optional_nvidia_prefix(self):
+        self.assertTrue(_gpu_uuid_matches("f190a619-3c7d-72a9-4f20-40d7b7d35c20",
+                                          "GPU-f190a619-3c7d-72a9-4f20-40d7b7d35c20"))
+        self.assertTrue(_gpu_uuid_matches("GPU-f190a619-3c7d-72a9-4f20-40d7b7d35c20",
+                                          "f190a619-3c7d-72a9-4f20-40d7b7d35c20"))
+        self.assertFalse(_gpu_uuid_matches("f190a619-3c7d-72a9-4f20-40d7b7d35c20",
+                                           "GPU-other"))
+
+    def test_missing_or_empty_uuid_never_matches(self):
+        self.assertFalse(_gpu_uuid_matches(None, "GPU-a"))
+        self.assertFalse(_gpu_uuid_matches("", "GPU-a"))
+        self.assertFalse(_gpu_uuid_matches("GPU-", "GPU-"))
+
+        observed = runtime()
+        observed["device_uuid"] = None
+        observed["driver"] = {**observed["driver"], "gpu_uuid": ""}
+        self.assertEqual(
+            selected_gpu_identity_differences(observed, "GPU-a"),
+            {
+                "device_uuid": {"expected": "GPU-a", "observed": None},
+                "driver.gpu_uuid": {"expected": "GPU-a", "observed": ""},
+            },
+        )
+
+    def test_selected_gpu_accepts_torch_uuid_without_nvidia_prefix(self):
+        observed = runtime()
+        observed["device_uuid"] = "a"
+
+        self.assertEqual(selected_gpu_identity_differences(observed, "GPU-a"), {})
 
 
 if __name__ == "__main__":
