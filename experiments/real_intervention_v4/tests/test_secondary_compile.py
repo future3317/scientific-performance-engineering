@@ -112,7 +112,7 @@ def test_roster_requires_prelook_family_splits_and_baseline_correctness():
 
     duplicated = _roster()
     duplicated["families"].append(_family("family-a", "calibration"))
-    with pytest.raises(ValueError, match="inflates independent n"):
+    with pytest.raises(ValueError, match="would inflate independent n"):
         secondary_compile._validate_roster(duplicated, contract)
 
 
