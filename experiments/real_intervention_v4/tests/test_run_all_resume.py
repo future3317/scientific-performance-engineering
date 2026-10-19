@@ -588,6 +588,80 @@ def test_resource_progress_uses_pair_deltas_between_periodic_full_scans(tmp_path
     assert reconciled["unreconciled_pair_attempt_growth_bytes"] == 0
 
 
+def test_qualification_resource_is_checked_before_and_after_each_candidate_batch(tmp_path, monkeypatch):
+    events = []
+
+    def qualify(candidate, batch, **_kwargs):
+        events.append(("qualification", candidate["candidate_id"], batch))
+        return {
+            "candidate_id": candidate["candidate_id"], "batch": batch,
+            "qualification_complete": True, "performance_timing_recorded": False,
+        }
+
+    def account(_root, _config, **kwargs):
+        events.append(("storage", kwargs["pair_id"], kwargs["force_full_scan"]))
+        return {"status": "COMPLETE"}
+
+    monkeypatch.setattr(run_all, "_run_qualification", qualify)
+    monkeypatch.setattr(run_all, "_update_resource_progress", account)
+    universe = [
+        {"candidate_id": "source:model-a", "source": "source", "model": "model-a",
+         "family_id": "family-a"},
+        {"candidate_id": "source:model-b", "source": "source", "model": "model-b",
+         "family_id": "family-b"},
+    ]
+
+    rows = run_all._qualification_rows(
+        universe, {"disk_cap_bytes": 1000}, tmp_path, "GPU-test",
+        float("inf"), 1.0, tmp_path,
+    )
+
+    assert len(rows) == 4
+    assert events[0] == ("storage", "QUALIFICATION_BASELINE", True)
+    storage_events = [event for event in events if event[0] == "storage"]
+    assert [event[1] for event in storage_events[1:]] == [
+        "QUALIFICATION:source:model-a:B1", "QUALIFICATION:source:model-a:B8",
+        "QUALIFICATION:source:model-b:B1", "QUALIFICATION:source:model-b:B8",
+    ]
+    assert all(event[2] is True for event in storage_events)
+
+
+def test_qualification_storage_overrun_stops_before_the_next_candidate(tmp_path, monkeypatch):
+    qualified = []
+    checks = 0
+
+    def qualify(candidate, batch, **_kwargs):
+        qualified.append((candidate["candidate_id"], batch))
+        return {
+            "candidate_id": candidate["candidate_id"], "batch": batch,
+            "qualification_complete": True, "performance_timing_recorded": False,
+        }
+
+    def account(_root, _config, **_kwargs):
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise RuntimeError("RESULT_ROOT_DISK_CAP_EXCEEDED")
+        return {"status": "COMPLETE"}
+
+    monkeypatch.setattr(run_all, "_run_qualification", qualify)
+    monkeypatch.setattr(run_all, "_update_resource_progress", account)
+    universe = [
+        {"candidate_id": "source:model-a", "source": "source", "model": "model-a",
+         "family_id": "family-a"},
+        {"candidate_id": "source:model-b", "source": "source", "model": "model-b",
+         "family_id": "family-b"},
+    ]
+
+    with pytest.raises(RuntimeError, match="RESULT_ROOT_DISK_CAP_EXCEEDED"):
+        run_all._qualification_rows(
+            universe, {"disk_cap_bytes": 1000}, tmp_path, "GPU-test",
+            float("inf"), 1.0, tmp_path,
+        )
+
+    assert qualified == [("source:model-a", 1)]
+
+
 def test_unknown_result_root_storage_stops_new_work(tmp_path, monkeypatch):
     monkeypatch.setattr(run_all, "cache_usage", lambda _root: {
         "bytes": None, "observed_bytes_lower_bound": 17,
