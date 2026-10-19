@@ -123,9 +123,8 @@ def test_timeout_kills_worker_that_ignores_sigterm_within_ceiling(tmp_path):
         result["host_supervisor_wall_seconds"] <= result["elapsed_ceiling_seconds"]
     )
     assert not result.get("remaining_process_groups")
-    events = [json.loads(path.read_text()) for path in
-              (tmp_path / "raw" / "stubborn" / "events").glob("*.json")]
-    assert any(event.get("action") == "SIGKILL_GROUP" for event in events)
+    watchdog = json.loads((tmp_path / "raw" / "stubborn" / "WATCHDOG.json").read_text())
+    assert "SIGKILL" in watchdog["signals_sent"]
 
 
 def test_timeout_does_not_signal_an_unrelated_process_group(tmp_path):
@@ -409,34 +408,39 @@ def test_worker_start_gate_keeps_child_idle_until_started_event_is_durable(tmp_p
 
 def test_supervisor_death_before_started_event_cannot_release_worker(tmp_path):
     marker = tmp_path / "worker-ran-before-started"
-    sitecustomize = tmp_path / "sitecustomize.py"
-    sitecustomize.write_text(textwrap.dedent("""\
+    python = sys.executable
+    wrapper = tmp_path / "supervisor-crash-before-started"
+    wrapper.write_text(textwrap.dedent(f"""\
+        #!{python}
         import os
         import sys
+        from pathlib import Path
 
-        if "--supervisor-request" in sys.argv:
-            from experiments.real_intervention_v4 import outcomes
-            record_event = outcomes.record_event
+        from experiments.real_intervention_v4 import outcomes, process_supervisor
 
-            def crash_before_started_is_durable(folder, kind, payload):
-                if kind == "started":
-                    os._exit(23)
-                return record_event(folder, kind, payload)
+        original = outcomes.record_event
+        def crash_before_started_is_durable(folder, kind, payload):
+            if kind == "started":
+                os._exit(23)
+            return original(folder, kind, payload)
 
-            outcomes.record_event = crash_before_started_is_durable
+        outcomes.record_event = crash_before_started_is_durable
+        process_supervisor.record_event = crash_before_started_is_durable
+        request_path = Path(sys.argv[sys.argv.index("--supervisor-request") + 1])
+        process_supervisor._supervisor_main(request_path)
     """), encoding="utf-8")
-    pythonpath = os.pathsep.join(
-        filter(None, (str(tmp_path), os.environ.get("PYTHONPATH")))
-    )
+    wrapper.chmod(0o700)
 
-    result = _execute(
-        tmp_path, "supervisor-died-before-started",
-        f"open({str(marker)!r}, 'w').close()",
-        environment={"PYTHONPATH": pythonpath},
-    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(process_supervisor.sys, "executable", str(wrapper))
+        result = _execute(
+            tmp_path, "supervisor-died-before-started",
+            f"open({str(marker)!r}, 'w').close()",
+        )
 
-    events = [json.loads(path.read_text()) for path in
-              (tmp_path / "raw" / "supervisor-died-before-started" / "events").glob("*.json")]
+    events = [json.loads(path.read_text()) for path in sorted(
+        (tmp_path / "raw" / "supervisor-died-before-started" / "events").glob("*.json")
+    )]
     assert result["arm_execution"] == ArmExecution.UNKNOWN.value
     assert result["first_failure_stage"] == "HOST_SUPERVISOR_EXIT"
     assert result["supervisor_returncode"] == 23
@@ -478,7 +482,7 @@ def test_exception_cleanup_kills_worker_group_with_sigterm_ignoring_grandchild(t
             )
 
     elapsed = time.monotonic() - started
-    events = [json.loads(path.read_text()) for path in (folder / "events").glob("*.json")]
+    events = [json.loads(path.read_text()) for path in sorted((folder / "events").glob("*.json"))]
     group_id = next(event["process_group_id"] for event in events if event["kind"] == "started")
     assert elapsed <= timeout + cleanup
     assert not _process_group_pids(group_id)
