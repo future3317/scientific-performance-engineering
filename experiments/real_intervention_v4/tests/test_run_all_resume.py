@@ -189,7 +189,7 @@ def test_production_run_passes_selected_gpu_through_real_policy_freeze_and_route
     monkeypatch.setattr(run_all, "_write_v3_audit", lambda *_args: {})
     monkeypatch.setattr(run_all, "select_study_gpu", lambda *_args, **_kwargs: "GPU-test")
     monkeypatch.setattr(run_all, "_source_environment", lambda *_args: {})
-    monkeypatch.setattr(run_all, "_resolve_server_path", lambda _path: tmp_path)
+    monkeypatch.setattr(run_all, "resolve_server_path", lambda _path: tmp_path)
     from experiments.real_intervention_v4 import source_registry
     monkeypatch.setattr(source_registry, "candidate_universe", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(run_all, "_freeze_registered_family_split", lambda **_kwargs: {})

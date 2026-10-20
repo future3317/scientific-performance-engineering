@@ -13,6 +13,7 @@ def _config():
     return {
         "study_id": "test-v4",
         "intervention_id": "CHANNELS_LAST_EAGER_LAYOUT_V1",
+        "torchbench_root": "DATA/torchbench",
         "seed": 20261019,
         "batches": [1, 8],
         "horizons": [1],

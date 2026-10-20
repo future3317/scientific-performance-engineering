@@ -12,6 +12,11 @@ from typing import Any, Mapping, Sequence
 from .outcomes import atomic_json, canonical_digest
 
 
+def resolve_server_path(value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (Path.home() / path).resolve()
+
+
 def read_config(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -144,7 +149,8 @@ def planned_contexts(eligible_rows: Sequence[Mapping[str, Any]], *, config: Mapp
                     "expected_weights_sha256": qualification.get("weights_sha256"),
                     "expected_inputs_sha256": qualification.get("inputs_sha256"),
                     "reference_sha256": qualification.get("reference_sha256"),
-                    "reference_path": qualification.get("reference_path"),
+                    "reference_path": (qualification.get("model_summary") or {}).get("reference_path"),
+                    "torchbench_root": str(resolve_server_path(config["torchbench_root"])),
                 }
                 context.pop("qualification_by_batch", None)
                 rows.append(context)

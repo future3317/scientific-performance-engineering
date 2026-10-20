@@ -20,7 +20,8 @@ from .audit_v3 import write_failure_table
 from .cache_lifecycle import cache_usage
 from .contracts import (
     build_frozen_manifest, family_split, file_digest, read_config,
-    registered_family_ids, split_family_counts, write_or_verify_manifest,
+    registered_family_ids, resolve_server_path, split_family_counts,
+    write_or_verify_manifest,
 )
 from .matched_sessions import (
     load_pair_observation, run_pair, select_study_gpu, wait_for_selected_gpu,
@@ -31,11 +32,6 @@ from .process_supervisor import execute_arm
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _resolve_server_path(value: str | Path) -> Path:
-    path = Path(value).expanduser()
-    return path.resolve() if path.is_absolute() else (Path.home() / path).resolve()
 
 
 def _repo_root() -> Path:
@@ -78,8 +74,8 @@ def _assert_server_contract(config: Mapping[str, Any], root: Path) -> tuple[Path
     allowed_root = (Path.home() / "RESULTS" / "evospe-rt-v4").resolve()
     if not root.is_relative_to(allowed_root):
         raise RuntimeError(f"v4 output must stay under {allowed_root}")
-    torchbench = _resolve_server_path(str(config["torchbench_root"]))
-    overlay = _resolve_server_path(str(config["workload_dependency_overlay"]))
+    torchbench = resolve_server_path(str(config["torchbench_root"]))
+    overlay = resolve_server_path(str(config["workload_dependency_overlay"]))
     if not torchbench.is_dir() or not overlay.is_dir():
         raise FileNotFoundError("the frozen TorchBench source or dependency overlay is unavailable")
     torchbench_commit = _git("rev-parse", "HEAD", cwd=torchbench)
@@ -199,8 +195,8 @@ def _source_environment(commit: str, config: Mapping[str, Any], root: Path) -> d
             versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
             versions[package] = None
-    torchbench = _resolve_server_path(str(config["torchbench_root"]))
-    overlay = _resolve_server_path(str(config["workload_dependency_overlay"]))
+    torchbench = resolve_server_path(str(config["torchbench_root"]))
+    overlay = resolve_server_path(str(config["workload_dependency_overlay"]))
     try:
         gpu_inventory = subprocess.run(
             ["nvidia-smi", "--query-gpu=index,uuid,name,memory.total,driver_version",
@@ -223,7 +219,7 @@ def _source_environment(commit: str, config: Mapping[str, Any], root: Path) -> d
 
 
 def _write_v3_audit(config: Mapping[str, Any], root: Path) -> dict[str, Any]:
-    roots = [_resolve_server_path(item) for item in config["v3_failure_roots"]]
+    roots = [resolve_server_path(item) for item in config["v3_failure_roots"]]
     pair_path = roots[0] / "PAIRS.jsonl"
     if not pair_path.is_file():
         raise FileNotFoundError(f"authoritative latest v3 PAIRS.jsonl is missing: {pair_path}")
@@ -256,7 +252,7 @@ def _qualification_spec(candidate: Mapping[str, Any], batch: int, phase: str,
         "candidate": dict(candidate), "batch": int(batch), "seed": int(config["seed"]),
         "source_revisions": dict((candidate.get("source_identity") or {}).get("source_revisions", {})),
         "shape": list(candidate.get("input_shape", config["shape"])), "phase": phase,
-        "torchbench_root": str(_resolve_server_path(str(config["torchbench_root"]))),
+        "torchbench_root": str(resolve_server_path(str(config["torchbench_root"]))),
         "reference_root": str(reference_path.parent), "reference_path": str(reference_path),
         "metadata_path": str(reference_path.with_suffix(".s0.json")),
         "correctness": dict(config["correctness"]), "gpu_uuid": gpu_uuid,
@@ -324,7 +320,7 @@ def _run_qualification_phase(candidate: Mapping[str, Any], batch: int, phase: st
     wrapper["qualification_phase"] = phase
     command = [sys.executable, "-m", "experiments.real_intervention_v4.qualification",
                "--spec", str(spec_path), "--output", str(result_path), "--phase", phase]
-    overlay = str(_resolve_server_path(str(config["workload_dependency_overlay"])))
+    overlay = str(resolve_server_path(str(config["workload_dependency_overlay"])))
     environment = {key: str(value) for key, value in details["cache_environment"].items()}
     environment["PYTHONPATH"] = os.pathsep.join(
         filter(None, (overlay, str(repo), os.environ.get("PYTHONPATH", "")))
@@ -1314,7 +1310,7 @@ def run(config_path: Path, results_root: Path, *, resume_safe: bool) -> dict[str
 
         from .source_registry import candidate_universe
         universe = candidate_universe(
-            _resolve_server_path(str(config["torchbench_root"])),
+            resolve_server_path(str(config["torchbench_root"])),
             source_revisions={
                 "repository_commit": source_commit,
                 "torchbench_commit": str(config["torchbench_commit"]),
