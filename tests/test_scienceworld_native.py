@@ -117,12 +117,12 @@ def test_provider_backend_uses_scienceworld_full_score_for_success(
             pass
 
     monkeypatch.setitem(sys.modules, "scienceworld", SimpleNamespace(ScienceWorldEnv=FakeScienceWorldEnv))
-    monkeypatch.setattr(
-        "benchmark.formal.host_agent._api_call_with_retry",
-        lambda *_args, **_kwargs: {
-            "choices": [{"message": {"content": '{"actions": ["do the task"]}'}}]
-        },
-    )
+    def fake_api_call_with_retry(*_args, on_attempt=None, **_kwargs):
+        if on_attempt is not None:
+            on_attempt()
+        return {"choices": [{"message": {"content": '{"actions": ["do the task"]}'}}]}
+
+    monkeypatch.setattr("benchmark.formal.host_agent._api_call_with_retry", fake_api_call_with_retry)
 
     backend = ScienceWorldProviderBackend(scienceworld_root=tmp_path, model_id="fake-model")
     result = backend.execute(
