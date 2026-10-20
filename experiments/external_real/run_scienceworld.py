@@ -6,7 +6,7 @@ import re
 import random
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .adapters.scienceworld_native import ScienceWorldAdapter
 from .freeze import freeze_decisions
@@ -106,11 +106,19 @@ def build_scienceworld_smoke_task_manifest(
 
 
 class ScienceWorldProviderBackend:
-    def __init__(self, *, scienceworld_root: Path, model_id: str, max_actions: int = 20) -> None:
+    def __init__(
+        self,
+        *,
+        scienceworld_root: Path,
+        model_id: str,
+        max_actions: int = 20,
+        request_counter: Callable[[], None] | None = None,
+    ) -> None:
         self.scienceworld_root = scienceworld_root.resolve()
         self.model_id = model_id
         self.max_actions = max_actions
         self.provider_calls = 0
+        self.request_counter = request_counter
 
     def _prompt(self, payload: Mapping[str, object], skill: object | None, observation: str, actions: Sequence[str]) -> str:
         skill_text = getattr(skill, "body", "") if skill is not None else ""
@@ -150,13 +158,18 @@ class ScienceWorldProviderBackend:
                 "thinking": {"type": "disabled"},
                 "reasoning_effort": "none",
             }
+            def count_request() -> None:
+                self.provider_calls += 1
+                if self.request_counter is not None:
+                    self.request_counter()
+
             response = _api_call_with_retry(
                 os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
                 os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("MP_API_KEY", ""),
                 payload,
                 timeout_s=120,
+                on_attempt=count_request,
             )
-            self.provider_calls += 1
             raw = response["choices"][0]["message"].get("content", "")
             actions = parse_action_plan(str(raw))
             score = 0.0
