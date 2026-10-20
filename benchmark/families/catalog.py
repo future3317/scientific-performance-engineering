@@ -691,6 +691,23 @@ _ACTION_POLICY_GATES: dict[str, tuple[str, ...]] = {
     "CONTRACT-EVOLUTION-GOVERNANCE": ("state_transition_valid",),
 }
 _ACTION_SPECS: dict[str, dict[str, Mapping[str, Any]]] = {
+    # This deterministic profile exercises the synthetic BoundaryBench path;
+    # it is not empirical evidence that channels_last is faster on real models.
+    "channels_last": {
+        "convert_to_channels_last": {
+            "family": "channels_last",
+            "mechanism": "memory_format_conversion",
+            "applicability": {
+                "all": [
+                    {"compare": {"workload.horizon": {"gte": 128}}},
+                ]
+            },
+            "risk_class": "bounded",
+            "scientific_policy_ref": "CONTRACT-CHANNELS-LAST",
+            "activation_validator": "channels_last_layout_trace",
+            "realization_interface": "source_patch",
+        }
+    },
     "compile": {
         # Legacy cache actions remain only in action_policy as migration
         # labels; they have no calibrated anchor and are not deployable.
