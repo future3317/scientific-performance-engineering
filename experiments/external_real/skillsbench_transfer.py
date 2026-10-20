@@ -161,8 +161,6 @@ def select_skill_cohort(tasks: list[dict[str, Any]], skills: list[dict[str, Any]
 
 
 def materialize_no_skill_task(task_dir: Path, destination: Path) -> None:
-    if destination.exists():
-        shutil.rmtree(destination)
     shutil.copytree(task_dir, destination, ignore=shutil.ignore_patterns("skills"))
     leaked = list(destination.rglob("SKILL.md")) + list((destination / "environment" / "skills").rglob("*") if (destination / "environment" / "skills").exists() else [])
     if leaked:
@@ -170,8 +168,6 @@ def materialize_no_skill_task(task_dir: Path, destination: Path) -> None:
 
 
 def materialize_native_skill_task(task_dir: Path, destination: Path) -> None:
-    if destination.exists():
-        shutil.rmtree(destination)
     shutil.copytree(task_dir, destination)
 
 
@@ -181,8 +177,8 @@ def materialize_transferred_skill_task(
     skill_name: str,
     destination: Path,
 ) -> None:
-    if destination.exists():
-        shutil.rmtree(destination)
+    if not skill_name or skill_name in {".", ".."} or "/" in skill_name or "\\" in skill_name:
+        raise ValueError(f"skill_name must be one path component: {skill_name!r}")
     shutil.copytree(task_dir, destination, ignore=shutil.ignore_patterns("skills"))
     target_skill_dir = destination / "environment" / "skills" / skill_name
     target_skill_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +193,7 @@ def materialize_sb1_smoke(benchmark_root: Path, smoke_manifest: Path, output_dir
     if manifest.get("conditions") != ["oracle", "no_skill", "native_skill"]:
         raise ValueError("SB1 smoke manifest must use oracle/no_skill/native_skill conditions")
     task_ids = [str(row["task_id"]) for row in manifest.get("tasks", [])]
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=False)
     for task_id in task_ids:
         task_dir = benchmark_root / "tasks" / task_id
         if not task_dir.is_dir():
@@ -226,7 +222,7 @@ def write_sb0_sb2_artifacts(benchmark_root: Path, output_dir: Path, *, archive_s
     smoke_tasks = [task for task in tasks if task["difficulty"] in {"easy", "medium"}][:3]
     if len(smoke_tasks) != 3:
         raise ValueError("SB1 requires three easy/medium smoke tasks")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=False)
     (output_dir / "skillsbench_protocol_manifest.json").write_text(json.dumps({
         "schema_version": 1,
         "benchmark": "SkillsBench",

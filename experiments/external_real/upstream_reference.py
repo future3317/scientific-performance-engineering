@@ -126,6 +126,13 @@ def _run_metadata(path: Path) -> dict[str, object]:
     return metadata
 
 
+def _is_zero_temperature(value: object) -> bool:
+    try:
+        return float(str(value)) == 0.0
+    except ValueError:
+        return False
+
+
 def build_release_artifacts(
     source_root: Path,
     output_dir: Path,
@@ -149,13 +156,16 @@ def build_release_artifacts(
     canonical = [
         run for run in runs
         if run.get("model") == "Qwen2.5-7B-Instruct"
+        and _is_zero_temperature(run.get("temperature"))
         and run.get("sampling_count") == 6
         and run.get("top_ac") == 1
         and run.get("top_s") == 1
         and run.get("max_steps") == 20
+        and run.get("fold") in {0, 1, 2, 3}
     ]
-    if len(canonical) != 4:
-        raise ValueError(f"expected four canonical Qwen fold logs, found {len(canonical)}")
+    canonical_folds = sorted(run["fold"] for run in canonical)
+    if canonical_folds != [0, 1, 2, 3]:
+        raise ValueError(f"expected exactly canonical Qwen folds 0-3, found {canonical_folds}")
     canonical_rows = []
     for run in canonical:
         canonical_rows.extend(_read_rows(source_root / run["relative_path"]))
@@ -208,7 +218,7 @@ def build_release_artifacts(
         "acre_started": False,
         "final_test_started": False,
     }
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=False)
     (output_dir / "released_run_inventory.json").write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (output_dir / "released_metric_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (output_dir / "released_task_ids.json").write_text(json.dumps(task_artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8")
