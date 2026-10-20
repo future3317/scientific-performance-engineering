@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -47,7 +47,9 @@ def summarize_candidate(*, generation_seed: int, skill_hash: str, verification: 
     }
 
 
-def _generate_skill(*, prompt: str, model_id: str) -> str:
+def _generate_skill(
+    *, prompt: str, model_id: str, on_attempt: Callable[[], None] | None = None
+) -> str:
     response = _api_call_with_retry(
         os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("MP_API_KEY", ""),
@@ -64,6 +66,7 @@ def _generate_skill(*, prompt: str, model_id: str) -> str:
             "reasoning_effort": "none",
         },
         timeout_s=120,
+        on_attempt=on_attempt,
     )
     return str(response["choices"][0]["message"].get("content", "")).strip()
 
@@ -78,8 +81,18 @@ def run_train_formal(*, task_manifest: Mapping[str, Sequence[Mapping[str, object
         evaluator_revision="ScienceWorld-official-score-1.2.3",
     )
     candidates: list[dict[str, object]] = []
+    generation_attempts = 0
+
+    def count_generation_attempt() -> None:
+        nonlocal generation_attempts
+        generation_attempts += 1
+
     for seed in (0, 1, 2):
-        body = _generate_skill(prompt=generation_prompt(task_manifest["construction"], seed=seed), model_id=model_id)
+        body = _generate_skill(
+            prompt=generation_prompt(task_manifest["construction"], seed=seed),
+            model_id=model_id,
+            on_attempt=count_generation_attempt,
+        )
         skill = freeze_skill(body, (), (), "ScienceWorld train-side generated skill", "scienceworld", seed)
         verification = verify_skill(adapter, skill, adapter.load_tasks("verification"), repeat_seed=seed)
         (out_dir / f"candidate_seed_{seed}.skill.txt").write_text(body + "\n", encoding="utf-8")
@@ -94,7 +107,7 @@ def run_train_formal(*, task_manifest: Mapping[str, Sequence[Mapping[str, object
         "generation_seeds": [0, 1, 2],
         "candidates": candidates,
         "admitted_candidates": len(admitted),
-        "provider_calls": 3 + int(getattr(backend, "provider_calls", 0)),
+        "provider_calls": generation_attempts + int(getattr(backend, "provider_calls", 0)),
         "acre_started": False,
         "final_test_started": False,
         "claim_boundary": "train-side SkillGen construction and verification; no held-out treatment efficacy",

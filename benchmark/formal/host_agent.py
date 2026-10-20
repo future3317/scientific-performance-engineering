@@ -15,7 +15,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -307,9 +307,18 @@ def _api_call(base_url: str, api_key: str, payload: dict[str, Any], timeout_s: f
     return value
 
 
-def _api_call_with_retry(base_url: str, api_key: str, payload: dict[str, Any], timeout_s: float) -> dict[str, Any]:
+def _api_call_with_retry(
+    base_url: str,
+    api_key: str,
+    payload: dict[str, Any],
+    timeout_s: float,
+    *,
+    on_attempt: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     for attempt in range(2):
         try:
+            if on_attempt is not None:
+                on_attempt()
             return _api_call(base_url, api_key, payload, timeout_s)
         except TransientProviderError:
             if attempt == 1:
