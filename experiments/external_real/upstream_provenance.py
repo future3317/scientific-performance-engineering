@@ -29,14 +29,15 @@ def audit_provenance(source_root: Path) -> dict[str, object]:
         "schema_version": 1,
         "source_root": str(source_root),
         "artifact_inventory": artifacts,
-        "frozen_train_derived_artifact_usable": False,
+        "candidate_artifacts_present": reusable,
+        "frozen_train_derived_artifact_usable": False if not reusable else None,
         "outcome_label_leakage_check": "not_applicable_no_candidate_artifacts" if not reusable else "requires_manual_artifact_review",
         "prospective_audit_authorized": False,
-        "decision": "reuse_only_if_train_derived_and_outcome_label_free" if reusable else "enter_u8_resampling",
+        "decision": "manual_provenance_review_required" if reusable else "enter_u8_resampling",
         "reason": (
             "No committed sampling, graph, embedding, retrieval, or domain-mapping artifacts were released."
             if not reusable
-            else "Candidate artifacts exist but provenance and outcome-label separation must be checked before reuse."
+            else "Candidate artifacts exist; verify train-only provenance and outcome-label separation before reuse."
         ),
     }
 
