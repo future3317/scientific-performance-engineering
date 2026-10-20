@@ -119,3 +119,14 @@ def test_boundary_diagnostic_keeps_large_compile_slice_consistent():
     report = run_boundary_family("compile", surface_count=100, seed=7)
     assert report["status"] == "identified"
     assert report["sealed_errors"] == 0
+
+
+def test_channels_last_boundary_has_declared_positive_and_negative_evidence():
+    from benchmark.boundary.families import run_boundary_family
+
+    report = run_boundary_family("channels_last", surface_count=24, seed=0)
+    assert report["pool_sizes"]["representative_pool"] > 0
+    assert report["pool_sizes"]["active_query_pool"] > 0
+    assert report["pool_sizes"]["sealed_boundary_pool"] > 0
+    assert report["status"] in {"identified", "underidentified"}
+    assert report["sealed_errors"] == 0
