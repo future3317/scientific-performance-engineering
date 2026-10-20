@@ -1,0 +1,158 @@
+{
+  "study_id": "EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_CONTEXT_PASS_THROUGH_V2",
+  "intervention_id": "CHANNELS_LAST_EAGER_LAYOUT_V1",
+  "source_pool": "V3_FROZEN_CANDIDATE_POOL_READ_ONLY",
+  "v3_evidence_root": "RESULTS/evospe-rt-v3-20261019-gpu-resume",
+  "v3_failure_roots": [
+    "RESULTS/evospe-rt-v3-20261019-gpu-resume",
+    "RESULTS/evospe-rt-v3-20261018-monitor-corrected",
+    "RESULTS/evospe-rt-v3-20261018",
+    "RESULTS/evospe-rt-v3-20261018-reboot-resume"
+  ],
+  "torchbench_root": "DATA/evospe-rt-v2/torchbench",
+  "torchbench_commit": "61227cc119913f01e78e8e115a68208c4ca0541b",
+  "workload_dependency_overlay": "RESULTS/evospe-rt-v2/20261018-one-shot-deterministic-b1-r2/dependencies",
+  "supplemental_sources": {
+    "timm": {
+      "version": "1.0.29",
+      "git_commit": "e617d170064e1fad8417858abc6a39489746be9b",
+      "models": [
+        {
+          "model": "ghostnet_100",
+          "family": "ghostnet",
+          "input_shape": [
+            3,
+            224,
+            224
+          ]
+        },
+        {
+          "model": "hrnet_w18",
+          "family": "hrnet",
+          "input_shape": [
+            3,
+            224,
+            224
+          ]
+        },
+        {
+          "model": "dla34",
+          "family": "dla",
+          "input_shape": [
+            3,
+            224,
+            224
+          ]
+        },
+        {
+          "model": "nfnet_f0",
+          "family": "nfnet",
+          "input_shape": [
+            3,
+            224,
+            224
+          ]
+        },
+        {
+          "model": "legacy_xception",
+          "family": "xception",
+          "input_shape": [
+            3,
+            299,
+            299
+          ]
+        },
+        {
+          "model": "nasnetalarge",
+          "family": "nasnet",
+          "input_shape": [
+            3,
+            331,
+            331
+          ]
+        }
+      ]
+    }
+  },
+  "seed": 20261019,
+  "batches": [
+    1,
+    8
+  ],
+  "horizons": [
+    1,
+    16,
+    128,
+    1024
+  ],
+  "sessions_per_context": 2,
+  "shape": [
+    3,
+    224,
+    224
+  ],
+  "correctness": {
+    "rtol": 0.0001,
+    "atol": 1e-05
+  },
+  "split": {
+    "minimum_total_families_for_confirmatory": 23,
+    "minimum_development_families": 8,
+    "minimum_calibration_families": 10,
+    "minimum_final_families": 5,
+    "underpowered_development_family_cap": 8,
+    "underpowered_calibration_family_cap": 10
+  },
+  "effect_contract": {
+    "primary_estimand": "family_equal_mean_of_context_mean_log_T_S0_over_T_S1",
+    "minimum_material_log_benefit": 0.05,
+    "target_95pct_family_ci_half_width_log_benefit": 0.1,
+    "utility_transform": "tanh(log_benefit / ln(2))",
+    "raw_log_benefit_and_seconds_always_preserved": true
+  },
+  "acre": {
+    "minimum_development_families": 8,
+    "minimum_calibration_deploy_families": 10,
+    "minimum_calibration_support_families": 5,
+    "minimum_calibration_non_support_families": 5,
+    "delta_total": 0.05,
+    "minimum_net_benefit": 0.0,
+    "maximum_harm_probability": 0.1,
+    "max_candidates": 50000,
+    "max_wall_seconds": 30
+  },
+  "arm_timeout_seconds": 900,
+  "cleanup_grace_seconds": 20,
+  "term_grace_seconds": 5,
+  "watchdog_heartbeat_seconds": 30,
+  "gpu_sample_seconds": 2,
+  "wall_cap_seconds": 172800,
+  "disk_cap_bytes": 53687091200,
+  "resource_accounting": {
+    "full_scan_every_pairs": 16
+  },
+  "concurrency": 1,
+  "gpu_workers": 1,
+  "cpu_threads": 1,
+  "gpu_selection": {
+    "prefer_idle": true,
+    "idle_memory_limit_mib": 512,
+    "idle_utilization_percent": 0,
+    "scan_interval_seconds": 15,
+    "wait_for_selected_gpu_idle_before_each_arm": true
+  },
+  "engineering_shakedown": {
+    "minimum_model_level_pairs": 12,
+    "minimum_matched_and_correct_fraction": 0.8,
+    "included_in_primary_effects": false,
+    "source_split": "development"
+  },
+  "downloads_allowed": false,
+  "provider_calls": 0,
+  "comparison_class": "systems",
+  "evidence_level": "amortized_job",
+  "bootstrap_seed": 101,
+  "bootstrap_repetitions": 10000,
+  "final_release": "Primary independent final opens only when the frozen roster and eligible split meet 23 total families (8 development, 10 calibration, 5 sealed final), all development/calibration pairs are terminal, the 12-pair engineering shakedown passes, and policies are frozen before final. A canonical ACRE support certificate is required to score/deploy ACRE, but not to estimate the primary layout effect or frozen simple comparators; without it, ACRE remains ACRE_NOT_FITTED and no ACRE superiority claim is allowed.",
+  "secondary_study": "COMPILE_AMORTIZATION_V1 is a separate study identity and can never replace this primary intervention."
+}
