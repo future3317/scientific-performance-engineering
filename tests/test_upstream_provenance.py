@@ -16,7 +16,8 @@ def test_present_derivative_requires_provenance_review(tmp_path):
 
     report = audit_provenance(tmp_path)
 
-    assert report["artifact_inventory"]["sampled_trajectories"] == ["logs/sampling/train.jsonl"]
-    assert report["frozen_train_derived_artifact_usable"] is False
-    assert report["prospective_audit_authorized"] is False
+    assert report["candidate_artifacts_present"] is True
+    assert report["frozen_train_derived_artifact_usable"] is None
     assert report["outcome_label_leakage_check"] == "requires_manual_artifact_review"
+    assert report["prospective_audit_authorized"] is False
+    assert report["decision"] == "manual_provenance_review_required"

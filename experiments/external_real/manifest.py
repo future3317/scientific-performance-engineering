@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -112,15 +113,25 @@ def build_protocol_manifests(
 
 
 def write_protocol_manifests(out_dir: Path, manifests: Mapping[str, Mapping[str, object]]) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for name in (
+    names = (
         "protocol_manifest",
         "burned_evaluation_ids",
         "benchmark_version_manifest",
         "provider_model_manifest",
         "statistics_manifest",
-    ):
-        if name not in manifests:
-            raise ValueError(f"missing manifest: {name}")
-        path = out_dir / f"{name}.json"
-        path.write_text(json.dumps(dict(manifests[name]), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    )
+    missing = [name for name in names if name not in manifests]
+    if missing:
+        raise ValueError(f"missing manifests: {missing}")
+    if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
+        raise FileExistsError(f"refusing to overwrite protocol manifests: {out_dir}")
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f".{out_dir.name}.", dir=out_dir.parent) as staging:
+        staging_dir = Path(staging)
+        for name in names:
+            path = staging_dir / f"{name}.json"
+            path.write_text(
+                json.dumps(dict(manifests[name]), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        staging_dir.rename(out_dir)
