@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from experiments.real_intervention_v4 import matched_sessions
+from experiments.real_intervention_v4.contracts import planned_contexts, planned_pairs
 from experiments.real_intervention_v4.outcomes import atomic_json, canonical_digest, record_event
 
 
@@ -89,6 +90,52 @@ def test_pair_arm_spec_carries_frozen_model_seed(tmp_path, monkeypatch):
     )
 
     assert submitted["seed"] == config["seed"]
+
+
+def test_worker_spec_receives_frozen_qualification_paths(tmp_path, monkeypatch):
+    qualification_path = tmp_path / "references" / "model.pt"
+    config = {
+        "study_id": "v4-test", "intervention_id": "CHANNELS_LAST_EAGER_LAYOUT_V1",
+        "seed": 31, "batches": [1], "horizons": [1], "shape": [3, 224, 224],
+        "sessions_per_context": 2, "torchbench_root": "DATA/torchbench",
+        "correctness": {"rtol": 1e-4, "atol": 1e-5},
+        "arm_timeout_seconds": 10.0, "cleanup_grace_seconds": 1.0,
+        "term_grace_seconds": 0.1, "watchdog_heartbeat_seconds": 1.0,
+        "gpu_sample_seconds": 0.1,
+    }
+    candidate = {
+        "candidate_id": "model-a", "family_id": "family-a", "input_shape": [3, 224, 224],
+        "order_bit": 0,
+        "qualification_by_batch": {"1": {
+            "eligibility": "ELIGIBLE_CHANNELS_LAST_CORRECTNESS_ONLY",
+            "weights_sha256": "weights", "inputs_sha256": "inputs",
+            "reference_sha256": "reference",
+            "model_summary": {"reference_path": str(qualification_path)},
+        }},
+    }
+    context = planned_contexts(
+        [candidate], config=config, split_by_family={"family-a": "development"},
+    )[0]
+    pair = {
+        **planned_pairs([context], sessions_per_context=2, seed=31)[0],
+        "study_id": config["study_id"], "intervention_id": config["intervention_id"],
+        "attempt_prefix": "primary-pair-001",
+    }
+    submitted = {}
+    monkeypatch.setattr(matched_sessions.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(matched_sessions, "execute_arm", lambda **kwargs: (
+        submitted.update(kwargs["spec"]) or {"arm_execution": "NOT_STARTED",
+                                              "reason": "test capture"}
+    ))
+
+    matched_sessions._run_arm(
+        pair=pair, arm="S0", results_root=tmp_path, source_commit="source",
+        config_digest="config", gpu_uuid="GPU-test", config=config,
+        wall_deadline=10.0,
+    )
+
+    assert submitted["reference_path"] == str(qualification_path)
+    assert submitted["torchbench_root"] == str(Path.home() / "DATA" / "torchbench")
 
 
 def test_cache_only_attempt_without_intent_recovers_as_not_started(tmp_path):
