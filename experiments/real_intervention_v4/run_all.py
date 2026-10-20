@@ -38,6 +38,14 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _assert_primary_config_path(config_path: Path, repo: Path) -> None:
+    config_dir = (repo / "experiments" / "real_intervention_v4" / "config").resolve()
+    if (config_path.parent != config_dir
+            or not config_path.name.startswith("PRIMARY_LAYOUT_STUDY")):
+        raise ValueError("v4 primary runs require a committed PRIMARY_LAYOUT_STUDY config")
+    _git("ls-files", "--error-unmatch", config_path.relative_to(repo).as_posix(), cwd=repo)
+
+
 def _validated_results_root(value: str | Path) -> Path:
     """Resolve the one supported result-root boundary before creating anything."""
     root = Path(value).expanduser().resolve()
@@ -1198,10 +1206,7 @@ def run(config_path: Path, results_root: Path, *, resume_safe: bool) -> dict[str
     config = read_config(config_path)
     root = _validated_results_root(results_root)
     repo, source_commit = _assert_server_contract(config, root)
-    expected_config_path = (repo / "experiments" / "real_intervention_v4" / "config" /
-                            "PRIMARY_LAYOUT_STUDY.json").resolve()
-    if config_path != expected_config_path:
-        raise ValueError(f"v4 primary runs must use the committed config at {expected_config_path}")
+    _assert_primary_config_path(config_path, repo)
     split_freeze_digest = _validate_split_freeze(config, repo)
     if root.name != str(config["study_id"]):
         raise ValueError("results-root basename must equal the frozen study_id")
