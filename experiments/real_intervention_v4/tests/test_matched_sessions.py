@@ -19,6 +19,7 @@ def _run_inputs(tmp_path: Path):
         "attempt_prefix": "primary-pair-001",
     }
     config = {
+        "seed": 31,
         "correctness": {"rtol": 1e-4, "atol": 1e-5},
         "arm_timeout_seconds": 10.0, "cleanup_grace_seconds": 1.0,
         "term_grace_seconds": 0.1, "watchdog_heartbeat_seconds": 1.0,
@@ -66,6 +67,28 @@ def test_concurrent_cache_initialization_is_unresolved_not_candidate_failure(tmp
     assert result["first_failure_stage"] == "ATTEMPT_CACHE_LOCKED"
     assert not (attempt_dir / "receipt.json").exists()
     assert not (attempt_dir / "events").exists()
+
+
+def test_pair_arm_spec_carries_frozen_model_seed(tmp_path, monkeypatch):
+    pair, config, root = _run_inputs(tmp_path)
+    monkeypatch.setattr(matched_sessions.time, "monotonic", lambda: 1.0)
+    submitted = {}
+
+    def capture_spec(**kwargs):
+        submitted.update(kwargs["spec"])
+        return {
+            "arm_execution": "NOT_STARTED",
+            "reason": "attempt cache initialization is in progress",
+        }
+
+    monkeypatch.setattr(matched_sessions, "execute_arm", capture_spec)
+    matched_sessions._run_arm(
+        pair=pair, arm="S0", results_root=root, source_commit="source",
+        config_digest="config", gpu_uuid="GPU-test", config=config,
+        wall_deadline=10.0,
+    )
+
+    assert submitted["seed"] == config["seed"]
 
 
 def test_cache_only_attempt_without_intent_recovers_as_not_started(tmp_path):
