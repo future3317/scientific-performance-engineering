@@ -155,6 +155,20 @@ def test_freeze_policies_routes_planned_final_context_with_selected_gpu(tmp_path
     assert freeze["final_outcomes_read"] is False
 
 
+def test_primary_run_accepts_committed_study_identity_config_and_rejects_other_paths():
+    config_dir = Path(run_all.__file__).parent / "config"
+    run_all._assert_primary_config_path(
+        config_dir / "PRIMARY_LAYOUT_STUDY_CONTEXT_PASS_THROUGH_V1.json",
+        run_all._repo_root(),
+    )
+
+    with pytest.raises(ValueError, match="committed PRIMARY_LAYOUT_STUDY"):
+        run_all._assert_primary_config_path(
+            Path("/tmp/PRIMARY_LAYOUT_STUDY_CONTEXT_PASS_THROUGH_V1.json"),
+            run_all._repo_root(),
+        )
+
+
 def test_production_run_passes_selected_gpu_through_real_policy_freeze_and_route(
     tmp_path, monkeypatch,
 ):
