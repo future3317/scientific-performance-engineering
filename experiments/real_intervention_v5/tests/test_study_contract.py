@@ -59,3 +59,13 @@ def test_compiler_cache_cannot_be_shared_between_scopes(tmp_path, monkeypatch):
     execute([base], tmp_path / "one", config, {"uuid": "GPU-a"})
     with pytest.raises(ValueError, match="different experimental scope"):
         execute([{**base, "study_id": "B"}], tmp_path / "two", config, {"uuid": "GPU-a"})
+
+
+def test_bf16_absolute_tolerance_cannot_hide_collapsed_near_zero_output():
+    import torch
+    from experiments.real_intervention_v5.worker import check
+    reference = torch.tensor([.001], dtype=torch.bfloat16)
+    collapsed = torch.zeros_like(reference)
+    observed = check(reference, collapsed, {"rtol": .02, "atol": .002, "relative_l2_max": .02})
+    assert not observed["passed"]
+    assert observed["reason"] == "relative_l2_limit_exceeded"

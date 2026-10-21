@@ -113,3 +113,23 @@ def test_low_heterogeneity_leaves_predictive_policies_not_fitted():
     assert frozen["policies"]["ALWAYS"]["status"] == "FITTED"
     assert frozen["policies"]["HORIZON_THRESHOLD"]["status"] == "NOT_FITTED"
     assert frozen["policies"]["SIMPLE_SUPERVISED_RIDGE"]["status"] == "NOT_FITTED"
+
+
+def test_empty_policy_evaluation_is_not_estimable():
+    frozen = freeze_policies([], [], [])
+
+    rows = evaluate_policies([], frozen)
+
+    assert rows
+    by_name = {row["policy"]: row for row in rows}
+    assert by_name["NEVER"]["status"] == "NOT_ESTIMABLE_EMPTY"
+    assert by_name["ALWAYS"]["status"] == "NOT_ESTIMABLE_EMPTY"
+    for row in rows:
+        if row["status"] == "NOT_FITTED":
+            continue
+        assert row["status"] == "NOT_ESTIMABLE_EMPTY"
+        assert row["family_equal_policy_utility"] is None
+        assert row["missingness_bounds"] == {
+            "lower": "NOT_ESTIMABLE",
+            "upper": "NOT_ESTIMABLE",
+        }

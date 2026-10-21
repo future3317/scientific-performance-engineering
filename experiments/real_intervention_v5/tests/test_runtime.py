@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import signal
 import subprocess
+import time
 
 import pytest
 
@@ -216,6 +217,26 @@ def test_idle_wait_contention_does_not_taint_a_later_measurement(tmp_path, monke
     assert result["analysis_status"] == "VALID_PAIRED"
     assert result["monitor"]["premeasurement_co_tenant_pids"] == [987654]
     assert result["exposure_status"] == "MATCHED"
+
+
+def test_exposure_ignores_idle_wait_samples_when_given_full_trace():
+    waiting = {
+        "measurement_active": False, "gpu_uuid": GPU, "telemetry_complete": True,
+        "utilization_percent": 20,
+        "compute_processes": [{"pid": 987654, "origin": "EXTERNAL"}],
+        "process_utilization": [],
+    }
+    measured = {
+        "measurement_active": True, "gpu_uuid": GPU, "telemetry_complete": True,
+        "utilization_percent": 0,
+        "compute_processes": [{"pid": 1234, "origin": "STUDY_PROCESS_TREE"}],
+        "process_utilization": [],
+    }
+
+    exposure = runtime._exposure([waiting, measured], GPU)
+
+    assert exposure["status"] == "MATCHED"
+    assert exposure["co_tenant_pids"] == []
 
 
 def test_external_pid_during_measurement_is_confirmed_contention(tmp_path, monkeypatch):

@@ -26,7 +26,7 @@ published design basis for every nominal lineage is retained in the registry;
 architectural relatedness remains a generalization limitation. Aliases cannot
 replace their frozen representative after qualification. The correctness
 contract requires exact A/A repeatability, matching tree/shape/dtype, finite
-outputs and frozen BF16 S0/S1 tolerances (rtol=.02, atol=.002). FP32 deviation
+outputs and frozen BF16 S0/S1 tolerances (rtol=.02, atol=.002, relative L2<=.02). FP32 deviation
 is separately reported, not represented as accuracy.
 
 One GPU worker with one CPU thread runs at a time. Each complete AB/BA window

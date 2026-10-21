@@ -4,6 +4,7 @@ from experiments.real_intervention_v5.certificate_feasibility import (
     feasibility,
     independent_group_count,
 )
+from experiments.real_intervention_v5.old_studies_readonly_audit import audit_v4
 
 
 def test_all_success_e_value_crosses_mixture_threshold_at_36():
@@ -82,7 +83,7 @@ def _started_arm_fixture(root, pair_id, arm_name, *, inputs_sha256="inputs-diges
         "scientific_correctness": "PASS",
         "weights_sha256": "weights-digest",
         "inputs_sha256": inputs_sha256,
-        "reference_sha": "reference-digest",
+        "reference_sha256": "reference-digest",
         "identity": identity,
     }
     events = [
@@ -109,18 +110,25 @@ def _started_arm_fixture(root, pair_id, arm_name, *, inputs_sha256="inputs-diges
     (raw_dir / "result.json").write_text(json.dumps(worker), encoding="utf-8")
     return {
         "identity": identity,
+        "source_commit": "commit-a",
+        "runtime_gpu_uuid": "GPU-a",
         "events": events,
         "worker_result": worker,
         **{field: worker[field] for field in (
             "arm_execution", "scientific_correctness", "weights_sha256",
-            "inputs_sha256", "reference_sha",
+            "inputs_sha256", "reference_sha256",
         )},
     }
 
 
 def test_started_arm_raw_receipts_match_events_and_worker_digests_without_relabeling(tmp_path):
     pair_id = "pair-a"
-    pair = {"pair_id": pair_id, "started": True, "effect_status": "unknown"}
+    pair = {
+        "pair_id": pair_id,
+        "selected_gpu_uuid": "GPU-a",
+        "classification": {"arm_execution": "COMPLETE", "paired_comparability": "MATCHED"},
+        "effect_status": "unknown",
+    }
     pair["S0"] = _started_arm_fixture(tmp_path, pair_id, "S0")
     pair["S1"] = _started_arm_fixture(tmp_path, pair_id, "S1")
     pairs_path = tmp_path / "PAIRS.jsonl"
@@ -132,14 +140,24 @@ def test_started_arm_raw_receipts_match_events_and_worker_digests_without_relabe
     verification = result["raw_receipt_verification"]
     assert verification["status"] == "verified"
     assert verification["started_arms"] == verification["verified_arms"] == 2
+    assert verification["summary"]["not_verified_arms"] == 0
     assert verification["source_commit_counts"] == {"commit-a": 2}
     assert verification["gpu_uuid_counts"] == {"GPU-a": 2}
+    assert result["counts"]["started_pairs_from_rows"]["value"] == 1
+    assert result["counts"]["closed_pairs_from_rows"]["value"] == 1
+    assert result["counts"]["valid_pairs_from_rows"]["value"] == 1
+    assert result["denominator_checks"]["pair_outcome_categories_close_to_pair_rows"] is True
     assert pairs_path.read_text(encoding="utf-8") == original
 
 
 def test_started_arm_missing_raw_terminal_is_not_verified(tmp_path):
     pair_id = "pair-a"
-    pair = {"pair_id": pair_id, "started": True, "effect_status": "unknown"}
+    pair = {
+        "pair_id": pair_id,
+        "selected_gpu_uuid": "GPU-a",
+        "classification": {"arm_execution": "COMPLETE", "paired_comparability": "MATCHED"},
+        "effect_status": "unknown",
+    }
     pair["S0"] = _started_arm_fixture(tmp_path, pair_id, "S0")
     (tmp_path / "PAIRS.jsonl").write_text(json.dumps(pair) + "\n", encoding="utf-8")
     (tmp_path / "raw" / f"primary-{pair_id}-S0" / "events" / "0002-terminal.json").unlink()
@@ -150,3 +168,20 @@ def test_started_arm_missing_raw_terminal_is_not_verified(tmp_path):
     assert arm["status"] == "not_verified"
     assert arm["checks"]["raw_terminal_event_exists"] is False
     assert pair["effect_status"] == "unknown"
+
+
+def test_started_arm_worker_digest_mismatch_is_not_verified(tmp_path):
+    pair_id = "pair-a"
+    arm = _started_arm_fixture(tmp_path, pair_id, "S0")
+    arm["worker_result"]["weights_sha256"] = "different-weights"
+    arm["weights_sha256"] = "different-weights"
+    (tmp_path / "PAIRS.jsonl").write_text(
+        json.dumps({"pair_id": pair_id, "selected_gpu_uuid": "GPU-a", "S0": arm}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = audit_v4(tmp_path)
+
+    verification = result["raw_receipt_verification"]
+    assert verification["status"] == "not_verified"
+    assert verification["arms"][0]["worker_field_checks"]["weights_sha256"] is False

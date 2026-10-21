@@ -110,7 +110,9 @@ def build_registry(seed=20261021):
                          "family_id": lineage, "lineage_id": lineage, "lineage_basis": basis,
                          "split": splits[lineage], "available": available,
                          "source_file_sha256": source_sha, "source_version": tb_sha if source == "torchbench" else versions[source],
-                         "pretrained": False, "shape": [3, 299 if name == "legacy_xception" or name == "inception_v3" else 331 if name == "nasnetalarge" else 224, 299 if name == "legacy_xception" or name == "inception_v3" else 331 if name == "nasnetalarge" else 224],
+                         "pretrained": None if source == "torchbench" else False,
+                         "initialization": "SOURCE_NATIVE_NO_NETWORK" if source == "torchbench" else "SEEDED_RANDOM_WEIGHTS",
+                         "shape": [3, 299 if name == "legacy_xception" or name == "inception_v3" else 331 if name == "nasnetalarge" else 224, 299 if name == "legacy_xception" or name == "inception_v3" else 331 if name == "nasnetalarge" else 224],
                          "input_kind": "TORCHBENCH_NATIVE_SEEDED" if source == "torchbench" else "SEEDED_RANDOM",
                          "downloads_allowed": False, "dataset_accuracy_claim": False})
     # First source in the frozen roster is the sole representative. Aliases are

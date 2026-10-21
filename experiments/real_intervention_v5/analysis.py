@@ -424,9 +424,15 @@ def _policy_utility(
         and unknown_predictions == 0
     )
     score = sum(means.values()) / len(means) if means and complete else None
+    status = (
+        "NOT_ESTIMABLE_EMPTY" if not pairs
+        else "ESTIMABLE" if complete
+        else "NOT_ESTIMABLE_INCOMPLETE_DEPLOYMENT_EVIDENCE"
+    )
     return {
         "policy": name,
-        "status": "ESTIMABLE" if complete else "NOT_ESTIMABLE_INCOMPLETE_DEPLOYMENT_EVIDENCE",
+        "status": status,
+        "reason": "no policy evaluation pairs" if not pairs else None,
         "planned_pairs": len(pairs),
         "deployed_pairs": deployed,
         "negative_deployed_pairs": negative_deployed_pairs,
@@ -441,6 +447,8 @@ def _policy_utility(
         "family_equal_policy_utility": score,
         "family_cluster_bootstrap_ci95": _bootstrap_ci(means) if complete else None,
         "missingness_bounds": (
+            {"lower": "NOT_ESTIMABLE", "upper": "NOT_ESTIMABLE"}
+            if not pairs else
             {"lower": "-unbounded", "upper": "+unbounded"}
             if not complete else {"lower": score, "upper": score}
         ),

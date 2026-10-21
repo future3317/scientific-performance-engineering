@@ -29,20 +29,32 @@ def load_model(spec):
     from experiments.real_intervention_v3.source_adapters import load_model as old_load, _deny_network
     import torch
     _deny_network()
+    import inspect
     if spec["source"] == "timm":
         import timm
         if timm.__version__ != spec["source_version"]:
             raise RuntimeError("timm version differs from registered source")
+        if file_digest(inspect.getsourcefile(timm.models.model_entrypoint(spec["model"]))) != spec["source_file_sha256"]:
+            raise RuntimeError("timm model implementation differs from registered source")
         model = timm.create_model(spec["model"], pretrained=False, num_classes=1000).cuda().eval()
         x = torch.randn((spec["batch"], *spec["shape"]), generator=torch.Generator().manual_seed(spec["seed"])).cuda()
         return model, (x,)
+    if spec["source"] == "torchvision":
+        import torchvision.models as tv
+        import importlib.metadata
+        if importlib.metadata.version("torchvision") != spec["source_version"] or file_digest(inspect.getsourcefile(tv.get_model_builder(spec["model"]))) != spec["source_file_sha256"]:
+            raise RuntimeError("torchvision model implementation differs from registered source")
+    if spec["source"] == "torchbench":
+        source_file = Path(spec["torchbench_root"]) / "torchbenchmark/models" / spec["model"] / "__init__.py"
+        if file_digest(source_file) != spec["source_file_sha256"]:
+            raise RuntimeError("TorchBench model implementation differs from registered source")
     return old_load({**spec, "torchbench_root": spec["torchbench_root"]})
 
 
 def check(reference, output, tolerance):
     from experiments.real_intervention_v3.numerical_checks import compare_outputs
     import torch
-    result = asdict(compare_outputs(reference, output, **tolerance))
+    result = asdict(compare_outputs(reference, output, rtol=tolerance["rtol"], atol=tolerance["atol"]))
     # Report a scale-aware error as well as elementwise tolerance. It does not
     # relax the elementwise gate near zero or change the output dtype contract.
     sums = [0.0, 0.0]
@@ -56,6 +68,8 @@ def check(reference, output, tolerance):
             for x, y in zip(a, b): walk(x, y)
     walk(reference, output)
     result["relative_l2"] = (sums[0] / max(sums[1], 1e-300)) ** .5
+    if tolerance.get("relative_l2_max") is not None and result["relative_l2"] > tolerance["relative_l2_max"]:
+        result.update({"passed": False, "reason": "relative_l2_limit_exceeded"})
     return result
 
 
@@ -75,10 +89,17 @@ def run(spec):
     torch.cuda.manual_seed_all(spec["seed"])
     cpu_start, wall_start = time.process_time(), time.perf_counter()
     model, inputs = load_model(spec)
+    model.to(memory_format=torch.contiguous_format)
+    inputs = map_tree(inputs, lambda t: t.contiguous(memory_format=torch.contiguous_format) if t.ndim == 4 else t)
+    torch.set_num_threads(1)
+    if torch.get_num_interop_threads() != 1:
+        raise RuntimeError("model constructor changed the frozen CPU inter-op topology")
     torch.cuda.synchronize()
     construction = time.perf_counter() - wall_start
     weights, input_hash = nested_digest(model.state_dict()), nested_digest(inputs)
     runtime = capture_runtime(spec["gpu_uuid"])
+    runtime["torch_intraop_threads"] = torch.get_num_threads()
+    runtime["torch_interop_threads"] = torch.get_num_interop_threads()
     features = {"parameters": sum(p.numel() for p in model.parameters()),
                 "layers": sum(1 for _ in model.modules()),
                 "conv2d": sum(isinstance(m, torch.nn.Conv2d) for m in model.modules()),
@@ -161,6 +182,7 @@ def run(spec):
     compile_counters = {k: dict(v) for k, v in counters.items()}
     cache_after = [{"path": str(p.relative_to(cache_path)), "bytes": p.stat().st_size, "sha256": file_digest(p)} for p in sorted(cache_path.rglob("*")) if p.is_file() and not p.name.endswith(".lock")]
     cache_hits = sum(v for k, v in compile_counters.get("inductor", {}).items() if "cache_hit" in k)
+    cache_misses = sum(v for k, v in compile_counters.get("inductor", {}).items() if "cache_miss" in k)
     _HOLD = model, inputs, last
     receipt = {"status": "valid" if passed else "numeric_mismatch", "execution_status": "COMPLETE",
             "scientific_status": "PASS" if passed else "NUMERICAL_UNSAFE", "correctness": checks,
@@ -173,8 +195,19 @@ def run(spec):
             "features": features, "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
             "peak_reserved_bytes": torch.cuda.max_memory_reserved(), "compile_counters": compile_counters,
             "cache": {"before_members": cache_before, "after_members": cache_after, "hits": cache_hits,
+                      "misses": cache_misses, "observed_graph_cache_hit_fraction": cache_hits / (cache_hits + cache_misses) if cache_hits + cache_misses else None,
                       "persistent_hit_proven": spec["arm"] == "COMPILE_PERSISTENT_CACHE" and cache_hits > 0},
             "layout_evidence": _layout_evidence(model, inputs, torch) if spec["arm"] in ("S0", "S1") else None}
+    if spec["mode"] == "engineering":
+        import torch.utils.benchmark as benchmark
+        def timed_forward():
+            with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+                model(*inputs)
+        official = benchmark.Timer(stmt="forward()", globals={"forward": timed_forward}, num_threads=1).blocked_autorange(min_run_time=.05)
+        ratio = steady_s / official.median
+        receipt["timer_crosscheck"] = {"manual_steady_s": steady_s, "torch_utils_benchmark_median_s": official.median,
+                                       "ratio": ratio, "passed": .5 <= ratio <= 2.0,
+                                       "scope": "Warm forward only, gross async/timer error check; not a speedup acceptance test"}
     if spec["mode"] == "compile_qualification":
         receipt.pop("timing")
         receipt["timings_withheld"] = True
