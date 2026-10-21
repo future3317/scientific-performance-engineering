@@ -3,6 +3,30 @@ from __future__ import annotations
 from experiments.real_intervention_v5.validity import classify_pair
 
 
+def test_ba_scientific_status_uses_semantic_s0_not_list_position():
+    reference = {"execution_status": "COMPLETE", "scientific_status": "PASS", "worker_result": {"arm": "S0"}}
+    candidate = {"execution_status": "COMPLETE", "scientific_status": "NUMERICAL_UNSAFE", "worker_result": {"arm": "S1"}}
+    raw = [candidate.copy(), reference.copy()]
+    result = classify_pair(raw, {"status": "MATCHED"})
+    assert result["scientific_status"] == "NUMERICAL_UNSAFE"
+    assert result["analysis_status"] == "EXCLUDED_PRESPECIFIED"
+    assert raw[0]["worker_result"]["arm"] == "S1"
+    reference["scientific_status"] = "NUMERICAL_UNSAFE"
+    candidate["scientific_status"] = "PASS"
+    result = classify_pair([candidate, reference], {"status": "MATCHED"})
+    assert result["scientific_status"] == "UNVERIFIED"
+    assert result["first_failing_gate"] == "BASELINE_CORRECTNESS"
+
+
+def test_compile_ba_uses_eager_as_baseline():
+    def arm(role, science="PASS"):
+        return {"execution_status": "COMPLETE", "scientific_status": science, "worker_result": {"arm": role}}
+    result = classify_pair([arm("CACHE_PREFILL", "NUMERICAL_UNSAFE"), arm("COMPILE_PERSISTENT_CACHE"), arm("COMPILE_COLD"), arm("EAGER")], {"status": "MATCHED"})
+    assert result["scientific_status"] == "NUMERICAL_UNSAFE"
+    result = classify_pair([arm("CACHE_PREFILL"), arm("COMPILE_PERSISTENT_CACHE"), arm("COMPILE_COLD"), arm("EAGER", "NUMERICAL_UNSAFE")], {"status": "MATCHED"})
+    assert result["scientific_status"] == "UNVERIFIED"
+
+
 def arms(*, baseline="PASS", candidate="PASS", execution=("COMPLETE", "COMPLETE"),
          identities=None):
     identities = identities or [
