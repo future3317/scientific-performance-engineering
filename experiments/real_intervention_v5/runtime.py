@@ -547,7 +547,9 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                 def interrupt_session(signum: int, frame: Any) -> None:
                     if first_sigterm[0]:
                         first_sigterm[0] = False
-                        raise InterruptedError("V5 session interrupted by SIGTERM")
+                        # Sampling helpers handle OSError/Exception as missing
+                        # telemetry. Cancellation must cross those handlers.
+                        raise KeyboardInterrupt("V5 session interrupted by SIGTERM")
 
                 sigterm_handler_installed = True
                 signal.signal(signal.SIGTERM, interrupt_session)
