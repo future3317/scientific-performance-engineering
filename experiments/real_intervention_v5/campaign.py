@@ -6,9 +6,28 @@ from pathlib import Path
 import subprocess
 import sys
 import signal
+import json
 
 from .common import read_json, write_json, utc
 from .run_all import preflight, PYTHON
+
+
+def combine_results(parent, source_sha, results):
+    from .report import bundle
+    metrics, summaries = {}, []
+    with (parent / "PAIRS.jsonl").open("w") as pairs:
+        for result in results:
+            root = Path(result["root"])
+            key = result["study_id"]
+            metrics[key] = read_json(root / "V5_METRICS.json")
+            summaries.append((root / "V5_SUMMARY.md").read_text())
+            for line in (root / "PAIRS.jsonl").open():
+                row = json.loads(line)
+                row["study_id"] = key
+                pairs.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
+    write_json(parent / "V5_METRICS.json", {"source_sha": source_sha, "studies": metrics, "study_effects_never_pooled": True})
+    (parent / "V5_SUMMARY.md").write_text("\n\n".join(summaries))
+    bundle(parent)
 
 
 def main():
@@ -47,6 +66,7 @@ def main():
             # preserve receipts and require diagnosis, never silently retry.
             raise SystemExit(result)
     write_json(args.results_parent / "CAMPAIGN_COMPLETE.json", {"source_sha": sha, "timestamp": utc(), "studies": results})
+    combine_results(args.results_parent, sha, results)
 
 
 if __name__ == "__main__":
