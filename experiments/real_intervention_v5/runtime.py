@@ -10,6 +10,7 @@ from pathlib import Path
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Any, Mapping, Sequence
 
@@ -26,8 +27,9 @@ SAMPLE_INTERVAL_S = 0.2
 IDLE_MEMORY_LIMIT_MIB = 512
 TERM_GRACE_S = 1.0
 KILL_REAP_S = 1.0
-# NVML's per-process utilization samples are emitted on a one-second window.
-NVML_PROCESS_ATTRIBUTION_WINDOW_S = 1.0
+# Sampling granularity used when interpreting NVML's timestamped process data;
+# this is an assumption, not a guarantee of the NVML API.
+PROCESS_UTILIZATION_GRANULARITY_ASSUMPTION_S = 1.0
 
 
 def _read_proc() -> dict[int, dict[str, int | str]]:
@@ -63,6 +65,18 @@ def _pid_tree(root_pid: int, rows: Mapping[int, Mapping[str, Any]]) -> list[dict
     ]
 
 
+def _attribute_process_rows(rows: list[dict[str, Any]], active_pids: set[int],
+                            study_pid_history: set[int] | None = None) -> None:
+    for process in rows:
+        pid = process["pid"]
+        if pid in active_pids:
+            process["origin"] = "STUDY_PROCESS_TREE"
+        elif study_pid_history is not None and pid in study_pid_history:
+            process["origin"] = "STUDY_PROCESS_HISTORY"
+        else:
+            process["origin"] = "EXTERNAL" if pid is not None else "UNRESOLVED"
+
+
 def _nvml_value(nvml: Any, handle: Any, function: str, *args: Any) -> Any:
     try:
         return getattr(nvml, function)(handle, *args)
@@ -82,6 +96,7 @@ class _GpuMonitor:
         self.handle = pynvml.nvmlDeviceGetHandleByUUID(gpu_uuid.encode("ascii"))
         self.last_process_sample_us = 0
         self.process_utilization_status = "AVAILABLE"
+        self.study_pid_history: set[int] = set()
 
     def close(self) -> None:
         self.nvml.nvmlShutdown()
@@ -161,17 +176,10 @@ class _GpuMonitor:
         owned = set(_process_group_pids(pgid)) if pgid is not None else set()
         if pgid is not None:
             owned.update(row["pid"] for row in _pid_tree(pgid, proc_rows))
-        for process in process_rows:
-            pid = process["pid"]
-            process["origin"] = "STUDY_PROCESS_TREE" if pid in owned else (
-                "EXTERNAL" if pid is not None else "UNRESOLVED"
-            )
+        _attribute_process_rows(process_rows, owned)
+        self.study_pid_history.update(owned)
         if isinstance(process_utilization, list):
-            for process in process_utilization:
-                pid = process["pid"]
-                process["origin"] = "STUDY_PROCESS_TREE" if pid in owned else (
-                    "EXTERNAL" if pid is not None else "UNRESOLVED"
-                )
+            _attribute_process_rows(process_utilization, owned, self.study_pid_history)
         required_complete = (
             process_query_error is None
             and uuid is not None
@@ -188,7 +196,7 @@ class _GpuMonitor:
             "process_query_error": process_query_error,
             "process_utilization": process_utilization,
             "process_utilization_poll_interval_s": SAMPLE_INTERVAL_S,
-            "process_utilization_attribution_window_s": NVML_PROCESS_ATTRIBUTION_WINDOW_S,
+            "process_utilization_granularity_assumption_s": PROCESS_UTILIZATION_GRANULARITY_ASSUMPTION_S,
             "process_utilization_status": self.process_utilization_status,
             "optional_fields": optional,
             "owner_pid": owner_pid, "worker_pgid": pgid,
@@ -312,7 +320,6 @@ def _exposure(samples: Sequence[Mapping[str, Any]], gpu_uuid: str) -> dict[str, 
     unattributed_activity = any(
         (sample.get("utilization_percent") or 0) > 0
         and not sample.get("compute_processes")
-        and sample.get("activity_attribution") != "WORKER_LIFECYCLE_WITHIN_NVML_WINDOW"
         and not any(
             isinstance(process, Mapping)
             and process.get("origin") == "STUDY_PROCESS_TREE"
@@ -368,6 +375,8 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
     reservation = _reservation_path(gpu_uuid)
     reservation.parent.mkdir(parents=True, exist_ok=True)
     lock_fd = os.open(reservation, os.O_CREAT | os.O_RDWR, 0o600)
+    previous_sigterm_handler = None
+    sigterm_handler_installed = False
     try:
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -409,39 +418,16 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
         pgid: int | None = None
         error_code: str | None = None
         first_failing_gate: str | None = None
-        last_worker_attribution_mono: float | None = None
 
-        def record_sample(sample: dict[str, Any], phase: str, *, worker_pid: int | None = None,
+        def record_sample(sample: dict[str, Any], phase: str,
                           measurement_active: bool = False) -> None:
-            nonlocal last_worker_attribution_mono
             sample["phase"] = phase
             sample["measurement_active"] = measurement_active
-            owned_process = any(
-                row.get("pid") == worker_pid and row.get("origin") == "STUDY_PROCESS_TREE"
-                for row in sample.get("compute_processes", [])
-            ) if worker_pid is not None else False
-            owned_utilization = any(
-                row.get("pid") == worker_pid and row.get("origin") == "STUDY_PROCESS_TREE"
-                for row in sample.get("process_utilization", [])
-                if isinstance(row, Mapping)
-            ) if worker_pid is not None else False
-            if owned_process or owned_utilization:
-                last_worker_attribution_mono = float(sample["timestamp_monotonic"])
-            if (measurement_active and worker_pid is not None
-                    and process is not None and process.pid == worker_pid
-                    and process.poll() is None
-                    and (sample.get("utilization_percent") or 0) > 0
-                    and not sample.get("compute_processes")
-                    and last_worker_attribution_mono is not None
-                    and float(sample["timestamp_monotonic"]) - last_worker_attribution_mono
-                    <= NVML_PROCESS_ATTRIBUTION_WINDOW_S):
-                sample["activity_attribution"] = "WORKER_LIFECYCLE_WITHIN_NVML_WINDOW"
-                sample["attribution_window_s"] = NVML_PROCESS_ATTRIBUTION_WINDOW_S
             samples.append(sample)
             if measurement_active:
                 measurement_samples.append(sample)
 
-        def take_sample(phase: str, pgid: int | None, worker_pid: int | None = None,
+        def take_sample(phase: str, pgid: int | None,
                         measurement_active: bool = False) -> dict[str, Any]:
             try:
                 sample = monitor.sample(os.getpid(), pgid)
@@ -453,9 +439,20 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                     "telemetry_complete": False,
                     "error": f"{type(exc).__name__}:{exc}",
                 }
-            record_sample(sample, phase, worker_pid=worker_pid,
-                          measurement_active=measurement_active)
+            record_sample(sample, phase, measurement_active)
             return sample
+
+        if threading.current_thread() is threading.main_thread():
+            previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+            first_sigterm = [True]
+
+            def interrupt_session(signum: int, frame: Any) -> None:
+                if first_sigterm[0]:
+                    first_sigterm[0] = False
+                    raise InterruptedError("V5 session interrupted by SIGTERM")
+
+            signal.signal(signal.SIGTERM, interrupt_session)
+            sigterm_handler_installed = True
 
         try:
             _enable_child_subreaper()
@@ -488,7 +485,6 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                 child_env.update(env)
                 child_env["CUDA_VISIBLE_DEVICES"] = gpu_uuid
                 for index, command in enumerate(commands):
-                    last_worker_attribution_mono = None
                     if time.monotonic() >= deadline:
                         error_code = "SESSION_DEADLINE_BEFORE_ARM"
                         arms.append({"execution_status": "NOT_STARTED", "scientific_status": "UNVERIFIED"})
@@ -524,7 +520,7 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                     ready_payload: dict[str, Any] | None = None
                     arm_samples_start = len(samples)
                     while time.monotonic() < deadline:
-                        sample = take_sample("WAITING_FOR_WORKER_ATTRIBUTION", pgid, process.pid)
+                        sample = take_sample("WAITING_FOR_WORKER_ATTRIBUTION", pgid)
                         if not sample["telemetry_complete"]:
                             error_code = "GPU_TELEMETRY_INCOMPLETE_DURING_ARM"
                             break
@@ -570,7 +566,7 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
 
                     payload: dict[str, Any] | None = None
                     while time.monotonic() < deadline:
-                        sample = take_sample("MEASUREMENT_ACTIVE", pgid, process.pid, True)
+                        sample = take_sample("MEASUREMENT_ACTIVE", pgid, True)
                         if not sample["telemetry_complete"]:
                             error_code = "GPU_TELEMETRY_INCOMPLETE_DURING_ARM"
                         if output.is_file():
@@ -602,8 +598,7 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                         break
 
                     # Keep the CUDA worker alive and attributable until this ACK.
-                    sample = take_sample("MEASUREMENT_ACTIVE_RESULT_BOUNDARY", pgid,
-                                         process.pid, True)
+                    sample = take_sample("MEASUREMENT_ACTIVE_RESULT_BOUNDARY", pgid, True)
                     ack_sent = process.poll() is None
                     if not ack_sent:
                         error_code = error_code or "WORKER_EXITED_BEFORE_ACK"
@@ -665,6 +660,8 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
         atomic_json(session_dir / "terminal.json", result, exclusive=True)
         return result
     finally:
+        if sigterm_handler_installed:
+            signal.signal(signal.SIGTERM, previous_sigterm_handler)
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         os.close(lock_fd)
 

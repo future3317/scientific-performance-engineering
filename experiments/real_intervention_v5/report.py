@@ -18,14 +18,16 @@ def bundle(root):
         relative = path.relative_to(root)
         if not path.is_file() or path.name in excluded or any(p in {"cache", "references"} for p in relative.parts): continue
         if path.suffix not in {".json", ".jsonl", ".csv", ".md", ".py"}: continue
-        data = path.read_text(encoding="utf-8")
+        raw_bytes = path.read_bytes()
+        data = raw_bytes.decode("utf-8")
         # No environment dump, full process command lines, credentials or weights
         # are collected. Remove account-specific roots from the exported copy.
         data = data.replace("/home/workspace/lrh", "<ACCOUNT_WORKSPACE>")
         payload = data.encode()
         name = relative.as_posix()
         import hashlib
-        members[name] = {"bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+        members[name] = {"bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
+                         "original_sha256": hashlib.sha256(raw_bytes).hexdigest(), "redacted": payload != raw_bytes}
         content[name] = payload
     write_json(root / "MEMBER_SHA256.json", members)
     content["MEMBER_SHA256.json"] = (root / "MEMBER_SHA256.json").read_bytes()

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import sys
 import textwrap
 from pathlib import Path
 import os
+import signal
+import subprocess
 
 import pytest
 
@@ -155,6 +158,32 @@ def test_sample_gpu_is_public_and_reports_process_attribution(tmp_path, monkeypa
     assert sample["process_utilization_status"] == "NOT_SUPPORTED"
 
 
+def test_delayed_process_utilization_uses_observed_study_pid_history():
+    rows = [{"pid": 22}, {"pid": 11}, {"pid": 99}]
+    runtime._attribute_process_rows(rows, {22}, {11})
+
+    assert [row["origin"] for row in rows] == [
+        "STUDY_PROCESS_TREE", "STUDY_PROCESS_HISTORY", "EXTERNAL",
+    ]
+    exposure = runtime._exposure([{
+        "gpu_uuid": GPU, "telemetry_complete": True, "utilization_percent": 0,
+        "compute_processes": [],
+        "process_utilization": [{"pid": 11, "origin": "STUDY_PROCESS_HISTORY"}],
+    }], GPU)
+    assert exposure["status"] == "MATCHED"
+    assert exposure["co_tenant_confirmed"] is False
+
+
+def test_busy_sample_without_process_ownership_is_incomplete_not_inferred():
+    exposure = runtime._exposure([{
+        "gpu_uuid": GPU, "telemetry_complete": True, "utilization_percent": 40,
+        "compute_processes": [], "process_utilization": [],
+    }], GPU)
+
+    assert exposure["status"] == "INCOMPLETE"
+    assert exposure["co_tenant_confirmed"] is False
+
+
 def test_session_rejects_existing_ready_output_and_go_artifacts(tmp_path, monkeypatch):
     patch_monitor(monkeypatch)
     session = tmp_path / "stale-artifact"
@@ -225,6 +254,82 @@ def test_started_worker_interrupted_at_deadline_is_unknown_and_reaped(tmp_path, 
     assert result["arms"][0]["worker_pid"] not in {
         int(path.name) for path in Path("/proc").iterdir() if path.name.isdigit()
     }
+
+
+def test_parent_sigterm_reaps_ready_worker_and_restores_handler(tmp_path):
+    session = tmp_path / "parent-interrupted"
+    marker = tmp_path / "parent-result.json"
+    parent = textwrap.dedent(r'''
+        import json, os, signal, sys, time
+        from pathlib import Path
+        from experiments.real_intervention_v5 import runtime
+
+        class Monitor:
+            def __init__(self, gpu_uuid): self.gpu_uuid = gpu_uuid
+            def close(self): pass
+            def sample(self, owner_pid, pgid):
+                pids = runtime._process_group_pids(pgid) if pgid is not None else set()
+                processes = [{"pid": pid, "memory_bytes": 1, "origin": "STUDY_PROCESS_TREE"}
+                             for pid in sorted(pids)]
+                return {"timestamp_unix": time.time(), "timestamp_monotonic": time.monotonic(),
+                        "gpu_uuid": self.gpu_uuid, "memory_used_mib": 0, "memory_free_mib": 1024,
+                        "utilization_percent": 0, "compute_processes": processes,
+                        "process_utilization": "NOT_SUPPORTED", "process_utilization_status": "NOT_SUPPORTED",
+                        "telemetry_complete": True}
+
+        runtime._GpuMonitor = Monitor
+        runtime._enable_child_subreaper = lambda: None
+        previous = lambda signum, frame: None
+        signal.signal(signal.SIGTERM, previous)
+        worker = r"""
+        import json, os, sys, time
+        from pathlib import Path
+        output, ack = Path(sys.argv[1]), Path(sys.argv[2])
+        ready = output.with_suffix('.ready.json')
+        temporary = ready.with_suffix(ready.suffix + '.tmp')
+        temporary.write_text(json.dumps({'pid': os.getpid(),
+                                         'gpu_uuid': os.environ['CUDA_VISIBLE_DEVICES']}))
+        temporary.replace(ready)
+        while not output.with_suffix('.go').exists(): time.sleep(.01)
+        while not ack.exists(): time.sleep(.01)
+        """
+        command = [sys.executable, "-c", worker, "{output}", "{ack}"]
+        try:
+            runtime.run_session([command], Path(sys.argv[1]), "GPU-test-uuid", 20.0, {})
+        except InterruptedError:
+            Path(sys.argv[2]).write_text(json.dumps({
+                "handler_restored": signal.getsignal(signal.SIGTERM) is previous}))
+    ''')
+    process = subprocess.Popen(
+        [sys.executable, "-c", parent, str(session), str(marker)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    worker_pid = None
+    try:
+        go = session / "arm-0.result.go"
+        deadline = time.monotonic() + 8.0
+        while not go.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert go.exists(), process.stderr.read() if process.poll() is not None else "worker never reached GO"
+        worker_pid = json.loads(
+            (session / "arm-0.result.ready.json").read_text(encoding="utf-8"))["pid"]
+
+        os.kill(process.pid, signal.SIGTERM)
+        assert process.wait(timeout=8.0) == 0, process.stderr.read()
+        assert json.loads(marker.read_text(encoding="utf-8"))["handler_restored"]
+        with pytest.raises(ProcessLookupError):
+            os.killpg(worker_pid, 0)
+    finally:
+        if process.poll() is None:
+            os.kill(process.pid, signal.SIGTERM)
+            process.wait(timeout=8.0)
+        if worker_pid is not None:
+            try:
+                os.killpg(worker_pid, 0)
+            except ProcessLookupError:
+                pass
+            else:
+                os.killpg(worker_pid, signal.SIGKILL)
 
 
 def test_started_worker_exit_without_result_is_unknown_not_replayable(tmp_path, monkeypatch):

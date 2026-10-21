@@ -158,6 +158,7 @@ def _summarize_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "missing_pairs": missing_pairs,
         "raw_s0_seconds_sum": sum(s0_seconds),
         "raw_s1_seconds_sum": sum(s1_seconds),
+        "raw_net_saved_seconds_sum": sum(s0_seconds) - sum(s1_seconds),
         "raw_seconds_paired_count": raw_seconds_paired_count,
         "raw_seconds_scope": "descriptive sum over valid observations with recorded arm seconds",
         "unsafe_pairs": unsafe_pairs,
@@ -171,6 +172,7 @@ def _summarize_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "median_family_mean_log_benefit": (
             _percentile(ordered, 0.5) if ordered else None
         ),
+        "median_family_speedup": math.exp(_percentile(ordered, .5)) if ordered else None,
         "family_cluster_bootstrap_ci95": _bootstrap_ci(family_means),
         "bootstrap_seed": BOOTSTRAP_SEED,
         "bootstrap_replicates": BOOTSTRAP_REPLICATES,
@@ -296,7 +298,6 @@ def _family_training_rows(pairs: Sequence[Mapping[str, Any]]) -> list[dict[str, 
                     "context": context,
                     "effect": sum(effect for _, effect in rows) / len(rows),
                     "features": context_features.copy(),
-                    "family_weight": 1.0 / len(contexts),
                 })
                 continue
         result.extend(family_rows)
@@ -326,14 +327,21 @@ def _ridge_fit(training: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         }
     matrix = np.asarray([[row["features"][name] for name in feature_names] for row in complete], dtype=float)
     target = np.asarray([row["effect"] for row in complete], dtype=float)
-    center = matrix.mean(axis=0)
-    scale = matrix.std(axis=0)
+    complete_context_counts: dict[str, int] = defaultdict(int)
+    for row in complete:
+        complete_context_counts[row["family_id"]] += 1
+    weights = np.asarray(
+        [1.0 / complete_context_counts[row["family_id"]] for row in complete],
+        dtype=float,
+    )
+    weights /= weights.sum()
+    center = (matrix * weights[:, None]).sum(axis=0)
+    scale = np.sqrt(((matrix - center) ** 2 * weights[:, None]).sum(axis=0))
     scale[scale == 0] = 1.0
     standardized = (matrix - center) / scale
     design = np.column_stack((np.ones(len(standardized)), standardized))
     penalty = np.eye(design.shape[1], dtype=float)
     penalty[0, 0] = 0.0
-    weights = np.asarray([row["family_weight"] for row in complete], dtype=float)
     weighted_design = design * np.sqrt(weights[:, None])
     weighted_target = target * np.sqrt(weights)
     coefficients = np.linalg.solve(
@@ -591,6 +599,11 @@ def freeze_policies(
         for name in simple_names
         if policies.get(name, {}).get("status") == "FITTED"
     ]
+    dev_simple = [
+        item for item in dev_simple
+        if item[1]["status"] == "ESTIMABLE"
+        and item[1]["family_equal_policy_utility"] is not None
+    ]
     strongest_simple = max(
         dev_simple,
         key=lambda item: (
@@ -620,6 +633,9 @@ def freeze_policies(
 
 
 def evaluate_policies(pairs: Sequence[Mapping[str, Any]], freeze: Mapping[str, Any]) -> list[dict[str, Any]]:
+    splits = {pair.get("split") for pair in pairs}
+    if len(splits) > 1:
+        raise ValueError("policy evaluation must run separately for each split")
     contrast = _single_contrast(pairs)
     if contrast is not None and freeze.get("contrast") not in (None, contrast):
         raise ValueError("policy freeze contrast does not match evaluation pairs")
