@@ -99,7 +99,8 @@ class _GpuMonitor:
         pynvml.nvmlInit()
         self.handle = pynvml.nvmlDeviceGetHandleByUUID(gpu_uuid.encode("ascii"))
         self.last_process_sample_us = 0
-        self.process_utilization_status = "AVAILABLE"
+        self.process_utilization_status = process_utilization_capability(pynvml)["status"]
+        self.process_utilization_capability_detail = process_utilization_capability(pynvml)["detail"]
         self.study_pid_history: set[int] = set()
 
     def close(self) -> None:
@@ -220,6 +221,7 @@ class _GpuMonitor:
             "process_utilization_poll_interval_s": SAMPLE_INTERVAL_S,
             "process_utilization_granularity_assumption_s": PROCESS_UTILIZATION_GRANULARITY_ASSUMPTION_S,
             "process_utilization_status": self.process_utilization_status,
+            "process_utilization_capability_detail": self.process_utilization_capability_detail,
             "optional_fields": optional,
             "owner_pid": owner_pid, "worker_pgid": pgid,
             "owner_pid_tree": owner_tree,
@@ -233,6 +235,12 @@ class _GpuMonitor:
             "worker_process_group_pids": sorted(_process_group_pids(pgid)) if pgid is not None else [],
             "telemetry_complete": required_complete,
         }
+
+
+def process_utilization_capability(nvml: Any) -> dict[str, str]:
+    if callable(getattr(nvml, "nvmlDeviceGetProcessUtilization", None)):
+        return {"status": "AVAILABLE", "detail": "Binding exposes timestamped per-process utilization API"}
+    return {"status": "NOT_SUPPORTED", "detail": "Installed binding has no per-process utilization API; running-process identity, memory and device utilization remain required; GPU busy seconds unknown"}
 
 
 def _reservation_path(gpu_uuid: str) -> Path:

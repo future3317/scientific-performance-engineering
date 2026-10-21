@@ -66,3 +66,12 @@ paired-valid and missing denominators; dev/cal/final effects; unchanged
 certificate feasibility; and CPU/wall/storage and GPU accounting limits.
 The exported evidence bundle contains sanitized receipts, unique members,
 and SHA256/size closure, excluding weights and compiler cache binaries.
+
+The first preparation identity (`63fa92c`, root `evospe-v5-20261021`) started
+zero model arms because this server's NVML Python binding lacks the optional
+per-process utilization function. Those receipts and bundles are retained.
+The OWNERATTRIBUTION identities record that optional capability explicitly as
+NOT_SUPPORTED while still requiring complete running-process tables, UUID,
+device memory/utilization and the GO/ACK owner lifecycle. They keep the GPU
+selected before any model timing (GPU-520e1aa6-5eae-4984-b76a-724aecac1aae).
+No missing required attribution is reclassified as matched.

@@ -18,6 +18,13 @@ from experiments.real_intervention_v5 import runtime
 GPU = "GPU-test-uuid"
 
 
+def test_missing_optional_process_utilization_api_is_explicitly_unsupported():
+    from types import SimpleNamespace
+    observed = runtime.process_utilization_capability(SimpleNamespace())
+    assert observed["status"] == "NOT_SUPPORTED"
+    assert "running-process identity" in observed["detail"]
+
+
 class FakeMonitor:
     def __init__(self, gpu_uuid):
         self.gpu_uuid = gpu_uuid

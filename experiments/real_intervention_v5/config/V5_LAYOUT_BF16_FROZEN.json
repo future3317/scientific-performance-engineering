@@ -1,5 +1,6 @@
 {
-  "study_id": "EVOSPE_V5_LAYOUT_BF16_20261021_SEED20261021",
+  "study_id": "EVOSPE_V5_LAYOUT_BF16_20261021_OWNERATTRIBUTION",
+  "required_gpu_uuid": "GPU-520e1aa6-5eae-4984-b76a-724aecac1aae",
   "study": "A",
   "seed": 20261021,
   "batches": [1, 8],
