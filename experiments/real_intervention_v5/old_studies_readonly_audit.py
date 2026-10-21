@@ -1,0 +1,296 @@
+"""Read-only denominator audit for a frozen real-intervention V4 study root."""
+
+from __future__ import annotations
+
+import csv
+import json
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
+
+def _load_json(path: Path) -> tuple[Any, str | None]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), None
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def _load_pairs(path: Path) -> tuple[list[dict[str, Any]], str | None]:
+    rows: list[dict[str, Any]] = []
+    try:
+        with path.open(encoding="utf-8") as stream:
+            for line_number, line in enumerate(stream, start=1):
+                if line.strip():
+                    value = json.loads(line)
+                    if not isinstance(value, dict):
+                        raise ValueError(f"line {line_number} is not a JSON object")
+                    rows.append(value)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [], f"{type(exc).__name__}: {exc}"
+    return rows, None
+
+
+def _load_qualifications(path: Path) -> tuple[list[dict[str, str]], str | None]:
+    try:
+        with path.open(encoding="utf-8", newline="") as stream:
+            return list(csv.DictReader(stream)), None
+    except OSError as exc:
+        return [], f"{type(exc).__name__}: {exc}"
+
+
+def _value(value: Any, source: str, verified: bool = True) -> dict[str, Any]:
+    return {"value": value, "status": "verified" if verified else "not_verified", "source": source}
+
+
+def audit_v4(root: Path) -> dict[str, Any]:
+    """Parse frozen V4 metrics, pair receipts and qualification rows without writes."""
+    root = Path(root)
+    metrics, metrics_error = _load_json(root / "METRICS.json")
+    pairs, pairs_error = _load_pairs(root / "PAIRS.jsonl")
+    qualifications, qualifications_error = _load_qualifications(
+        root / "QUALIFICATION_MATRIX.csv"
+    )
+    registry, registry_error = _load_qualifications(root / "MODEL_REGISTRY.csv")
+    manifest, manifest_error = _load_json(root / "FROZEN_MANIFEST.json")
+
+    errors = {
+        name: error
+        for name, error in (
+            ("metrics", metrics_error),
+            ("pairs", pairs_error),
+            ("qualifications", qualifications_error),
+            ("registry", registry_error),
+            ("manifest", manifest_error),
+        )
+        if error is not None
+    }
+    if metrics_error is None and not isinstance(metrics, Mapping):
+        metrics_error = "ValueError: METRICS.json must contain an object"
+        errors["metrics"] = metrics_error
+        metrics = None
+    if manifest_error is None and not isinstance(manifest, Mapping):
+        manifest_error = "ValueError: FROZEN_MANIFEST.json must contain an object"
+        errors["manifest"] = manifest_error
+        manifest = None
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "source_root": str(root),
+        "read_only": True,
+        "errors": errors,
+        "counts": {
+            name: _value(None, "source unavailable", verified=False)
+            for name in (
+                "registered_families", "baseline_valid_families",
+                "s1_correctness_eligible_families", "planned_pairs", "started_pairs",
+                "closed_pairs", "valid_pairs", "unsafe_pairs", "infrastructure_pairs",
+                "baseline_invalid_pairs", "candidate_invalid_pairs",
+                "exposure_confounded_pairs", "telemetry_unknown_pairs",
+                "not_started_pairs", "ineligible_pairs", "pair_rows",
+                "started_pairs_from_rows", "closed_pairs_from_rows",
+                "valid_pairs_from_rows", "unsafe_pairs_from_rows",
+                "infrastructure_pairs_from_rows", "baseline_invalid_pairs_from_rows",
+                "candidate_invalid_pairs_from_rows", "exposure_confounded_pairs_from_rows",
+                "telemetry_unknown_pairs_from_rows", "not_started_pairs_from_rows",
+                "ineligible_pairs_from_rows", "registered_families_from_manifest",
+                "baseline_valid_families_from_registry",
+            )
+        },
+        "denominator_checks": {},
+    }
+
+    if metrics_error is None:
+        cohort = metrics.get("cohort", {})
+        denominator_totals: Counter[str] = Counter()
+        for split in ("development", "calibration", "final"):
+            denominator_totals.update(
+                metrics.get("by_split", {}).get(split, {}).get("denominators", {})
+            )
+        result["counts"].update({
+            "registered_families": _value(
+                cohort.get("registered_independent_families"), "METRICS.json:cohort", verified=False
+            ),
+            "baseline_valid_families": _value(
+                cohort.get("baseline_valid_independent_families"), "METRICS.json:cohort", verified=False
+            ),
+            "s1_correctness_eligible_families": _value(
+                cohort.get("channels_last_eligible_independent_families"), "METRICS.json:cohort", verified=False
+            ),
+            "planned_pairs": _value(denominator_totals.get("planned"), "METRICS.json:by_split", verified=False),
+            "started_pairs": _value(denominator_totals.get("started"), "METRICS.json:by_split", verified=False),
+            "closed_pairs": _value(denominator_totals.get("closed"), "METRICS.json:by_split", verified=False),
+            "valid_pairs": _value(denominator_totals.get("valid"), "METRICS.json:by_split", verified=False),
+            "unsafe_pairs": _value(denominator_totals.get("unsafe"), "METRICS.json:by_split", verified=False),
+            "infrastructure_pairs": _value(denominator_totals.get("infra"), "METRICS.json:by_split", verified=False),
+            "baseline_invalid_pairs": _value(denominator_totals.get("baseline_invalid"), "METRICS.json:by_split", verified=False),
+            "candidate_invalid_pairs": _value(denominator_totals.get("candidate_invalid"), "METRICS.json:by_split", verified=False),
+            "exposure_confounded_pairs": _value(denominator_totals.get("noise"), "METRICS.json:by_split", verified=False),
+            "telemetry_unknown_pairs": _value(denominator_totals.get("unknown"), "METRICS.json:by_split", verified=False),
+            "not_started_pairs": _value(denominator_totals.get("unstarted"), "METRICS.json:by_split", verified=False),
+            "ineligible_pairs": _value(denominator_totals.get("ineligible"), "METRICS.json:by_split", verified=False),
+        })
+        result["metrics_reported_denominators"] = dict(denominator_totals)
+
+    if pairs_error is None:
+        pair_ids = [str(row.get("pair_id") or "") for row in pairs]
+        unique_ids = len(pair_ids) == len(set(pair_ids)) and all(pair_ids)
+        result["counts"]["pair_rows"] = _value(len(pairs), "PAIRS.jsonl")
+        result["counts"]["started_pairs_from_rows"] = _value(
+            sum(row.get("started") is True for row in pairs), "PAIRS.jsonl:started"
+        )
+        result["counts"]["closed_pairs_from_rows"] = _value(
+            sum(row.get("closed") is True for row in pairs), "PAIRS.jsonl:closed"
+        )
+        statuses = [str(row.get("effect_status", "")).lower() for row in pairs]
+        if statuses and all(statuses):
+            status_counts = Counter(statuses)
+            categories = {
+                "valid_pairs_from_rows": {"valid", "valid_pair"},
+                "unsafe_pairs_from_rows": {"unsafe"},
+                "infrastructure_pairs_from_rows": {"infra", "infrastructure"},
+                "baseline_invalid_pairs_from_rows": {"baseline_invalid"},
+                "candidate_invalid_pairs_from_rows": {"candidate_invalid"},
+                "exposure_confounded_pairs_from_rows": {"noise", "contended", "exposure_confounded"},
+                "telemetry_unknown_pairs_from_rows": {"unknown", "telemetry_unknown"},
+                "not_started_pairs_from_rows": {"unstarted", "not_started"},
+                "ineligible_pairs_from_rows": {"ineligible"},
+            }
+            for key, labels in categories.items():
+                result["counts"][key] = _value(
+                    sum(status_counts[status] for status in labels), "PAIRS.jsonl:effect_status"
+                )
+            result["pair_effect_status_counts"] = dict(status_counts)
+        else:
+            for key in (
+                "valid_pairs_from_rows",
+                "unsafe_pairs_from_rows",
+                "infrastructure_pairs_from_rows",
+                "baseline_invalid_pairs_from_rows",
+                "candidate_invalid_pairs_from_rows",
+                "exposure_confounded_pairs_from_rows",
+                "telemetry_unknown_pairs_from_rows",
+                "not_started_pairs_from_rows",
+                "ineligible_pairs_from_rows",
+            ):
+                result["counts"][key] = _value(None, "PAIRS.jsonl:effect_status", verified=False)
+        result["denominator_checks"]["pair_ids_unique_and_present"] = unique_ids
+        if statuses and all(statuses):
+            result["denominator_checks"]["pair_statuses_close_to_pair_rows"] = (
+                sum(status_counts.values()) == len(pairs)
+            )
+        if metrics_error is None:
+            for row_count, metric_count in (
+                ("pair_rows", "planned_pairs"),
+                ("started_pairs_from_rows", "started_pairs"),
+                ("closed_pairs_from_rows", "closed_pairs"),
+                ("valid_pairs_from_rows", "valid_pairs"),
+                ("unsafe_pairs_from_rows", "unsafe_pairs"),
+                ("infrastructure_pairs_from_rows", "infrastructure_pairs"),
+                ("baseline_invalid_pairs_from_rows", "baseline_invalid_pairs"),
+                ("candidate_invalid_pairs_from_rows", "candidate_invalid_pairs"),
+                ("exposure_confounded_pairs_from_rows", "exposure_confounded_pairs"),
+                ("telemetry_unknown_pairs_from_rows", "telemetry_unknown_pairs"),
+                ("not_started_pairs_from_rows", "not_started_pairs"),
+                ("ineligible_pairs_from_rows", "ineligible_pairs"),
+            ):
+                observed = result["counts"].get(row_count, {}).get("value")
+                reported = result["counts"].get(metric_count, {}).get("value")
+                result["denominator_checks"][metric_count] = (
+                    observed == reported if observed is not None and reported is not None else "not_verified"
+                )
+                result["counts"][metric_count]["status"] = (
+                    "verified" if result["denominator_checks"][metric_count] is True else "not_verified"
+                )
+            categories = (
+                "valid", "unsafe", "infra", "baseline_invalid", "candidate_invalid",
+                "noise", "unknown", "unstarted", "ineligible",
+            )
+            result["denominator_checks"]["reported_outcome_categories_close_to_planned"] = (
+                sum(denominator_totals.get(category, 0) for category in categories)
+                == denominator_totals.get("planned")
+            )
+
+    if qualifications_error is None:
+        by_family_candidate: dict[str, dict[str, dict[str, str]]] = defaultdict(dict)
+        for row in qualifications:
+            family = row.get("family_id", "")
+            candidate = row.get("candidate_id", "")
+            batch = row.get("batch", "")
+            if family and candidate and batch:
+                by_family_candidate[family].setdefault(candidate, {})[batch] = row.get("eligibility", "")
+        eligible_families = set()
+        for family, candidates in by_family_candidate.items():
+            for batches in candidates.values():
+                if {"1", "8"} <= batches.keys():
+                    if all(
+                        batches[batch] == "ELIGIBLE_CHANNELS_LAST_CORRECTNESS_ONLY"
+                        for batch in ("1", "8")
+                    ):
+                        eligible_families.add(family)
+        result["qualification_row_count"] = len(qualifications)
+        result["qualification_candidate_count"] = len({
+            row.get("candidate_id", "") for row in qualifications if row.get("candidate_id")
+        })
+        result["qualification_family_counts_from_rows"] = {
+            "baseline_valid_families": "not_verified_from_QUALIFICATION_MATRIX.csv",
+            "s1_correctness_eligible_families": len(eligible_families),
+            "status": "verified_from_candidate_rows_requiring_batches_1_and_8",
+        }
+        if metrics_error is None:
+            result["denominator_checks"]["s1_correctness_eligible_families"] = (
+                len(eligible_families)
+                == result["counts"]["s1_correctness_eligible_families"]["value"]
+            )
+            result["counts"]["s1_correctness_eligible_families"]["status"] = (
+                "verified"
+                if result["denominator_checks"]["s1_correctness_eligible_families"]
+                else "not_verified"
+            )
+
+    if registry_error is None:
+        baseline_families = {
+            row.get("family_id", "") for row in registry
+            if row.get("family_id") and row.get("baseline_valid_all_batches", "").lower() == "true"
+        }
+        result["counts"]["baseline_valid_families_from_registry"] = _value(
+            len(baseline_families), "MODEL_REGISTRY.csv:baseline_valid_all_batches"
+        )
+        result["registry_candidate_count"] = len({
+            row.get("candidate_id", "") for row in registry if row.get("candidate_id")
+        })
+        if metrics_error is None:
+            matches = len(baseline_families) == result["counts"]["baseline_valid_families"]["value"]
+            result["denominator_checks"]["baseline_valid_families"] = matches
+            result["counts"]["baseline_valid_families"]["status"] = (
+                "verified" if matches else "not_verified"
+            )
+    else:
+        result["counts"]["baseline_valid_families_from_registry"] = _value(
+            None, "MODEL_REGISTRY.csv:baseline_valid_all_batches", verified=False
+        )
+
+    if manifest_error is None:
+        registered = manifest.get("registered_families")
+        if isinstance(registered, list):
+            manifest_count = len(set(map(str, registered)))
+            result["counts"]["registered_families_from_manifest"] = _value(
+                manifest_count, "FROZEN_MANIFEST.json:registered_families"
+            )
+            if metrics_error is None:
+                matches = (
+                    manifest_count == result["counts"]["registered_families"]["value"]
+                )
+                result["denominator_checks"]["registered_families"] = matches
+                result["counts"]["registered_families"]["status"] = (
+                    "verified" if matches else "not_verified"
+                )
+        else:
+            result["counts"]["registered_families_from_manifest"] = _value(
+                None, "FROZEN_MANIFEST.json:registered_families", verified=False
+            )
+    else:
+        result["counts"]["registered_families_from_manifest"] = _value(
+            None, "FROZEN_MANIFEST.json:registered_families", verified=False
+        )
+
+    return result
