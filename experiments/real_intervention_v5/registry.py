@@ -89,7 +89,7 @@ def build_registry(seed=20261021):
     import torchvision.models as tv
 
     models = {"torchvision": set(tv.list_models()), "timm": set(timm.list_models())}
-    versions = {p: importlib.metadata.version(p) for p in ("torch", "torchvision", "timm", "triton", "numpy")}
+    versions = {p: importlib.metadata.version(p) for p in ("torch", "torchvision", "timm", "triton", "numpy", "nvidia-ml-py", "PyYAML")}
     tb_sha = subprocess.check_output(["git", "-C", TORCHBENCH, "rev-parse", "HEAD"], text=True).strip()
     all_lineages = sorted({r[1] for rows in (TV, TIMM, TB) for r in rows}, key=lambda s: digest([seed, s]))
     splits = {family: ("development", "calibration", "final")[i % 3] for i, family in enumerate(all_lineages)}
