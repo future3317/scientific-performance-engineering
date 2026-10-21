@@ -1,0 +1,248 @@
+from __future__ import annotations
+
+import sys
+import textwrap
+from pathlib import Path
+import os
+
+import pytest
+
+from experiments.real_intervention_v4.outcomes import atomic_json
+from experiments.real_intervention_v5 import runtime
+
+
+GPU = "GPU-test-uuid"
+
+
+class FakeMonitor:
+    def __init__(self, gpu_uuid):
+        self.gpu_uuid = gpu_uuid
+        self.busy = False
+        self.busy_for_samples = 0
+        self.sample_count = 0
+        self.contend_after_go = None
+
+    def close(self):
+        pass
+
+    def sample(self, owner_pid, pgid):
+        self.sample_count += 1
+        pids = runtime._process_group_pids(pgid) if pgid is not None else set()
+        self_pids = [pid for pid in sorted(pids) if pid != owner_pid]
+        processes = [
+            {"pid": pid, "memory_bytes": 1024, "origin": "STUDY_PROCESS_TREE"}
+            for pid in self_pids
+        ]
+        if self.busy and (pgid is None or self.busy_for_samples > 0):
+            processes.append({"pid": 987654, "memory_bytes": 1024, "origin": "EXTERNAL"})
+            if pgid is None and self.busy_for_samples:
+                self.busy_for_samples -= 1
+        if pgid is not None and self.contend_after_go is not None and self.contend_after_go.exists():
+            processes.append({"pid": 987654, "memory_bytes": 1024, "origin": "EXTERNAL"})
+        return {
+            "timestamp_unix": 1.0, "timestamp_monotonic": 1.0,
+            "gpu_uuid": self.gpu_uuid, "memory_used_mib": 256,
+            "memory_free_mib": 1024, "utilization_percent": 0,
+            "compute_processes": processes, "process_query_error": None,
+            "process_utilization": "NOT_SUPPORTED",
+            "process_utilization_status": "NOT_SUPPORTED",
+            "phase": None,
+            "telemetry_complete": True,
+        }
+
+
+WORKER = textwrap.dedent("""
+    import json, os, sys, time
+    from pathlib import Path
+    output, ack = Path(sys.argv[1]), Path(sys.argv[2])
+    ready, go = output.with_suffix('.ready.json'), output.with_suffix('.go')
+    ready.write_text(json.dumps({'pid': os.getpid(), 'gpu_uuid': os.environ['CUDA_VISIBLE_DEVICES']}))
+    while not go.exists(): time.sleep(.01)
+    result = {'execution_status': 'COMPLETE', 'scientific_status': 'PASS',
+              'correctness': {'passed': True}, 'timing': {'total_s': .1}}
+    output.write_text(json.dumps(result))
+    while not ack.exists(): time.sleep(.01)
+""")
+
+
+def commands(count=2):
+    return [[sys.executable, "-c", WORKER, "{output}", "{ack}"] for _ in range(count)]
+
+
+def patch_monitor(monkeypatch):
+    monkeypatch.setattr(runtime, "_GpuMonitor", FakeMonitor)
+    monkeypatch.setattr(runtime, "_enable_child_subreaper", lambda: None)
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 4])
+def test_worker_go_ack_handshake_keeps_session_matched(tmp_path, monkeypatch, count):
+    patch_monitor(monkeypatch)
+
+    result = runtime.run_session(commands(count), tmp_path / f"session-{count}", GPU, 8.0, {})
+
+    assert result["execution_status"] == "COMPLETE"
+    assert result["scientific_status"] == "PASS"
+    assert result["exposure_status"] == "MATCHED"
+    assert result["analysis_status"] == "VALID_PAIRED"
+    assert len(result["arms"]) == count
+    assert all(arm["worker_result"]["timing"]["total_s"] == 0.1 for arm in result["arms"])
+    assert all((tmp_path / f"session-{count}" / f"arm-{index}.ack").exists()
+               for index in range(count))
+    assert all((tmp_path / f"session-{count}" / f"arm-{index}.result.stdout.log").is_file()
+               and (tmp_path / f"session-{count}" / f"arm-{index}.result.stderr.log").is_file()
+               for index in range(count))
+
+
+def test_busy_gpu_does_not_start_either_arm(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    monitor = FakeMonitor(GPU)
+    monitor.busy = True
+    monkeypatch.setattr(runtime, "_GpuMonitor", lambda gpu_uuid: monitor)
+
+    result = runtime.run_session(commands(), tmp_path / "busy", GPU, 0.5, {})
+
+    assert result["execution_status"] == "NOT_STARTED"
+    assert result["exposure_status"] == "INCOMPLETE"
+    assert result["monitor"]["co_tenant_confirmed"] is False
+    assert result["monitor"]["premeasurement_co_tenant_pids"] == [987654]
+    assert all(arm["execution_status"] == "NOT_STARTED" for arm in result["arms"])
+    assert not (tmp_path / "busy" / "intent.json").exists()
+
+
+def test_started_session_identity_cannot_be_replayed(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    session = tmp_path / "already-started"
+    session.mkdir()
+    atomic_json(session / "intent.json", {"started": True})
+
+    with pytest.raises(RuntimeError, match="refusing replay"):
+        runtime.run_session(commands(), session, GPU, 1.0, {})
+
+
+def test_worker_commands_require_both_path_placeholders():
+    with pytest.raises(ValueError, match="placeholders"):
+        runtime._substitute(["worker", "{output}"], Path("out"), Path("ack"))
+
+
+def test_unstarted_nvml_unavailable_is_explicit(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    monitor = FakeMonitor(GPU)
+    original = monitor.sample
+
+    def incomplete(owner_pid, pgid):
+        sample = original(owner_pid, pgid)
+        sample["telemetry_complete"] = False
+        sample["process_query_error"] = "permission denied"
+        return sample
+
+    monitor.sample = incomplete
+    monkeypatch.setattr(runtime, "_GpuMonitor", lambda gpu_uuid: monitor)
+
+    result = runtime.run_session(commands(), tmp_path / "unavailable", GPU, 1.0, {})
+
+    assert result["execution_status"] == "NOT_STARTED"
+    assert result["platform_status"] == "UNCERTAIN"
+    assert result["error_code"] == "GPU_TELEMETRY_INCOMPLETE_BEFORE_START"
+
+
+def test_sample_gpu_is_public_and_reports_process_attribution(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+
+    sample = runtime.sample_gpu(GPU)
+
+    assert sample["phase"] == "RESOURCE_SELECTION"
+    assert sample["gpu_uuid"] == GPU
+    assert sample["process_utilization_status"] == "NOT_SUPPORTED"
+
+
+def test_session_rejects_existing_ready_output_and_go_artifacts(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    session = tmp_path / "stale-artifact"
+    session.mkdir()
+    (session / "arm-0.result.ready.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="artifact already exists"):
+        runtime.run_session(commands(), session, GPU, 1.0, {})
+
+
+def test_session_rejects_existing_ack_artifact(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    session = tmp_path / "stale-ack"
+    session.mkdir()
+    (session / "arm-0.ack").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="artifact already exists"):
+        runtime.run_session(commands(), session, GPU, 1.0, {})
+
+
+def test_idle_wait_contention_does_not_taint_a_later_measurement(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    monitor = FakeMonitor(GPU)
+    monitor.busy = True
+    monitor.busy_for_samples = 1
+    monkeypatch.setattr(runtime, "_GpuMonitor", lambda gpu_uuid: monitor)
+
+    result = runtime.run_session(commands(), tmp_path / "wait-then-run", GPU, 8.0, {})
+
+    assert result["analysis_status"] == "VALID_PAIRED"
+    assert result["monitor"]["premeasurement_co_tenant_pids"] == [987654]
+    assert result["exposure_status"] == "MATCHED"
+
+
+def test_external_pid_during_measurement_is_confirmed_contention(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    session = tmp_path / "contended-during-arm"
+    monitor = FakeMonitor(GPU)
+    monitor.contend_after_go = session / "arm-0.result.go"
+    monkeypatch.setattr(runtime, "_GpuMonitor", lambda gpu_uuid: monitor)
+
+    result = runtime.run_session(commands(), session, GPU, 8.0, {})
+
+    assert result["exposure_status"] == "CONTENDED"
+    assert result["monitor"]["co_tenant_confirmed"] is True
+    assert result["monitor"]["co_tenant_pids"] == [987654]
+
+
+def test_started_worker_interrupted_at_deadline_is_unknown_and_reaped(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    hanging_worker = textwrap.dedent("""
+        import json, os, signal, sys, time
+        from pathlib import Path
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        output = Path(sys.argv[1])
+        ready, go = output.with_suffix('.ready.json'), output.with_suffix('.go')
+        ready.write_text(json.dumps({'pid': os.getpid(),
+                                     'gpu_uuid': os.environ['CUDA_VISIBLE_DEVICES']}))
+        while not go.exists(): time.sleep(.01)
+        while True: time.sleep(.02)
+    """)
+    worker_command = [sys.executable, "-c", hanging_worker, "{output}", "{ack}"]
+
+    result = runtime.run_session([worker_command], tmp_path / "interrupted", GPU, 1.0, {})
+
+    assert result["execution_status"] == "UNKNOWN"
+    assert result["arms"][0]["execution_status"] == "UNKNOWN"
+    assert result["arms"][0]["worker_pid"] not in {
+        int(path.name) for path in Path("/proc").iterdir() if path.name.isdigit()
+    }
+
+
+def test_started_worker_exit_without_result_is_unknown_not_replayable(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    exit_worker = textwrap.dedent("""
+        import json, os, sys, time
+        from pathlib import Path
+        output = Path(sys.argv[1])
+        ready, go = output.with_suffix('.ready.json'), output.with_suffix('.go')
+        ready.write_text(json.dumps({'pid': os.getpid(),
+                                     'gpu_uuid': os.environ['CUDA_VISIBLE_DEVICES']}))
+        while not go.exists(): time.sleep(.01)
+        sys.exit(17)
+    """)
+    worker_command = [sys.executable, "-c", exit_worker, "{output}", "{ack}"]
+
+    result = runtime.run_session([worker_command], tmp_path / "exit-17", GPU, 5.0, {})
+
+    assert result["execution_status"] == "UNKNOWN"
+    assert result["arms"][0]["execution_status"] == "UNKNOWN"
+    assert result["arms"][0]["error_code"] == "WORKER_EXITED_WITHOUT_RESULT"
