@@ -158,6 +158,10 @@ def finish(root, manifest, registry, qualification, pairs, status, feasibility, 
                "acre_sys_status": "NOT_IMPLEMENTED", "final_opened": (root / "FINAL_RELEASE.json").exists(),
                "shakedown": {k: v for k, v in shakedown.items() if k != "pairs"}, "gpu": manifest["gpu"], "versions": manifest["versions"],
                "resources": resources, "claims": claims, "timestamp": utc()}
+    scans = root / "GPU_RESOURCE_SCANS.jsonl"
+    if scans.exists():
+        metrics["last_gpu_resource_inventory"] = json.loads(scans.read_text().splitlines()[-1])
+    metrics["new_v5_effect_estimate_available"] = any(p["analysis_status"] == "VALID_PAIRED" for p in pairs)
     write_json(root / "V5_METRICS.json", metrics)
     lines = [f"STATUS / STUDY_ID / SOURCE_SHA / MANIFEST_SHA: {status} / {config['study_id']} / {manifest['source_sha']} / {digest(manifest)}",
              f"MODEL FAMILIES registered / baseline-valid / candidate-correct / paired-valid: {families['registered']} / {families['baseline_valid']} / {families['candidate_correct']} / {families['paired_valid']}",
@@ -167,6 +171,12 @@ def finish(root, manifest, registry, qualification, pairs, status, feasibility, 
              f"CANONICAL CERTIFICATE: feasible={feasibility['acre_canonical_certificate_feasible']} necessary only; fitted=false; required independent calibration groups={feasibility['required_independent_groups_lower_bound']}",
              f"GPU/CPU/WALL/STORAGE: {json.dumps({'gpu':manifest['gpu'], **resources}, sort_keys=True)}", "",
              f"CLAIM ALLOWED: {'; '.join(claims['allowed'])}", f"CLAIM NOT ALLOWED: {'; '.join(claims['not_allowed'])}", f"NEXT SCIENTIFIC DECISION: {claims['next_scientific_decision']}", ""]
+    first_effect_lines = []
+    for contrast, summary in summaries.items():
+        for split in ("development", "calibration", "final"):
+            v = summary["by_split"].get(split)
+            first_effect_lines.append(f"{split.upper()} {contrast}: positive/negative={str(v['positive_families'])+'/'+str(v['negative_families']) if v else 'NOT_ESTIMABLE'}; valid families={v['observed_independent_families'] if v else 0}; mean log benefit={v['family_equal_mean_log_benefit'] if v else None}; CI={v['family_cluster_bootstrap_ci95'] if v else None}")
+    lines[5:5] = first_effect_lines
     for c, summary in summaries.items():
         lines += [f"Contrast {c}", "", "Split | Valid families | Positive/negative | Family-equal log benefit | 95% family bootstrap CI", "--- | ---: | --- | ---: | ---"]
         for s in ("development", "calibration", "final"):
@@ -181,7 +191,9 @@ def finish(root, manifest, registry, qualification, pairs, status, feasibility, 
     (root / "PAPER_TABLES.md").write_text("\n".join(lines) + "\n")
     (root / "PAPER_CLAIM_MATRIX.md").write_text("\n".join([f"Allowed: {x}" for x in claims["allowed"]] + [f"Not allowed: {x}" for x in claims["not_allowed"]]) + "\n")
     (root / "EXECUTION_LOG.md").write_text(f"Study: {config['study_id']}\nSource: {manifest['source_sha']}\nTerminal: {status}\nWall including wait: {wall_s:.3f} seconds\nNo started identity retry. Full per-session lifecycle in raw session directories.\n")
-    if not (root / "QUALIFICATION_MATRIX.csv").exists(): write_csv(root / "QUALIFICATION_MATRIX.csv", [], ["candidate_id", "eligibility", "baseline_valid", "candidate_correct"])
+    if not (root / "QUALIFICATION_MATRIX.csv").exists():
+        write_csv(root / "QUALIFICATION_MATRIX.csv", [{"candidate_id": r["candidate_id"], "family_id": r["family_id"], "split": r["split"],
+                                                       "eligibility": "NOT_STARTED_RESOURCE_BLOCKED", "baseline_valid": None, "candidate_correct": None} for r in registry])
     write_json(root / "RUN_COMPLETE.json", {"status": status, "timestamp": utc(), "source_sha": manifest["source_sha"], "final_opened": metrics["final_opened"]})
     bundle(root)
     print("\n".join(lines[:12]), flush=True)

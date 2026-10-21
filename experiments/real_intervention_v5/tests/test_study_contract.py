@@ -42,7 +42,7 @@ def test_platform_stop_reports_unknown_qualification_not_zero(tmp_path):
     from experiments.real_intervention_v5.certificate_feasibility import feasibility
     config = {"study_id": "new-study", "study": "A", "batches": [1, 8], "horizons": [1, 1024], "sessions_per_context": 2}
     manifest = {"config": config, "source_sha": "test", "gpu": None, "versions": {}}
-    registry = [{"family_id": "resnet", "split": "final"}]
+    registry = [{"candidate_id": "torchvision:resnet18", "family_id": "resnet", "split": "final"}]
     finish(tmp_path, manifest, registry, [], [], "PLATFORM_BLOCKED_NO_IDLE_GPU", feasibility(0), {"required": 12, "actual": 0}, .01)
     metrics = read_json(tmp_path / "V5_METRICS.json")
     assert metrics["families"]["baseline_valid"] is None
@@ -69,3 +69,18 @@ def test_bf16_absolute_tolerance_cannot_hide_collapsed_near_zero_output():
     observed = check(reference, collapsed, {"rtol": .02, "atol": .002, "relative_l2_max": .02})
     assert not observed["passed"]
     assert observed["reason"] == "relative_l2_limit_exceeded"
+
+
+def test_qualification_rejects_different_reconstructed_weights(tmp_path, monkeypatch):
+    from experiments.real_intervention_v5 import run_all
+    import time
+    payload = {"baseline": {"passed": True}, "candidate": {"passed": True},
+               "weights_sha256": "first", "inputs_sha256": "same", "reference_sha256": "same",
+               "kernel_exposure": {"active": True, "cuda_kernel_events": 1}}
+    monkeypatch.setattr(run_all, "execute", lambda *args: {"analysis_status": "VALID_PAIRED", "arms": [
+        {"worker_result": payload.copy()}, {"worker_result": {**payload, "weights_sha256": "different"}}]})
+    row = {"representative": True, "available": True, "family_id": "resnet", "split": "development"}
+    config = {"study_id": "A", "study": "A", "seed": 1, "batches": [1], "correctness": {}, "session_timeout_seconds": 30}
+    observed = run_all.qualify([row], config, {"uuid": "GPU-a"}, tmp_path, time.monotonic() + 30)
+    assert not observed[0]["baseline_valid"]
+    assert observed[0]["eligibility"] == "QUALIFICATION_FAILED"

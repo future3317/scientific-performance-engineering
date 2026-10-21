@@ -125,7 +125,7 @@ def test_empty_policy_evaluation_is_not_estimable():
     assert by_name["NEVER"]["status"] == "NOT_ESTIMABLE_EMPTY"
     assert by_name["ALWAYS"]["status"] == "NOT_ESTIMABLE_EMPTY"
     for row in rows:
-        if row["status"] == "NOT_FITTED":
+        if row["status"] in {"NOT_FITTED", "ORIGINAL_ACRE_NOT_FITTED"}:
             continue
         assert row["status"] == "NOT_ESTIMABLE_EMPTY"
         assert row["family_equal_policy_utility"] is None

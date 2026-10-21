@@ -89,15 +89,17 @@ def _started_arm_fixture(root, pair_id, arm_name, *, inputs_sha256="inputs-diges
     events = [
         {"kind": "intent", "identity": identity},
         {"kind": "started", "identity": identity},
+        {"kind": "heartbeat", "identity": identity},
         {
             "kind": "terminal", "identity": identity, "arm_execution": "COMPLETE",
-            "process_returncode": 0, "sequence": 2, "receipt_sha256": "receipt-digest",
+            "process_returncode": 0, "sequence": 7, "receipt_sha256": "receipt-digest",
         },
     ]
     raw_dir = root / "raw" / attempt_id
     (raw_dir / "events").mkdir(parents=True)
     for index, event in enumerate(events):
-        (raw_dir / "events" / f"{index:04d}-{event['kind']}.json").write_text(
+        sequence = 7 if event["kind"] == "terminal" else index
+        (raw_dir / "events" / f"{sequence:04d}-{event['kind']}.json").write_text(
             json.dumps(event), encoding="utf-8"
         )
     receipt = {
@@ -160,7 +162,7 @@ def test_started_arm_missing_raw_terminal_is_not_verified(tmp_path):
     }
     pair["S0"] = _started_arm_fixture(tmp_path, pair_id, "S0")
     (tmp_path / "PAIRS.jsonl").write_text(json.dumps(pair) + "\n", encoding="utf-8")
-    (tmp_path / "raw" / f"primary-{pair_id}-S0" / "events" / "0002-terminal.json").unlink()
+    (tmp_path / "raw" / f"primary-{pair_id}-S0" / "events" / "0007-terminal.json").unlink()
 
     result = audit_v4(tmp_path)
 

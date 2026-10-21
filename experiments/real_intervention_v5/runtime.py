@@ -279,7 +279,8 @@ def _session_result(*, arms: list[dict[str, Any]], samples: list[dict[str, Any]]
                     gpu_uuid: str, started_wall: float, started_mono: float,
                     ended_wall: float, ended_mono: float, error_code: str | None = None,
                     first_failing_gate: str | None = None) -> dict[str, Any]:
-    exposure = _exposure(measurement_samples, gpu_uuid)
+    post_intent_samples = [sample for sample in samples if sample.get("phase") != "WAITING_FOR_IDLE"]
+    exposure = _exposure(measurement_samples, gpu_uuid, contention_samples=post_intent_samples)
     validity = classify_pair(arms, exposure)
     result = {
         **validity,
@@ -299,7 +300,7 @@ def _session_result(*, arms: list[dict[str, Any]], samples: list[dict[str, Any]]
             "co_tenant_pids": exposure["co_tenant_pids"],
             "premeasurement_co_tenant_pids": sorted({
                 int(process["pid"])
-                for sample in samples if not sample.get("measurement_active")
+                for sample in samples if sample.get("phase") == "WAITING_FOR_IDLE"
                 for process in sample.get("compute_processes", [])
                 if process.get("origin") == "EXTERNAL" and process.get("pid") is not None
             }),
@@ -323,20 +324,22 @@ def _session_result(*, arms: list[dict[str, Any]], samples: list[dict[str, Any]]
     return result
 
 
-def _exposure(samples: Sequence[Mapping[str, Any]], gpu_uuid: str) -> dict[str, Any]:
-    # Resource-selection and pre-GO samples are not session exposure.
+def _exposure(samples: Sequence[Mapping[str, Any]], gpu_uuid: str,
+              *, contention_samples: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+    # Completeness and unattributed activity apply to timed measurement windows.
     if any("measurement_active" in sample for sample in samples):
         samples = [sample for sample in samples if sample.get("measurement_active") is True]
+    contention_samples = samples if contention_samples is None else contention_samples
     complete = bool(samples) and all(sample.get("telemetry_complete") is True for sample in samples)
     co_tenant_pids = sorted({
         int(process["pid"])
-        for sample in samples
+        for sample in contention_samples
         for process in sample.get("compute_processes", [])
         if process.get("origin") == "EXTERNAL" and process.get("pid") is not None
     })
     co_tenant_pids = sorted(set(co_tenant_pids) | {
         int(process["pid"])
-        for sample in samples
+        for sample in contention_samples
         for process in sample.get("process_utilization", [])
         if isinstance(process, Mapping) and process.get("origin") == "EXTERNAL"
         and process.get("pid") is not None
@@ -631,11 +634,21 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                     started["raw_digest"] = canonical_digest(started)
                     _atomic_marker(session_dir / f"arm-{index}.started.json", started)
                     ready_payload: dict[str, Any] | None = None
+                    pre_ready_payload: dict[str, Any] | None = None
                     arm_samples_start = len(samples)
                     while time.monotonic() < deadline:
                         sample = take_sample("WAITING_FOR_WORKER_ATTRIBUTION", pgid)
                         if not sample["telemetry_complete"]:
                             error_code = "GPU_TELEMETRY_INCOMPLETE_DURING_ARM"
+                            break
+                        if output.is_file() and not ready.is_file():
+                            try:
+                                pre_ready_payload = json.loads(output.read_text(encoding="utf-8"))
+                                if not isinstance(pre_ready_payload, dict):
+                                    raise ValueError("worker result must be a JSON object")
+                                error_code = "WORKER_RESULT_BEFORE_READY"
+                            except (OSError, ValueError, json.JSONDecodeError):
+                                error_code = "WORKER_RESULT_INVALID"
                             break
                         if ready.is_file():
                             try:
@@ -661,6 +674,29 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                             error_code = "WORKER_EXITED_BEFORE_READY"
                             break
                         time.sleep(min(SAMPLE_INTERVAL_S, max(0.0, deadline - time.monotonic())))
+                    if error_code == "WORKER_RESULT_BEFORE_READY":
+                        _atomic_marker(ack, {"created_unix": time.time(), "pid": process.pid})
+                        try:
+                            process.wait(timeout=max(0.0, deadline - time.monotonic()))
+                        except subprocess.TimeoutExpired:
+                            _terminate_group(process, pgid)
+                        ended = time.monotonic()
+                        arms.append({
+                            "execution_status": "ERROR", "scientific_status": "UNVERIFIED",
+                            "platform_status": "PLATFORM_FAILURE",
+                            "arm_identity": {"session_id": session_dir.name, "arm_index": index,
+                                             "gpu_uuid": gpu_uuid},
+                            "worker_result": pre_ready_payload,
+                            "worker_pid": process.pid, "worker_pgid": pgid,
+                            "parent_wall_seconds": ended - arm_started,
+                            "stdout_path": str(stdout_path), "stderr_path": str(stderr_path),
+                            "error_code": error_code,
+                        })
+                        write_exit(index, process, pgid, "RESULT_BEFORE_READY")
+                        process = None
+                        pgid = None
+                        active_arm_index = None
+                        break
                     if error_code is not None or ready_payload is None:
                         if error_code is None:
                             error_code = "WORKER_READY_TIMEOUT"
