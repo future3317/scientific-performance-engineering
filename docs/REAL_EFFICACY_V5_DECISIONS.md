@@ -36,7 +36,9 @@ process trees. No GPU mode, driver, shared package or other user's process is
 changed. An explicit GO/ACK handshake holds each CUDA owner alive across the
 measurement samples. Missing process attribution is distinct from confirmed
 competition. A session has a hard parent deadline and process-group cleanup;
-started identities never receive another attempt.
+started identities never receive another attempt. An independent host watchdog
+also bounds a blocked monitoring call; an emergency timeout ends the controller
+with an UNKNOWN/NOT_STARTED receipt, rather than continuing on a broken platform.
 
 Engineering qualification requires >=11 genuinely matched and correct pairs
 out of 12, plus controlled timeout, process interruption and same-card

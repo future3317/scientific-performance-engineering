@@ -413,6 +413,27 @@ def test_started_worker_exit_without_result_is_unknown_not_replayable(tmp_path, 
     assert result["arms"][0]["error_code"] == "WORKER_EXITED_WITHOUT_RESULT"
 
 
+def test_host_watchdog_bounds_a_monitor_that_never_returns(tmp_path):
+    script = textwrap.dedent('''
+        import sys, time
+        from pathlib import Path
+        from experiments.real_intervention_v5 import runtime
+        class BlockedMonitor:
+            def __init__(self, uuid): time.sleep(30)
+        runtime._GpuMonitor = BlockedMonitor
+        runtime.run_session([[sys.executable, '-c', 'pass', '{output}', '{ack}']],
+                            Path(sys.argv[1]), 'GPU-watchdog-cpu-test', .2, {})
+    ''')
+    started = time.monotonic()
+    result = subprocess.run([sys.executable, "-c", script, str(tmp_path / "monitor-hang")], timeout=8)
+    assert result.returncode == 124
+    assert time.monotonic() - started < 6
+    record = json.loads((tmp_path / "monitor-hang" / "HOST_WATCHDOG.json").read_text())
+    assert record["error_code"] == "HOST_WATCHDOG_TIMEOUT"
+    assert record["execution_status"] == "NOT_STARTED"
+    assert record["owned_groups_remaining"] == []
+
+
 def test_worker_startup_error_result_before_ready_is_acked_as_platform_error(tmp_path, monkeypatch):
     patch_monitor(monkeypatch)
     startup_error = textwrap.dedent("""

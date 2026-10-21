@@ -19,6 +19,7 @@ from ..real_intervention_v4.process_supervisor import (
     _enable_child_subreaper,
     _process_group_pids,
     _signal_group,
+    _descendant_process_groups,
 )
 from .validity import classify_pair
 
@@ -389,6 +390,64 @@ def _substitute(command: Sequence[str], output: Path, ack: Path) -> list[str]:
 
 
 def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
+                timeout_s: float, env: dict[str, str]) -> dict[str, Any]:
+    """Bound the monitor too: a wedged NVML call cannot extend the session cap.
+
+    Normal timeout/cleanup stays in the session loop. This independent thread
+    only handles a supervisor that does not return within its cleanup allowance;
+    it terminates this dedicated controller after killing its owned groups.
+    """
+    stop = threading.Event()
+    started = time.monotonic()
+    ceiling = timeout_s + TERM_GRACE_S + KILL_REAP_S + 1.0
+
+    def host_watchdog() -> None:
+        if stop.wait(timeout_s + TERM_GRACE_S + KILL_REAP_S):
+            return
+        groups = _descendant_process_groups(os.getpid()) - {os.getpgrp()}
+        for path in Path(session_dir).glob("arm-*.started.json"):
+            try:
+                group = json.loads(path.read_text())["pgid"]
+                if group != os.getpgrp(): groups.add(group)
+            except (OSError, ValueError, KeyError):
+                pass
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            for group in groups:
+                _signal_group(group, sig)
+        reap_deadline = started + ceiling
+        while time.monotonic() < reap_deadline:
+            try:
+                while os.waitpid(-1, os.WNOHANG)[0] > 0:
+                    pass
+            except ChildProcessError:
+                pass
+            if not any(_process_group_pids(group) for group in groups):
+                break
+            time.sleep(.02)
+        event = {"error_code": "HOST_WATCHDOG_TIMEOUT", "timeout_s": timeout_s,
+                 "elapsed_ceiling_s": ceiling, "actual_elapsed_s": time.monotonic() - started,
+                 "owned_process_groups": sorted(groups), "controller_pid": os.getpid(),
+                 "owned_groups_remaining": sorted(group for group in groups if _process_group_pids(group)),
+                 "execution_status": "UNKNOWN" if (Path(session_dir) / "intent.json").exists() else "NOT_STARTED",
+                 "scientific_status": "UNVERIFIED", "platform_status": "PLATFORM_FAILURE",
+                 "exposure_status": "INCOMPLETE", "analysis_status": "MISSING"}
+        event["raw_digest"] = canonical_digest(event)
+        try:
+            atomic_json(Path(session_dir) / "HOST_WATCHDOG.json", event, exclusive=True)
+        finally:
+            # Do not let a broken platform continue into another pair/study.
+            os._exit(124)
+
+    watcher = threading.Thread(target=host_watchdog, name="v5-host-watchdog", daemon=True)
+    watcher.start()
+    try:
+        return _run_session(commands, session_dir, gpu_uuid, timeout_s, env)
+    finally:
+        stop.set()
+        watcher.join(timeout=1.0)
+
+
+def _run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                 timeout_s: float, env: dict[str, str]) -> dict[str, Any]:
     """Run one reserved session of one to four arms; identities are never replayed.
 
