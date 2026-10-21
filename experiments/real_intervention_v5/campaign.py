@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import signal
 
 from .common import read_json, write_json, utc
 from .run_all import preflight, PYTHON
@@ -18,6 +19,18 @@ def main():
     args.results_parent.mkdir(parents=True, exist_ok=True)
     studies = ["V5_LAYOUT_BF16_FROZEN.json", "V5_COMPILE_CACHE_FROZEN.json"]
     results = []
+    current = None
+    def cancel(signum, frame):
+        if current is not None and current.poll() is None:
+            current.terminate()
+            try:
+                current.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                current.kill()
+                current.wait(timeout=5)
+        raise KeyboardInterrupt("campaign canceled")
+    signal.signal(signal.SIGTERM, cancel)
+    signal.signal(signal.SIGINT, cancel)
     for name in studies:
         config_path = Path(__file__).parent / "config" / name
         config = read_json(config_path)
@@ -25,6 +38,7 @@ def main():
         command = [PYTHON, "-u", "-m", "experiments.real_intervention_v5.run_all", "--study-config", str(config_path), "--results-root", str(root), "--mode", "full", "--resume-safe"]
         with (args.results_parent / (config["study_id"] + ".log")).open("ab", buffering=0) as log:
             process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+            current = process
             result = process.wait()
         results.append({"study_id": config["study_id"], "exit_code": result, "root": str(root), "complete": read_json(root / "RUN_COMPLETE.json") if (root / "RUN_COMPLETE.json").exists() else None})
         write_json(args.results_parent / "CAMPAIGN_PROGRESS.json", {"source_sha": sha, "timestamp": utc(), "studies": results})

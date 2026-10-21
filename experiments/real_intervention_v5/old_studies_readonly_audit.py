@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,206 @@ def _load_qualifications(path: Path) -> tuple[list[dict[str, str]], str | None]:
 
 def _value(value: Any, source: str, verified: bool = True) -> dict[str, Any]:
     return {"value": value, "status": "verified" if verified else "not_verified", "source": source}
+
+
+def _read_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    value, error = _load_json(path)
+    if error is None and not isinstance(value, dict):
+        return None, "ValueError: expected a JSON object"
+    return value, error
+
+
+def _arm_raw_verification(root: Path, pair_id: str, arm_name: str, arm: Mapping[str, Any]) -> dict[str, Any]:
+    embedded_events = arm.get("events")
+    embedded_events = embedded_events if isinstance(embedded_events, list) else []
+    started = [
+        event for event in embedded_events
+        if isinstance(event, Mapping) and event.get("kind") == "started"
+    ]
+    if not started:
+        return {}
+
+    raw_name = f"primary-{pair_id}-{arm_name}"
+    raw_dir = root / "raw" / raw_name
+    source_commits = set()
+    gpu_uuids = set()
+    embedded_identity_events = []
+    for event in embedded_events:
+        identity = event.get("identity") if isinstance(event, Mapping) else None
+        if isinstance(identity, Mapping):
+            embedded_identity_events.append(identity)
+            if identity.get("source_commit"):
+                source_commits.add(str(identity["source_commit"]))
+            if identity.get("gpu_uuid"):
+                gpu_uuids.add(str(identity["gpu_uuid"]))
+
+    checks: dict[str, bool | str] = {}
+    expected_attempt_id = raw_name
+    arm_identity = arm.get("identity")
+    checks["embedded_identity_consistent"] = bool(
+        len(source_commits) == 1
+        and len(gpu_uuids) == 1
+        and embedded_identity_events
+        and isinstance(arm_identity, Mapping)
+        and arm_identity in embedded_identity_events
+        and all(
+            identity.get("attempt_id") == expected_attempt_id
+            and identity.get("pair_id") == pair_id
+            and identity.get("arm") == arm_name
+            and identity.get("source_commit") in source_commits
+            and identity.get("gpu_uuid") in gpu_uuids
+            for identity in embedded_identity_events
+        )
+    )
+    checks["raw_receipt_exists"] = (raw_dir / "receipt.json").is_file()
+    checks["raw_result_exists"] = (raw_dir / "result.json").is_file()
+    checks["raw_terminal_event_exists"] = (raw_dir / "events" / "0002-terminal.json").is_file()
+
+    raw_events = []
+    raw_event_error = None
+    event_dir = raw_dir / "events"
+    if event_dir.is_dir():
+        for event_path in sorted(event_dir.glob("*.json")):
+            event, error = _read_object(event_path)
+            if error:
+                raw_event_error = f"{event_path.name}: {error}"
+                break
+            raw_events.append(event)
+    else:
+        raw_event_error = "events directory missing"
+    raw_identity_events = [
+        event.get("identity") for event in raw_events
+        if isinstance(event.get("identity"), Mapping)
+    ]
+    checks["raw_event_identities_match_embedded"] = (
+        all(identity in embedded_identity_events for identity in raw_identity_events)
+        and all(identity in raw_identity_events for identity in embedded_identity_events)
+        if raw_event_error is None else False
+    )
+    raw_commits = {str(identity.get("source_commit")) for identity in raw_identity_events if identity.get("source_commit")}
+    raw_gpus = {str(identity.get("gpu_uuid")) for identity in raw_identity_events if identity.get("gpu_uuid")}
+    checks["event_source_commit_matches"] = raw_commits == source_commits and len(source_commits) == 1
+    checks["event_gpu_uuid_matches"] = raw_gpus == gpu_uuids and len(gpu_uuids) == 1
+
+    embedded_terminal = next(
+        (event for event in embedded_events if isinstance(event, Mapping) and event.get("kind") == "terminal"),
+        None,
+    )
+    raw_terminal = next((event for event in raw_events if event.get("kind") == "terminal"), None)
+    terminal_fields = ("kind", "identity", "arm_execution", "process_returncode", "sequence", "receipt_sha256")
+    checks["terminal_event_matches"] = bool(
+        embedded_terminal is not None
+        and raw_terminal is not None
+        and all(
+            field in embedded_terminal
+            and field in raw_terminal
+            and embedded_terminal[field] == raw_terminal[field]
+            for field in terminal_fields
+        )
+    )
+
+    raw_receipt, receipt_error = _read_object(raw_dir / "receipt.json")
+    raw_result, result_error = _read_object(raw_dir / "result.json")
+    embedded_worker = arm.get("worker_result")
+    raw_receipt_worker = raw_receipt.get("worker_result") if raw_receipt else None
+    worker_fields = (
+        "arm_execution", "scientific_correctness", "weights_sha256",
+        "inputs_sha256", "reference_sha",
+    )
+    worker_checks = {}
+    for field in worker_fields:
+        embedded_value = embedded_worker.get(field) if isinstance(embedded_worker, Mapping) else None
+        raw_value = raw_result.get(field) if raw_result else None
+        receipt_value = raw_receipt_worker.get(field) if isinstance(raw_receipt_worker, Mapping) else None
+        pair_value = arm.get(field)
+        worker_checks[field] = (
+            embedded_value is not None
+            and raw_value is not None
+            and receipt_value is not None
+            and pair_value is not None
+            and embedded_value == raw_value == receipt_value == pair_value
+        )
+    checks["worker_fields_match"] = all(worker_checks.values())
+    raw_worker_identity = raw_result.get("identity") if raw_result else None
+    raw_receipt_identity = raw_receipt.get("identity") if raw_receipt else None
+    checks["raw_receipt_identity_matches_events"] = bool(
+        isinstance(raw_receipt_identity, Mapping)
+        and raw_receipt_identity in raw_identity_events
+    )
+    checks["raw_source_commit_matches_events"] = bool(
+        raw_receipt
+        and raw_result
+        and raw_receipt.get("source_commit") in source_commits
+        and isinstance(raw_worker_identity, Mapping)
+        and raw_worker_identity.get("source_commit") in source_commits
+    )
+    checks["raw_gpu_uuid_matches_events"] = bool(
+        raw_receipt
+        and raw_result
+        and raw_receipt.get("runtime_gpu_uuid") in gpu_uuids
+        and isinstance(raw_worker_identity, Mapping)
+        and raw_worker_identity.get("gpu_uuid") in gpu_uuids
+    )
+    verified = all(value is True for value in checks.values())
+    return {
+        "pair_id": pair_id,
+        "arm": arm_name,
+        "attempt_id": expected_attempt_id,
+        "status": "verified" if verified else "not_verified",
+        "source_commit": next(iter(source_commits)) if len(source_commits) == 1 else None,
+        "gpu_uuid": next(iter(gpu_uuids)) if len(gpu_uuids) == 1 else None,
+        "raw_path": str(raw_dir),
+        "checks": checks,
+        "worker_field_checks": worker_checks,
+        "errors": [error for error in (raw_event_error, receipt_error, result_error) if error],
+    }
+
+
+def _audit_raw_receipts(root: Path, pairs: list[dict[str, Any]], pairs_error: str | None) -> dict[str, Any]:
+    if pairs_error is not None:
+        return {
+            "status": "not_verified",
+            "reason": "PAIRS.jsonl unavailable or invalid",
+            "started_arms": None,
+            "verified_arms": None,
+            "not_verified_arms": None,
+            "source_commit_counts": {},
+            "gpu_uuid_counts": {},
+            "arms": [],
+        }
+    arm_results = []
+    started_pairs_missing_arm_events = 0
+    for pair in pairs:
+        pair_id = str(pair.get("pair_id") or "")
+        pair_arm_count = 0
+        for arm_name in ("S0", "S1"):
+            arm = pair.get(arm_name)
+            if not isinstance(arm, Mapping):
+                continue
+            result = _arm_raw_verification(root, pair_id, arm_name, arm)
+            if result:
+                pair_arm_count += 1
+                arm_results.append(result)
+        if pair.get("started") is True and pair_arm_count < 2:
+            started_pairs_missing_arm_events += 1
+    verified_count = sum(row["status"] == "verified" for row in arm_results)
+    source_counts = Counter(row["source_commit"] or "not_verified" for row in arm_results)
+    gpu_counts = Counter(row["gpu_uuid"] or "not_verified" for row in arm_results)
+    missing_arm_event = started_pairs_missing_arm_events > 0
+    return {
+        "status": (
+            "verified"
+            if arm_results and verified_count == len(arm_results) and not missing_arm_event
+            else "not_verified"
+        ),
+        "started_arms": len(arm_results),
+        "verified_arms": verified_count,
+        "not_verified_arms": len(arm_results) - verified_count,
+        "started_pairs_missing_arm_start_events": started_pairs_missing_arm_events,
+        "source_commit_counts": dict(source_counts),
+        "gpu_uuid_counts": dict(gpu_counts),
+        "arms": arm_results,
+    }
 
 
 def audit_v4(root: Path) -> dict[str, Any]:
@@ -178,6 +379,19 @@ def audit_v4(root: Path) -> dict[str, Any]:
             result["denominator_checks"]["pair_statuses_close_to_pair_rows"] = (
                 sum(status_counts.values()) == len(pairs)
             )
+            recognized_statuses = {
+                "valid", "valid_pair", "unsafe", "infra", "infrastructure",
+                "baseline_invalid", "candidate_invalid", "noise", "contended",
+                "exposure_confounded", "unknown", "telemetry_unknown", "unstarted",
+                "not_started", "ineligible",
+            }
+            result["denominator_checks"]["pair_outcome_categories_close_to_pair_rows"] = (
+                all(status in recognized_statuses for status in statuses)
+                and sum(
+                    status_counts[status]
+                    for status in recognized_statuses
+                ) == len(pairs)
+            )
         if metrics_error is None:
             for row_count, metric_count in (
                 ("pair_rows", "planned_pairs"),
@@ -293,4 +507,5 @@ def audit_v4(root: Path) -> dict[str, Any]:
             None, "FROZEN_MANIFEST.json:registered_families", verified=False
         )
 
+    result["raw_receipt_verification"] = _audit_raw_receipts(root, pairs, pairs_error)
     return result

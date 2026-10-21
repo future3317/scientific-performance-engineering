@@ -78,6 +78,7 @@ def make_spec(row, config, gpu, root, *, batch, horizon, mode, arm, scope, quali
             "seed": config["seed"], "batch": batch, "horizon": horizon, "gpu_uuid": gpu["uuid"],
             "torchbench_root": TORCHBENCH, "correctness": config["correctness"],
             "timeout_s": config["session_timeout_seconds"], "qualification": qualification,
+            "results_root": str(root),
             "cache_path": str(root / "cache" / row["split"] / scope / arm),
             "reference_path": str(root / "references" / f"{row['family_id']}-b{batch}.pt"),
             "final_release_path": str(root / "FINAL_RELEASE.json")}
@@ -96,6 +97,9 @@ def execute(specs, directory, config, gpu):
                   "arms": [], "error_code": "STARTED_WITHOUT_TERMINAL_NO_RETRY"}
         write_json(directory / "recovery.json", result)
         return result
+    study_root = Path(specs[0]["results_root"]) if specs[0].get("results_root") else None
+    if study_root and sum(p.stat().st_size for p in study_root.rglob("*") if p.is_file()) >= config["disk_cap_bytes"]:
+        return {"execution_status": "NOT_STARTED", "scientific_status": "UNVERIFIED", "platform_status": "UNCERTAIN", "exposure_status": "UNKNOWN", "analysis_status": "MISSING", "first_failing_gate": "STORAGE_CAP", "error_code": "STORAGE_CAP", "arms": []}
     commands = []
     for i, spec in enumerate(specs):
         cache = Path(spec["cache_path"])
@@ -179,6 +183,14 @@ def missing_pair(cell, reason):
             "timestamp": utc(), "s0_s": None, "s1_s": None, "log_benefit": None}
 
 
+def missing_measurements(cell, config, reason):
+    contrasts = ["LAYOUT"] if config["study"] == "A" else ["COMPILE_COLD"] + [f"PERSISTENT_R{r}" for r in config["reuse_counts"]]
+    return [{**missing_pair(cell, reason), "contrast": c,
+             "pair_id": cell["pair_id"] if config["study"] == "A" else cell["pair_id"] + "-" + c,
+             "session_receipt": str(Path("pairs") / cell["split"] / cell["pair_id"] / "terminal.json")}
+            for c in contrasts]
+
+
 def measure(cell, row, config, gpu, root, *, engineering=False):
     scope = ("engineering-" if engineering else "") + cell["pair_id"]
     q = next(c["payload"] for c in row["checks"] if c["batch"] == cell["batch"])
@@ -249,6 +261,8 @@ def main():
     with (root / "runner.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if (root / "RUN_COMPLETE.json").exists():
+            if not (root / "BUNDLE_VALIDATION.json").exists() or read_json(root / "BUNDLE_VALIDATION.json").get("status") != "PASS":
+                raise RuntimeError("terminal study is missing its validated evidence bundle; do not replay experiments")
             print(read_json(root / "RUN_COMPLETE.json")); return
         run(root, config, sha, args.resume_safe)
 
@@ -258,6 +272,11 @@ def run(root, config, sha, resume):
     from .old_studies_readonly_audit import audit_v4
     from .analysis import freeze_policies
     from .report import finish
+    for prior_name in ("REGISTRATION_FREEZE.json", "FROZEN_MANIFEST.json"):
+        if (root / prior_name).exists():
+            prior = read_json(root / prior_name)
+            if prior.get("source_sha") != sha or prior.get("config") != config:
+                raise RuntimeError("resume source/config identity mismatch; existing study remains untouched")
     if not (root / "RUN_START.json").exists():
         write_json(root / "RUN_START.json", {"timestamp": utc(), "unix": time.time(), "source_sha": sha})
     already_elapsed = time.time() - read_json(root / "RUN_START.json")["unix"]
@@ -280,6 +299,9 @@ def run(root, config, sha, resume):
     feasible["effect_precision_sensitivity"] = [{"assumed_family_sd": sd, "target_log_effect": effect,
                                                "approximate_groups_80pct_power_two_sided_5pct": math.ceil(((1.96 + .8416) * sd / effect) ** 2)}
                                               for sd in (.05, .1, .2) for effect in (.02, .05, .1)]
+    power_design = feasible["effect_precision_sensitivity"]
+    if config["canonical_p_min"] != feasible["canonical_certificate_lower_bound"]["p_min"] or config["delta_total"] != .05:
+        raise ValueError("V5 cannot relabel altered canonical certificate thresholds as original ACRE")
     write_json(root / "CERTIFICATE_FEASIBILITY.json", feasible)
     write_json(root / "REGISTRATION_FREEZE.json", {"source_sha": sha, "registry_sha256": digest(registry), "config": config, "timestamp": utc(), "versions": versions, "torchbench_commit": tb_sha})
     print(f"registered {len(registry)} candidates / {len(splits)} lineages; canonical necessary groups={feasible['required_independent_groups_lower_bound']}; cal={cal}", flush=True)
@@ -291,8 +313,9 @@ def run(root, config, sha, resume):
     else:
         gpu = select_gpu(root, config["resource_wait_seconds"])
         manifest = {"study_id": config["study_id"], "source_sha": sha, "config": config, "registry_sha256": digest(registry),
+                    "prequalification_certificate_and_power_design": feasible,
                     "registry": registry, "versions": versions, "torchbench_commit": tb_sha, "gpu": gpu,
-                    "timestamp": utc(), "python": sys.executable, "precompute": "B cache prefill measured and amortized; A no precompute",
+                    "timestamp": utc(), "python_environment": "equivcompiler/bin/python (absolute canonical path enforced before execution)", "precompute": "B cache prefill measured and amortized; A no precompute",
                     "resource_topology": {"gpu_workers": 1, "simultaneous_seeds": 1, "cpu_threads": 1, "dataloader_workers": 0,
                                           "cpu_affinity": sorted(os.sched_getaffinity(0)), "cpu_numa_binding": "unbound_observed_shared_host"},
                     "lifecycle": {"startup": "reported separately", "construction": "reported separately", "prepare_and_H_forwards": "primary",
@@ -308,6 +331,7 @@ def run(root, config, sha, resume):
     write_csv(root / "QUALIFICATION_MATRIX.csv", [{k: v for k, v in r.items() if k != "checks"} for r in qualified])
     by_split = Counter(r["split"] for r in qualified if r["eligibility"] == "ELIGIBLE")
     feasible = feasibility(cal, by_split["calibration"])
+    feasible["effect_precision_sensitivity"] = power_design
     feasible["primary_effect_final_feasible"] = all(by_split[s] >= config["minimum_pilot_families_per_split"] for s in ("development", "calibration", "final"))
     write_json(root / "CERTIFICATE_FEASIBILITY.json", feasible)
     plan = plan_pairs(qualified, config)
@@ -324,13 +348,13 @@ def run(root, config, sha, resume):
     shake = {"required": config["engineering_pairs"], "actual": len(engineering), "valid": sum(p["valid"] for p in engineering), "pairs": engineering}
     write_json(root / "ENGINEERING_SHAKEDOWN.json", shake)
     if shake["valid"] < config["engineering_minimum_valid"]:
-        finish(root, manifest, registry, qualified, [missing_pair(p, "ENGINEERING_SHAKEDOWN_FAILED") for p in plan], "PLATFORM_UNQUALIFIED_SHAKEDOWN", feasible, shake, time.monotonic() - start)
+        finish(root, manifest, registry, qualified, [r for p in plan for r in missing_measurements(p, config, "ENGINEERING_SHAKEDOWN_FAILED")], "PLATFORM_UNQUALIFIED_SHAKEDOWN" if shake["actual"] == 12 else "UNDERPOWERED_QUALIFICATION_SHAKEDOWN_INCOMPLETE", feasible, shake, time.monotonic() - start)
         return
     from .fault_injection import run_fault_injection
     faults = run_fault_injection(root, config, gpu, engineering_pool[0], index[engineering_pool[0]["family_id"]])
     write_json(root / "FAULT_INJECTION.json", faults)
     if not faults["passed"]:
-        finish(root, manifest, registry, qualified, [missing_pair(p, "FAULT_INJECTION_FAILED") for p in plan], "PLATFORM_UNQUALIFIED_FAULT_INJECTION", feasible, shake, time.monotonic() - start)
+        finish(root, manifest, registry, qualified, [r for p in plan for r in missing_measurements(p, config, "FAULT_INJECTION_FAILED")], "PLATFORM_UNQUALIFIED_FAULT_INJECTION", feasible, shake, time.monotonic() - start)
         return
     final_allowed = feasible["primary_effect_final_feasible"]
     for split in ("development", "calibration", "final"):
@@ -346,9 +370,9 @@ def run(root, config, sha, resume):
                 write_json(root / "FINAL_RELEASE.json", {"study_id": config["study_id"], "timestamp": utc(), "policy_sha256": digest(freeze), "manifest_sha256": digest(manifest)})
         for cell in (p for p in plan if p["split"] == split):
             if split == "final" and not final_allowed:
-                measured = [missing_pair(cell, "MINIMUM_INDEPENDENT_PILOT_FAMILIES_NOT_MET")]
+                measured = missing_measurements(cell, config, "MINIMUM_INDEPENDENT_PILOT_FAMILIES_NOT_MET")
             elif time.monotonic() - start >= config["wall_cap_seconds"] or shutil.disk_usage(root).free < 2**30:
-                measured = [missing_pair(cell, "RESOURCE_CAP")]
+                measured = missing_measurements(cell, config, "RESOURCE_CAP")
             else:
                 measured = measure(cell, index[cell["family_id"]], config, gpu, root)
             pairs.extend(measured)

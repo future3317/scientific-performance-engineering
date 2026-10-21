@@ -59,6 +59,13 @@ def feasibility(
     support_minimum, non_support_minimum = _calibration_minima()
     support_required = max(support_minimum, all_success_groups + 1)
     required_groups = support_required + non_support_minimum
+    mixture_threshold = 1.0 / budget.replay_minimum_delta
+    all_success_e_value_n_minus_1 = 1.0 / (
+        all_success_groups * certificate.p_min ** (all_success_groups - 1)
+    )
+    all_success_e_value_n = 1.0 / (
+        (all_success_groups + 1) * certificate.p_min ** all_success_groups
+    )
     counted_groups = (
         registered_calibration_groups
         if eligible_calibration_groups is None
@@ -86,6 +93,13 @@ def feasibility(
             "p_min": certificate.p_min,
             "delta_mix": budget.replay_minimum_delta,
             "minimum_all_success_independent_support_groups": all_success_groups,
+            "all_success_mixture_e_value_at_n_minus_1": all_success_e_value_n_minus_1,
+            "all_success_mixture_e_value_at_n": all_success_e_value_n,
+            "mixture_e_value_threshold": mixture_threshold,
+            "all_success_crosses_mixture_threshold_at_n": (
+                all_success_e_value_n_minus_1 < mixture_threshold
+                and all_success_e_value_n >= mixture_threshold
+            ),
             "additional_independent_support_holdout_groups": 1,
             "support_groups_required": support_required,
             "non_support_groups_required": non_support_minimum,
