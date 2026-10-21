@@ -104,7 +104,7 @@ def build_registry(seed=20261021):
                 available = name in models[source]
                 entry = timm.models.model_entrypoint(name) if source == "timm" and available else (tv.get_model_builder(name) if available else None)
                 import inspect
-                path = inspect.getsourcefile(entry) if entry else None
+                path = inspect.getsourcefile(inspect.unwrap(entry)) if entry else None
                 source_sha = file_digest(path) if path else None
             rows.append({"candidate_id": f"{source}:{name}", "model": name, "source": source,
                          "family_id": lineage, "lineage_id": lineage, "lineage_basis": basis,

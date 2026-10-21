@@ -41,6 +41,8 @@ class FakeMonitor:
             processes.append({"pid": 987654, "memory_bytes": 1024, "origin": "EXTERNAL"})
             if pgid is None and self.busy_for_samples:
                 self.busy_for_samples -= 1
+                if self.busy_for_samples == 0:
+                    self.busy = False
         if pgid is not None and self.contend_after_go is not None and self.contend_after_go.exists():
             processes.append({"pid": 987654, "memory_bytes": 1024, "origin": "EXTERNAL"})
         return {
@@ -239,6 +241,43 @@ def test_exposure_ignores_idle_wait_samples_when_given_full_trace():
     assert exposure["co_tenant_pids"] == []
 
 
+def test_post_intent_between_arm_contention_excludes_pair_but_idle_wait_does_not():
+    idle = {
+        "phase": "WAITING_FOR_IDLE", "measurement_active": False,
+        "gpu_uuid": GPU, "telemetry_complete": True, "utilization_percent": 0,
+        "compute_processes": [{"pid": 987654, "origin": "EXTERNAL"}],
+        "process_utilization": [],
+    }
+    measured = {
+        "phase": "MEASUREMENT_ACTIVE", "measurement_active": True,
+        "gpu_uuid": GPU, "telemetry_complete": True, "utilization_percent": 0,
+        "compute_processes": [{"pid": 1234, "origin": "STUDY_PROCESS_TREE"}],
+        "process_utilization": [],
+    }
+    between_arms = {
+        "phase": "WAITING_FOR_WORKER_ATTRIBUTION", "measurement_active": False,
+        "gpu_uuid": GPU, "telemetry_complete": True, "utilization_percent": 0,
+        "compute_processes": [{"pid": 2222, "origin": "EXTERNAL"}],
+        "process_utilization": [],
+    }
+    arms = [
+        {"execution_status": "COMPLETE", "scientific_status": "PASS",
+         "arm_identity": {"session_id": "session", "arm_index": i, "gpu_uuid": GPU}}
+        for i in range(2)
+    ]
+
+    result = runtime._session_result(
+        arms=arms, samples=[idle, measured, between_arms, measured],
+        measurement_samples=[measured, measured], gpu_uuid=GPU,
+        started_wall=1.0, started_mono=1.0, ended_wall=2.0, ended_mono=2.0,
+    )
+
+    assert result["exposure_status"] == "CONTENDED"
+    assert result["monitor"]["co_tenant_pids"] == [2222]
+    assert result["monitor"]["premeasurement_co_tenant_pids"] == [987654]
+    assert result["analysis_status"] == "EXCLUDED_PRESPECIFIED"
+
+
 def test_external_pid_during_measurement_is_confirmed_contention(tmp_path, monkeypatch):
     patch_monitor(monkeypatch)
     session = tmp_path / "contended-during-arm"
@@ -372,3 +411,21 @@ def test_started_worker_exit_without_result_is_unknown_not_replayable(tmp_path, 
     assert result["execution_status"] == "UNKNOWN"
     assert result["arms"][0]["execution_status"] == "UNKNOWN"
     assert result["arms"][0]["error_code"] == "WORKER_EXITED_WITHOUT_RESULT"
+
+
+def test_worker_startup_error_result_before_ready_is_acked_as_platform_error(tmp_path, monkeypatch):
+    patch_monitor(monkeypatch)
+    startup_error = textwrap.dedent("""
+        import json, sys, time
+        from pathlib import Path
+        output, ack = Path(sys.argv[1]), Path(sys.argv[2])
+        output.write_text(json.dumps({"execution_status": "ERROR", "error_code": "CUDA_INIT"}))
+        while not ack.exists(): time.sleep(.01)
+    """)
+    worker_command = [sys.executable, "-c", startup_error, "{output}", "{ack}"]
+
+    result = runtime.run_session([worker_command], tmp_path / "startup-error", GPU, 8.0, {})
+
+    assert result["execution_status"] == "ERROR"
+    assert result["platform_status"] == "PLATFORM_FAILURE"
+    assert result["arms"][0]["error_code"] == "WORKER_RESULT_BEFORE_READY"

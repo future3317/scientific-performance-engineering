@@ -103,7 +103,6 @@ def _arm_raw_verification(
     )
     checks["raw_receipt_exists"] = (raw_dir / "receipt.json").is_file()
     checks["raw_result_exists"] = (raw_dir / "result.json").is_file()
-    checks["raw_terminal_event_exists"] = (raw_dir / "events" / "0002-terminal.json").is_file()
 
     raw_events = []
     raw_event_error = None
@@ -139,6 +138,7 @@ def _arm_raw_verification(
         None,
     )
     raw_terminal = next((event for event in raw_events if event.get("kind") == "terminal"), None)
+    checks["raw_terminal_event_exists"] = raw_terminal is not None
     terminal_fields = ("kind", "identity", "arm_execution", "process_returncode", "sequence", "receipt_sha256")
     checks["terminal_event_matches"] = bool(
         embedded_terminal is not None

@@ -34,7 +34,7 @@ def load_model(spec):
         import timm
         if timm.__version__ != spec["source_version"]:
             raise RuntimeError("timm version differs from registered source")
-        if file_digest(inspect.getsourcefile(timm.models.model_entrypoint(spec["model"]))) != spec["source_file_sha256"]:
+        if file_digest(inspect.getsourcefile(inspect.unwrap(timm.models.model_entrypoint(spec["model"])))) != spec["source_file_sha256"]:
             raise RuntimeError("timm model implementation differs from registered source")
         model = timm.create_model(spec["model"], pretrained=False, num_classes=1000).cuda().eval()
         x = torch.randn((spec["batch"], *spec["shape"]), generator=torch.Generator().manual_seed(spec["seed"])).cuda()
@@ -42,7 +42,7 @@ def load_model(spec):
     if spec["source"] == "torchvision":
         import torchvision.models as tv
         import importlib.metadata
-        if importlib.metadata.version("torchvision") != spec["source_version"] or file_digest(inspect.getsourcefile(tv.get_model_builder(spec["model"]))) != spec["source_file_sha256"]:
+        if importlib.metadata.version("torchvision") != spec["source_version"] or file_digest(inspect.getsourcefile(inspect.unwrap(tv.get_model_builder(spec["model"])))) != spec["source_file_sha256"]:
             raise RuntimeError("torchvision model implementation differs from registered source")
     if spec["source"] == "torchbench":
         source_file = Path(spec["torchbench_root"]) / "torchbenchmark/models" / spec["model"] / "__init__.py"
@@ -232,12 +232,17 @@ def main():
     os.environ["TORCHINDUCTOR_AUTOGRAD_CACHE"] = "1"
     os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = "1"
     deadline = time.monotonic() + spec["timeout_s"]
+    ready_written = False
     try:
+        from .run_all import preflight
+        if preflight() != spec["source_sha"]:
+            raise RuntimeError("worker source differs from frozen study source")
         import torch
         torch.cuda.init()
         sentinel = torch.ones(1, device="cuda")
         torch.cuda.synchronize()
         write_json(args.output.with_suffix(".ready.json"), {"pid": os.getpid(), "pgid": os.getpgid(0), "gpu_uuid": spec["gpu_uuid"], "timestamp": utc()})
+        ready_written = True
         while not args.output.with_suffix(".go").exists():
             if time.monotonic() >= deadline:
                 raise TimeoutError("parent attribution start handshake expired")
@@ -248,7 +253,7 @@ def main():
                   "error": str(exc), "error_code": type(exc).__name__, "traceback": traceback.format_exc()}
     result.update({"pid": os.getpid(), "pgid": os.getpgid(0), "timestamp": utc(), "arm_identity": digest(spec)})
     write_json(args.output, result)
-    while not args.ack_path.exists() and time.monotonic() < deadline:
+    while ready_written and not args.ack_path.exists() and time.monotonic() < deadline:
         time.sleep(.02)
 
 

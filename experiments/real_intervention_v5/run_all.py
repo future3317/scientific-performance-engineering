@@ -79,6 +79,7 @@ def make_spec(row, config, gpu, root, *, batch, horizon, mode, arm, scope, quali
             "torchbench_root": TORCHBENCH, "correctness": config["correctness"],
             "timeout_s": config["session_timeout_seconds"], "qualification": qualification,
             "results_root": str(root),
+            "source_sha": read_json(root / "FROZEN_MANIFEST.json")["source_sha"] if (root / "FROZEN_MANIFEST.json").exists() else None,
             "cache_path": str(root / "cache" / row["split"] / scope / arm),
             "reference_path": str(root / "references" / f"{row['family_id']}-b{batch}.pt"),
             "final_release_path": str(root / "FINAL_RELEASE.json")}
@@ -107,6 +108,7 @@ def execute(specs, directory, config, gpu):
         identity = {"study_id": spec["study_id"], "split": spec["split"], "family_id": spec["family_id"],
                     "batch": spec["batch"], "shape": spec["shape"], "source_version": spec["source_version"],
                     "scope": str(directory), "precision": config["precision"], "gpu_uuid": gpu["uuid"]}
+        identity["source_sha"] = spec.get("source_sha")
         if claim.exists() and read_json(claim) != identity:
             raise ValueError("compiler cache belongs to a different experimental scope")
         if not claim.exists():
@@ -132,9 +134,19 @@ def qualify(registry, config, gpu, root, deadline):
             directory = root / "qualification" / row["split"] / row["family_id"] / f"b{batch}"
             spec = make_spec(row, config, gpu, root, batch=batch, horizon=1, mode="qualification", arm="REFERENCE",
                              scope=f"qualification-{row['family_id']}-b{batch}")
-            result = execute([spec], directory, config, gpu)
+            repeated_spec = {**spec, "arm": "REFERENCE_REPEAT", "reference_path": str(root / "references" / f"{row['family_id']}-b{batch}-repeat.pt"),
+                             "cache_path": spec["cache_path"] + "-repeat"}
+            result = execute([spec, repeated_spec], directory, config, gpu)
             payload = result.get("arms", [{}])[0].get("worker_result", {}) if result.get("arms") else {}
-            if config["study"] == "B" and payload.get("baseline", {}).get("passed"):
+            repeated = result["arms"][1].get("worker_result", {}) if len(result.get("arms", [])) == 2 else {}
+            identity_repeatable = bool(payload) and bool(repeated) and all(payload.get(k) == repeated.get(k) for k in ("weights_sha256", "inputs_sha256", "reference_sha256"))
+            repeat_baseline = repeated.get("baseline", {}).get("passed") is True
+            payload["construction_repeatability"] = {"passed": identity_repeatable and repeat_baseline,
+                                                       "reference_repeat_passed": repeat_baseline,
+                                                       "same_weights_inputs_bf16_output": identity_repeatable}
+            if payload.get("candidate", {}).get("passed") is True and not repeated.get("candidate", {}).get("passed"):
+                payload["candidate"] = {"passed": False, "reason": "candidate_correctness_failed_independent_reconstruction"}
+            if config["study"] == "B" and payload.get("baseline", {}).get("passed") and payload["construction_repeatability"]["passed"]:
                 compile_specs = []
                 for arm in ("COMPILE_COLD", "CACHE_PREFILL", "COMPILE_PERSISTENT_CACHE"):
                     s = make_spec(row, config, gpu, root, batch=batch, horizon=1, mode="compile_qualification", arm=arm,
@@ -149,7 +161,7 @@ def qualify(registry, config, gpu, root, deadline):
                 if compilation["analysis_status"] != "VALID_PAIRED":
                     result["analysis_status"] = compilation["analysis_status"]
             checks.append({"batch": batch, "payload": payload, "session_status": result["analysis_status"]})
-        baseline = bool(checks) and all(c.get("payload", {}).get("baseline", {}).get("passed") is True for c in checks)
+        baseline = bool(checks) and all(c.get("payload", {}).get("baseline", {}).get("passed") is True and c.get("payload", {}).get("construction_repeatability", {}).get("passed") is True for c in checks)
         correct = baseline and all(c["payload"].get("candidate", {}).get("passed") is True for c in checks)
         exposure = correct and all(c["session_status"] == "VALID_PAIRED" for c in checks)
         if config["study"] == "A":
@@ -210,7 +222,7 @@ def measure(cell, row, config, gpu, root, *, engineering=False):
     directory = root / ("shakedown" if engineering else "pairs") / cell["split"] / cell["pair_id"]
     result = execute(specs, directory, config, gpu)
     payloads = {s["arm"]: a.get("worker_result", {}) for s, a in zip(specs, result.get("arms", []))}
-    base = {**cell, **{k: result.get(k) for k in ("execution_status", "scientific_status", "platform_status", "exposure_status", "analysis_status", "first_failing_gate", "error_code", "raw_digest")},
+    base = {**cell, "study_id": config["study_id"], "source_sha": specs[0]["source_sha"], **{k: result.get(k) for k in ("execution_status", "scientific_status", "platform_status", "exposure_status", "analysis_status", "first_failing_gate", "error_code", "raw_digest")},
             "timestamp": utc(), "session_receipt": str(directory.relative_to(root) / "terminal.json"),
             "arm_payloads": payloads, "parent_wall_s": result.get("timings", {}).get("session_wall_seconds")}
     if config["study"] == "A":
@@ -300,6 +312,13 @@ def run(root, config, sha, resume):
                                                "approximate_groups_80pct_power_two_sided_5pct": math.ceil(((1.96 + .8416) * sd / effect) ** 2)}
                                               for sd in (.05, .1, .2) for effect in (.02, .05, .1)]
     power_design = feasible["effect_precision_sensitivity"]
+    registered_final_n = sum(s == "final" for s in splits.values())
+    for scenario in power_design:
+        shift = math.sqrt(registered_final_n) * scenario["target_log_effect"] / scenario["assumed_family_sd"]
+        cdf = lambda z: (1 + math.erf(z / math.sqrt(2))) / 2
+        scenario["registered_final_families_optimistic_upper_bound"] = registered_final_n
+        scenario["approximate_power_at_registered_final_n_under_assumptions"] = 1 - cdf(1.96 - shift) + cdf(-1.96 - shift)
+    feasible["primary_effect_power_status"] = "Sensitivity under stated family-SD assumptions; no assured 80 percent power"
     if config["canonical_p_min"] != feasible["canonical_certificate_lower_bound"]["p_min"] or config["delta_total"] != .05:
         raise ValueError("V5 cannot relabel altered canonical certificate thresholds as original ACRE")
     write_json(root / "CERTIFICATE_FEASIBILITY.json", feasible)
@@ -317,6 +336,7 @@ def run(root, config, sha, resume):
                     "registry": registry, "versions": versions, "torchbench_commit": tb_sha, "gpu": gpu,
                     "timestamp": utc(), "python_environment": "equivcompiler/bin/python (absolute canonical path enforced before execution)", "precompute": "B cache prefill measured and amortized; A no precompute",
                     "resource_topology": {"gpu_workers": 1, "simultaneous_seeds": 1, "cpu_threads": 1, "dataloader_workers": 0,
+                                          "reservation": "Per-session advisory flock; no lab-wide scheduler found; shared contention detection required",
                                           "cpu_affinity": sorted(os.sched_getaffinity(0)), "cpu_numa_binding": "unbound_observed_shared_host"},
                     "lifecycle": {"startup": "reported separately", "construction": "reported separately", "prepare_and_H_forwards": "primary",
                                   "steady_probe": "secondary only", "evaluation": "numerical only; no task accuracy", "teardown": "parent wall", "failure_retry": "none"}}
@@ -332,6 +352,7 @@ def run(root, config, sha, resume):
     by_split = Counter(r["split"] for r in qualified if r["eligibility"] == "ELIGIBLE")
     feasible = feasibility(cal, by_split["calibration"])
     feasible["effect_precision_sensitivity"] = power_design
+    feasible["primary_effect_power_status"] = "Independent low-power estimate; no assured 80 percent power; report achieved family interval"
     feasible["primary_effect_final_feasible"] = all(by_split[s] >= config["minimum_pilot_families_per_split"] for s in ("development", "calibration", "final"))
     write_json(root / "CERTIFICATE_FEASIBILITY.json", feasible)
     plan = plan_pairs(qualified, config)
@@ -347,8 +368,10 @@ def run(root, config, sha, resume):
         timers_valid = all(a.get("timer_crosscheck", {}).get("passed") is True for a in measured[0].get("arm_payloads", {}).values())
         engineering.append({"pair_id": cell["pair_id"], "valid": all(p["analysis_status"] == "VALID_PAIRED" for p in measured) and timers_valid, "timers_valid": timers_valid, "records": measured})
     shake = {"required": config["engineering_pairs"], "actual": len(engineering), "valid": sum(p["valid"] for p in engineering), "pairs": engineering}
+    shake["known_scientific_violations"] = sum(any(r["scientific_status"] == "NUMERICAL_UNSAFE" for r in p["records"]) for p in engineering)
+    shake["known_lifecycle_violations"] = sum(any(str(r.get("error_code") or "").startswith("WORKER_") for r in p["records"]) for p in engineering)
     write_json(root / "ENGINEERING_SHAKEDOWN.json", shake)
-    if shake["valid"] < config["engineering_minimum_valid"]:
+    if shake["valid"] < config["engineering_minimum_valid"] or shake["known_scientific_violations"] or shake["known_lifecycle_violations"]:
         finish(root, manifest, registry, qualified, [r for p in plan for r in missing_measurements(p, config, "ENGINEERING_SHAKEDOWN_FAILED")], "PLATFORM_UNQUALIFIED_SHAKEDOWN" if shake["actual"] == 12 else "UNDERPOWERED_QUALIFICATION_SHAKEDOWN_INCOMPLETE", feasible, shake, time.monotonic() - start)
         return
     from .fault_injection import run_fault_injection
