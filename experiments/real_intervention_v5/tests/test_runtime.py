@@ -356,7 +356,7 @@ def test_parent_sigterm_reaps_ready_worker_and_restores_handler(tmp_path):
         command = [sys.executable, "-c", worker, "{output}", "{ack}"]
         try:
             runtime.run_session([command], Path(sys.argv[1]), "GPU-test-uuid", 20.0, {})
-        except InterruptedError:
+        except KeyboardInterrupt:
             Path(sys.argv[2]).write_text(json.dumps({
                 "handler_restored": signal.getsignal(signal.SIGTERM) is previous}))
     ''')
