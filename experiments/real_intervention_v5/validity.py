@@ -102,7 +102,7 @@ def _platform_status(arms: Sequence[Mapping[str, Any]], exposure: str) -> str:
 def classify_pair(arms: list[dict[str, Any]], exposure: dict[str, Any]) -> dict[str, Any]:
     """Derive orthogonal execution, scientific, platform, exposure and analysis states.
 
-    `arms` must contain the ordered baseline then intervention records. Timing
+    `arms` retains execution order; S0/EAGER identifies the baseline. Timing
     validity is not interpreted as scientific harm; numerical failure is kept
     in its own field and excluded from paired effect analysis.
     """
@@ -126,9 +126,18 @@ def classify_pair(arms: list[dict[str, Any]], exposure: dict[str, Any]) -> dict[
     else:
         execution_status = "UNKNOWN"
 
-    if scientific_arms[0] != "PASS":
+    roles = [arm.get("worker_result", {}).get("arm") for arm in arms]
+    if roles.count("S0") == 1:
+        baseline_index = roles.index("S0")
+    elif roles.count("EAGER") == 1:
+        baseline_index = roles.index("EAGER")
+    else:
+        baseline_index = 0
+    baseline_scientific = scientific_arms[baseline_index]
+    intervention_scientific = [value for index, value in enumerate(scientific_arms) if index != baseline_index]
+    if baseline_scientific != "PASS":
         scientific_status = "UNVERIFIED"
-    elif any(value == "NUMERICAL_UNSAFE" for value in scientific_arms[1:]):
+    elif any(value == "NUMERICAL_UNSAFE" for value in intervention_scientific):
         scientific_status = "NUMERICAL_UNSAFE"
     elif all(value == "PASS" for value in scientific_arms):
         scientific_status = "PASS"
@@ -147,7 +156,7 @@ def classify_pair(arms: list[dict[str, Any]], exposure: dict[str, Any]) -> dict[
     elif identity_mismatch:
         analysis_status = "NONCOMPARABLE"
         first_gate = "ARM_IDENTITY"
-    elif scientific_status == "UNVERIFIED" and scientific_arms[0] != "PASS":
+    elif scientific_status == "UNVERIFIED" and baseline_scientific != "PASS":
         analysis_status = "MISSING"
         first_gate = "BASELINE_CORRECTNESS"
     elif scientific_status == "NUMERICAL_UNSAFE":

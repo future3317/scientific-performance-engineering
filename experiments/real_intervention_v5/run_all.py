@@ -17,7 +17,7 @@ import subprocess
 import sys
 import time
 
-from .common import append_jsonl, digest, read_json, utc, write_csv, write_json
+from .common import append_jsonl, digest, file_digest, read_json, utc, write_csv, write_json
 from .registry import assert_split_integrity, build_registry, TORCHBENCH, OVERLAY
 
 PYTHON = "/home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python"
@@ -31,6 +31,24 @@ def preflight():
     if subprocess.check_output(["git", "status", "--porcelain"], text=True).strip():
         raise RuntimeError("freeze requires a clean source worktree")
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+
+def validate_qualification_reuse(root, registry, versions):
+    path = root / "QUALIFICATION_REUSE.json"
+    if not path.exists():
+        return None
+    reuse = read_json(path)
+    if (reuse["worker_sha256"] != file_digest(Path(__file__).with_name("worker.py"))
+            or reuse["registry_sha256"] != digest(registry)
+            or reuse["versions"] != versions):
+        raise RuntimeError("qualification reuse requires identical numerical worker, model universe and environment")
+    for name, expected in reuse["copied_files"].items():
+        path = root / name
+        if path.stat().st_size != expected["bytes"] or file_digest(path) != expected["sha256"]:
+            raise RuntimeError(f"imported qualification bytes changed: {name}")
+    return {"prior_source_sha": reuse["prior_source_sha"], "prior_study_id": reuse["prior_study_id"],
+            "attestation_sha256": file_digest(root / "QUALIFICATION_REUSE.json"),
+            "worker_sha256": reuse["worker_sha256"], "scope": "Performance-blind qualification only; no efficacy outcomes imported"}
 
 
 def gpu_inventory():
@@ -184,7 +202,7 @@ def plan_pairs(qualified, config):
                     for session in range(config["sessions_per_context"]):
                         pair_id = f"{split}-{row['family_id']}-b{batch}-h{h}-s{session}"
                         plan.append({"pair_id": pair_id, "family_id": row["family_id"], "split": split, "batch": batch,
-                                     "horizon": h, "session": session, "order": "AB" if int(digest([config["seed"], pair_id])[:8], 16) % 2 == 0 else "BA",
+                                     "horizon": h, "session": session, "order": "AB" if (int(digest([config["seed"], config["study_id"], split, row["family_id"], batch, h])[:8], 16) + session) % 2 == 0 else "BA",
                                      "contrast": "LAYOUT" if config["study"] == "A" else None,
                                      "features": next(c["payload"]["features"] for c in row["checks"] if c["batch"] == batch)})
     return plan
@@ -296,6 +314,7 @@ def run(root, config, sha, resume):
     start = time.monotonic() - already_elapsed
     deadline = start + config["wall_cap_seconds"]
     registry, versions, tb_sha = build_registry(config["seed"])
+    reuse = validate_qualification_reuse(root, registry, versions)
     splits = assert_split_integrity(registry)
     write_json(root / "V4_READONLY_AUDIT.json", audit_v4(V4_ROOT))
     write_csv(root / "REGISTERED_FAMILIES.csv", registry)
@@ -333,6 +352,7 @@ def run(root, config, sha, resume):
     else:
         gpu = select_gpu(root, config["resource_wait_seconds"], config.get("required_gpu_uuid"))
         manifest = {"study_id": config["study_id"], "source_sha": sha, "config": config, "registry_sha256": digest(registry),
+                    "qualification_origin": reuse,
                     "prequalification_certificate_and_power_design": feasible,
                     "registry": registry, "versions": versions, "torchbench_commit": tb_sha, "gpu": gpu,
                     "timestamp": utc(), "python_environment": "equivcompiler/bin/python (absolute canonical path enforced before execution)", "precompute": "B cache prefill measured and amortized; A no precompute",

@@ -58,7 +58,7 @@ Entry point on the canonical clean server in equivcompiler:
 ```bash
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -u \
   -m experiments.real_intervention_v5.campaign \
-  --results-parent /home/workspace/lrh/RESULTS/evospe-v5-20261021
+  --results-parent /home/workspace/lrh/RESULTS/evospe-v5-20261021-balanced-sessions
 ```
 
 The terminal report exposes registered, baseline-valid, candidate-correct,
@@ -75,3 +75,15 @@ NOT_SUPPORTED while still requiring complete running-process tables, UUID,
 device memory/utilization and the GO/ACK owner lifecycle. They keep the GPU
 selected before any model timing (GPU-520e1aa6-5eae-4984-b76a-724aecac1aae).
 No missing required attribution is reclassified as matched.
+
+Before any formal effect pairs or final access, the OWNERATTRIBUTION preparation
+was stopped to repair two contract defects: semantic S0/EAGER identification
+under reversed arm order, and guaranteed opposite AB/BA orders for the two
+sessions of each context. The BALANCED_SESSIONS identities preserve the entire
+roster, partition, precision, tolerances, GPU UUID, H and batch sets. Closed
+performance-blind qualification receipts and numerical references can be reused
+only with the original source identity, byte hashes, identical numerical worker,
+model-universe identity and environment recorded and verified. Failed receipts
+are retained; imported started/unknown attempts are not replayed. No efficacy
+outcomes are imported and each lineage is counted once. New engineering
+shakedown and formal measurements execute under the balanced source identity.
