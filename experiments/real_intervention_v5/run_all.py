@@ -41,22 +41,23 @@ def gpu_inventory():
         for i in range(n.nvmlDeviceGetCount()):
             h = n.nvmlDeviceGetHandleByIndex(i)
             uid = n.nvmlDeviceGetUUID(h)
+            name, driver = n.nvmlDeviceGetName(h), n.nvmlSystemGetDriverVersion()
             rows.append({"index": i, "uuid": uid.decode() if isinstance(uid, bytes) else uid,
-                         "name": str(n.nvmlDeviceGetName(h)), "memory_used_mib": n.nvmlDeviceGetMemoryInfo(h).used / 2**20,
+                         "name": name.decode() if isinstance(name, bytes) else name, "memory_used_mib": n.nvmlDeviceGetMemoryInfo(h).used / 2**20,
                          "utilization_percent": n.nvmlDeviceGetUtilizationRates(h).gpu,
                          "compute_pids": [p.pid for p in n.nvmlDeviceGetComputeRunningProcesses(h)],
-                         "driver": str(n.nvmlSystemGetDriverVersion()), "timestamp": utc()})
+                         "driver": driver.decode() if isinstance(driver, bytes) else driver, "timestamp": utc()})
         return rows
     finally:
         n.nvmlShutdown()
 
 
-def select_gpu(root, wait_s):
+def select_gpu(root, wait_s, required_uuid=None):
     deadline = time.monotonic() + wait_s
     while True:
         inventory = gpu_inventory()
         append_jsonl(root / "GPU_RESOURCE_SCANS.jsonl", {"timestamp": utc(), "gpus": inventory})
-        idle = [g for g in inventory if not g["compute_pids"] and g["memory_used_mib"] <= 512 and g["utilization_percent"] == 0]
+        idle = [g for g in inventory if (required_uuid is None or g["uuid"] == required_uuid) and not g["compute_pids"] and g["memory_used_mib"] <= 512 and g["utilization_percent"] == 0]
         if idle:
             selected = idle[0]
             write_json(root / "GPU_SELECTION.json", selected)
@@ -330,7 +331,7 @@ def run(root, config, sha, resume):
             raise RuntimeError("resume identity mismatch")
         gpu = manifest["gpu"]
     else:
-        gpu = select_gpu(root, config["resource_wait_seconds"])
+        gpu = select_gpu(root, config["resource_wait_seconds"], config.get("required_gpu_uuid"))
         manifest = {"study_id": config["study_id"], "source_sha": sha, "config": config, "registry_sha256": digest(registry),
                     "prequalification_certificate_and_power_design": feasible,
                     "registry": registry, "versions": versions, "torchbench_commit": tb_sha, "gpu": gpu,
