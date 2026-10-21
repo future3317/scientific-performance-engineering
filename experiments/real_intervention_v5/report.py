@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import tarfile
+import time
 
 from .common import append_jsonl, digest, file_digest, read_json, utc, write_csv, write_json
 
@@ -60,6 +61,8 @@ def resource_ledger(root, pairs, wall_s):
     sessions = set(p["session_receipt"] for p in pairs if p.get("session_receipt"))
     cpu, parent, construction, prepare, forwards, peaks = 0., 0., 0., 0., 0., []
     samples, process_utilization_status = [], set()
+    cache_stats = {"actual_prefill_processes": 0, "actual_persistent_load_processes": 0, "persistent_loads_with_proven_graph_hit": 0,
+                   "graph_cache_hits": 0, "graph_cache_misses": 0, "graph_breaks": 0, "recompiles": 0}
     for relative in sessions:
         path = root / relative
         if not path.exists(): continue
@@ -67,6 +70,14 @@ def resource_ledger(root, pairs, wall_s):
         parent += receipt.get("timings", {}).get("session_wall_seconds", 0.)
         for arm in receipt.get("arms", []):
             payload = arm.get("worker_result", {})
+            if payload.get("arm") == "CACHE_PREFILL": cache_stats["actual_prefill_processes"] += 1
+            if payload.get("arm") == "COMPILE_PERSISTENT_CACHE":
+                cache_stats["actual_persistent_load_processes"] += 1
+                cache_stats["persistent_loads_with_proven_graph_hit"] += bool(payload.get("cache", {}).get("persistent_hit_proven"))
+            cache_stats["graph_cache_hits"] += payload.get("cache", {}).get("hits", 0)
+            cache_stats["graph_cache_misses"] += payload.get("cache", {}).get("misses", 0)
+            cache_stats["graph_breaks"] += sum(payload.get("compile_counters", {}).get("graph_break", {}).values())
+            cache_stats["recompiles"] += sum(v for k, v in payload.get("compile_counters", {}).get("stats", {}).items() if "recompil" in k)
             t = payload.get("timing", {})
             cpu += t.get("child_cpu_s", 0.)
             construction += t.get("model_construction_s", 0.)
@@ -77,11 +88,13 @@ def resource_ledger(root, pairs, wall_s):
             if isinstance(sample.get("utilization_percent"), (int, float)): samples.append(sample["utilization_percent"])
             process_utilization_status.add(str(sample.get("process_utilization_status", "UNAVAILABLE")))
     return {"runner_wall_s_including_wait": wall_s, "efficacy_session_parent_wall_s": parent,
+            "controller_cpu_s": time.process_time(),
             "efficacy_child_cpu_s_lower_bound": cpu, "cpu_exclusions": "qualification/shakedown/controller CPU not included in this lower bound",
             "efficacy_construction_s": construction, "efficacy_prepare_s": prepare, "efficacy_H_forward_s": forwards,
             "gpu_busy_seconds": None, "gpu_busy_seconds_status": "UNKNOWN_NOT_INFERRED_FROM_SAMPLED_DEVICE_UTILIZATION",
             "sampled_device_utilization_mean_percent": sum(samples) / len(samples) if samples else None,
             "device_utilization_samples": len(samples), "process_utilization_status": sorted(process_utilization_status),
+            "compiler_cache_accounting_actual_processes_not_R_scenarios": cache_stats,
             "peak_allocated_bytes": max(peaks) if peaks else None,
             "storage_bytes_before_bundle": sum(p.stat().st_size for p in root.rglob("*") if p.is_file())}
 

@@ -344,7 +344,8 @@ def run(root, config, sha, resume):
     for cell in engineering_pool[:config["engineering_pairs"]]:
         if time.monotonic() >= deadline: break
         measured = measure(cell, index[cell["family_id"]], config, gpu, root, engineering=True)
-        engineering.append({"pair_id": cell["pair_id"], "valid": all(p["analysis_status"] == "VALID_PAIRED" for p in measured), "records": measured})
+        timers_valid = all(a.get("timer_crosscheck", {}).get("passed") is True for a in measured[0].get("arm_payloads", {}).values())
+        engineering.append({"pair_id": cell["pair_id"], "valid": all(p["analysis_status"] == "VALID_PAIRED" for p in measured) and timers_valid, "timers_valid": timers_valid, "records": measured})
     shake = {"required": config["engineering_pairs"], "actual": len(engineering), "valid": sum(p["valid"] for p in engineering), "pairs": engineering}
     write_json(root / "ENGINEERING_SHAKEDOWN.json", shake)
     if shake["valid"] < config["engineering_minimum_valid"]:

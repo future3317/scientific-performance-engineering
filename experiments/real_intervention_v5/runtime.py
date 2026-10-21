@@ -34,6 +34,7 @@ PROCESS_UTILIZATION_GRANULARITY_ASSUMPTION_S = 1.0
 
 def _read_proc() -> dict[int, dict[str, int | str]]:
     rows: dict[int, dict[str, int | str]] = {}
+    page_size = os.sysconf("SC_PAGE_SIZE")
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -43,6 +44,8 @@ def _read_proc() -> dict[int, dict[str, int | str]]:
             rows[int(entry.name)] = {
                 "state": tail[0], "ppid": int(tail[1]), "pgid": int(tail[2]),
                 "session_id": int(tail[3]), "start_ticks": int(tail[19]),
+                "utime_ticks": int(tail[11]), "stime_ticks": int(tail[12]),
+                "rss_bytes": int(tail[21]) * page_size,
             }
         except (OSError, ValueError, IndexError):
             continue
@@ -159,6 +162,8 @@ class _GpuMonitor:
         elif self.process_utilization_status.startswith("UNAVAILABLE:"):
             process_utilization = self.process_utilization_status
 
+        power_mw = _nvml_value(nvml, handle, "nvmlDeviceGetPowerUsage")
+        power_limit_mw = _nvml_value(nvml, handle, "nvmlDeviceGetEnforcedPowerLimit")
         optional = {
             "pstate": _nvml_value(nvml, handle, "nvmlDeviceGetPowerState"),
             "temperature_c": _nvml_value(
@@ -170,16 +175,32 @@ class _GpuMonitor:
             "memory_clock_mhz": _nvml_value(
                 nvml, handle, "nvmlDeviceGetClockInfo", nvml.NVML_CLOCK_MEM,
             ),
-            "power_w": _nvml_value(nvml, handle, "nvmlDeviceGetPowerUsage"),
+            "power_w": power_mw / 1000 if isinstance(power_mw, (int, float)) else power_mw,
+            "power_limit_w": power_limit_mw / 1000
+            if isinstance(power_limit_mw, (int, float)) else power_limit_mw,
         }
         proc_rows = _read_proc()
         owned = set(_process_group_pids(pgid)) if pgid is not None else set()
         if pgid is not None:
-            owned.update(row["pid"] for row in _pid_tree(pgid, proc_rows))
+            group_roots = {
+                pid for pid, row in proc_rows.items()
+                if row["pgid"] == pgid and row["state"] != "Z"
+            }
+            for root_pid in group_roots:
+                owned.update(row["pid"] for row in _pid_tree(root_pid, proc_rows))
         _attribute_process_rows(process_rows, owned)
         self.study_pid_history.update(owned)
         if isinstance(process_utilization, list):
             _attribute_process_rows(process_utilization, owned, self.study_pid_history)
+        owner_tree = _pid_tree(owner_pid, proc_rows)
+        worker_tree = [
+            {"pid": pid, **dict(proc_rows[pid])}
+            for pid in sorted(owned) if pid in proc_rows
+        ]
+        clock_ticks = os.sysconf("SC_CLK_TCK")
+        worker_cpu_ticks = sum(
+            int(row["utime_ticks"]) + int(row["stime_ticks"]) for row in worker_tree
+        )
         required_complete = (
             process_query_error is None
             and uuid is not None
@@ -200,7 +221,14 @@ class _GpuMonitor:
             "process_utilization_status": self.process_utilization_status,
             "optional_fields": optional,
             "owner_pid": owner_pid, "worker_pgid": pgid,
-            "owner_pid_tree": _pid_tree(owner_pid, proc_rows),
+            "owner_pid_tree": owner_tree,
+            "owner_tree_cpu_seconds_lower_bound": sum(
+                int(row["utime_ticks"]) + int(row["stime_ticks"]) for row in owner_tree
+            ) / clock_ticks,
+            "worker_process_tree": worker_tree,
+            "worker_tree_cpu_seconds_lower_bound": worker_cpu_ticks / clock_ticks,
+            "worker_tree_rss_bytes": sum(int(row["rss_bytes"]) for row in worker_tree),
+            "cpu_clock_ticks_per_second": clock_ticks,
             "worker_process_group_pids": sorted(_process_group_pids(pgid)) if pgid is not None else [],
             "telemetry_complete": required_complete,
         }
@@ -296,6 +324,9 @@ def _session_result(*, arms: list[dict[str, Any]], samples: list[dict[str, Any]]
 
 
 def _exposure(samples: Sequence[Mapping[str, Any]], gpu_uuid: str) -> dict[str, Any]:
+    # Resource-selection and pre-GO samples are not session exposure.
+    if any("measurement_active" in sample for sample in samples):
+        samples = [sample for sample in samples if sample.get("measurement_active") is True]
     complete = bool(samples) and all(sample.get("telemetry_complete") is True for sample in samples)
     co_tenant_pids = sorted({
         int(process["pid"])
@@ -386,9 +417,14 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
         if any(path.exists() for path in (intent_path, session_dir / "terminal.json")):
             raise RuntimeError("session identity already has lifecycle records; refusing replay")
         expected_files = [session_dir / f"arm-{index}.result.json" for index in range(len(commands))]
+        for path in (session_dir / "heartbeat.json", session_dir / "telemetry.jsonl"):
+            if path.exists():
+                raise RuntimeError(f"session lifecycle artifact already exists: {path}")
         for index, output in enumerate(expected_files):
             for path in (output, output.with_suffix(".ready.json"), output.with_suffix(".go"),
                          session_dir / f"arm-{index}.ack",
+                         session_dir / f"arm-{index}.started.json",
+                         session_dir / f"arm-{index}.exit.json",
                          output.with_name(output.stem + ".stdout.log"),
                          output.with_name(output.stem + ".stderr.log")):
                 if path.exists():
@@ -414,18 +450,76 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
         measurement_samples: list[dict[str, Any]] = []
         arms: list[dict[str, Any]] = []
         process: subprocess.Popen[bytes] | None = None
+        active_arm_index: int | None = None
         log_handles = []
+        telemetry_stream = None
+        last_telemetry_sync_mono: float | None = None
+        last_heartbeat_mono: float | None = None
         pgid: int | None = None
         error_code: str | None = None
         first_failing_gate: str | None = None
 
+        def write_telemetry(sample: Mapping[str, Any], sample_index: int) -> str:
+            nonlocal last_telemetry_sync_mono
+            record = {**sample, "sample_index": sample_index}
+            record["raw_digest"] = canonical_digest(record)
+            telemetry_stream.write(
+                (json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+            )
+            now = float(sample["timestamp_monotonic"])
+            if last_telemetry_sync_mono is None or now - last_telemetry_sync_mono >= 1.0:
+                os.fsync(telemetry_stream.fileno())
+                last_telemetry_sync_mono = now
+            return str(record["raw_digest"])
+
+        def write_heartbeat(sample: Mapping[str, Any], sample_index: int,
+                            telemetry_digest: str) -> None:
+            nonlocal last_heartbeat_mono
+            heartbeat = {
+                "timestamp_unix": sample["timestamp_unix"],
+                "timestamp_monotonic": sample["timestamp_monotonic"],
+                "sample_index": sample_index,
+                "phase": sample["phase"],
+                "worker_pid": process.pid if process is not None else None,
+                "worker_pgid": pgid,
+                "telemetry_digest": telemetry_digest,
+            }
+            heartbeat["raw_digest"] = canonical_digest(heartbeat)
+            atomic_json(session_dir / "heartbeat.json", heartbeat)
+            last_heartbeat_mono = float(sample["timestamp_monotonic"])
+
         def record_sample(sample: dict[str, Any], phase: str,
                           measurement_active: bool = False) -> None:
+            nonlocal last_heartbeat_mono
             sample["phase"] = phase
             sample["measurement_active"] = measurement_active
             samples.append(sample)
             if measurement_active:
                 measurement_samples.append(sample)
+            if telemetry_stream is not None:
+                sample_index = len(samples) - 1
+                telemetry_digest = write_telemetry(sample, sample_index)
+                if (last_heartbeat_mono is None
+                        or float(sample["timestamp_monotonic"]) - last_heartbeat_mono >= 1.0):
+                    write_heartbeat(sample, sample_index, telemetry_digest)
+
+        def write_exit(arm_index: int, worker: subprocess.Popen[bytes] | None,
+                       worker_pgid: int | None, phase: str,
+                       launch_error: str | None = None) -> None:
+            remaining = sorted(_process_group_pids(worker_pgid)) if worker_pgid is not None else []
+            event = {
+                "arm_index": arm_index,
+                "pid": worker.pid if worker is not None else None,
+                "pgid": worker_pgid,
+                "returncode": worker.poll() if worker is not None else None,
+                "owned_group_remaining": remaining,
+                "phase": phase,
+                "launch_error": launch_error,
+                "timestamp_unix": time.time(),
+                "timestamp_monotonic": time.monotonic(),
+            }
+            event["raw_digest"] = canonical_digest(event)
+            _atomic_marker(session_dir / f"arm-{arm_index}.exit.json", event)
 
         def take_sample(phase: str, pgid: int | None,
                         measurement_active: bool = False) -> dict[str, Any]:
@@ -442,19 +536,18 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
             record_sample(sample, phase, measurement_active)
             return sample
 
-        if threading.current_thread() is threading.main_thread():
-            previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
-            first_sigterm = [True]
-
-            def interrupt_session(signum: int, frame: Any) -> None:
-                if first_sigterm[0]:
-                    first_sigterm[0] = False
-                    raise InterruptedError("V5 session interrupted by SIGTERM")
-
-            signal.signal(signal.SIGTERM, interrupt_session)
-            sigterm_handler_installed = True
-
         try:
+            if threading.current_thread() is threading.main_thread():
+                previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                first_sigterm = [True]
+
+                def interrupt_session(signum: int, frame: Any) -> None:
+                    if first_sigterm[0]:
+                        first_sigterm[0] = False
+                        raise InterruptedError("V5 session interrupted by SIGTERM")
+
+                sigterm_handler_installed = True
+                signal.signal(signal.SIGTERM, interrupt_session)
             _enable_child_subreaper()
             while time.monotonic() < deadline:
                 sample = take_sample("WAITING_FOR_IDLE", None)
@@ -476,11 +569,20 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                     error_code = "GPU_NO_LONGER_IDLE_AT_SESSION_START"
 
             if error_code is None:
-                _atomic_marker(intent_path, {
+                intent = {
                     "gpu_uuid": gpu_uuid, "commands_digest": canonical_digest(commands),
                     "created_unix": time.time(), "created_monotonic": time.monotonic(),
                     "timeout_s": timeout_s,
-                })
+                }
+                intent["raw_digest"] = canonical_digest(intent)
+                _atomic_marker(intent_path, intent)
+                telemetry_fd = os.open(session_dir / "telemetry.jsonl",
+                                       os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                telemetry_stream = os.fdopen(telemetry_fd, "wb", buffering=0)
+                for sample_index, sample in enumerate(samples):
+                    telemetry_digest = write_telemetry(sample, sample_index)
+                if samples:
+                    write_heartbeat(samples[-1], len(samples) - 1, telemetry_digest)
                 child_env = os.environ.copy()
                 child_env.update(env)
                 child_env["CUDA_VISIBLE_DEVICES"] = gpu_uuid
@@ -507,6 +609,7 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                         )
                     except OSError as exc:
                         error_code = f"WORKER_LAUNCH:{type(exc).__name__}"
+                        write_exit(index, None, None, "LAUNCH_FAILED", error_code)
                         arms.append({
                             "execution_status": "ERROR", "scientific_status": "UNVERIFIED",
                             "arm_identity": {"session_id": session_dir.name, "arm_index": index,
@@ -517,6 +620,16 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                         })
                         break
                     pgid = process.pid
+                    active_arm_index = index
+                    started = {
+                        "arm_index": index,
+                        "pid": process.pid,
+                        "pgid": pgid,
+                        "timestamp_unix": time.time(),
+                        "timestamp_monotonic": time.monotonic(),
+                    }
+                    started["raw_digest"] = canonical_digest(started)
+                    _atomic_marker(session_dir / f"arm-{index}.started.json", started)
                     ready_payload: dict[str, Any] | None = None
                     arm_samples_start = len(samples)
                     while time.monotonic() < deadline:
@@ -609,6 +722,8 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                         except subprocess.TimeoutExpired:
                             error_code = "WORKER_ACK_REAP_TIMEOUT"
                             _terminate_group(process, pgid)
+                    if process.poll() is not None and _process_group_pids(pgid):
+                        _terminate_group(process, pgid)
                     ended = time.monotonic()
                     if not ack_sent or error_code == "WORKER_ACK_REAP_TIMEOUT":
                         execution_status = "UNKNOWN"
@@ -633,22 +748,33 @@ def run_session(commands: list[list[str]], session_dir: Path, gpu_uuid: str,
                         "monitor_sample_count": len(samples) - arm_samples_start,
                     }
                     arms.append(arm)
+                    write_exit(index, process, pgid, "ACKED" if ack_sent else "EXITED_BEFORE_ACK")
                     process = None
                     pgid = None
+                    active_arm_index = None
                     if error_code is not None:
                         break
             if len(arms) < len(commands):
                 arms.extend({"execution_status": "NOT_STARTED", "scientific_status": "UNVERIFIED"}
                             for _ in range(len(commands) - len(arms)))
         finally:
-            if process is not None and process.poll() is None and pgid is not None:
-                _terminate_group(process, pgid)
-            for stream in log_handles:
-                if not stream.closed:
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                    stream.close()
-            monitor.close()
+            try:
+                if process is not None:
+                    if process.poll() is None and pgid is not None:
+                        _terminate_group(process, pgid)
+                    if active_arm_index is not None:
+                        write_exit(active_arm_index, process, pgid, "SESSION_FINALLY")
+            finally:
+                for stream in log_handles:
+                    if not stream.closed:
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                        stream.close()
+                if telemetry_stream is not None and not telemetry_stream.closed:
+                    telemetry_stream.flush()
+                    os.fsync(telemetry_stream.fileno())
+                    telemetry_stream.close()
+                monitor.close()
 
         result = _session_result(
             arms=arms, samples=samples, measurement_samples=measurement_samples,

@@ -51,7 +51,13 @@ def _read_object(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     return value, error
 
 
-def _arm_raw_verification(root: Path, pair_id: str, arm_name: str, arm: Mapping[str, Any]) -> dict[str, Any]:
+def _arm_raw_verification(
+    root: Path,
+    pair_id: str,
+    arm_name: str,
+    arm: Mapping[str, Any],
+    selected_gpu_uuid: Any,
+) -> dict[str, Any]:
     embedded_events = arm.get("events")
     embedded_events = embedded_events if isinstance(embedded_events, list) else []
     started = [
@@ -84,6 +90,8 @@ def _arm_raw_verification(root: Path, pair_id: str, arm_name: str, arm: Mapping[
         and embedded_identity_events
         and isinstance(arm_identity, Mapping)
         and arm_identity in embedded_identity_events
+        and arm.get("source_commit") in source_commits
+        and arm.get("runtime_gpu_uuid") in gpu_uuids
         and all(
             identity.get("attempt_id") == expected_attempt_id
             and identity.get("pair_id") == pair_id
@@ -122,6 +130,9 @@ def _arm_raw_verification(root: Path, pair_id: str, arm_name: str, arm: Mapping[
     raw_gpus = {str(identity.get("gpu_uuid")) for identity in raw_identity_events if identity.get("gpu_uuid")}
     checks["event_source_commit_matches"] = raw_commits == source_commits and len(source_commits) == 1
     checks["event_gpu_uuid_matches"] = raw_gpus == gpu_uuids and len(gpu_uuids) == 1
+    checks["selected_gpu_uuid_matches_events"] = (
+        selected_gpu_uuid is not None and str(selected_gpu_uuid) in gpu_uuids
+    )
 
     embedded_terminal = next(
         (event for event in embedded_events if isinstance(event, Mapping) and event.get("kind") == "terminal"),
@@ -146,23 +157,35 @@ def _arm_raw_verification(root: Path, pair_id: str, arm_name: str, arm: Mapping[
     raw_receipt_worker = raw_receipt.get("worker_result") if raw_receipt else None
     worker_fields = (
         "arm_execution", "scientific_correctness", "weights_sha256",
-        "inputs_sha256", "reference_sha",
+        "inputs_sha256", "reference_sha256",
     )
     worker_checks = {}
     for field in worker_fields:
         embedded_value = embedded_worker.get(field) if isinstance(embedded_worker, Mapping) else None
         raw_value = raw_result.get(field) if raw_result else None
         receipt_value = raw_receipt_worker.get(field) if isinstance(raw_receipt_worker, Mapping) else None
-        pair_value = arm.get(field)
         worker_checks[field] = (
             embedded_value is not None
             and raw_value is not None
             and receipt_value is not None
-            and pair_value is not None
-            and embedded_value == raw_value == receipt_value == pair_value
+            and embedded_value == raw_value == receipt_value
         )
     checks["worker_fields_match"] = all(worker_checks.values())
-    raw_worker_identity = raw_result.get("identity") if raw_result else None
+    checks["arm_execution_matches_worker_result"] = bool(
+        isinstance(embedded_worker, Mapping)
+        and arm.get("arm_execution") is not None
+        and arm.get("arm_execution") == embedded_worker.get("arm_execution")
+    )
+    checks["raw_worker_result_matches_embedded"] = bool(
+        isinstance(embedded_worker, Mapping)
+        and isinstance(raw_receipt_worker, Mapping)
+        and embedded_worker == raw_receipt_worker
+    )
+    checks["raw_worker_result_matches_result_file"] = bool(
+        isinstance(raw_receipt_worker, Mapping)
+        and isinstance(raw_result, Mapping)
+        and raw_receipt_worker == raw_result
+    )
     raw_receipt_identity = raw_receipt.get("identity") if raw_receipt else None
     checks["raw_receipt_identity_matches_events"] = bool(
         isinstance(raw_receipt_identity, Mapping)
@@ -170,17 +193,15 @@ def _arm_raw_verification(root: Path, pair_id: str, arm_name: str, arm: Mapping[
     )
     checks["raw_source_commit_matches_events"] = bool(
         raw_receipt
-        and raw_result
         and raw_receipt.get("source_commit") in source_commits
-        and isinstance(raw_worker_identity, Mapping)
-        and raw_worker_identity.get("source_commit") in source_commits
+        and isinstance(raw_receipt_identity, Mapping)
+        and raw_receipt_identity.get("source_commit") in source_commits
     )
     checks["raw_gpu_uuid_matches_events"] = bool(
         raw_receipt
-        and raw_result
         and raw_receipt.get("runtime_gpu_uuid") in gpu_uuids
-        and isinstance(raw_worker_identity, Mapping)
-        and raw_worker_identity.get("gpu_uuid") in gpu_uuids
+        and isinstance(raw_receipt_identity, Mapping)
+        and raw_receipt_identity.get("gpu_uuid") in gpu_uuids
     )
     verified = all(value is True for value in checks.values())
     return {
@@ -199,6 +220,16 @@ def _arm_raw_verification(root: Path, pair_id: str, arm_name: str, arm: Mapping[
 
 def _audit_raw_receipts(root: Path, pairs: list[dict[str, Any]], pairs_error: str | None) -> dict[str, Any]:
     if pairs_error is not None:
+        summary = {
+            "status": "not_verified",
+            "reason": "PAIRS.jsonl unavailable or invalid",
+            "started_arms": None,
+            "verified_arms": None,
+            "not_verified_arms": None,
+            "source_commit_counts": {},
+            "gpu_uuid_counts": {},
+            "failed_check_counts": {},
+        }
         return {
             "status": "not_verified",
             "reason": "PAIRS.jsonl unavailable or invalid",
@@ -207,6 +238,7 @@ def _audit_raw_receipts(root: Path, pairs: list[dict[str, Any]], pairs_error: st
             "not_verified_arms": None,
             "source_commit_counts": {},
             "gpu_uuid_counts": {},
+            "summary": summary,
             "arms": [],
         }
     arm_results = []
@@ -218,16 +250,43 @@ def _audit_raw_receipts(root: Path, pairs: list[dict[str, Any]], pairs_error: st
             arm = pair.get(arm_name)
             if not isinstance(arm, Mapping):
                 continue
-            result = _arm_raw_verification(root, pair_id, arm_name, arm)
+            result = _arm_raw_verification(
+                root, pair_id, arm_name, arm, pair.get("selected_gpu_uuid")
+            )
             if result:
                 pair_arm_count += 1
                 arm_results.append(result)
-        if pair.get("started") is True and pair_arm_count < 2:
+        classification = pair.get("classification")
+        if (
+            isinstance(classification, Mapping)
+            and classification.get("arm_execution") == "COMPLETE"
+            and pair_arm_count < 2
+        ):
             started_pairs_missing_arm_events += 1
     verified_count = sum(row["status"] == "verified" for row in arm_results)
     source_counts = Counter(row["source_commit"] or "not_verified" for row in arm_results)
     gpu_counts = Counter(row["gpu_uuid"] or "not_verified" for row in arm_results)
     missing_arm_event = started_pairs_missing_arm_events > 0
+    failed_checks = Counter(
+        check_name
+        for arm_result in arm_results
+        for check_name, passed in arm_result["checks"].items()
+        if passed is not True
+    )
+    summary = {
+        "status": (
+            "verified"
+            if arm_results and verified_count == len(arm_results) and not missing_arm_event
+            else "not_verified"
+        ),
+        "started_arms": len(arm_results),
+        "verified_arms": verified_count,
+        "not_verified_arms": len(arm_results) - verified_count,
+        "started_pairs_missing_arm_start_events": started_pairs_missing_arm_events,
+        "source_commit_counts": dict(source_counts),
+        "gpu_uuid_counts": dict(gpu_counts),
+        "failed_check_counts": dict(failed_checks),
+    }
     return {
         "status": (
             "verified"
@@ -240,6 +299,7 @@ def _audit_raw_receipts(root: Path, pairs: list[dict[str, Any]], pairs_error: st
         "started_pairs_missing_arm_start_events": started_pairs_missing_arm_events,
         "source_commit_counts": dict(source_counts),
         "gpu_uuid_counts": dict(gpu_counts),
+        "summary": summary,
         "arms": arm_results,
     }
 
@@ -336,62 +396,59 @@ def audit_v4(root: Path) -> dict[str, Any]:
         pair_ids = [str(row.get("pair_id") or "") for row in pairs]
         unique_ids = len(pair_ids) == len(set(pair_ids)) and all(pair_ids)
         result["counts"]["pair_rows"] = _value(len(pairs), "PAIRS.jsonl")
+        result["denominator_checks"]["pair_ids_unique_and_present"] = unique_ids
+        classifications = []
+        for row in pairs:
+            classification = row.get("classification")
+            if isinstance(classification, Mapping):
+                arm_execution = classification.get("arm_execution")
+                comparability = classification.get("paired_comparability")
+                if arm_execution and comparability:
+                    classifications.append((str(arm_execution), str(comparability)))
+        classification_counts = Counter(classifications)
+        result["pair_classification_counts"] = {
+            f"{execution}/{comparability}": count
+            for (execution, comparability), count in sorted(classification_counts.items())
+        }
+        all_classified = len(classifications) == len(pairs)
+        complete_pairs = sum(execution == "COMPLETE" for execution, _ in classifications)
         result["counts"]["started_pairs_from_rows"] = _value(
-            sum(row.get("started") is True for row in pairs), "PAIRS.jsonl:started"
+            complete_pairs if all_classified else None,
+            "PAIRS.jsonl:classification.arm_execution",
+            verified=all_classified,
         )
         result["counts"]["closed_pairs_from_rows"] = _value(
-            sum(row.get("closed") is True for row in pairs), "PAIRS.jsonl:closed"
+            complete_pairs if all_classified else None,
+            "PAIRS.jsonl:classification.arm_execution",
+            verified=all_classified,
         )
-        statuses = [str(row.get("effect_status", "")).lower() for row in pairs]
-        if statuses and all(statuses):
-            status_counts = Counter(statuses)
-            categories = {
-                "valid_pairs_from_rows": {"valid", "valid_pair"},
-                "unsafe_pairs_from_rows": {"unsafe"},
-                "infrastructure_pairs_from_rows": {"infra", "infrastructure"},
-                "baseline_invalid_pairs_from_rows": {"baseline_invalid"},
-                "candidate_invalid_pairs_from_rows": {"candidate_invalid"},
-                "exposure_confounded_pairs_from_rows": {"noise", "contended", "exposure_confounded"},
-                "telemetry_unknown_pairs_from_rows": {"unknown", "telemetry_unknown"},
-                "not_started_pairs_from_rows": {"unstarted", "not_started"},
-                "ineligible_pairs_from_rows": {"ineligible"},
-            }
-            for key, labels in categories.items():
-                result["counts"][key] = _value(
-                    sum(status_counts[status] for status in labels), "PAIRS.jsonl:effect_status"
-                )
-            result["pair_effect_status_counts"] = dict(status_counts)
-        else:
-            for key in (
-                "valid_pairs_from_rows",
-                "unsafe_pairs_from_rows",
-                "infrastructure_pairs_from_rows",
-                "baseline_invalid_pairs_from_rows",
-                "candidate_invalid_pairs_from_rows",
-                "exposure_confounded_pairs_from_rows",
-                "telemetry_unknown_pairs_from_rows",
-                "not_started_pairs_from_rows",
-                "ineligible_pairs_from_rows",
-            ):
-                result["counts"][key] = _value(None, "PAIRS.jsonl:effect_status", verified=False)
-        result["denominator_checks"]["pair_ids_unique_and_present"] = unique_ids
-        if statuses and all(statuses):
-            result["denominator_checks"]["pair_statuses_close_to_pair_rows"] = (
-                sum(status_counts.values()) == len(pairs)
+        class_to_category = {
+            ("COMPLETE", "MATCHED"): "valid_pairs_from_rows",
+            ("COMPLETE", "CONFOUNDED"): "exposure_confounded_pairs_from_rows",
+            ("COMPLETE", "UNKNOWN"): "telemetry_unknown_pairs_from_rows",
+            ("NOT_STARTED", "INCOMPLETE"): "not_started_pairs_from_rows",
+        }
+        mapped = all_classified and all(key in class_to_category for key in classifications)
+        row_category_keys = (
+            "valid_pairs_from_rows", "unsafe_pairs_from_rows",
+            "infrastructure_pairs_from_rows", "baseline_invalid_pairs_from_rows",
+            "candidate_invalid_pairs_from_rows", "exposure_confounded_pairs_from_rows",
+            "telemetry_unknown_pairs_from_rows", "not_started_pairs_from_rows",
+            "ineligible_pairs_from_rows",
+        )
+        row_category_counts = Counter()
+        for key in classifications:
+            if key in class_to_category:
+                row_category_counts[class_to_category[key]] += 1
+        for key in row_category_keys:
+            result["counts"][key] = _value(
+                row_category_counts[key] if mapped else None,
+                "PAIRS.jsonl:classification",
+                verified=mapped,
             )
-            recognized_statuses = {
-                "valid", "valid_pair", "unsafe", "infra", "infrastructure",
-                "baseline_invalid", "candidate_invalid", "noise", "contended",
-                "exposure_confounded", "unknown", "telemetry_unknown", "unstarted",
-                "not_started", "ineligible",
-            }
-            result["denominator_checks"]["pair_outcome_categories_close_to_pair_rows"] = (
-                all(status in recognized_statuses for status in statuses)
-                and sum(
-                    status_counts[status]
-                    for status in recognized_statuses
-                ) == len(pairs)
-            )
+        result["denominator_checks"]["pair_outcome_categories_close_to_pair_rows"] = (
+            mapped and sum(row_category_counts.values()) == len(pairs)
+        )
         if metrics_error is None:
             for row_count, metric_count in (
                 ("pair_rows", "planned_pairs"),

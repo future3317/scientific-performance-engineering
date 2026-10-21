@@ -6,7 +6,7 @@
   "horizons": [1, 16, 128, 1024],
   "sessions_per_context": 2,
   "precision": "BF16_AUTOCAST_BOTH_ARMS_FP32_WEIGHTS_TF32_DISABLED",
-  "correctness": {"rtol": 0.02, "atol": 0.002},
+  "correctness": {"rtol": 0.02, "atol": 0.002, "relative_l2_max": 0.02},
   "correctness_basis": "Elementwise 2 percent relative plus .002 absolute; BF16 unit roundoff .00390625; output tree/dtype/finite exact; A/A exact. No tolerance changes after registration. FP32 deviation is reported separately, not task accuracy.",
   "gpu_policy": "SHARED_GPU_MATCHED_SESSION_V1",
   "resource_wait_seconds": 3600,
