@@ -340,6 +340,12 @@ def run(root, config, sha, resume):
                                           "cpu_affinity": sorted(os.sched_getaffinity(0)), "cpu_numa_binding": "unbound_observed_shared_host"},
                     "lifecycle": {"startup": "reported separately", "construction": "reported separately", "prepare_and_H_forwards": "primary",
                                   "steady_probe": "secondary only", "evaluation": "numerical only; no task accuracy", "teardown": "parent wall", "failure_retry": "none"}}
+        test_receipt = root.parent / "PRE_EXPERIMENT_TESTS.json"
+        if test_receipt.exists():
+            tests = read_json(test_receipt)
+            if tests.get("source_sha") != sha or tests.get("exit_code") != 0:
+                raise RuntimeError("pre-experiment test receipt does not attest this source")
+            manifest["pre_experiment_tests"] = tests
         write_json(root / "FROZEN_MANIFEST.json", manifest)
     (root / "references").mkdir(exist_ok=True)
     pairs, qualified = [], []

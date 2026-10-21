@@ -84,3 +84,22 @@ def test_qualification_rejects_different_reconstructed_weights(tmp_path, monkeyp
     observed = run_all.qualify([row], config, {"uuid": "GPU-a"}, tmp_path, time.monotonic() + 30)
     assert not observed[0]["baseline_valid"]
     assert observed[0]["eligibility"] == "QUALIFICATION_FAILED"
+
+
+def test_two_studies_export_together_without_pooling_effects(tmp_path):
+    from experiments.real_intervention_v5.campaign import combine_results
+    import json
+    results = []
+    for study in ("A", "B"):
+        root = tmp_path / study
+        root.mkdir()
+        write_json(root / "V5_METRICS.json", {"study_id": study})
+        (root / "V5_SUMMARY.md").write_text(study)
+        (root / "PAIRS.jsonl").write_text(json.dumps({"pair_id": "one", "contrast": study}) + "\n")
+        results.append({"root": str(root), "study_id": study})
+    combine_results(tmp_path, "source", results)
+    assert read_json(tmp_path / "V5_METRICS.json")["study_effects_never_pooled"]
+    assert set(read_json(tmp_path / "V5_METRICS.json")["studies"]) == {"A", "B"}
+    rows = [json.loads(line) for line in (tmp_path / "PAIRS.jsonl").read_text().splitlines()]
+    assert [r["study_id"] for r in rows] == ["A", "B"]
+    assert read_json(tmp_path / "BUNDLE_VALIDATION.json")["status"] == "PASS"
