@@ -109,7 +109,7 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
     if config["study"] == "B":
         prefill, pspec = execute("PREFILL")
         if measurable(prefill):
-            destination = directory / "published_cache"
+            destination = root / "cache" / scope / "published"
             if destination.exists():
                 manifest = read_json(destination.with_suffix(".manifest.json"))
                 if manifest["compatibility"] != pspec["cache_compatibility"]:
@@ -117,6 +117,7 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
                 published = str(destination)
             else:
                 published = publish_cache(pspec["cache_path"], destination, pspec["cache_compatibility"])
+            write_json(directory / "CACHE_ARTIFACT.json", read_json(destination.with_suffix(".manifest.json")))
     deployment_rows = []
     if config["study"] == "A" or published:
         for index in range(count):

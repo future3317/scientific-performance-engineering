@@ -48,7 +48,10 @@ def test_policy_freeze_uses_disjoint_splits_and_final_features_only():
     assert research_model["training_feature_min"]
     assert research_model["training_feature_max"]
     assert frozen["final_predictions"][-1]["predictions"]["ACRE_SYS_RESEARCH"] is False
-    assert all(set(item) == {"family_id", "context_id", "predictions"}
+    assert frozen["final_predictions"][-1]["research_context_status"] == "OOD_NEVER"
+    assert all(set(item) == {
+        "family_id", "context_id", "routing_overhead_ns", "research_context_status", "predictions"
+    }
                for item in frozen["final_predictions"])
 
     with pytest.raises(ValueError, match="pre-execution only"):
@@ -82,6 +85,7 @@ def test_summary_keeps_missing_outcomes_and_reports_family_paired_policy_ci():
     assert result["overall"]["missing_rows"] == 1
     assert result["overall"]["planned_families"] == 4
     assert result["overall"]["raw_s0_seconds"] == 16.0
+    assert result["overall"]["missingness_bounds"] == {"lower": "-unbounded", "upper": "+unbounded"}
     assert result["policies"]["ALWAYS"]["missing_rows"] == 1
     assert result["research_minus_best_simple"]["raw_seconds_net_benefit_difference"]["paired_family_contexts"] <= 8
 
@@ -105,12 +109,14 @@ def test_frozen_policy_seconds_subtract_measured_routing_overhead_and_pair_conte
     overhead = {"H_ONLY": 0.001, "SIMPLE": 0.002, "ACRE_SYS_RESEARCH": 0.01}
 
     result = summarize(outcomes, frozen, routing_overhead_s=overhead)
-    assert result["policies"]["ALWAYS"]["seconds"]["net_benefit_s"] == 8.0
+    assert result["policies"]["ALWAYS"]["seconds"]["net_benefit_s"] == pytest.approx(8.0)
     for name, cost in overhead.items():
         seconds = result["policies"][name]["seconds"]
         assert seconds["status"] == "COMPLETE"
-        assert seconds["net_benefit_s"] == seconds["gross_savings_s"] - seconds["routing_overhead_s"]
-        assert seconds["routing_overhead_s"] == cost * len(contexts)
+        assert seconds["net_benefit_s"] == pytest.approx(
+            seconds["gross_savings_s"] - seconds["routing_overhead_s"]
+        )
+        assert seconds["routing_overhead_s"] == pytest.approx(cost * len(contexts))
     difference = result["research_minus_best_simple"]["raw_seconds_net_benefit_difference"]
     assert difference["paired_family_contexts"] == len(contexts)
     assert len(difference["family_bootstrap_ci95"]) == 2
@@ -149,6 +155,7 @@ def test_summary_weights_families_equally_and_bootstrap_is_deterministic():
     second = summarize(rows)["overall"]
 
     assert first["family_equal_mean_log_benefit"] == 1.25
+    assert first["family_mean_log_benefit"] == {"a": 3.5, "b": -1.0}
     assert first["planned_families"] == 3
     assert first["missing_families"] == 1
     assert first["estimate_status"] == "INCOMPLETE_OBSERVED_ONLY"
