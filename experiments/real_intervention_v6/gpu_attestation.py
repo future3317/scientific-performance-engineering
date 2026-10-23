@@ -142,15 +142,17 @@ def child(folder, uuid):
     wait("exit.go")
 
 
-def probe(folder, uuid):
+def probe(folder, uuid, timeout_s=90):
+    deadline = time.monotonic() + timeout_s
     folder.mkdir(parents=True, exist_ok=False)
     before = snapshot(uuid)
     if before["memory_used_bytes"] > 512 * 1024**2 or before["util_percent"] != 0 or any(q.get("rows") for q in before["nvml"].values()):
         raise RuntimeError("selected GPU no longer idle; no sentinel launched")
+    if time.monotonic() >= deadline:
+        raise TimeoutError("sentinel campaign deadline before launch")
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": uuid, "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1"}
     with (folder / "stdout.log").open("xb") as out, (folder / "stderr.log").open("xb") as err:
         process = subprocess.Popen([sys.executable, "-u", "-m", "experiments.real_intervention_v6.gpu_attestation", "--child", "--root", str(folder), "--uuid", uuid], env=env, stdout=out, stderr=err, start_new_session=True)
-        deadline = time.monotonic() + 90
         try:
             identity = proc_identity(process.pid)
             wait_file(folder / "before.json", process, deadline)

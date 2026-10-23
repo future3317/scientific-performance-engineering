@@ -19,8 +19,22 @@ def old_root(study):
     return V5_ROOT / ("EVOSPE_V5_LAYOUT_BF16_20261021_BALANCED_SESSIONS" if study == "A" else "EVOSPE_V5_COMPILE_CACHE_20261021_BALANCED_SESSIONS")
 
 
-def freeze(root, config, gpu):
+def environment_identity():
     import importlib.metadata
+    import torch
+    import pynvml
+    versions = {p: importlib.metadata.version(p) for p in ("torch", "torchvision", "timm", "triton", "nvidia-ml-py", "numpy")}
+    pynvml.nvmlInit()
+    try:
+        driver = pynvml.nvmlSystemGetDriverVersion()
+    finally:
+        pynvml.nvmlShutdown()
+    versions.update({"cuda_runtime": torch.version.cuda, "cudnn": torch.backends.cudnn.version(),
+                     "driver": driver.decode() if isinstance(driver, bytes) else str(driver)})
+    return versions
+
+
+def freeze(root, config, gpu):
     sha = preflight()
     old = old_root(config["study"])
     snapshot = read_json(old / "QUALIFICATION_SNAPSHOT.json")
@@ -28,7 +42,7 @@ def freeze(root, config, gpu):
     cohort = build_cohort(snapshot, sorted(exposed), config["study"], config["split_seed"])
     if not cohort["sample_feasibility"]["independent_pilot"]["feasible"]:
         raise RuntimeError("correctness-qualified independent family cohort insufficient even for pilot")
-    versions = {p: importlib.metadata.version(p) for p in ("torch", "torchvision", "timm", "triton", "nvidia-ml-py", "numpy")}
+    versions = environment_identity()
     manifest = {"study_id": config["study_id"], "source_sha": sha, "config": config, "gpu": gpu,
                 "cohort": cohort, "versions": versions, "prior_qualification_source": V5_SHA,
                 "prior_qualification_sha256": file_digest(old / "QUALIFICATION_SNAPSHOT.json"),
@@ -70,7 +84,7 @@ def spec_for(row, cell, config, gpu, root, arm, scope, engineering):
     compatibility = {"source_sha": read_json(root / "FROZEN_MANIFEST.json")["source_sha"], "versions": read_json(root / "FROZEN_MANIFEST.json")["versions"],
                      "gpu_uuid": gpu["uuid"], "family": row["family_id"], "shape": row["shape"], "batch": 1, "precision": config["precision"], "compile": config.get("compile"),
                      "weights_sha256": qualified["weights_sha256"], "inputs_sha256": qualified["inputs_sha256"], "context_id": scope}
-    return {**row, "study_id": config["study_id"], "study": config["study"], "mode": "engineering" if engineering else "measurement", "arm": arm,
+    spec = {**row, "study_id": config["study_id"], "study": config["study"], "mode": "engineering" if engineering else "measurement", "arm": arm,
             "engineering": engineering, "split": "engineering" if engineering else cell["split"], "seed": config["construction_seed"],
             "batch": 1, "horizon": 1 if arm == "PREFILL" else cell["horizon"], "gpu_uuid": gpu["uuid"], "torchbench_root": TORCHBENCH,
             "correctness": config["correctness"], "timeout_s": config["arm_timeout_s"], "source_sha": compatibility["source_sha"],
@@ -78,6 +92,10 @@ def spec_for(row, cell, config, gpu, root, arm, scope, engineering):
             "results_root": str(root), "context_id": scope, "cache_compatibility": compatibility,
             "cache_path": str(root / "cache" / scope / arm),
             "reference_path": str(old_root(config["study"]) / "references" / f"{row['family_id']}-b1.pt")}
+    if spec["split"] == "final":
+        release = read_json(root / "FINAL_RELEASE.json")
+        spec["final_identity"] = {"release_sha256": digest(release), "policy_sha256": release["policy_sha256"]}
+    return spec
 
 
 def measurable(arm):
@@ -101,7 +119,7 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
             if deadline is not None:
                 spec["timeout_s"] = min(spec["timeout_s"], max(1, deadline - time.monotonic()))
             result = run_arm(spec, directory / key, published_cache=published,
-                             idle_wait_s=min(config["idle_wait_s"], max(0, deadline - time.monotonic())) if deadline else config["idle_wait_s"])
+                             idle_wait_s=min(config["idle_wait_s"], max(0, deadline - time.monotonic())) if deadline else config["idle_wait_s"], campaign_deadline=deadline)
         arms[key] = result
         return result, spec
     count = 1 if engineering else config["actual_deployment_jobs"]
@@ -109,15 +127,26 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
     if config["study"] == "B":
         prefill, pspec = execute("PREFILL")
         if measurable(prefill):
+            publication_start = time.monotonic()
             destination = root / "cache" / scope / "published"
             if destination.exists():
                 manifest = read_json(destination.with_suffix(".manifest.json"))
                 if manifest["compatibility"] != pspec["cache_compatibility"]:
                     raise RuntimeError("existing published artifact identity differs")
+                if not (directory / "PREFILL_COST.json").exists():
+                    raise RuntimeError("published cache has no closed publication-cost receipt; historical cost UNKNOWN, no replay")
                 published = str(destination)
             else:
                 published = publish_cache(pspec["cache_path"], destination, pspec["cache_compatibility"])
             write_json(directory / "CACHE_ARTIFACT.json", read_json(destination.with_suffix(".manifest.json")))
+            cost_path = directory / "PREFILL_COST.json"
+            if cost_path.exists():
+                prefill_cost = read_json(cost_path)
+            else:
+                publication_s = time.monotonic() - publication_start
+                prefill_cost = {"worker_parent_wall_s": prefill["parent_wall_s"], "artifact_publication_s": publication_s,
+                                "full_prefill_job_s": prefill["parent_wall_s"] + publication_s}
+                write_json(cost_path, prefill_cost)
     deployment_rows = []
     if config["study"] == "A" or published:
         for index in range(count):
@@ -157,7 +186,7 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
                 used = deployment_rows[:min(reuse, count)]
                 multiplier = reuse / len(used) if contrast.startswith("PROJECTED") else 1
                 s0 = sum(e["parent_wall_s"] for e, c in used) * multiplier
-                s1 = sum(c["parent_wall_s"] for e, c in used) * multiplier + (prefill["parent_wall_s"] if prefill else 0)
+                s1 = sum(c["parent_wall_s"] for e, c in used) * multiplier + (prefill_cost["full_prefill_job_s"] if prefill else 0)
             item.update({"s0_s": s0, "s1_s": s1, "net_saved_s": s0 - s1, "log_benefit": math.log(s0 / s1)})
         records.append(item)
     outcome = {"records": records, "arm_states": dict(Counter(a["primary_pair_status"] for a in arms.values())),

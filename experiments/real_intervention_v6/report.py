@@ -21,6 +21,10 @@ def analyze(root, rows):
             policies = frozen.get("by_contrast", {}).get(contrast) if split == "final" else None
             overhead = policies.get("routing_overhead_s") if policies else None
             per_split[split] = summarize(subset, policies, routing_overhead_s=overhead)
+            if policies:
+                actions = {(p["family_id"], p["context_id"]): p["predictions"] for p in policies["final_predictions"]}
+                for name, summary in per_split[split].get("policies", {}).items():
+                    summary["unsafe_deployment_rows"] = sum(r["primary_pair_status"] == "SCIENTIFIC_UNSAFE" and actions.get((r["family_id"], r["context_id"]), {}).get(name) is True for r in subset)
         analyses[contrast] = per_split
     return analyses
 
@@ -66,20 +70,28 @@ def finish(root, status, rows, *, elapsed_s, blocker=None):
             stream.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
     write_csv(root / "PAIRS.csv", rows)
     attempts = []
-    for path in sorted(root.rglob("terminal.json")):
+    folders = {p.parent for pattern in ("intent.json", "started.json", "terminal.json", "recovery.json") for p in root.rglob(pattern)}
+    for folder in sorted(folders):
+        path = next(folder / name for name in ("terminal.json", "recovery.json", "intent.json", "started.json") if (folder / name).exists())
         arm = read_json(path)
-        attempts.append({"path": str(path.relative_to(root)), "status": arm.get("primary_pair_status"), "execution_status": arm.get("execution_status"),
+        has_started = (folder / "started.json").exists()
+        attempts.append({"path": str(path.relative_to(root)), "known_worker_started": has_started, "intent_present": (folder / "intent.json").exists(),
+                         "status": arm.get("primary_pair_status", "UNKNOWN"), "execution_status": arm.get("execution_status", "UNKNOWN"),
                          "parent_wall_s": arm.get("parent_wall_s"), "child_cpu_s": arm.get("timing", {}).get("child_cpu_s"),
                          "worker_cuda_provenance": arm.get("worker_cuda_provenance"), "co_tenancy_exposure": arm.get("co_tenancy_exposure")})
     write_json(root / "RAW_ATTEMPT_INDEX.json", attempts)
-    metrics = {"status": status, "scientific_status": "PROSPECTIVE_PILOT" if any(r.get("analytically_comparable") for r in rows) else "NO_EFFECT_ESTIMATE",
+    final_measured = any(r.get("analytically_comparable") for r in measured_rows if r["split"] == "final")
+    scientific_status = ("INDEPENDENT_FINAL_PILOT" if final_measured and (root / "FINAL_RELEASE.json").exists()
+                         else "DEVELOPMENT_CALIBRATION_DESCRIPTIVE_ONLY" if any(r.get("analytically_comparable") for r in measured_rows) else "NO_EFFECT_ESTIMATE")
+    metrics = {"status": status, "scientific_status": scientific_status,
                "source_sha": manifest.get("source_sha", start.get("source_sha")), "study_id": manifest.get("study_id", start.get("config", {}).get("study_id")), "gpu": manifest.get("gpu"),
                "v5_raw_modified": False, "formal_contrast_rows": len(rows), "primary_status_counts": dict(Counter(r["primary_pair_status"] for r in rows)),
                "analytically_comparable_rows": sum(r.get("analytically_comparable", False) for r in measured_rows),
                "projected_rows_not_actual_pairs": len(rows) - len(measured_rows),
                "actual_context_sessions_planned": len({r["pair_id"] for r in measured_rows}),
                "independent_measured_families": len({r["family_id"] for r in measured_rows if r.get("analytically_comparable")}),
-               "actual_process_attempts": len(attempts), "final_released": (root / "FINAL_RELEASE.json").exists(),
+               "lifecycle_attempt_records": len(attempts), "definite_worker_starts": sum(a["known_worker_started"] for a in attempts),
+               "unresolved_intents": sum(a["intent_present"] and a["status"] == "UNKNOWN" for a in attempts), "final_released": (root / "FINAL_RELEASE.json").exists(),
                "original_acre_certification": "MATHEMATICALLY_UNREACHABLE_ON_THIS_COHORT",
                "family_analysis": analyze(root, rows),
                "resources": {"runner_wall_s": elapsed_s, "controller_cpu_s": time.process_time(),

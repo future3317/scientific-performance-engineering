@@ -40,6 +40,8 @@ def run(spec):
     cpu_start = time.process_time()
     construction_start = time.perf_counter()
     model, inputs = load_model(spec)
+    if torch.get_num_threads() != 1 or torch.get_num_interop_threads() != 1:
+        raise RuntimeError("model constructor changed the frozen single-thread topology")
     model.to(memory_format=torch.contiguous_format)
     inputs = map_tree(inputs, lambda t: t.contiguous() if t.ndim == 4 else t)
     torch.cuda.synchronize()
@@ -129,16 +131,22 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=Path, required=True)
     args = parser.parse_args()
+    parent_pid = os.getppid()
     spec = read_json(args.spec)
     folder = args.spec.parent
     from experiments.real_intervention_v5.run_all import preflight
     if preflight() != spec["source_sha"]:
         raise RuntimeError("worker frozen code mismatch")
+    from .study import environment_identity
+    if environment_identity() != spec["cache_compatibility"]["versions"]:
+        raise RuntimeError("worker CUDA/runtime/driver/package identity differs from manifest")
     root = Path(spec["results_root"])
     if spec["split"] == "final":
         release = read_json(root / "FINAL_RELEASE.json")
         if release["policy_sha256"] != digest(read_json(root / "POLICY_FREEZE.json")) or release["manifest_sha256"] != digest(read_json(root / "FROZEN_MANIFEST.json")):
             raise RuntimeError("final release identity mismatch")
+        if spec["final_identity"] != {"release_sha256": digest(release), "policy_sha256": release["policy_sha256"]}:
+            raise RuntimeError("arm belongs to a different frozen final release")
     for name, subdir in (("TORCHINDUCTOR_CACHE_DIR", "inductor"), ("TRITON_CACHE_DIR", "triton"), ("CUDA_CACHE_PATH", "cuda")):
         directory = Path(spec["cache_path"]) / subdir
         directory.mkdir(parents=True, exist_ok=True)
@@ -147,6 +155,12 @@ def main():
     deadline = time.monotonic() + spec["timeout_s"]
     ready_written = False
     try:
+        while not (folder / "started.json").exists():
+            if time.monotonic() >= deadline or os.getppid() != parent_pid:
+                raise RuntimeError("parent disappeared before durable STARTED")
+            time.sleep(.02)
+        if read_json(folder / "started.json")["pid"] != os.getpid():
+            raise RuntimeError("STARTED marker belongs to another worker")
         import torch
         torch.set_num_threads(1)
         torch.set_num_interop_threads(1)
@@ -162,7 +176,7 @@ def main():
         write_json(folder / "ready.json", ready)
         ready_written = True
         while not (folder / "go.json").exists():
-            if time.monotonic() >= deadline:
+            if time.monotonic() >= deadline or os.getppid() != parent_pid:
                 raise TimeoutError("GO deadline")
             time.sleep(.02)
         payload = run(spec)
@@ -170,7 +184,7 @@ def main():
     except Exception as exc:
         payload = {"execution_status": "ERROR", "scientific_correctness": "UNKNOWN", "error": str(exc), "traceback": traceback.format_exc()}
     write_json(folder / "result.json", {**payload, "pid": os.getpid(), "source_sha": spec["source_sha"]})
-    while ready_written and not (folder / "ack.json").exists() and time.monotonic() < deadline:
+    while ready_written and not (folder / "ack.json").exists() and time.monotonic() < deadline and os.getppid() == parent_pid:
         time.sleep(.02)
 
 

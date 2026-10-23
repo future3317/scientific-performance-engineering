@@ -38,11 +38,15 @@ def idle(snapshot_row):
             and all(not r.get("rows") and r["status"] == "SUCCESS" for r in snapshot_row["nvml"].values()))
 
 
-def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800):
+def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800, campaign_deadline=None):
     folder = Path(folder)
     terminal = folder / "terminal.json"
+    spec_identity = digest({k: v for k, v in spec.items() if k != "timeout_s"})
     if terminal.exists():
-        return read_json(terminal)
+        receipt = read_json(terminal)
+        if receipt.get("spec_identity") != spec_identity:
+            raise RuntimeError("existing arm code/workload/cache/final identity differs; no replay")
+        return receipt
     folder.mkdir(parents=True, exist_ok=True)
     intent = folder / "intent.json"
     empty = {"execution_status": "NOT_STARTED", "scientific_correctness": "UNKNOWN", "workload_identity": "UNKNOWN",
@@ -55,36 +59,47 @@ def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        wait_deadline = time.monotonic() + idle_wait_s
+        wait_deadline = min(time.monotonic() + idle_wait_s, campaign_deadline) if campaign_deadline is not None else time.monotonic() + idle_wait_s
         while True:
             initial = snapshot(spec["gpu_uuid"])
             append_jsonl(folder / "idle_scans.jsonl", initial)
             if idle(initial):
                 break
             if time.monotonic() >= wait_deadline:
-                result = {**empty, "error": "IDLE_WAIT_TIMEOUT", "primary_pair_status": "NOT_STARTED"}
+                result = {**empty, "error": "IDLE_WAIT_TIMEOUT", "primary_pair_status": "NOT_STARTED", "spec_identity": spec_identity}
                 write_json(terminal, result)
                 return result
             time.sleep(min(10, max(0, wait_deadline - time.monotonic())))
         write_json(intent, {"spec_sha256": digest(spec), "source_sha": spec["source_sha"], "timestamp": utc(), "gpu_uuid": spec["gpu_uuid"]})
         job_start = time.monotonic()
-        if published_cache:
-            manifest = read_json(Path(published_cache).with_suffix(".manifest.json"))
-            if manifest["compatibility"] != spec["cache_compatibility"]:
-                raise RuntimeError("published cache compatibility mismatch")
-            for name, expected in manifest["members"].items():
-                if file_digest(Path(published_cache) / name) != expected:
-                    raise RuntimeError("published cache member changed")
-            shutil.copytree(published_cache, spec["cache_path"])
-        write_json(folder / "spec.json", spec)
+        deadline = min(job_start + spec["timeout_s"], campaign_deadline) if campaign_deadline is not None else job_start + spec["timeout_s"]
+        try:
+            if published_cache:
+                manifest = read_json(Path(published_cache).with_suffix(".manifest.json"))
+                if manifest["compatibility"] != spec["cache_compatibility"]:
+                    raise RuntimeError("published cache compatibility mismatch")
+                for name, expected in manifest["members"].items():
+                    if file_digest(Path(published_cache) / name) != expected:
+                        raise RuntimeError("published cache member changed")
+                shutil.copytree(published_cache, spec["cache_path"])
+            write_json(folder / "spec.json", spec)
+            if time.monotonic() >= deadline:
+                raise TimeoutError("campaign budget expired during prelaunch preparation")
+        except (OSError, ValueError, RuntimeError) as exc:
+            result = {**empty, "error": str(exc), "failure_phase": "BEFORE_PROCESS_LAUNCH", "primary_pair_status": "NOT_STARTED", "spec_identity": spec_identity}
+            write_json(terminal, result)
+            return result
         env = {**os.environ, **environment(), "CUDA_VISIBLE_DEVICES": spec["gpu_uuid"]}
         _enable_child_subreaper()
         samples, result = [], dict(empty)
-        deadline = job_start + spec["timeout_s"]
         with (folder / "stdout.log").open("xb") as out, (folder / "stderr.log").open("xb") as err:
             process = subprocess.Popen([sys.executable, "-u", "-m", "experiments.real_intervention_v6.worker", "--spec", str(folder / "spec.json")], env=env, stdout=out, stderr=err, start_new_session=True)
-            identity = proc_identity(process.pid)
-            write_json(folder / "started.json", {**identity, "source_sha": spec["source_sha"], "timestamp": utc()})
+            try:
+                identity = proc_identity(process.pid)
+                write_json(folder / "started.json", {**identity, "source_sha": spec["source_sha"], "timestamp": utc()})
+            except BaseException:
+                _terminate_group(process, process.pid)
+                raise
             done = threading.Event()
             def watchdog():
                 if not done.wait(max(0, deadline - time.monotonic()) + 5):
@@ -139,14 +154,16 @@ def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800):
                     result["measurement_contract"] = "NOT_COMPARABLE"
                 if process.returncode != 0:
                     result["execution_status"] = "ERROR"
-            except (RuntimeError, TimeoutError) as exc:
-                result.update({"execution_status": "TIMEOUT" if isinstance(exc, TimeoutError) else "ERROR", "error": str(exc)})
+            except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as exc:
+                result.update({"execution_status": "TIMEOUT" if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else "ERROR", "error": str(exc)})
             finally:
                 if process.poll() is None or _process_group_pids(process.pid):
                     _terminate_group(process, process.pid)
                 done.set()
                 result["owned_group_remaining"] = sorted(_process_group_pids(process.pid))
         result["primary_pair_status"] = primary_status(result)
+        result["spec_identity"] = spec_identity
+        result["final_identity"] = spec.get("final_identity")
         result["lifecycle_wall_s"] = time.monotonic() - job_start
         write_json(folder / "all_samples.json", samples)
         write_json(terminal, result)
