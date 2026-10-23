@@ -94,6 +94,14 @@ def idle_device():
     return selected, rows
 
 
+def idle_snapshot(row):
+    required = row["nvml"]["nvmlDeviceGetComputeRunningProcesses"]
+    return (required["status"] == "SUCCESS" and row["cli"]["returncode"] == 0
+            and not row["cli"]["stdout"].strip()
+            and row["memory_used_bytes"] <= 512 * 1024**2 and row["util_percent"] == 0
+            and not any(q.get("rows") for q in row["nvml"].values() if q["status"] == "SUCCESS"))
+
+
 def wait_file(path, process, deadline):
     while not path.exists():
         if process.poll() is not None:
@@ -146,7 +154,7 @@ def probe(folder, uuid, timeout_s=90):
     deadline = time.monotonic() + timeout_s
     folder.mkdir(parents=True, exist_ok=False)
     before = snapshot(uuid)
-    if before["memory_used_bytes"] > 512 * 1024**2 or before["util_percent"] != 0 or any(q.get("rows") for q in before["nvml"].values()):
+    if not idle_snapshot(before):
         raise RuntimeError("selected GPU no longer idle; no sentinel launched")
     if time.monotonic() >= deadline:
         raise TimeoutError("sentinel campaign deadline before launch")

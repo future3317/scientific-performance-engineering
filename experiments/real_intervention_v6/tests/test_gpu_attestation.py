@@ -1,4 +1,4 @@
-from experiments.real_intervention_v6.gpu_attestation import classify, device_uuid
+from experiments.real_intervention_v6.gpu_attestation import classify, device_uuid, idle_snapshot
 
 
 def fixture(pids=(12,), begin=11):
@@ -16,6 +16,15 @@ def test_pre_ready_sample_cannot_attest_ready():
 
 def test_supported_torch_uuid_prefix_difference():
     assert device_uuid("520e1aa6-5eae-4984-b76a-724aecac1aae") == device_uuid("GPU-520e1aa6-5eae-4984-b76a-724aecac1aae")
+
+
+def test_optional_v3_capability_does_not_block_idle_but_cli_foreign_does():
+    row = fixture(pids=())[2][0]
+    row["util_percent"] = 0
+    row["nvml"]["nvmlDeviceGetComputeRunningProcesses_v3"] = {"status": "NVMLError_FunctionNotFound"}
+    assert idle_snapshot(row)
+    row["cli"]["stdout"] = "GPU-A,99,100\n"
+    assert not idle_snapshot(row)
 
 
 def test_empty_processes_not_quiet_even_with_cuda_event():

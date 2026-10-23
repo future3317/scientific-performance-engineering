@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import asdict
 import math
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ from experiments.real_intervention_v5.registry import TORCHBENCH
 from .audit_v5 import V5_ROOT, V5_SHA
 from .eligibility_and_split import build_cohort
 from .execution_adapter import run_arm, publish_cache, primary_status
+from .benchmark_timing_contract import TimingObservation
 
 
 def old_root(study):
@@ -146,6 +148,9 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
                 publication_s = time.monotonic() - publication_start
                 prefill_cost = {"worker_parent_wall_s": prefill["parent_wall_s"], "artifact_publication_s": publication_s,
                                 "full_prefill_job_s": prefill["parent_wall_s"] + publication_s}
+                typed = TimingObservation("PREFILL", "HOST_MONOTONIC", "s", prefill_cost["full_prefill_job_s"], 1, 1, 1,
+                                          "EMPTY", "BEFORE_AFTER", True, scope + ":published_cache_job")
+                prefill_cost["timing_observation"] = {**asdict(typed), "aggregate_seconds": typed.aggregate_seconds, "per_call_seconds": typed.per_call_seconds}
                 write_json(cost_path, prefill_cost)
     deployment_rows = []
     if config["study"] == "A" or published:
@@ -175,19 +180,27 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
         usable = len(selected) == expected and bool(selected) and all(measurable(a) for a in selected)
         state = "NOT_STARTED" if not selected else "VALID" if usable and all(a["primary_pair_status"] == "VALID" for a in selected) else "EXPOSURE_UNCERTAIN" if usable else next((a.get("primary_pair_status", "UNKNOWN") for a in selected if not measurable(a)), "UNKNOWN")
         item = {**cell, "context_id": f"{cell['family_id']}-h{cell['horizon']}-{contrast}", "contrast": contrast, "reuse_count": reuse,
-                "primary_pair_status": state, "analytically_comparable": usable, "confirmatory_eligible": state == "VALID",
+                "primary_pair_status": state, "analytically_comparable": usable, "confirmatory_eligible": state == "VALID" and not contrast.startswith("PROJECTED"),
+                "row_kind": "PROJECTION" if contrast.startswith("PROJECTED") else "ACTUAL_DEPLOYMENT",
                 "evidence_scope": "PROJECTED_COST_SENSITIVITY" if contrast.startswith("PROJECTED") else "EXPLORATORY_SHARED_GPU" if state == "EXPOSURE_UNCERTAIN" else state,
                 "s0_s": None, "s1_s": None, "log_benefit": None, "receipt": str(summary.relative_to(root)),
                 "actual_reuse_jobs_observed": min(reuse, count), "independent_unit": "architecture_family"}
         if usable:
             if contrast == "COLD":
                 s0, s1 = selected[0]["parent_wall_s"], selected[1]["parent_wall_s"]
+                used = [(selected[0], selected[1])]
+                worker_s0, worker_s1 = [a["timing"]["in_worker_job_s"] for a in selected]
             else:
                 used = deployment_rows[:min(reuse, count)]
                 multiplier = reuse / len(used) if contrast.startswith("PROJECTED") else 1
                 s0 = sum(e["parent_wall_s"] for e, c in used) * multiplier
                 s1 = sum(c["parent_wall_s"] for e, c in used) * multiplier + (prefill_cost["full_prefill_job_s"] if prefill else 0)
-            item.update({"s0_s": s0, "s1_s": s1, "net_saved_s": s0 - s1, "log_benefit": math.log(s0 / s1)})
+                worker_s0 = sum(e["timing"]["in_worker_job_s"] for e, c in used) * multiplier
+                worker_s1 = sum(c["timing"]["in_worker_job_s"] for e, c in used) * multiplier + (prefill_cost["full_prefill_job_s"] if prefill else 0)
+            item.update({"s0_s": s0, "s1_s": s1, "net_saved_s": s0 - s1, "log_benefit": math.log(s0 / s1),
+                         "in_worker_s0_s": worker_s0, "in_worker_s1_s": worker_s1,
+                         "steady_s0_s": sum(e["timing"]["steady_per_call_s"] for e, c in used) / len(used),
+                         "steady_s1_s": sum(c["timing"]["steady_per_call_s"] for e, c in used) / len(used)})
         records.append(item)
     outcome = {"records": records, "arm_states": dict(Counter(a["primary_pair_status"] for a in arms.values())),
                "timers_valid": bool(arms) and all(a.get("timer_crosscheck", {}).get("passed") is True for a in arms.values()) if engineering else None}
