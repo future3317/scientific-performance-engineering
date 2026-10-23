@@ -45,6 +45,7 @@ cd /home/workspace/lrh/CODE/scientific-performance-engineering
 /home/workspace/lrh/miniconda3/envs/equivcompiler/bin/python -u \
   -m experiments.real_intervention_v6.run_all \
   --config experiments/real_intervention_v6/config/V6_MAIN_COMPILE.json \
+  --tests-receipt <current-source-validation-root>/CPU_TESTS.json \
   --results-root /home/workspace/lrh/RESULTS/evospe-v6-compile-main-20261023 \
   --resume-safe
 ```
