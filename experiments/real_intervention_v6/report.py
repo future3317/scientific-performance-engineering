@@ -41,7 +41,7 @@ def bundle(root):
     payloads = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
-        if (not path.is_file() or "cache" in relative.parts or "references" in relative.parts
+        if (not path.is_file() or any(part == "cache" or part.endswith(".cache") for part in relative.parts) or "references" in relative.parts
                 or path.name in {"MEMBER_SHA256.json", "EVIDENCE_BUNDLE.tar.gz", "BUNDLE_VALIDATION.json", "runner.lock"}
                 or path.suffix not in {".json", ".jsonl", ".csv", ".md", ".py", ".log"}):
             continue

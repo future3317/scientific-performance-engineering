@@ -38,5 +38,6 @@ def test_actual_R_jobs_and_publication_cost_are_not_replaced_by_steady(tmp_path,
     assert launched.count("PREFILL") == 1
     assert launched.count("RELOAD") == launched.count("EAGER") == 2
     assert launched.count("COLD") == 1
+    assert launched[:4] == ["PREFILL", "EAGER", "COLD", "RELOAD"]
     study.measure(root, cell, row, config, {"uuid": "GPU-FIXTURE"})
     assert len(launched) == 6  # closed identities are loaded, never repeated

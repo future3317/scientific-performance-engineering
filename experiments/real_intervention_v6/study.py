@@ -156,14 +156,14 @@ def measure(root, cell, row, config, gpu, *, engineering=False, deadline=None):
     if config["study"] == "A" or published:
         for index in range(count):
             names = ["EAGER", "LAYOUT" if config["study"] == "A" else "RELOAD"]
+            if config["study"] == "B" and index == 0:
+                names.insert(1, "COLD")
             if (cell["order"] == "BA") ^ (index % 2 == 1):
                 names.reverse()
             for arm in names:
                 execute(arm, index, published if arm == "RELOAD" else None)
-            deployment_rows.append((arms[f"EAGER-{index}"], arms[f"{names[0] if names[0] != 'EAGER' else names[1]}-{index}"]))
-        if config["study"] == "B":
-            execute("COLD")
-    contrasts = [("LAYOUT", 1)] if config["study"] == "A" else [("COLD", 1)] + [(f"PERSISTENT_R{r}", r) for r in config["reported_actual_reuse_counts"]]
+            deployment_rows.append((arms[f"EAGER-{index}"], arms[f"{'LAYOUT' if config['study'] == 'A' else 'RELOAD'}-{index}"]))
+    contrasts = [("LAYOUT", 1)] if config["study"] == "A" else [("COLD", 1)] + [(f"PERSISTENT_R{r}", r) for r in ([1] if engineering else config["reported_actual_reuse_counts"])]
     if not engineering:
         contrasts += [(f"PROJECTED_R{r}", r) for r in config["projected_reuse_counts"]]
     records = []
