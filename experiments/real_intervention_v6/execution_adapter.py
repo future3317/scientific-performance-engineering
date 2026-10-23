@@ -155,10 +155,16 @@ def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800, campaign_de
                 result["measurement_contract"] = "COMPARABLE" if timer_ok else "NOT_COMPARABLE"
                 if spec["arm"] == "RELOAD" and not payload.get("persistent_hit_proven"):
                     result["measurement_contract"] = "NOT_COMPARABLE"
+                if spec["arm"] == "LAYOUT" and not payload.get("layout_evidence", {}).get("active"):
+                    result["measurement_contract"] = "NOT_COMPARABLE"
                 if process.returncode != 0:
                     result["execution_status"] = "ERROR"
             except (RuntimeError, TimeoutError, subprocess.TimeoutExpired) as exc:
                 result.update({"execution_status": "TIMEOUT" if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else "ERROR", "error": str(exc)})
+                if (folder / "result.json").exists():
+                    known = read_json(folder / "result.json")
+                    result.update({"scientific_correctness": known.get("scientific_correctness", "UNKNOWN"),
+                                   "workload_identity": known.get("workload_identity", "UNKNOWN"), "completed_worker_result_path": "result.json"})
             finally:
                 if process.poll() is None or _process_group_pids(process.pid):
                     _terminate_group(process, process.pid)
