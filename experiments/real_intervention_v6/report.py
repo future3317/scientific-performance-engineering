@@ -3,11 +3,12 @@ from collections import Counter
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 import tarfile
 import time
 
-from experiments.real_intervention_v5.common import read_json, write_json, write_csv, digest, utc
+from experiments.real_intervention_v5.common import read_json, write_json, write_csv, digest, utc, file_digest
 from .policy_experiment import summarize
 
 
@@ -21,6 +22,12 @@ def analyze(root, rows):
             policies = frozen.get("by_contrast", {}).get(contrast) if split == "final" else None
             overhead = policies.get("routing_overhead_s") if policies else None
             per_split[split] = summarize(subset, policies, routing_overhead_s=overhead)
+            for prefix in ("in_worker", "steady"):
+                secondary = []
+                for row in subset:
+                    a, b = row.get(prefix + "_s0_s"), row.get(prefix + "_s1_s")
+                    secondary.append({**row, "s0_s": a, "s1_s": b, "log_benefit": math.log(a / b) if a and b else None})
+                per_split[split]["secondary_" + prefix] = summarize(secondary)["overall"]
             if policies:
                 actions = {(p["family_id"], p["context_id"]): p["predictions"] for p in policies["final_predictions"]}
                 for name, summary in per_split[split].get("policies", {}).items():
@@ -57,7 +64,8 @@ def bundle(root):
             data = archive.extractfile(item).read()
             if item.name.startswith("/") or ".." in Path(item.name).parts or len(data) != members[item.name]["bytes"] or hashlib.sha256(data).hexdigest() != members[item.name]["sha256"]:
                 raise RuntimeError(f"bundle validation failed: {item.name}")
-    write_json(root / "BUNDLE_VALIDATION.json", {"status": "PASS", "members_verified": len(members)})
+    write_json(root / "BUNDLE_VALIDATION.json", {"status": "PASS", "members_verified": len(members),
+        "archive_sha256": file_digest(root / "EVIDENCE_BUNDLE.tar.gz"), "member_manifest_sha256": file_digest(root / "MEMBER_SHA256.json")})
 
 
 def finish(root, status, rows, *, elapsed_s, blocker=None):
@@ -86,6 +94,7 @@ def finish(root, status, rows, *, elapsed_s, blocker=None):
     metrics = {"status": status, "scientific_status": scientific_status,
                "source_sha": manifest.get("source_sha", start.get("source_sha")), "study_id": manifest.get("study_id", start.get("config", {}).get("study_id")), "gpu": manifest.get("gpu"),
                "v5_raw_modified": False, "formal_contrast_rows": len(rows), "primary_status_counts": dict(Counter(r["primary_pair_status"] for r in rows)),
+               "actual_contrast_status_counts": dict(Counter(r["primary_pair_status"] for r in measured_rows)),
                "analytically_comparable_rows": sum(r.get("analytically_comparable", False) for r in measured_rows),
                "projected_rows_not_actual_pairs": len(rows) - len(measured_rows),
                "actual_context_sessions_planned": len({r["pair_id"] for r in measured_rows}),

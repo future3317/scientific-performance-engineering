@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fcntl
+from dataclasses import asdict
 import os
 from pathlib import Path
 import shutil
@@ -14,7 +15,8 @@ from experiments.real_intervention_v5.common import read_json, write_json, diges
 from experiments.real_intervention_v5.runtime import _terminate_group, _reservation_path
 from experiments.real_intervention_v4.process_supervisor import _enable_child_subreaper, _process_group_pids
 from experiments.real_intervention_v5.run_all import environment
-from .gpu_attestation import classify, proc_identity, snapshot
+from .gpu_attestation import classify, proc_identity, snapshot, idle_snapshot as idle
+from .benchmark_timing_contract import TimingObservation
 
 
 def primary_status(row):
@@ -31,11 +33,6 @@ def primary_status(row):
     if row.get("co_tenancy_exposure") == "OBSERVED_FOREIGN":
         return "INFRA_INVALID"
     return "VALID" if row["co_tenancy_exposure"] == "VERIFIED_QUIET" else "EXPOSURE_UNCERTAIN"
-
-
-def idle(snapshot_row):
-    return (snapshot_row["memory_used_bytes"] <= 512 * 1024**2 and snapshot_row["util_percent"] == 0
-            and all(not r.get("rows") and r["status"] == "SUCCESS" for r in snapshot_row["nvml"].values()))
 
 
 def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800, campaign_deadline=None):
@@ -89,6 +86,7 @@ def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800, campaign_de
             result = {**empty, "error": str(exc), "failure_phase": "BEFORE_PROCESS_LAUNCH", "primary_pair_status": "NOT_STARTED", "spec_identity": spec_identity}
             write_json(terminal, result)
             return result
+        materialization_s = time.monotonic() - job_start
         env = {**os.environ, **environment(), "CUDA_VISIBLE_DEVICES": spec["gpu_uuid"]}
         _enable_child_subreaper()
         samples, result = [], dict(empty)
@@ -146,8 +144,13 @@ def run_arm(spec, folder, *, published_cache=None, idle_wait_s=1800, campaign_de
                 write_json(folder / "ack.json", {"timestamp": utc()})
                 process.wait(timeout=max(.1, deadline - time.monotonic()))
                 result = {**empty, **payload, **attestation, "parent_wall_s": job_end - job_start,
+                          "cache_copy_and_spec_preparation_s": materialization_s,
                           "parent_wall_scope": "instrumented deployment including cache copy, process import/construction, identity checks, H forwards, numerical/steady probes, result publication; excludes ACK hold/teardown",
                           "exit_code": process.returncode, "ready": ready, "parent_identity": identity}
+                parent_clock = TimingObservation("CACHE_RELOAD" if spec["arm"] == "RELOAD" else "PREFILL" if spec["arm"] == "PREFILL" else "JOB_TOTAL",
+                    "HOST_MONOTONIC", "s", job_end - job_start, 1, 1, 1, "PREFILLED" if spec["arm"] == "RELOAD" else "EMPTY", "BEFORE_AFTER",
+                    spec["arm"] in ("COLD", "PREFILL", "RELOAD"), spec["context_id"] + ":instrumented_parent_job")
+                result["parent_timing_observation"] = {**asdict(parent_clock), "aggregate_seconds": parent_clock.aggregate_seconds, "per_call_seconds": parent_clock.per_call_seconds}
                 timer_ok = not spec["engineering"] or payload.get("timer_crosscheck", {}).get("passed") is True
                 result["measurement_contract"] = "COMPARABLE" if timer_ok else "NOT_COMPARABLE"
                 if spec["arm"] == "RELOAD" and not payload.get("persistent_hit_proven"):

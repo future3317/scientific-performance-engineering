@@ -41,7 +41,8 @@ from experiments.real_intervention_v6 import execution_adapter as adapter
 real_popen = subprocess.Popen
 def cpu_snapshot(_uuid):
     return {"memory_used_bytes": 0, "util_percent": 0,
-            "nvml": {"cpu-fixture": {"rows": [], "status": "SUCCESS"}}}
+            "cli": {"returncode": 0, "stdout": ""},
+            "nvml": {"nvmlDeviceGetComputeRunningProcesses": {"rows": [], "status": "SUCCESS"}}}
 adapter.snapshot = cpu_snapshot
 def start_cpu_worker(*_args, **kwargs):
     child = "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c','import time; time.sleep(600)']); time.sleep(600)"

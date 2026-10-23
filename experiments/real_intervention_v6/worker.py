@@ -100,6 +100,10 @@ def run(spec):
     aggregate = time.perf_counter() - start
     host = TimingObservation("STEADY", "HOST_MONOTONIC", "s", aggregate, 10, 1, 1, "PREFILLED", "BEFORE_AFTER", False, spec["context_id"])
     event = TimingObservation("STEADY", "CUDA_EVENT", "ms", start_event.elapsed_time(stop_event), 10, 1, 1, "PREFILLED", "CUDA_EVENT", False, spec["context_id"])
+    first_observation = TimingObservation("FIRST", "HOST_MONOTONIC", "s", first_s, 1, 1, 1,
+        "PREFILLED" if spec["arm"] == "RELOAD" else "EMPTY", "BEFORE_AFTER", spec["arm"] in ("COLD", "PREFILL", "RELOAD"), spec["context_id"] + ":first_forward")
+    job_observation = TimingObservation("JOB_TOTAL", "HOST_MONOTONIC", "s", prepare_s + first_s + remaining_s,
+        1, 1, 1, "PREFILLED" if spec["arm"] == "RELOAD" else "EMPTY", "BEFORE_AFTER", spec["arm"] in ("COLD", "PREFILL", "RELOAD"), spec["context_id"] + ":prepare_and_H_forwards")
     timer = None
     if spec["engineering"]:
         import torch.utils.benchmark as benchmark
@@ -120,7 +124,7 @@ def run(spec):
             "reference_sha256": nested_digest(reference), "timing": {"construction_s": construction, "prepare_s": prepare_s, "first_forward_s": first_s,
                 "remaining_s": remaining_s, "in_worker_job_s": prepare_s + first_s + remaining_s, "steady_per_call_s": host.per_call_seconds,
                 "cuda_event_per_call_s": event.per_call_seconds, "warmup_call_s": warm, "child_cpu_s": time.process_time() - cpu_start},
-            "timing_observations": [{**asdict(t), "aggregate_seconds": t.aggregate_seconds, "per_call_seconds": t.per_call_seconds} for t in (host, event)],
+            "timing_observations": [{**asdict(t), "aggregate_seconds": t.aggregate_seconds, "per_call_seconds": t.per_call_seconds} for t in (first_observation, job_observation, host, event)],
             "timer_crosscheck": timer, "compile_counters_job_only": job_counter, "cache_members": members,
             "persistent_hit_proven": spec["arm"] == "RELOAD" and hits > 0,
             "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
