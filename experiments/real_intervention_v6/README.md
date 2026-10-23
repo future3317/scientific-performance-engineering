@@ -71,3 +71,24 @@ policy comparisons and routing cost, missingness bounds, raw attempt index, sour
 and a member-verified sanitized bundle. No weight or compiler-cache payload enters
 Git or the export. Historical V5 readiness remains in the paper; V6 effects can be
 added only after legitimate prospective final analysis.
+
+## 2026-10-23 terminal disposition
+
+The frozen `e9a261cff27acf7e1c9c90da2c0087dde6d894eb` campaign closed at
+11:27:46 UTC: primary B exhausted its one-hour idle admission; secondary A was
+`NOT_RUN_RESOURCE_CONSTRAINT`. All 121 six-GPU scans (726 device observations)
+showed foreign compute. No CUDA worker, engineering slot, formal pair, cohort
+manifest, policy freeze or final release was reached. This is resource NO-GO,
+not a measured negative effect or GPU acceptance. The 16/17-family allocations
+remain design-only; no retrospective freeze is asserted.
+
+The source-level stale pre-ready attribution defect is established. The actual
+Attention CPU probe supports early cache-state recompilation, but the historical
+GPU prefill discrepancy remains unresolved. Targeted V6/V5 CPU tests passed 100;
+the expanded older supervisor run retained five wall-ceiling failures.
+
+Original receipts remain under `/home/workspace/lrh/RESULTS/evospe-v6-20261023`.
+The independent audited closeout is
+`/home/workspace/lrh/RESULTS/evospe-v6-20261023-closeout`, delivered to
+`E:\DATA\EvoSPE_v6_20261023`. Further execution needs a permitted GPU window,
+not dollar approval; this terminal campaign must not recursively restart.
