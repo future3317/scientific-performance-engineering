@@ -1,4 +1,4 @@
-from experiments.real_intervention_v6.gpu_attestation import classify
+from experiments.real_intervention_v6.gpu_attestation import classify, device_uuid
 
 
 def fixture(pids=(12,), begin=11):
@@ -12,6 +12,10 @@ def fixture(pids=(12,), begin=11):
 
 def test_pre_ready_sample_cannot_attest_ready():
     assert classify(*fixture(begin=9), "GPU-A")["worker_cuda_provenance"] == "UNKNOWN"
+
+
+def test_supported_torch_uuid_prefix_difference():
+    assert device_uuid("520e1aa6-5eae-4984-b76a-724aecac1aae") == device_uuid("GPU-520e1aa6-5eae-4984-b76a-724aecac1aae")
 
 
 def test_empty_processes_not_quiet_even_with_cuda_event():

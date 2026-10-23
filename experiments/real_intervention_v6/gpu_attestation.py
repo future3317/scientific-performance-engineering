@@ -13,6 +13,11 @@ from experiments.real_intervention_v5.common import read_json, write_json
 from experiments.real_intervention_v5.runtime import _terminate_group
 
 
+def device_uuid(value):
+    """PyTorch properties omit NVML's GPU- prefix on supported versions."""
+    return "GPU-" + str(value).removeprefix("GPU-")
+
+
 def proc_identity(pid):
     base = Path(f"/proc/{pid}")
     tail = (base / "stat").read_text().rsplit(")", 1)[1].split()
@@ -114,7 +119,7 @@ def child(folder, uuid):
     torch.set_num_interop_threads(1)
     torch.cuda.init()
     props = torch.cuda.get_device_properties(0)
-    actual = str(props.uuid)
+    actual = device_uuid(props.uuid)
     a = torch.ones((1024, 1024), device="cuda")
     start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     torch.cuda.synchronize()

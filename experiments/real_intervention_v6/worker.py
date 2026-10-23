@@ -10,7 +10,7 @@ import time
 import traceback
 
 from experiments.real_intervention_v5.common import read_json, write_json, digest, file_digest
-from .gpu_attestation import proc_identity
+from .gpu_attestation import proc_identity, device_uuid
 from .benchmark_timing_contract import TimingObservation, compare_timing
 
 
@@ -157,7 +157,7 @@ def main():
         result = sentinel @ sentinel
         b.record()
         torch.cuda.synchronize()
-        ready = {**proc_identity(os.getpid()), "gpu_uuid": str(torch.cuda.get_device_properties(0).uuid),
+        ready = {**proc_identity(os.getpid()), "gpu_uuid": device_uuid(torch.cuda.get_device_properties(0).uuid),
                  "cuda_event_ms": a.elapsed_time(b), "allocation_bytes": 8 * 1024**2, "ready_mono": time.monotonic()}
         write_json(folder / "ready.json", ready)
         ready_written = True

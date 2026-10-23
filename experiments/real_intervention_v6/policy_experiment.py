@@ -300,12 +300,14 @@ def freeze_policies(
         research_spec = policies["ACRE_SYS_RESEARCH"]
         research_status = (
             _research_feature_status(row, research_spec["model"])
-            if research_spec.get("status") in ("FITTED", "NOT_TUNED")
+            if research_spec.get("status") == "FITTED"
+            else "NOT_TUNED_NEVER" if research_spec.get("status") == "NOT_TUNED"
             else "NOT_FITTED_NEVER"
         )
         predictions.append({
             "family_id": _family(row),
             "context_id": _context(row),
+            "routing_overhead_ns": row.get("routing_overhead_ns"),
             "research_context_status": research_status,
             "predictions": {name: action for name, spec in policies.items()
                             if (action := _predict_row(row, spec)) is not None},
@@ -314,6 +316,19 @@ def freeze_policies(
         "schema_version": 1,
         "policies": policies,
         "strongest_simple_policy_on_development": best_simple,
+        "outcome_accounting": {
+            "development": {
+                "rows": len(dev),
+                "observed": sum(_effect(row) is not None for row in dev),
+                "missing": sum(_effect(row) is None for row in dev),
+            },
+            "calibration": {
+                "rows": len(cal),
+                "observed": sum(_effect(row) is not None for row in cal),
+                "missing": sum(_effect(row) is None for row in cal),
+            },
+            "missing_outcomes_imputed": False,
+        },
         "calibration_role": "research threshold selection only; no model fitting",
         "final_outcomes_accessed": False,
         "original_acre_status": "NOT_CERTIFIED",
