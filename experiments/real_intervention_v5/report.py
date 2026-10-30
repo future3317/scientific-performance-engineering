@@ -23,7 +23,7 @@ def bundle(root):
         data = raw_bytes.decode("utf-8")
         # No environment dump, full process command lines, credentials or weights
         # are collected. Remove account-specific roots from the exported copy.
-        data = data.replace(str(Path.home()), "<SERVER_HOME>")
+        data = data.replace("~/", "<SERVER_HOME>/").replace(str(Path.home()), "<SERVER_HOME>")
         payload = data.encode()
         name = relative.as_posix()
         import hashlib
