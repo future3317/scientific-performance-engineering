@@ -21,7 +21,7 @@ def _write_arm(root, pair_id, name, *, status="valid", correctness=True,
     if not terminal:
         return None
 
-    processes = [{"name": "~/equivcompiler/bin/python",
+    processes = [{"name": "/opt/equivcompiler/bin/python",
                   "pid": "11", "memory_mb": "100"}]
     if external:
         processes.append({"name": "/workspace/project/python", "pid": "22",

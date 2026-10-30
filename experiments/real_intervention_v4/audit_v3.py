@@ -94,7 +94,7 @@ def _telemetry(arm: dict[str, Any], study_parent_pids: set[str]) -> dict[str, An
                 study_owned.add(entry)
             elif name.startswith("/workspace/project/"):
                 other_account.add(entry)
-            elif name.startswith("~/"):
+            elif name.startswith(str(Path.home()) + "/"):
                 # A shared environment path identifies an account, not the
                 # process tree that produced this historical measurement.
                 same_account_unattributed.add(entry)

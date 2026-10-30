@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import sys
 
-if Path(sys.executable).resolve() != Path("~/miniconda3/envs/equivcompiler/bin/python").resolve():
+if Path(sys.executable).resolve() != (Path.home() / "miniconda3/envs/equivcompiler/bin/python").resolve():
     raise RuntimeError("EvoSPE recomputation requires dbcloud/equivcompiler")
 sys.path.insert(0, str(Path(__file__).parent / "analysis_source"))
 from experiments.real_intervention_v6.report import analyze

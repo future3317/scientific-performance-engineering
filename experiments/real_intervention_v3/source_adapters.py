@@ -46,7 +46,7 @@ _TORCHBENCH_NAMED_FAMILIES = {
 _TORCHBENCH_CANDIDATES = (
     "pytorch_unet", "dlrm", "Super_SloMo", "pytorch_CycleGAN_and_pix2pix", "maml", "fastNLP_Bert",
 )
-DEFAULT_TORCHBENCH_ROOT = Path("~/DATA/evospe-rt-v2/torchbench")
+DEFAULT_TORCHBENCH_ROOT = Path.home() / "DATA/evospe-rt-v2/torchbench"
 
 
 def torchvision_models() -> list[str]:

@@ -19,7 +19,7 @@ from .receipts import read_receipts
 from .replay import aggregate_sessions, freeze_policy, replay
 
 
-PYTHON = "~/miniconda3/envs/equivcompiler/bin/python"
+PYTHON = sys.executable
 PER_ARM_TIMEOUT_SECONDS = 1800
 WARMUPS = 2
 WARM_REPETITIONS = 10

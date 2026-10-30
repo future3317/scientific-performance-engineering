@@ -6,7 +6,7 @@ import subprocess
 from experiments.real_intervention_v5.common import read_json, write_json
 
 V5_SHA = "d8980253a91a52fa9491fa613eb4c20a1d16e804"
-V5_ROOT = Path("~/RESULTS/evospe-v5-20261021-balanced-sessions")
+V5_ROOT = Path.home() / "RESULTS/evospe-v5-20261021-balanced-sessions"
 
 
 def audit(destination):

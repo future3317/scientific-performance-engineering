@@ -25,7 +25,7 @@ def main():
     if tests["source_sha"] != source or tests["exit_code"] != 0:
         raise RuntimeError("campaign needs passed current-source targeted tests")
     root = args.results_parent.resolve()
-    if not root.is_relative_to(Path("~/RESULTS")) or "evospe-v6" not in root.name:
+    if not root.is_relative_to((Path.home() / "RESULTS")) or "evospe-v6" not in root.name:
         raise ValueError("new V6 parent required")
     root.mkdir(parents=True, exist_ok=True)
     with (root / "runner.lock").open("a") as lock:

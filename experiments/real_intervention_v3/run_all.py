@@ -55,6 +55,9 @@ def main_run(config: Path, root: Path, resume: bool, runtime_gpu: str | None = N
     from .report import write_report
 
     cfg=read(config)
+    for key in ('old_results', 'torchbench_root', 'workload_dependency_overlay'):
+        if cfg.get(key):
+            cfg[key] = str(Path(cfg[key]).expanduser())
     if runtime_gpu is not None:
         cfg=dict(cfg,gpu_uuid=runtime_gpu)
     sha=source_identity()

@@ -266,7 +266,7 @@ def main():
     if tests.get("source_sha") != sha or tests.get("exit_code") != 0:
         raise RuntimeError("current-source targeted regression receipt required before CUDA validation")
     root = args.results_root.resolve()
-    if not root.is_relative_to(Path("~/RESULTS")) or "evospe-v6" not in root.name:
+    if not root.is_relative_to((Path.home() / "RESULTS")) or "evospe-v6" not in root.name:
         raise ValueError("a new V6 RESULTS root is required")
     if root.exists() and not args.resume_safe:
         raise FileExistsError(root)

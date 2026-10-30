@@ -42,7 +42,7 @@ def census(output: str | Path, project_root: str | Path) -> dict:
                   "cuda_available": torch.cuda.is_available(), "device_count": torch.cuda.device_count()},
         "gpus": gpus,
         "filesystem_available_bytes": {str(path): os.statvfs(path).f_bavail * os.statvfs(path).f_frsize
-                                       for path in ("/workspace/user", "~/CODE") if Path(path).exists()},
+                                       for path in ("/workspace/user", str(root.parent)) if Path(path).exists()},
         "torchbench_installed": _version("torchbenchmark") is not None,
         "provider_calls": 0,
         "performance_measurements": 0,

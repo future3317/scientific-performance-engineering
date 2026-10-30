@@ -12,8 +12,8 @@ import subprocess
 
 from .common import digest, file_digest
 
-TORCHBENCH = "~/DATA/evospe-rt-v2/torchbench"
-OVERLAY = "~/RESULTS/evospe-rt-v2/20261018-one-shot-deterministic-b1-r2/dependencies"
+TORCHBENCH = str(Path.home() / "DATA/evospe-rt-v2/torchbench")
+OVERLAY = str(Path.home() / "RESULTS/evospe-rt-v2/20261018-one-shot-deterministic-b1-r2/dependencies")
 
 # source, model, lineage, design basis. ViT training variants and ResNeXt are
 # deliberately absent as extra families; duplicate TorchBench wrappers stay aliases.

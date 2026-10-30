@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11, pytest, JSON/YAML manifests, existing benchmark harness, `core.acre`, ReferenceExecutor/bwrap, and the existing server calibration environment.
 
-**Spec:** `[LOCAL_TASK_ATTACHMENT]`
+**Spec:** [local task attachment]
 
 ## Global Constraints
 

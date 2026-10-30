@@ -20,9 +20,9 @@ import time
 from .common import append_jsonl, digest, file_digest, read_json, utc, write_csv, write_json
 from .registry import assert_split_integrity, build_registry, TORCHBENCH, OVERLAY
 
-PYTHON = "~/miniconda3/envs/equivcompiler/bin/python"
-CANONICAL = Path("~/CODE/scientific-performance-engineering")
-V4_ROOT = Path("~/RESULTS/evospe-rt-v4/EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_CONTEXT_PASS_THROUGH_V2")
+PYTHON = str(Path.home() / "miniconda3/envs/equivcompiler/bin/python")
+CANONICAL = Path(__file__).resolve().parents[2]
+V4_ROOT = Path.home() / "RESULTS/evospe-rt-v4/EVOSPE_REAL_INTERVENTION_V4_CHANNELS_LAST_20261020_CONTEXT_PASS_THROUGH_V2"
 
 
 def preflight():
@@ -284,7 +284,7 @@ def main():
     sha = preflight()
     config = read_json(args.study_config)
     root = args.results_root.resolve()
-    if not str(root).startswith("~/RESULTS/"):
+    if not str(root).startswith(str(Path.home() / "RESULTS") + "/"):
         raise ValueError("V5 results must have their own server RESULTS identity")
     if root.exists() and not args.resume_safe:
         raise FileExistsError(root)

@@ -46,7 +46,7 @@ def bundle(root):
                 or path.suffix not in {".json", ".jsonl", ".csv", ".md", ".py", ".log"}):
             continue
         raw = path.read_bytes()
-        exported = raw.decode("utf-8", errors="replace").replace("~", "<ACCOUNT_WORKSPACE>").encode()
+        exported = raw.decode("utf-8", errors="replace").replace(str(Path.home()), "<SERVER_HOME>").encode()
         name = str(relative)
         members[name] = {"bytes": len(exported), "sha256": hashlib.sha256(exported).hexdigest(), "original_sha256": hashlib.sha256(raw).hexdigest(), "redacted": exported != raw}
         payloads[name] = exported
