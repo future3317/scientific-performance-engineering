@@ -48,3 +48,32 @@ def test_start_ticks_and_uuid_conflicts_are_contradictions():
 def test_no_reservation_means_no_uncontended_claim():
     assert classify(*fixture(), "GPU-A")["co_tenancy_exposure"] == "UNKNOWN"
     assert classify(*fixture(), "GPU-A", reservation_verified=True)["co_tenancy_exposure"] == "VERIFIED_QUIET"
+
+
+def test_snapshot_encodes_uuid_for_pynvml(monkeypatch):
+    import subprocess
+    import sys
+    from types import SimpleNamespace
+
+    from experiments.real_intervention_v6.gpu_attestation import snapshot
+
+    calls = []
+    fake_nvml = SimpleNamespace(
+        nvmlInit=lambda: None,
+        nvmlDeviceGetHandleByUUID=lambda value: calls.append(value) or object(),
+        nvmlDeviceGetComputeRunningProcesses=lambda handle: [],
+        nvmlDeviceGetComputeRunningProcesses_v3=lambda handle: [],
+        nvmlDeviceGetMemoryInfo=lambda handle: SimpleNamespace(used=1024, total=8192),
+        nvmlDeviceGetUtilizationRates=lambda handle: SimpleNamespace(gpu=0),
+        nvmlDeviceGetPowerUsage=lambda handle: 1,
+        nvmlDeviceGetClockInfo=lambda handle, clock: 1,
+        NVML_CLOCK_SM=0,
+        nvmlDeviceGetTemperature=lambda handle, sensor: 1,
+        NVML_TEMPERATURE_GPU=0,
+        nvmlShutdown=lambda: None,
+    )
+    monkeypatch.setitem(sys.modules, "pynvml", fake_nvml)
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""))
+
+    snapshot("GPU-uuid")
+    assert calls == [b"GPU-uuid"]

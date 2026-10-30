@@ -32,7 +32,7 @@ def snapshot(uuid):
     begin = time.monotonic()
     n.nvmlInit()
     try:
-        handle = n.nvmlDeviceGetHandleByUUID(uuid)
+        handle = n.nvmlDeviceGetHandleByUUID(uuid.encode("ascii"))
         results = {}
         for name in ("nvmlDeviceGetComputeRunningProcesses", "nvmlDeviceGetComputeRunningProcesses_v3"):
             try:
