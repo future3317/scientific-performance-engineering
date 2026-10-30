@@ -10,7 +10,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from core.acre.resource_budget import ApprovedProviderBudget
 
-from .contract import SkillContract, validate_skill_text
+from .contract import _ENTITY_NUMBER, _PRIVATE_PATH, SkillContract, validate_skill_text
 from .evolution import (
     EvolutionResult,
     PairReceipt,
@@ -96,11 +96,11 @@ class EvidenceBundle:
         content = json.dumps(self._prompt_data(), ensure_ascii=False)
         if len(content) > 12_000:
             raise ValueError("proposal evidence exceeds the fixed 12000-character input bound")
-        if re.search(r"(?i)(?:\b[A-Z]:\\|/(?:home|Users|mnt|private|tmp)/)", content):
+        if _PRIVATE_PATH.search(content):
             raise ValueError("private path found in proposal evidence")
         if re.search(r"(?i)(?:traj_data|high_pddl|oracle|expert action|hidden state|\.env|api[_ -]?key)", content):
             raise ValueError("oracle, hidden-state, or secret material found in proposal evidence")
-        if re.search(r"(?i)\b(?:cabinet|drawer|countertop|table|sinkbasin|stoveburner|fridge|microwave|bed|sofa)\s+\d+\b", content):
+        if _ENTITY_NUMBER.search(content):
             raise ValueError("instance-specific entity found in proposal evidence")
 
     def _prompt_data(self) -> dict[str, Any]:

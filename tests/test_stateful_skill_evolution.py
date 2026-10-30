@@ -125,6 +125,11 @@ def test_patch_bounds_security_and_contract_version_invariants():
     assert match_predicate(candidate.to_rule_spec().applicability, {
         "domain": "alfworld", "workload": {"task_family": "clean_place"},
     })
+    assert candidate.to_rule_spec().domain == "alfworld"
+    assert candidate.to_rule_spec().applicability == {"all": [
+        {"equals": {"domain": "alfworld"}},
+        {"equals": {"workload.task_family": "clean_place"}},
+    ]}
     assert not match_predicate(candidate.to_rule_spec().applicability, {
         "domain": "alfworld", "workload": {"task_family": "heat_place"},
     })
@@ -149,6 +154,25 @@ def test_patch_bounds_security_and_contract_version_invariants():
 
     attached = SkillContract.from_dict({**candidate.to_dict(), "verification_trial_ids": ["verify-off-1", "verify-on-1"]})
     assert attached.digest == candidate.digest
+
+
+def test_no_semantic_delta_is_recorded_as_no_evolution(tmp_path):
+    parent = _parent()
+    duplicate_scope = Patch("NARROW_SCOPE", 0, parent.applicability[0])
+    optimizer = SkillPatchOptimizer()
+    candidate, reasons = optimizer.apply(parent, [duplicate_scope])
+    assert candidate is None
+    assert reasons == ("no_semantic_delta",)
+
+    store = SkillEvolutionStore(tmp_path)
+    result = SkillEvolution(optimizer, store).run_round(parent, [duplicate_scope], ())
+    assert result.assessment_status == "NO_EVOLUTION"
+    assert result.current.digest == parent.digest
+    assert result.candidate is None
+    assert result.rejection_reasons == ()
+    decision = json.loads(store.events_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert decision["outcome"] == "no_evolution"
+    assert decision["reason"] == "no_semantic_delta"
 
 
 def test_single_pair_point_gain_is_smoke_only_and_remains_undecided(tmp_path):
@@ -214,6 +238,26 @@ def test_save_candidate_is_idempotent_and_preserves_original_state_timestamp(tmp
     assert store.save_candidate(contract) == spec_path
     repeated = json.loads(state_path.read_text(encoding="utf-8"))
     assert repeated == original
+
+
+def test_evolution_store_injects_domain_adapter_into_rule_spec(tmp_path):
+    class ScientificDomainAdapter:
+        domain = "pytorch"
+
+        @staticmethod
+        def applicability_for(task_family):
+            return {"all": [
+                {"equals": {"domain": "pytorch"}},
+                {"equals": {"workload.task_family": task_family}},
+            ]}
+
+    contract = _parent()
+    store = SkillEvolutionStore(tmp_path, domain_adapter=ScientificDomainAdapter())
+    spec_path = store.save_candidate(contract)
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+
+    assert spec["domain"] == "pytorch"
+    assert spec["applicability"] == ScientificDomainAdapter.applicability_for("clean_place")
 
 
 def test_evidence_preserves_unclipped_delta_and_real_receipt_revisions(tmp_path):

@@ -1,7 +1,6 @@
 --- solution.py
 +++ solution.py
-@@ -3,0 +4,16 @@
-redacted@example.invalid
+@@ -3,0 +4,15 @@
 +def _fused_chain(
 +    x: torch.Tensor,
 +    residual: torch.Tensor,

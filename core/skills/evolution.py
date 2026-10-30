@@ -16,7 +16,7 @@ from core.models import EvidenceEvent, RuleState, identifier_digest
 from core.mutation_journal import MutationJournal
 from core.state_store import StateStore
 
-from .contract import SkillContract, validate_skill_text
+from .contract import ALFWORLD_DOMAIN_ADAPTER, SkillContract, SkillDomainAdapter, validate_skill_text
 
 
 @dataclass(frozen=True)
@@ -420,6 +420,11 @@ class SkillPatchOptimizer:
                     applicability.append(patch.text.strip())
             else:
                 return None, ("invalid_patch_operation_or_index",)
+        if (tuple(procedure) == parent.procedure
+                and tuple(procedure_step_ids) == parent.procedure_step_ids
+                and tuple(preconditions) == parent.preconditions
+                and tuple(applicability) == parent.applicability):
+            return None, ("no_semantic_delta",)
         candidate = replace(
             parent,
             version=parent.version + iteration,
@@ -452,8 +457,9 @@ class SkillPatchOptimizer:
 class SkillEvolutionStore:
     """Persist candidates/evidence through RuleSpec, RuleState, StateStore, and journal."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, domain_adapter: SkillDomainAdapter = ALFWORLD_DOMAIN_ADAPTER) -> None:
         self.root = Path(root)
+        self.domain_adapter = domain_adapter
         self.state_store = StateStore(self.root)
         self.journal = MutationJournal(self.root / "evolution" / "mutation_journal.jsonl")
         self.events_path = self.root / "evolution" / "skill_evolution.jsonl"
@@ -467,7 +473,7 @@ class SkillEvolutionStore:
         state = RuleState(rule_id=contract.skill_id, version=contract.version, status="candidate")
         state_path = self.state_store.path_for(state)
         spec_path = state_path.with_name(state_path.name.removesuffix(".state.json") + ".json")
-        spec = contract.to_rule_spec().to_dict()
+        spec = contract.to_rule_spec(self.domain_adapter).to_dict()
         spec_payload = json.dumps(spec, indent=2, ensure_ascii=False) + "\n"
         if spec_path.exists():
             if spec_path.read_text(encoding="utf-8") != spec_payload:
@@ -695,6 +701,10 @@ class SkillEvolution:
             raise ValueError("candidate refinement accepts train or train_inner evidence only")
         candidate, errors = self.optimizer.apply(parent, patches, iteration=iteration)
         if candidate is None:
+            if errors == ("no_semantic_delta",):
+                self.store._ensure_genesis()
+                self.store._append_decision(parent, "no_evolution", "no_semantic_delta", ())
+                return EvolutionResult(False, parent, None, (), None, "NO_EVOLUTION")
             self.store._append_decision(parent, "rejected_patch", ";".join(errors), ())
             return EvolutionResult(False, parent, None, errors, None, "REJECTED")
         if any((source_trial_ids, source_task_ids, source_template_ids, source_cluster_ids, source_trace_hashes,

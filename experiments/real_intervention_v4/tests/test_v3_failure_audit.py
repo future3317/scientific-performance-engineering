@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from pathlib import Path
 
 import pytest
 
@@ -12,7 +13,7 @@ from experiments.real_intervention_v4.audit_v3 import (
 
 def _write_arm(root, pair_id, name, *, status="valid", correctness=True,
                timed_out=False, returncode=0, terminal=True, external=False,
-               telemetry=True):
+               same_account=False, telemetry=True):
     folder = root / "raw" / f"{pair_id}-{name}"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "intent.json").write_text(
@@ -21,8 +22,9 @@ def _write_arm(root, pair_id, name, *, status="valid", correctness=True,
     if not terminal:
         return None
 
-    processes = [{"name": "/opt/equivcompiler/bin/python",
-                  "pid": "11", "memory_mb": "100"}]
+    process_name = (str(Path.home() / "env" / "python") if same_account
+                    else "/opt/equivcompiler/bin/python")
+    processes = [{"name": process_name, "pid": "11", "memory_mb": "100"}]
     if external:
         processes.append({"name": "/workspace/project/python", "pid": "22",
                           "memory_mb": "200"})
@@ -242,8 +244,8 @@ def test_unresolved_telemetry_keeps_ownership_and_causality_distinct(tmp_path):
     pairs = []
 
     own_id = "same-account"
-    own_s0 = _write_arm(root, own_id, "S0")
-    own_s1 = _write_arm(root, own_id, "S1")
+    own_s0 = _write_arm(root, own_id, "S0", same_account=True)
+    own_s1 = _write_arm(root, own_id, "S1", same_account=True)
     pairs.append(_pair(own_id, "SESSION_NOISE_UNRESOLVED", own_s0, own_s1))
 
     external_id = "other-account"
@@ -263,8 +265,8 @@ def test_unresolved_telemetry_keeps_ownership_and_causality_distinct(tmp_path):
 
     assert by_id[own_id]["observation_class"] == \
         "SAME_ACCOUNT_PROCESS_OWNERSHIP_UNKNOWN_BOTH_ARMS"
-    assert by_id[external_id]["observation_class"] == "CO_TENANT_OBSERVED_S1_ONLY"
-    assert "causality is not identified" in by_id[external_id]["evidence_reference"]
+    assert by_id[external_id]["observation_class"] == "COMPUTE_PROCESS_OWNER_UNVERIFIED"
+    assert "ownership cannot be established" in by_id[external_id]["evidence_reference"]
     assert by_id[telemetry_id]["observation_class"] == \
         "UNRESOLVED_TELEMETRY_OR_PERFORMANCE_CAUSALITY"
 

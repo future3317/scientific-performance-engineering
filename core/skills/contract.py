@@ -6,9 +6,31 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, Protocol
 
 from core.models import RevisionRef, RuleSpec, validate_identifier
+
+
+class SkillDomainAdapter(Protocol):
+    """Maps a task family to the Rule OS domain applicability contract."""
+
+    domain: str
+
+    def applicability_for(self, task_family: str) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True)
+class AlfworldDomainAdapter:
+    domain: str = "alfworld"
+
+    def applicability_for(self, task_family: str) -> dict[str, Any]:
+        return {"all": [
+            {"equals": {"domain": self.domain}},
+            {"equals": {"workload.task_family": task_family}},
+        ]}
+
+
+ALFWORLD_DOMAIN_ADAPTER = AlfworldDomainAdapter()
 
 
 @dataclass(frozen=True)
@@ -143,16 +165,13 @@ class SkillContract:
                 value.pop(key)
         return value
 
-    def to_rule_spec(self) -> RuleSpec:
+    def to_rule_spec(self, domain_adapter: SkillDomainAdapter = ALFWORLD_DOMAIN_ADAPTER) -> RuleSpec:
         parent = RevisionRef(self.skill_id, self.parent_version, self.parent_digest) if self.parent_version and self.parent_digest else None
         return RuleSpec(
             rule_id=self.skill_id,
             version=self.version,
             parent=parent,
-            applicability={"all": [
-                {"equals": {"domain": "alfworld"}},
-                {"equals": {"workload.task_family": self.task_family}},
-            ]},
+            applicability=domain_adapter.applicability_for(self.task_family),
             intervention={"kind": "skill", "contract": self.to_dict(), "contract_digest": self.digest, "body_digest": self.body_digest},
             expected_mechanism=self.intent,
             evidence_requirements=["independent_train_paired_verification"],
@@ -166,12 +185,13 @@ class SkillContract:
                 "verification_trial_ids": list(self.verification_trial_ids),
             },
             severity="P2",
-            domain="alfworld",
+            domain=domain_adapter.domain,
             text=self.body,
         )
 
 
 _ENTITY_NUMBER = re.compile(r"\b(?:cabinet|drawer|countertop|table|sinkbasin|stoveburner|fridge|microwave|bed|sofa)\s+\d+\b", re.I)
+_PRIVATE_PATH = re.compile(r"(?i)(?:\b[A-Z]:\\|/(?:home|Users|mnt|private|tmp|workspace)/)[^\s,;]*")
 
 
 def validate_skill_text(contract: SkillContract, *, max_characters: int | None) -> list[str]:
@@ -190,7 +210,7 @@ def validate_skill_text(contract: SkillContract, *, max_characters: int | None) 
         scanned_text,
     ):
         errors.append("secret_or_oracle_reference")
-    if re.search(r"(?i)(?:\b[A-Z]:\\|/(?:home|Users|mnt|private|tmp)/)[^\s,;]*", body):
+    if _PRIVATE_PATH.search(body):
         errors.append("private_path")
     if any(source_id and source_id.casefold() in body.casefold()
            for source_id in contract.source_task_ids + contract.source_trial_ids):
