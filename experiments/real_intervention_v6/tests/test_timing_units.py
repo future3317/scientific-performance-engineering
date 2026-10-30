@@ -1,3 +1,4 @@
+from experiments.real_intervention_v6 import benchmark_timing_contract as timing
 from experiments.real_intervention_v6.benchmark_timing_contract import (
     TimingObservation,
     compare_timing,
@@ -47,3 +48,26 @@ def test_prefill_job_and_steady_per_call_are_not_comparable():
 
     assert comparison.status == "CROSSCHECK_NOT_COMPARABLE"
     assert comparison.reasons == ("same_measurement_phase",)
+
+
+def test_host_microfixture_uses_repeated_median_and_keeps_scheduler_spike(monkeypatch):
+    ticks = iter((0.0, 0.020, 0.020, 0.100, 0.100, 0.121))
+    monkeypatch.setattr(timing.time, "perf_counter", lambda: next(ticks))
+    calls = 0
+    syncs = []
+
+    def workload():
+        nonlocal calls
+        calls += 1
+
+    samples = timing._host_batch_samples(
+        workload,
+        number_per_run=10,
+        repeats=3,
+        synchronize=lambda: syncs.append(None),
+    )
+
+    assert samples == (0.02, 0.08, 0.02099999999999999)
+    assert timing.statistics.median(samples) == 0.02099999999999999
+    assert calls == 30
+    assert len(syncs) == 6

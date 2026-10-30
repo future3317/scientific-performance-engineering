@@ -90,12 +90,31 @@ def compare_timing(left: TimingObservation, right: TimingObservation) -> TimingC
 class BenchmarkMicrofixtureRecord:
     clock: TimingClock
     raw_times_seconds: tuple[float, ...]
+    host_raw_times_seconds: tuple[float, ...]
     median_seconds_per_call: float
     number_per_run: int
     repeats: int
     host_aggregate_seconds: float
     host_per_call_seconds: float
     cuda_event_per_call_seconds: float | None
+
+
+def _host_batch_samples(
+    workload: Callable[[], object],
+    *,
+    number_per_run: int,
+    repeats: int,
+    synchronize: Callable[[], object],
+) -> tuple[float, ...]:
+    samples = []
+    for _ in range(repeats):
+        synchronize()
+        start = time.perf_counter()
+        for _ in range(number_per_run):
+            workload()
+        synchronize()
+        samples.append(time.perf_counter() - start)
+    return tuple(samples)
 
 
 def run_microfixture(
@@ -123,14 +142,14 @@ def run_microfixture(
         measurements = [timer.timeit(number_per_run) for _ in range(repeats)]
         raw_times = tuple(raw for item in measurements for raw in item.raw_times)
 
-        if clock == "CUDA_EVENT":
-            torch.cuda.synchronize()
-        host_start = time.perf_counter()
-        for _ in range(number_per_run):
-            workload()
-        if clock == "CUDA_EVENT":
-            torch.cuda.synchronize()
-        host_aggregate = time.perf_counter() - host_start
+        synchronize = torch.cuda.synchronize if clock == "CUDA_EVENT" else lambda: None
+        host_raw_times = _host_batch_samples(
+            workload,
+            number_per_run=number_per_run,
+            repeats=repeats,
+            synchronize=synchronize,
+        )
+        host_aggregate = statistics.median(host_raw_times)
 
         event_per_call = None
         if clock == "CUDA_EVENT":
@@ -146,6 +165,7 @@ def run_microfixture(
         records.append(BenchmarkMicrofixtureRecord(
             clock=clock,
             raw_times_seconds=raw_times,
+            host_raw_times_seconds=host_raw_times,
             median_seconds_per_call=statistics.median(item.median for item in measurements),
             number_per_run=number_per_run,
             repeats=repeats,
