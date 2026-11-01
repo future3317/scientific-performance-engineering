@@ -95,7 +95,8 @@ def test_released_observation_updates_only_the_hypothesis_prior():
 
 def test_rejects_observation_impossible_under_frozen_hypotheses():
     experiment = ExperimentOption("deterministic", 1.0, {
-        "real_speedup": {"yes": 1.0}, "cache_artifact": {"no": 1.0},
+        "real_speedup": {"yes": 1.0, "unknown": 0.0},
+        "cache_artifact": {"no": 1.0, "unknown": 0.0},
     })
     with pytest.raises(ValueError, match="zero probability"):
         condition_on_observation(_model(), experiment, "unknown")
