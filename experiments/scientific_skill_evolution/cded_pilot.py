@@ -8,7 +8,7 @@ never retried.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal
 import hashlib
 import json
@@ -51,13 +51,14 @@ LOSSES = {
 }
 DEV_ARMS = ("parent_00", "item_a_10", "item_b_01", "LENGTH")
 PROPOSAL_ITEM_SELECTION = "first_generated_procedure_step_in_model_order"
+SOURCE_SELECTION_RULE = "Run up to three preselected train_dev tasks per development family in manifest order; use the first VERIFIED_SUCCESS receipt for SUCCESS_ONLY_INDUCTION; never retry or replace a started task."
 CAL_ARMS = ("NO_SKILL", "LENGTH", "STATIC_CDED", "ADAPTIVE_CDED", "FIXED_ORDER_CDED")
 MAX_STEPS = 16
 MAX_EPISODE_CALLS = 16
-MAX_CALLS = 300
+MAX_CALLS = 296
 MAX_INPUT = 6144
 MAX_OUTPUT = 1024
-MAX_USD = "0.967407916"
+MAX_USD = "0.949050232"
 MAX_EPISODE_USD = "0.052"
 WORST_CASE_USD = (Decimal(MAX_CALLS) *
                   (Decimal(MAX_INPUT) * Decimal(PRICING["input_miss_per_million"])
@@ -115,7 +116,7 @@ def _resolve_tasks(pilot_split: Mapping[str, Any], parent_split: Mapping[str, An
                 raise ValueError("selected task exposure label differs from the frozen stage")
             if expected_split != "train_dev" and row.get("confirmatory_eligible") is not True:
                 raise ValueError("inner/final task is not confirmatory eligible")
-            if item["family"] in {r["family"] for r in resolved[group]}:
+            if group != "source" and item["family"] in {r["family"] for r in resolved[group]}:
                 raise ValueError("each stage requires distinct native task families")
             if (item["template_id"] in template_ids or item["cluster_id"] in cluster_ids
                     or item["task_id"] in task_ids):
@@ -131,17 +132,18 @@ def _resolve_tasks(pilot_split: Mapping[str, Any], parent_split: Mapping[str, An
                 **dict(row), **dict(item), "gamefile": str(gamefile.resolve()),
                 "seed": pilot_split["selection_seed"], "group": group,
             })
-    if len(resolved["source"]) != 2 or len(resolved["development"]) != 2:
-        raise ValueError("pilot requires two source and two development clusters")
+    if len(resolved["source"]) != 6 or len(resolved["development"]) != 2:
+        raise ValueError("pilot requires three preselected sources for each of two development families")
     if len(resolved["calibration"]) != 2 or len(resolved["final"]) != 2:
         raise ValueError("pilot requires two calibration and two final clusters")
     family_sets = [{item["family"] for item in resolved[group]}
                    for group in ("development", "calibration", "final")]
     if any(left & right for index, left in enumerate(family_sets) for right in family_sets[index + 1:]):
         raise ValueError("native task families must not cross the frozen stage partition")
-    if ([item["family"] for item in resolved["source"]]
-            != [item["family"] for item in resolved["development"]]):
-        raise ValueError("each proposal source must correspond to its frozen development family")
+    source_counts = Counter(item["family"] for item in resolved["source"])
+    development_families = {item["family"] for item in resolved["development"]}
+    if set(source_counts) != development_families or any(source_counts[family] != 3 for family in development_families):
+        raise ValueError("each development family requires three ordered train_dev source candidates")
     return resolved
 
 
@@ -165,6 +167,7 @@ def _make_manifest(tasks: Mapping[str, Sequence[Mapping[str, Any]]], *,
         "response_identity_binding": "exact_predeclared_identity", "temperature": 0.0,
         "action_thinking": "enabled", "proposal_thinking": "disabled",
         "proposal_item_selection": PROPOSAL_ITEM_SELECTION,
+        "source_selection_rule": SOURCE_SELECTION_RULE,
         "thinking": "enabled", "max_retries": 0, "max_steps": MAX_STEPS,
         "max_calls_per_episode": MAX_EPISODE_CALLS, "max_episode_wall_seconds": 1800,
         "max_usd_per_episode": MAX_EPISODE_USD, "max_usd_per_proposal": MAX_EPISODE_USD,
@@ -255,6 +258,10 @@ def _simple_calibration(rows: Sequence[Mapping[str, Any]]) -> tuple[str, dict[st
         "adaptive_family_differences": adaptive_differences,
         "adaptive_gate_passed": eligible, "frozen_route": frozen_route,
     }
+
+
+def _first_verified_success(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    return next((row for row in rows if receipt_outcome(row) is True), None)
 
 
 def _first_procedure_step(procedure: Sequence[str]) -> str:
@@ -384,11 +391,23 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
         return row
 
     try:
-        source_rows = []
-        for task in manifest["plan"]["source"]:
-            source_rows.append(run_one(task, "NO_SKILL_SOURCE", None, "proposal_source"))
-        for index, (task, source_row) in enumerate(zip(manifest["plan"]["source"], source_rows)):
+        source_attempts: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        selected_sources: dict[str, dict[str, Any]] = {}
+        for task in manifest["plan"]["development"]:
             family = task["family"]
+            family_sources = [row for row in manifest["plan"]["source"] if row["family"] == family]
+            for source_task in family_sources:
+                source_row = run_one(source_task, "NO_SKILL_SOURCE", None, "proposal_source")
+                source_attempts[family].append(source_row)
+                selected = _first_verified_success(source_attempts[family])
+                if selected is not None:
+                    selected_sources[family] = selected
+                    break
+            if family not in selected_sources:
+                raise ProviderBudgetExceeded("no_verified_success_source_in_frozen_candidates")
+        for index, task in enumerate(manifest["plan"]["development"]):
+            family = task["family"]
+            source_row = selected_sources[family]
             evidence = source_bundle_from_receipts([source_row], parent_split, source_mode="SUCCESS_ONLY_INDUCTION")
             # ModelSkillProposer's initial path builds a provenance-bearing complete candidate.
             client.thinking_type = manifest["proposal_thinking"]
@@ -480,6 +499,8 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
             "study_id": manifest["study_id"], "run_id": manifest["run_id"],
             "manifest_sha256": manifest_digest(manifest),
             "development_posterior": posterior, "adaptive_action": adaptive_action,
+            "source_selection_rule": SOURCE_SELECTION_RULE,
+            "selected_source_receipts": {family: row["receipt_sha256"] for family, row in selected_sources.items()},
             "decision_sensitivity": decision_sensitivity,
             "fixed_order_action": fixed_action, "calibration": calibration,
             "strongest_simple": baseline,
@@ -522,6 +543,10 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
             "canonical_promotion": False, "acre_certification": "NOT_EVALUATED",
             "cohort": {key: len(value) for key, value in manifest["plan"].items()},
             "candidate_digests": {key: value.digest for key, value in proposals.items()},
+            "source_selection": {family: {"selected_receipt_sha256": selected_sources[family]["receipt_sha256"],
+                "attempted_task_ids": [row["task_id"] for row in source_attempts[family]],
+                "planned_task_count": 3, "attempted_task_count": len(source_attempts[family])}
+                for family in selected_sources},
             "proposal_item_selection": PROPOSAL_ITEM_SELECTION,
             "decision_freeze_sha256": freeze_sha256,
             "development": {"posterior": posterior, "action": adaptive_action,

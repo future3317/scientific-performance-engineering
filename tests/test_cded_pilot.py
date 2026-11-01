@@ -9,6 +9,7 @@ from experiments.scientific_skill_evolution.cded_pilot import (
     PRICING,
     WORST_CASE_USD,
     _first_procedure_step,
+    _first_verified_success,
     _fixed_order,
     _generic_length_control,
     _length_match,
@@ -28,6 +29,13 @@ def _receipt(cluster, arm, success):
         "environment_won": success,
         "environment_done": True,
     }
+
+
+def test_source_selection_uses_the_first_verified_success_in_frozen_order():
+    failed = _receipt("source", "NO_SKILL_SOURCE", False)
+    succeeded = _receipt("source", "NO_SKILL_SOURCE", True)
+    assert _first_verified_success([failed, succeeded]) is succeeded
+    assert _first_verified_success([failed]) is None
 
 
 def test_proposal_item_selection_uses_the_first_generated_step_without_outcome_ranking():
@@ -96,10 +104,10 @@ def test_length_controls_are_character_matched_and_total_worst_case_fits_one_usd
     assert len(length) == len(target)
     assert len(padded) == len(target)
     assert MAX_STEPS == 16
-    assert MAX_CALLS == 300
+    assert MAX_CALLS == 296
     assert MAX_CALLS < 2 + 24 * MAX_STEPS
-    assert worst_case < 0.967407916
-    assert str(WORST_CASE_USD) == "0.958464"
+    assert worst_case < 0.949050232
+    assert str(WORST_CASE_USD) == "0.94568448"
     assert MAX_INPUT == 6144
     assert MAX_OUTPUT == 1024
     assert PRICING["output_per_million"] == "1.32"
@@ -107,16 +115,16 @@ def test_length_controls_are_character_matched_and_total_worst_case_fits_one_usd
 
 def test_approval_must_match_every_frozen_usage_cap():
     manifest = {
-        "max_provider_calls": 300, "max_input_tokens": 1843200,
-        "max_completion_tokens": 307200, "max_total_usd": "0.967407916",
+        "max_provider_calls": 296, "max_input_tokens": 1818624,
+        "max_completion_tokens": 303104, "max_total_usd": "0.949050232",
         "max_wall_seconds": 86400, "max_failed_retries": 0,
         "max_steps": 16, "max_completion_per_request": 1024,
         "max_usd_per_episode": "0.052", "max_calls_per_episode": 16,
         "max_episode_wall_seconds": 1800,
     }
     approval = {
-        "max_provider_calls": 300, "max_input_tokens": 1843200,
-        "max_completion_tokens": 307200, "max_total_usd": "0.967407916",
+        "max_provider_calls": 296, "max_input_tokens": 1818624,
+        "max_completion_tokens": 303104, "max_total_usd": "0.949050232",
         "max_wall_seconds": 86400, "max_failed_retries": 0,
         "per_episode_max_steps": 16, "per_request_max_completion_tokens": 1024,
         "max_usd_per_episode": "0.052", "max_calls_per_episode": 16,
