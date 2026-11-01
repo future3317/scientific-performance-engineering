@@ -100,3 +100,19 @@ def test_rejects_observation_impossible_under_frozen_hypotheses():
     })
     with pytest.raises(ValueError, match="zero probability"):
         condition_on_observation(_model(), experiment, "unknown")
+
+
+def test_evolution_action_uses_posterior_expected_loss_and_reports_risks():
+    model = DecisionModel(
+        priors={"retain_a": 0.8, "retain_b": 0.1, "neither": 0.1},
+        losses={
+            "retain_a": {"retain_a": 0.0, "retain_b": 1.0, "neither": 1.0},
+            "retain_b": {"retain_a": 1.0, "retain_b": 0.0, "neither": 1.0},
+            "abstain": {"retain_a": 0.6, "retain_b": 0.6, "neither": 0.0},
+        },
+    )
+
+    action, risks = choose_evolution_action(model)
+
+    assert action == "retain_a"
+    assert risks == pytest.approx({"retain_a": 0.2, "retain_b": 0.9, "abstain": 0.54})

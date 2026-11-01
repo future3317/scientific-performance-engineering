@@ -156,6 +156,18 @@ def plan_discriminative_experiment(
                           current_action, value, value_per_cost, actions)
 
 
+def choose_evolution_action(model: DecisionModel) -> tuple[str, dict[str, float]]:
+    """Choose the minimum expected-loss action from the model's current beliefs."""
+    probabilities = {name: float(value) for name, value in model.priors.items()}
+    action, _ = _best_action(model.losses, probabilities)
+    risks = {
+        candidate: sum(probabilities[hypothesis] * float(loss)
+                       for hypothesis, loss in by_hypothesis.items())
+        for candidate, by_hypothesis in model.losses.items()
+    }
+    return action, risks
+
+
 def _best_action(losses: Mapping[str, Mapping[str, float]], probabilities: Mapping[str, float]) -> tuple[str, float]:
     risks = {
         action: sum(float(probabilities[hypothesis]) * float(loss) for hypothesis, loss in by_hypothesis.items())

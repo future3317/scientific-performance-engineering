@@ -1,70 +1,222 @@
-research_id: SPE-CDED-ITEM-ATTRIBUTION-20261101
-status: PROVIDER_FREE_METHOD_QUALIFICATION_ONLY
-scope:
+research_id: SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102
+status: COHORT_MODEL_AND_COST_FROZEN_EXECUTOR_NOT_READY
+source_population:
+  benchmark: ALFWorld 2.1.1 official training tasks
+  split_manifest_sha256: adbf45195039868fafd1d9a568b5097a681263567f3f2b868ca4ee897745337c
+  eligible_task_clusters_by_split:
+    train_dev: 462
+    train_inner: 449
+    train_outer: 460
+  eligibility: >-
+    Use the official source split and its corresponding new_train_dev,
+    new_train_inner, or new_train_outer exposure label; require
+    identity_status=IDENTIFIED, confirmatory_eligible=true for inner/outer,
+    and exclude every task, cluster, and template in the stopped H1 plan or
+    exposure ledger.
+  historical_scope: >-
+    Prior research exposed all six ALFWorld native task types. This pilot can
+    estimate transfer to new semantic task clusters within selected known
+    types; it cannot claim transfer to an unseen native task family.
+family_split:
+  rule: >-
+    Native task types are disjoint across development, calibration, and final.
+    Proposal evidence comes from train_dev; development and calibration use
+    train_inner; final evaluation uses train_outer. Each selected task is a
+    distinct semantic cluster and template. No rollout, seed, or repeated
+    condition increases the independent family count.
+  selection_seed: 20261102
+  development_families:
+    - look_at_obj_in_light
+    - pick_and_place_simple
+  calibration_families:
+    - pick_clean_then_place_in_recep
+    - pick_heat_then_place_in_recep
+  evaluation_families:
+    - pick_cool_then_place_in_recep
+    - pick_two_obj_and_place
+  excluded_unselected_families: []
+  proposal_source_clusters: 2
+  development_screen_clusters: 2
+  evaluation_clusters: 2
+  calibration_clusters: 2
+  calibration: >-
+    Use only train_inner calibration tasks to select the strongest simple
+    baseline and whether the adaptive policy clears its frozen no-regression
+    gate. Freeze those choices before opening any train_outer outcome.
+  split_manifest: CDED_PILOT_SPLIT.json
+mechanism:
   question: >-
-    When a candidate contains two independently sourced semantic changes,
-    does decision-focused experiment selection identify which change should
-    be retained, specialized, or withheld at lower total validation cost than
-    a fixed experiment order?
-  mechanism: >-
-    Select the safe feasible experiment with the greatest expected reduction
-    in Bayes decision loss per unit cost. Abstain when no safe affordable test
-    can change the preferred evolution action.
-  implementation: experiments/scientific_skill_evolution/discriminative_planner.py
+    Under a fixed development-validation budget, does decision-focused
+    selection of evidence-supported semantic edits improve hard-gated success
+    on held-out task families over a fixed-order edit rule and a length-only
+    prompt, while avoiding negative transfer?
+  unit: >-
+    One bounded procedural Skill item generated from a verified public trace,
+    wrapped as a typed research-only candidate, and selected, rejected, or
+    withheld by a loss-minimizing decision rule. This pilot does not promote a
+    Rule OS rule or certify Skill applicability.
+  workflow:
+    - Run the unchanged base agent once on each train_dev proposal-source task and retain only public observations, actions, and task verifier outcome as proposal evidence.
+    - Ask DeepSeek once per development family for one bounded candidate Skill; reject malformed or unsafe proposals without retry.
+    - Freeze both candidate Skills before running parent, item-A, item-B, and character-matched length-only conditions on each distinct train_inner development task from the corresponding family.
+    - Update the frozen three-hypothesis model from complete development outcomes, including a character-matched length-only control, and select retain-A, retain-B, or abstain by expected hard-gated decision loss; no composition is permitted in this pilot.
+    - Run the fixed-order and adaptive policies, alongside no-skill, length-only, and static two-item controls, on the two calibration tasks.
+    - Select the strongest simple calibration baseline and apply the frozen no-regression gate to the adaptive policy; freeze the chosen route and exact final arm list.
+    - Run ADAPTIVE_CDED and the calibration-selected simple baseline on the two disjoint train_outer tasks even if calibration rejects adaptive deployment; label the route gate and the independent effect estimate separately.
   reused_foundations:
     - core/acre/factorial.py
     - core/skills/semantic.py
     - core/skills/evolution.py
-  novelty_boundary: >-
-    Factorial estimation and statistical certification already exist. The
-    research question is whether decision-focused selection of item-level
-    discriminating experiments improves future-task decisions over the same
-    test menu under a matched total cost budget.
-provider_free_qualification:
-  status: IMPLEMENTED_NOT_YET_RUN_ON_SERVER
-  tests: tests/test_discriminative_planner.py
-  claim_limit: >-
-    Unit fixtures can establish deterministic planner behavior only. They do
-    not establish Skill efficacy, learning, transfer, or scientific validity.
-prospective_task_study:
-  status: NOT_READY_FOR_EXECUTION
-  treatment_arms:
-    - LENGTH
-    - FROZEN_SKILL
-    - STATIC_CDED
+    - experiments/scientific_skill_evolution/discriminative_planner.py
+  executor_status: IMPLEMENTED_PENDING_SERVER_VALIDATION
+decision_model:
+  version: CDED_ITEM_SELECTION_BERNOULLI_V1
+  hypotheses:
+    A_ONLY: 0.25
+    B_ONLY: 0.25
+    NEITHER: 0.50
+  development_arm_order: [parent_00, item_a_10, item_b_01, LENGTH]
+  success_probability_by_hypothesis:
+    A_ONLY: [0.55, 0.80, 0.55, 0.55]
+    B_ONLY: [0.55, 0.55, 0.80, 0.55]
+    NEITHER: [0.75, 0.70, 0.70, 0.75]
+  observation_model: >-
+    Within each preselected development task, multiply Bernoulli likelihoods
+    for its four reset episodes under the listed probabilities. Treat the two
+    development task clusters as independent and multiply their likelihoods.
+    These are fixed subjective design assumptions, not fitted ALFWorld
+    frequencies; report sensitivity and retain the small-sample descriptive
+    claim boundary.
+  action_losses:
+    retain_a: {A_ONLY: 0.0, B_ONLY: 1.0, NEITHER: 1.0}
+    retain_b: {A_ONLY: 1.0, B_ONLY: 0.0, NEITHER: 1.0}
+    abstain: {A_ONLY: 0.6, B_ONLY: 0.6, NEITHER: 0.0}
+  posterior_update: Bayes rule using the complete verified development factorial outcomes only
+  tie_break: abstain
+  missing_or_unknown: >-
+    Never infer failure or success from an unknown. Stop the study and do not
+    update beliefs, replace a task, or issue another provider call.
+  fixed_order_comparator: >-
+    Evaluate A first, then B. Retain A if its two-family paired success
+    difference versus parent is positive with no family regression; otherwise
+    retain B under the same rule; otherwise abstain. Never compose.
+arms:
+  evaluation:
     - ADAPTIVE_CDED
-    - FIXED_ORDER_CDED
-  factorial_evidence_arms:
+    - CALIBRATION_STRONGEST_SIMPLE
+  development_factorial:
     - parent_00
     - item_a_10
     - item_b_01
-    - combined_11
-  independent_unit: task family or predeclared semantic cluster, never rollout
-  primary_estimand: >-
-    Future-task cluster-weighted paired net utility after all scientific hard
-    gates, with uncertainty; unknown outcomes remain separate.
-  required_secondary_outcomes:
-    - item-level contribution and interaction
-    - negative transfer and scientific-gate failures
-    - abstention and coverage
-    - provider, experiment, verification, and deployment cost
-    - non-text mechanism activation
-  frozen_before_live_execution:
-    - eligible task population and family split
-    - task/runtime/verifier/model identities
-    - experiment menu, likelihood model, decision losses, and fixed-order baseline
-    - sample-size feasibility and maximum cost/call/wall limits
-    - stopping, missingness, and unknown-outcome rules
-    - analysis code and independent validation set
-  exclusions:
-    - historical adaptation and exposed task families
-    - sealed/final outcomes not explicitly released
-    - synthetic fixture results as real efficacy evidence
-  authorization:
-    provider_budget: NOT_AUTHORIZED
-    live_execution: BLOCKED_APPROVAL_REQUIRED
+    - LENGTH
+  calibration:
+    - NO_SKILL
+    - LENGTH
+    - STATIC_CDED
+    - ADAPTIVE_CDED
+    - FIXED_ORDER_CDED
+  fixed_order_rule: >-
+    Evaluate A first, then B. Retain A if its two-family paired success
+    difference versus parent is positive with no family regression; otherwise
+    retain B under the same rule; otherwise abstain. Never compose.
+  calibration_policy: >-
+    Among NO_SKILL, LENGTH, and STATIC_CDED, choose the arm with highest mean
+    verified success on the two calibration clusters; ties resolve to lower
+    estimated provider cost, then NO_SKILL, LENGTH, STATIC_CDED. Admit ADAPTIVE_CDED as the
+    research route only if it has no task-family regression versus that
+    baseline and its mean success is strictly greater; otherwise deployment
+    abstains to the simple baseline. The independent final always compares
+    ADAPTIVE_CDED with the selected baseline. FIXED_ORDER_CDED is reported but
+    cannot be selected as the simple baseline.
+  adaptive_rule: >-
+    Use the frozen decision model, losses, priors, likelihoods, and completed
+    factorial observations to select among retain-A, retain-B, and abstain.
+    No final outcomes may
+    change the selected rule or the candidate.
+estimands:
+  primary: >-
+    Equal-weight mean over the two independent final families of paired hard-gated
+    task success difference ADAPTIVE_CDED minus the calibration-selected
+    strongest simple baseline; show each family difference and their observed
+    range. With n=2, treat this as descriptive rather than a powered interval.
+  key_secondary:
+    - Development posterior decision and its assumptions/sensitivity
+    - Calibration outcomes for NO_SKILL, LENGTH, STATIC_CDED, ADAPTIVE_CDED, and FIXED_ORDER_CDED
+    - regressions, repairs, abstentions, unsafe proposals, and unknown outcomes
+    - total provider calls, input/output tokens, peak-price estimate, and wall time by stage
+    - development experiment cost required to freeze each evolution policy
+  claim_boundary: >-
+    This is a descriptive two-family independent final pilot, not a powered
+    superiority test, not transfer to an unseen ALFWorld native family, and
+    not ACRE certification. Report success, cost, abstention, negative
+    transfer, and all stage denominators separately.
+provider:
+  name: DeepSeek
+  api_model: deepseek-flash
+  documented_model_version: DeepSeek-V4.1-Flash-1017
+  system_fingerprint: bc19ba97cbe016479903222bb1578db6
+  identity_binding: exact_predeclared_model_and_fingerprint
+  identity_provenance: >-
+    The fingerprint was observed in the stopped H1 response; it is used only
+    to name the new prospective model identity. No H1 task outcome is reused.
+  endpoint: https://api.deepseek.com
+  thinking: enabled
+  temperature: 0
+  retries: 0
+  max_input_tokens_per_request: 4096
+  max_completion_tokens_per_request: 1024
+  max_calls: 386
+  max_input_tokens_total: 1581056
+  max_completion_tokens_total: 395264
+  max_usd_total: "1.00"
+  max_usd_per_rollout: "0.05"
+  max_calls_per_rollout: 16
+  max_steps_per_rollout: 16
+  max_wall_seconds_total: 86400
+  max_wall_seconds_per_rollout: 1800
+  call_envelope: >-
+    Two proposal-source rollouts, eight development rollouts, ten
+    calibration rollouts, and four independent final rollouts (24 total) x
+    16 calls, plus two bounded semantic-proposal calls. Peak-rate no-cache
+    envelope for 386 requests at the official peak rates is USD 0.99606528;
+    the USD 1.00 hard cap includes USD 0.00393472 margin.
+  pricing_snapshot:
+    source: https://api-docs.deepseek.com/quick_start/pricing
+    checked_at_utc: 2026-11-01T18:47:42Z
+    rate_basis: official peak rates; off-peak discounts are not assumed
+    input_cache_hit_usd_per_million: "0.006"
+    input_cache_miss_usd_per_million: "0.30"
+    output_usd_per_million: "1.32"
+    billing_status: ESTIMATE_NOT_BILL
+  stopping:
+    - first model/fingerprint mismatch
+    - any unknown provider usage, duplicate receipt, or unverifiable task identity
+    - first terminal unknown result; never retry or replace its task
+    - any per-request, per-rollout, total call, token, dollar, or wall cap
+    - any candidate violating semantic, safety, or protected-scope validation
+    - fewer than two validated item proposals after the two bounded proposal calls
+    - any hard-gate regression in development prevents that candidate from promotion
+  approval:
+    status: USER_AUTHORIZED_PENDING_EXACT_MANIFEST_BIND
+    live_execution: requires a server-side record binding this conversation authorization to the final commit and run manifest
+    binds: [controller_commit, study_id, run_id, pilot_manifest_sha256, split_manifest_sha256, model_fingerprint, endpoint, stage, call_cap, token_caps, usd_cap, wall_cap]
+    required_actor: agent_recording_the_explicit_user_authorization
+    exact_usage_envelope: >-
+      The server approval must exactly match the run manifest for provider
+      calls, input and completion tokens, USD, total wall time, per-episode
+      steps/calls/USD/wall time, per-request output tokens, and zero retries.
     next_gate: >-
-      A complete source-bound manifest must specify the finite eligible task
-      cohort, model/provider, token and currency caps, stopping rules, and
-      independent validation allocation. Obtain exact stage authorization
-      before any provider request.
+      Freeze and validate the executor, create the exact clean commit and
+      run manifest on the server, and write the approval binding before the
+      first provider request. The user authorized this pilot up to USD 1.00
+      and instructed that no further confirmation be requested.
+base_agent:
+  h1_agent_sha256: 78c9b7c031f48181affaf2a007e4896752478bba0f8daf6176e048a921cfd122
+  change_policy: >-
+    Keep the base agent prompt and action policy byte-identical across all
+    pilot arms. Any agent improvement must be completed and frozen before a
+    replacement study identity; do not change the agent during this pilot.
+research_certification:
+  original_acre: NOT_EVALUATED; this cohort cannot support its 42-group minimum
+  policy_status: UNCERTIFIED_RESEARCH_POLICY
+  canonical_promotion: false
