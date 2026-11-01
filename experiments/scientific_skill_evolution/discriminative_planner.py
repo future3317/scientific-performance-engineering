@@ -68,6 +68,30 @@ class ExperimentPlan:
     action_by_outcome: Mapping[str, str]
 
 
+def condition_on_observation(
+    model: DecisionModel,
+    experiment: ExperimentOption,
+    observation: str,
+) -> DecisionModel:
+    """Update mechanism beliefs from one released observation."""
+    hypotheses = set(model.priors)
+    if set(experiment.likelihoods) != hypotheses:
+        raise ValueError("experiment must predict observations under every hypothesis")
+    if not any(observation in outcomes for outcomes in experiment.likelihoods.values()):
+        raise ValueError("observation is outside the experiment's prediction space")
+    unnormalized = {
+        hypothesis: float(model.priors[hypothesis])
+        * float(experiment.likelihoods[hypothesis].get(observation, 0.0))
+        for hypothesis in hypotheses
+    }
+    evidence_probability = sum(unnormalized.values())
+    if evidence_probability == 0:
+        raise ValueError("observation has zero probability under every hypothesis")
+    posterior = {hypothesis: probability / evidence_probability
+                 for hypothesis, probability in unnormalized.items()}
+    return DecisionModel(posterior, model.losses)
+
+
 def plan_discriminative_experiment(
     model: DecisionModel,
     experiments: tuple[ExperimentOption, ...],

@@ -3,6 +3,7 @@ import pytest
 from experiments.scientific_skill_evolution import (
     DecisionModel,
     ExperimentOption,
+    condition_on_observation,
     plan_discriminative_experiment,
 )
 
@@ -69,3 +70,32 @@ def test_rejects_incomplete_or_invalid_probability_models():
         plan_discriminative_experiment(_model(), (
             ExperimentOption("partial", 1.0, {"real_speedup": {"yes": 1.0}}),
         ), budget=1.0)
+
+
+def test_released_observation_updates_only_the_hypothesis_prior():
+    model = _model()
+    experiment = ExperimentOption("cold_vs_steady", 2.0, {
+        "real_speedup": {"speedup": 0.9, "no_speedup": 0.1},
+        "cache_artifact": {"speedup": 0.1, "no_speedup": 0.9},
+    })
+
+    posterior = condition_on_observation(model, experiment, "speedup")
+    next_plan = plan_discriminative_experiment(posterior, (
+        ExperimentOption("independent_replication", 1.0, {
+            "real_speedup": {"replicate": 0.9, "fail": 0.1},
+            "cache_artifact": {"replicate": 0.1, "fail": 0.9},
+        }),
+    ), budget=1.0)
+
+    assert posterior.priors == pytest.approx({"real_speedup": 0.9, "cache_artifact": 0.1})
+    assert posterior.losses == model.losses
+    assert next_plan.current_action == "apply_skill"
+    assert next_plan.status == "SELECTED"
+
+
+def test_rejects_observation_impossible_under_frozen_hypotheses():
+    experiment = ExperimentOption("deterministic", 1.0, {
+        "real_speedup": {"yes": 1.0}, "cache_artifact": {"no": 1.0},
+    })
+    with pytest.raises(ValueError, match="zero probability"):
+        condition_on_observation(_model(), experiment, "unknown")
