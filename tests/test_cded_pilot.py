@@ -58,7 +58,8 @@ def test_fixed_order_never_keeps_an_item_with_a_family_regression():
     action, details = _fixed_order(rows)
 
     assert action == "retain_b"
-    assert details["tested_first"] == "item_a_10"
+    assert details["evaluated_order"] == ["item_a_10", "item_b_01"]
+    assert details["selected_item"] == "item_b_01"
 
 
 def test_calibration_freezes_strongest_simple_and_adaptive_gate():

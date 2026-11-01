@@ -214,8 +214,16 @@ def _fixed_order(rows: Sequence[Mapping[str, Any]]) -> tuple[str, dict[str, Any]
     for item_arm, action in (("item_a_10", "retain_a"), ("item_b_01", "retain_b")):
         differences = [int(arms[item_arm]) - int(arms["parent_00"]) for arms in grouped.values()]
         if sum(differences) > 0 and all(value >= 0 for value in differences):
-            return action, {"family_differences": differences, "tested_first": item_arm}
-    return "abstain", {"family_differences": None, "tested_first": "item_a_10"}
+            return action, {
+                "family_differences": differences,
+                "evaluated_order": ["item_a_10", "item_b_01"],
+                "selected_item": item_arm,
+            }
+    return "abstain", {
+        "family_differences": None,
+        "evaluated_order": ["item_a_10", "item_b_01"],
+        "selected_item": None,
+    }
 
 
 def _simple_calibration(rows: Sequence[Mapping[str, Any]]) -> tuple[str, dict[str, Any]]:

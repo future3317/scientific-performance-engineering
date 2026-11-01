@@ -3,6 +3,7 @@ import pytest
 from experiments.scientific_skill_evolution import (
     DecisionModel,
     ExperimentOption,
+    choose_evolution_action,
     condition_on_observation,
     plan_discriminative_experiment,
 )
