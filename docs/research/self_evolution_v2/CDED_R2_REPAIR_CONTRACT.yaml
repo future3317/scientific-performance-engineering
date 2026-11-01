@@ -1,0 +1,108 @@
+research_id: SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102-R2-CONTEXT-COMPRESSION
+status: READY_FOR_SERVER_EXECUTION
+supersedes_for_execution: SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102-R1
+prior_attempt:
+  run_id: SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102-R1
+  disposition: STOPPED_UNKNOWN_NO_RETRY
+  completed_task_episodes: 1
+  provider_calls: 9
+  terminal_status: BUDGET_EXHAUSTED
+  terminal_reason: per_request_input_cap
+  task_outcome: UNKNOWN_NOT_FAILURE
+  proposal_calls: 0
+  effect_arms_started: false
+  final_accessed: false
+  peak_price_estimate_usd: "0.00523812"
+  billing_status: ESTIMATE_NOT_BILL
+  pooling: PROHIBITED
+  reuse: >-
+    The terminal task and every planned R1 task/template/cluster are excluded
+    from R2. No unknown task is retried or replaced within R1.
+research_identity:
+  run_id: SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102-R2
+  source_split_manifest_sha256: adbf45195039868fafd1d9a568b5097a681263567f3f2b868ca4ee897745337c
+  pilot_split: CDED_PILOT_SPLIT_R2.json
+  pilot_split_manifest_sha256: f097c3f07fdbd4f1883cc2e40e9f9904d013e4faa136bd460965e5c015dd0e21
+  selection_seed: 20261103
+  controller_commit: bound_in_run_manifest_before_live
+cohort:
+  population: ALFWorld 2.1.1 official training tasks
+  source_families: [look_at_obj_in_light, pick_and_place_simple]
+  development_families: [look_at_obj_in_light, pick_and_place_simple]
+  calibration_families: [pick_clean_then_place_in_recep, pick_heat_then_place_in_recep]
+  independent_final_families: [pick_cool_then_place_in_recep, pick_two_obj_and_place]
+  family_split: CDED_PILOT_SPLIT_R2.json
+  contamination_rule: >-
+    Preserve the parent split exposure labels. Exclude all eight task,
+    template, and semantic cluster identities in the complete R1 plan, plus
+    all prior exposure recorded in the parent split. Source, development,
+    calibration, and final family sets remain disjoint as specified.
+  sample_unit: one semantic task cluster per native family and stage
+  claims: descriptive two-family final pilot only; no powered superiority,
+    unseen-family transfer, canonical Skill promotion, or ACRE certification
+mechanism:
+  question: >-
+    Under a fixed development-validation budget, does decision-focused
+    selection of evidence-supported semantic edits improve hard-gated success
+    on held-out task families over fixed-order edits and length-only controls,
+    while avoiding negative transfer?
+  base_agent: >-
+    Keep the action policy and prompt unchanged. Bound only retained history
+    to the two most recent action-result events; current parsed state,
+    observation, admissible commands, and candidate Skill remain available.
+  stages:
+    - Run two frozen NO_SKILL source episodes, one in each source family.
+    - Generate at most one validated procedural item per source; no retries.
+    - Run the frozen four-arm factorial on both development clusters.
+    - Update the predeclared three-hypothesis decision model only from complete
+      verified development cells; choose retain-A, retain-B, or abstain.
+    - Run five frozen calibration arms on each calibration cluster.
+    - Freeze the strongest simple baseline and adaptive no-regression route
+      before opening final outcomes.
+    - Evaluate adaptive CDED against the selected simple baseline on two
+      independent final families, regardless of the calibration route gate.
+  missing_or_unknown: >-
+    Stop on the first terminal unknown or unverifiable provider usage. Never
+    retry, replace, infer success/failure, update the posterior, or continue
+    the frozen run after that stop.
+budget:
+  prior_r1_peak_price_estimate_usd: "0.00523812"
+  combined_hard_usd_cap: "1.00"
+  r2_hard_usd_cap: "0.99476188"
+  max_provider_calls: 386
+  max_request_input_bound_bytes: 6144
+  max_completion_tokens_per_request: 512
+  max_input_bound_total: 2371584
+  max_completion_tokens_total: 197632
+  max_episode_calls: 16
+  max_episode_usd: "0.05"
+  max_episode_wall_seconds: 1800
+  max_total_wall_seconds: 86400
+  retries: 0
+  r2_worst_case_peak_price_usd: "0.97234944"
+  combined_r1_plus_r2_worst_case_peak_price_usd: "0.97758756"
+  pricing_basis: official DeepSeek peak rates frozen in the R1 source
+  billing_status: ESTIMATE_NOT_BILL
+runtime_repair:
+  observed_failure: >-
+    R1's conservative UTF-8 byte upper bound exceeded 4096 on action request
+    10 although prior provider-reported usage remained within the dollar and
+    aggregate usage caps.
+  change: >-
+    Retain two recent action-result events for R2 and raise the per-request
+    byte upper-bound to 6144. Cap each response at 512 completion tokens.
+  rationale: >-
+    The shorter history removes stale prompt context while preserving current
+    state, observation, action list, and the same base action policy. The
+    request envelope is bounded so the full 386-call peak-price envelope plus
+    R1's known estimate stays below USD 1.00.
+  runtime_unit_note: >-
+    max_request_input_bound_bytes is a conservative UTF-8 byte-count bound
+    used before sending a request; provider-reported input tokens are separately
+    recorded and charged by the frozen pricing estimate.
+decision_and_certification:
+  model: CDED_ITEM_SELECTION_BERNOULLI_V1
+  adaptive_policy: unchanged frozen priors, likelihoods, losses, and complete-cell update
+  final_policy: unchanged strongest-simple calibration selection and no-regression gate
+  original_acre: NOT_EVALUATED
+  canonical_promotion: false

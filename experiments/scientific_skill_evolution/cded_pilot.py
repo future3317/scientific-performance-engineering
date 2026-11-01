@@ -54,9 +54,9 @@ CAL_ARMS = ("NO_SKILL", "LENGTH", "STATIC_CDED", "ADAPTIVE_CDED", "FIXED_ORDER_C
 MAX_STEPS = 16
 MAX_EPISODE_CALLS = 16
 MAX_CALLS = 386
-MAX_INPUT = 4096
-MAX_OUTPUT = 1024
-MAX_USD = "1.00"
+MAX_INPUT = 6144
+MAX_OUTPUT = 512
+MAX_USD = "0.99476188"
 MAX_EPISODE_USD = "0.05"
 WORST_CASE_USD = (Decimal(MAX_CALLS) *
                   (Decimal(MAX_INPUT) * Decimal(PRICING["input_miss_per_million"])
@@ -146,7 +146,7 @@ def _resolve_tasks(pilot_split: Mapping[str, Any], parent_split: Mapping[str, An
 
 def _make_manifest(tasks: Mapping[str, Sequence[Mapping[str, Any]]], *,
                    controller_commit: str, run_id: str, split_digest: str,
-                   pilot_split_digest: str, output: Path, spool: Path) -> dict[str, Any]:
+                   pilot_split_digest: str, study_id: str, output: Path, spool: Path) -> dict[str, Any]:
     plan = {name: [dict(row) for row in rows] for name, rows in tasks.items()}
     for name, arms in (("development", DEV_ARMS), ("calibration", CAL_ARMS)):
         for index, task in enumerate(plan[name]):
@@ -158,7 +158,7 @@ def _make_manifest(tasks: Mapping[str, Sequence[Mapping[str, Any]]], *,
     if output_path == spool_path or output_path in spool_path.parents or spool_path in output_path.parents:
         raise ValueError("provider spool and study output must be separate directories")
     return {
-        "study_id": "SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102",
+        "study_id": study_id,
         "run_id": run_id, "stage": "skill_evolution", "controller_commit": controller_commit,
         "model": MODEL, "base_url": BASE_URL, "expected_response_identity": list(EXPECTED_IDENTITY),
         "response_identity_binding": "exact_predeclared_identity", "temperature": 0.0,
@@ -363,7 +363,7 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
                     "split_manifest_sha256": manifest["split_manifest_sha256"],
                     "approval_reference": approval["approval_reference"],
                     "evidence_origin": "REAL_AGENT", "source_task_prior_exposure": task["prior_exposure"],
-                }, expected_gamefiles=[task["gamefile"]])
+                }, expected_gamefiles=[task["gamefile"]], history_recent_events=2)
         finally:
             environment.close()
         row["receipt_sha256"] = manifest_digest(row)
@@ -570,6 +570,7 @@ def main() -> None:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--spool", type=Path, required=True)
+    parser.add_argument("--study-id", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--prepare", action="store_true")
     parser.add_argument("--live", action="store_true")
@@ -588,7 +589,7 @@ def main() -> None:
     if args.prepare:
         manifest = _make_manifest(tasks, controller_commit=revision, run_id=args.run_id,
             split_digest=split_digest, pilot_split_digest=pilot_digest,
-            output=args.output, spool=args.spool)
+            study_id=args.study_id, output=args.output, spool=args.spool)
         args.manifest.parent.mkdir(parents=True, exist_ok=True)
         with args.manifest.open("x", encoding="utf-8") as stream:
             stream.write(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -604,7 +605,8 @@ def main() -> None:
     if (manifest.get("pilot_split_sha256") != pilot_digest
             or manifest.get("split_manifest_sha256") != split_digest):
         raise ProviderBudgetExceeded("approved_split_manifest_digest_mismatch")
-    if (manifest["controller_commit"] != revision or manifest["run_id"] != args.run_id
+    if (manifest["controller_commit"] != revision or manifest["study_id"] != args.study_id
+            or manifest["run_id"] != args.run_id
             or manifest["output_dir"] != str(args.output.resolve())
             or manifest["spool_dir"] != str(args.spool.resolve())):
         raise ProviderBudgetExceeded("run_identity_mismatch")

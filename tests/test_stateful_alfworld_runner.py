@@ -1,3 +1,5 @@
+import json
+
 from experiments.external_real.alfworld_stateful_runner import (
     EpisodeState,
     ExecutionGuard,
@@ -113,6 +115,21 @@ def test_environment_failure_preserves_provider_usage_and_unknown_outcome():
     assert row["trajectory"][0]["selected_action"] == "look"
     assert "input_tokens" in row["trajectory"][0]
     assert row["skill_rendered"] and row["skill_read_or_used"] == "unknown"
+
+
+def test_episode_honors_the_frozen_recent_history_window():
+    observations = [
+        "Your task is to: look at a book with desk lamp.",
+        "You are in room one.", "You are in room two.",
+        "You are in room three.", "You are in room four.",
+    ]
+    env = ReplayEnvironment(observations, [["look"]] * 4)
+    client = ReplayClient(["look"] * 4)
+
+    run_episode(env, client, max_steps=4, history_recent_events=2)
+
+    recent = client.calls[-1][2].split("Recent events: ", 1)[1]
+    assert len(json.loads(recent)) == 2
 
 
 def test_visible_state_tracks_goal_inventory_transform_and_progress_without_gamefile():

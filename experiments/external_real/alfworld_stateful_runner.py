@@ -683,6 +683,7 @@ def run_episode(
     receipt_metadata: Mapping[str, Any] | None = None,
     expected_gamefiles: Sequence[str] | None = None,
     harness_variant: str = "H0",
+    history_recent_events: int = 6,
 ) -> dict[str, Any]:
     from experiments.skill_evolution.native_verifier import official_outcome
 
@@ -697,7 +698,7 @@ def run_episode(
     observation = str(observations[0])
     admissible = list(_scalar(infos, "admissible_commands") or [])
     state = EpisodeState.start(observation, max_steps)
-    planner, guard, compressor = SubgoalPlanner(), ExecutionGuard(repeat_limit), HistoryCompressor()
+    planner, guard, compressor = SubgoalPlanner(), ExecutionGuard(repeat_limit), HistoryCompressor(history_recent_events)
     history: list[dict[str, Any]] = []
     progress_events: list[dict[str, Any]] = []
     trajectory: list[dict[str, Any]] = []

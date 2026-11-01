@@ -1,0 +1,143 @@
+{
+  "allocation": {
+    "calibration_clusters": 2,
+    "calibration_native_families": 2,
+    "calibration_rollouts": 10,
+    "development_native_families": 2,
+    "development_rollouts": 8,
+    "evaluation_native_families": 2,
+    "evaluation_rollouts": 4,
+    "factorial_development_clusters": 2,
+    "independent_evaluation_clusters": 2,
+    "max_completion_tokens_per_request": 512,
+    "max_input_bound_bytes_per_request": 6144,
+    "max_steps_per_rollout": 16,
+    "max_usd_total": "0.99476188",
+    "proposal_generation_calls": 2,
+    "proposal_source_clusters": 2,
+    "provider_call_cap": 386,
+    "rollouts_or_horizons_add_independent_n": false,
+    "total_task_rollouts": 24
+  },
+  "calibration": [
+    {
+      "cluster_id": "3b8f83de45aaf39f7b3015719592733b197ed77b89e900ab3990e51c9da81c84",
+      "family": "pick_clean_then_place_in_recep",
+      "official_split": "train_inner",
+      "prior_exposure": "new_train_inner",
+      "task_file_sha256": "86c3ce26d0a0780631ae33b39346ff685b12578c0d1c24449ff78af46f17324d",
+      "task_id": "pick_clean_then_place_in_recep-Spatula-None-Drawer-22/trial_T20190907_145044_664638",
+      "template_id": "pick_clean_then_place_in_recep-Spatula-None-Drawer-22"
+    },
+    {
+      "cluster_id": "0ceee6c81ee8c90588b36e8a89c204fcdf1c60fd12a0ca0bea2afc8c2342ca7e",
+      "family": "pick_heat_then_place_in_recep",
+      "official_split": "train_inner",
+      "prior_exposure": "new_train_inner",
+      "task_file_sha256": "11863af824d6de81243f989d4dca628cbfecf76e200dac655c50187e1f355cfd",
+      "task_id": "pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-12/trial_T20190907_034122_883943",
+      "template_id": "pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-12"
+    }
+  ],
+  "development_screen": [
+    {
+      "cluster_id": "d3416e8e97fb394393a5e55deecfff98a1635efc1d37b61bb850785fd9be8965",
+      "family": "look_at_obj_in_light",
+      "official_split": "train_inner",
+      "prior_exposure": "new_train_inner",
+      "task_file_sha256": "258eac8e414f9e86f0d1c121eb62d55d4d79c1fcf7bfde1ad2bf5135b8ccde80",
+      "task_id": "look_at_obj_in_light-Book-None-DeskLamp-303/trial_T20190909_085252_411891",
+      "template_id": "look_at_obj_in_light-Book-None-DeskLamp-303"
+    },
+    {
+      "cluster_id": "7c9b72aa78c282509937429e58c633a3c7e4518f771d81a9240a075b06353164",
+      "family": "pick_and_place_simple",
+      "official_split": "train_inner",
+      "prior_exposure": "new_train_inner",
+      "task_file_sha256": "d51c62bb30f70619d75e43cf8bd290477b44a93b4ecf36ce11b660735c041818",
+      "task_id": "pick_and_place_simple-AlarmClock-None-Desk-318/trial_T20190907_143604_622776",
+      "template_id": "pick_and_place_simple-AlarmClock-None-Desk-318"
+    }
+  ],
+  "evaluation": [
+    {
+      "cluster_id": "a5a72659c7ace7b7e98d5ca7ad9115eb75aa8f13d6716a84834d4ef356a5311f",
+      "family": "pick_cool_then_place_in_recep",
+      "official_split": "train_outer",
+      "prior_exposure": "new_train_outer",
+      "task_file_sha256": "9a631fb7528d42906cae5639834cd568dfa3e8c38bd74aeb1757fdfc7fd565b6",
+      "task_id": "pick_cool_then_place_in_recep-WineBottle-None-GarbageCan-16/trial_T20190907_014947_369000",
+      "template_id": "pick_cool_then_place_in_recep-WineBottle-None-GarbageCan-16"
+    },
+    {
+      "cluster_id": "d39dbb1b3e8d4ff955b80753f03c667acafa9a73b7de0f4a207e1e1e35d66578",
+      "family": "pick_two_obj_and_place",
+      "official_split": "train_outer",
+      "prior_exposure": "new_train_outer",
+      "task_file_sha256": "730eef7f9067f8e35a0693776c5bab5246adfe9a76868a2ac79c8d4f5a08e86d",
+      "task_id": "pick_two_obj_and_place-SaltShaker-None-Cabinet-26/trial_T20190908_113144_837092",
+      "template_id": "pick_two_obj_and_place-SaltShaker-None-Cabinet-26"
+    }
+  ],
+  "evaluation_order_seed": 20261103,
+  "previous_run_exclusion": {
+    "all_planned_tasks_excluded": true,
+    "excluded_cluster_ids": [
+      "09e6a50a7d8cca88d0b7db7fb13d70a661beb8876051b4f9570ad29bd9aa346f",
+      "21ea390801ae11d72d011b5bdf1696fcf619711ea5806038b7aa3c57296b62c5",
+      "28c9eb2a28e1a54381bce2a80dbf95ff61813d2874b2d1873e87fc86da058d15",
+      "5429bd17f0531ed2373d931379bcc6bfe0867c7659b3e6ad7379b4218316b5af",
+      "5cd6862219b29d12da617c82d78bce48110d79468776316ee0210018fb6057b6",
+      "86f7757ca578343cac60f647df2f09e8b2a601557709f7cb11d83fe6a3c8d78e",
+      "c31abd72629ff4ada7c795dea05e56e819c9961b9164d765e245665fc5585830",
+      "e9c884c47ccaa8fd024b1eaf6511f0e70e2b72ddd7589fde5a70a9d4118a5667"
+    ],
+    "excluded_task_ids": [
+      "look_at_obj_in_light-AlarmClock-None-DeskLamp-320/trial_T20190908_082328_418237",
+      "look_at_obj_in_light-Book-None-DeskLamp-302/trial_T20190909_085155_106731",
+      "pick_and_place_simple-Laptop-None-Bed-302/trial_T20190908_112426_055221",
+      "pick_and_place_simple-SoapBottle-None-Toilet-405/trial_T20190908_015553_305032",
+      "pick_clean_then_place_in_recep-Spoon-None-Drawer-5/trial_T20190907_080537_064131",
+      "pick_cool_then_place_in_recep-Pan-None-StoveBurner-18/trial_T20190906_181125_954603",
+      "pick_heat_then_place_in_recep-Egg-None-GarbageCan-5/trial_T20190906_190505_376018",
+      "pick_two_obj_and_place-Pencil-None-Desk-303/trial_T20190908_220222_248584"
+    ],
+    "excluded_template_ids": [
+      "look_at_obj_in_light-AlarmClock-None-DeskLamp-320",
+      "look_at_obj_in_light-Book-None-DeskLamp-302",
+      "pick_and_place_simple-Laptop-None-Bed-302",
+      "pick_and_place_simple-SoapBottle-None-Toilet-405",
+      "pick_clean_then_place_in_recep-Spoon-None-Drawer-5",
+      "pick_cool_then_place_in_recep-Pan-None-StoveBurner-18",
+      "pick_heat_then_place_in_recep-Egg-None-GarbageCan-5",
+      "pick_two_obj_and_place-Pencil-None-Desk-303"
+    ],
+    "run_id": "SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102-R1"
+  },
+  "proposal_sources": [
+    {
+      "cluster_id": "83b3f35c9583976cf00b4bf5d604c735e3fbe92fcecd00c746cc99e0c6fa9592",
+      "family": "look_at_obj_in_light",
+      "official_split": "train_dev",
+      "prior_exposure": "new_train_dev",
+      "task_file_sha256": "2573cf4e1cf7dc7bfe978f94f76e6d63b0ea52771746a7d951f571eb9292ad92",
+      "task_id": "look_at_obj_in_light-Pillow-None-DeskLamp-309/trial_T20190908_113820_480741",
+      "template_id": "look_at_obj_in_light-Pillow-None-DeskLamp-309"
+    },
+    {
+      "cluster_id": "5f19cbf6157c3aa0f586df6a409da717c4af6079452342633f5ac58f0bcfe387",
+      "family": "pick_and_place_simple",
+      "official_split": "train_dev",
+      "prior_exposure": "new_train_dev",
+      "task_file_sha256": "2e96eccda836f52ff2fcc29010d2302055310c3a5d8f2e46630b9170beff5e38",
+      "task_id": "pick_and_place_simple-Box-None-Sofa-205/trial_T20190907_214755_478301",
+      "template_id": "pick_and_place_simple-Box-None-Sofa-205"
+    }
+  ],
+  "schema_version": "1",
+  "selection_rule": "For each predeclared split and native family, sort eligible parent task rows by SHA256('20261103|split|family|task_id') ascending and choose the first task whose task, semantic cluster, and template are unused. Require IDENTIFIED identity, exact new exposure label, and confirmatory_eligible for inner/outer. Exclude every task, cluster, and template in the complete R1 plan. No outcomes were read during selection.",
+  "selection_seed": 20261103,
+  "source_population": "ALFWorld 2.1.1 official training tasks",
+  "source_split_manifest_sha256": "adbf45195039868fafd1d9a568b5097a681263567f3f2b868ca4ee897745337c",
+  "study_id": "SPE-CDED-ITEM-ATTRIBUTION-PILOT-20261102-R2-CONTEXT-COMPRESSION"
+}
