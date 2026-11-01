@@ -96,10 +96,10 @@ def test_length_controls_are_character_matched_and_total_worst_case_fits_one_usd
     assert len(length) == len(target)
     assert len(padded) == len(target)
     assert MAX_STEPS == 16
-    assert MAX_CALLS == 305
+    assert MAX_CALLS == 300
     assert MAX_CALLS < 2 + 24 * MAX_STEPS
-    assert worst_case < 0.977854084
-    assert str(WORST_CASE_USD) == "0.9744384"
+    assert worst_case < 0.967407916
+    assert str(WORST_CASE_USD) == "0.958464"
     assert MAX_INPUT == 6144
     assert MAX_OUTPUT == 1024
     assert PRICING["output_per_million"] == "1.32"
@@ -107,16 +107,16 @@ def test_length_controls_are_character_matched_and_total_worst_case_fits_one_usd
 
 def test_approval_must_match_every_frozen_usage_cap():
     manifest = {
-        "max_provider_calls": 305, "max_input_tokens": 1873920,
-        "max_completion_tokens": 312320, "max_total_usd": "0.977854084",
+        "max_provider_calls": 300, "max_input_tokens": 1843200,
+        "max_completion_tokens": 307200, "max_total_usd": "0.967407916",
         "max_wall_seconds": 86400, "max_failed_retries": 0,
         "max_steps": 16, "max_completion_per_request": 1024,
         "max_usd_per_episode": "0.052", "max_calls_per_episode": 16,
         "max_episode_wall_seconds": 1800,
     }
     approval = {
-        "max_provider_calls": 305, "max_input_tokens": 1873920,
-        "max_completion_tokens": 312320, "max_total_usd": "0.977854084",
+        "max_provider_calls": 300, "max_input_tokens": 1843200,
+        "max_completion_tokens": 307200, "max_total_usd": "0.967407916",
         "max_wall_seconds": 86400, "max_failed_retries": 0,
         "per_episode_max_steps": 16, "per_request_max_completion_tokens": 1024,
         "max_usd_per_episode": "0.052", "max_calls_per_episode": 16,

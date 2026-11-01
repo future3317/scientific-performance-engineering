@@ -54,10 +54,10 @@ PROPOSAL_ITEM_SELECTION = "first_generated_procedure_step_in_model_order"
 CAL_ARMS = ("NO_SKILL", "LENGTH", "STATIC_CDED", "ADAPTIVE_CDED", "FIXED_ORDER_CDED")
 MAX_STEPS = 16
 MAX_EPISODE_CALLS = 16
-MAX_CALLS = 305
+MAX_CALLS = 300
 MAX_INPUT = 6144
 MAX_OUTPUT = 1024
-MAX_USD = "0.977854084"
+MAX_USD = "0.967407916"
 MAX_EPISODE_USD = "0.052"
 WORST_CASE_USD = (Decimal(MAX_CALLS) *
                   (Decimal(MAX_INPUT) * Decimal(PRICING["input_miss_per_million"])
@@ -405,8 +405,8 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
                 evidence, skill_id=f"cded_item_{index + 1}",
                 subtask="general ALFWorld interaction",
                 constraints=(
-                    "Propose exactly one concise procedure step as a falsifiable research candidate.",
-                    "Use only public observations and actions in the supplied trace.",
+                    "Propose a source-grounded ordered procedure; the study will use only its first procedure step as the atomic candidate.",
+                    "Put one self-contained actionable instruction in each procedure entry; use only public observations and actions in the supplied trace.",
                     "Avoid object-instance names, task identifiers, hidden state, or unsupported universal claims.",
                     "This item will be tested on different ALFWorld task families; state its limits clearly.",
                 ),
