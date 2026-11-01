@@ -412,6 +412,7 @@ class DeepSeekStatefulClient:
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
+        self.thinking_type = "enabled"
         self.budget = budget
         self.max_completion_tokens = max_completion_tokens
         self.persist_budget = persist_budget
@@ -464,6 +465,7 @@ class DeepSeekStatefulClient:
         Private reasoning is neither executable nor persisted in exported traces.
         """
         input_bound = _prompt_token_bound(messages)
+        thinking_type = getattr(self, "thinking_type", "enabled")
         usd_before = self.budget.usd_used if isinstance(self.budget, ApprovedProviderBudget) else None
         if input_bound > getattr(self, "max_input_per_request", input_bound):
             raise ProviderBudgetExceeded("per_request_input_cap")
@@ -475,7 +477,7 @@ class DeepSeekStatefulClient:
             configuration_identity = manifest_digest({
                 "model": self.model, "base_url": getattr(self, "base_url", None),
                 "temperature": self.temperature, "max_completion_tokens": self.max_completion_tokens,
-                "thinking": {"type": "enabled"},
+                "thinking": {"type": thinking_type},
             })
             if self._episode_context is None:
                 raise RuntimeError("set_episode_context is required when receipt journaling is enabled")
@@ -534,7 +536,7 @@ class DeepSeekStatefulClient:
                 model=self.model,
                 temperature=self.temperature,
                 max_tokens=self.max_completion_tokens,
-                extra_body={"thinking": {"type": "enabled"}},
+                extra_body={"thinking": {"type": thinking_type}},
                 messages=messages,
                 **request_timeout,
             )

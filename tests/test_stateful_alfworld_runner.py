@@ -55,6 +55,10 @@ def test_thinking_request_caches_stable_prefix_and_preserves_usage(monkeypatch):
     assert requests[-1]["max_tokens"] == 8192
     assert requests[-1]["extra_body"] == {"thinking": {"type": "enabled"}}
 
+    client.thinking_type = "disabled"
+    client.choose_action(state, ["look"], None, "proposal configuration fixture", None)
+    assert requests[-1]["extra_body"] == {"thinking": {"type": "disabled"}}
+
     # A truncated thinking response must not execute a command from private reasoning.
     def reasoning_only(**request):
         return SimpleNamespace(choices=[SimpleNamespace(

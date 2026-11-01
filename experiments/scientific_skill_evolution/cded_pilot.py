@@ -53,11 +53,11 @@ DEV_ARMS = ("parent_00", "item_a_10", "item_b_01", "LENGTH")
 CAL_ARMS = ("NO_SKILL", "LENGTH", "STATIC_CDED", "ADAPTIVE_CDED", "FIXED_ORDER_CDED")
 MAX_STEPS = 16
 MAX_EPISODE_CALLS = 16
-MAX_CALLS = 386
+MAX_CALLS = 305
 MAX_INPUT = 6144
-MAX_OUTPUT = 512
-MAX_USD = "0.99476188"
-MAX_EPISODE_USD = "0.05"
+MAX_OUTPUT = 1024
+MAX_USD = "0.977854084"
+MAX_EPISODE_USD = "0.052"
 WORST_CASE_USD = (Decimal(MAX_CALLS) *
                   (Decimal(MAX_INPUT) * Decimal(PRICING["input_miss_per_million"])
                    + Decimal(MAX_OUTPUT) * Decimal(PRICING["output_per_million"]))
@@ -162,6 +162,7 @@ def _make_manifest(tasks: Mapping[str, Sequence[Mapping[str, Any]]], *,
         "run_id": run_id, "stage": "skill_evolution", "controller_commit": controller_commit,
         "model": MODEL, "base_url": BASE_URL, "expected_response_identity": list(EXPECTED_IDENTITY),
         "response_identity_binding": "exact_predeclared_identity", "temperature": 0.0,
+        "action_thinking": "enabled", "proposal_thinking": "disabled",
         "thinking": "enabled", "max_retries": 0, "max_steps": MAX_STEPS,
         "max_calls_per_episode": MAX_EPISODE_CALLS, "max_episode_wall_seconds": 1800,
         "max_usd_per_episode": MAX_EPISODE_USD, "max_usd_per_proposal": MAX_EPISODE_USD,
@@ -381,6 +382,7 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
             family = task["family"]
             evidence = source_bundle_from_receipts([source_row], parent_split, source_mode="SUCCESS_ONLY_INDUCTION")
             # ModelSkillProposer's initial path builds a provenance-bearing complete candidate.
+            client.thinking_type = manifest["proposal_thinking"]
             proposer = ModelSkillProposer(client, max_completion_calls=1, max_completion_tokens=MAX_OUTPUT,
                 max_skill_characters=1800,
                 on_completion=lambda record: _append(output / "proposals.jsonl", record))
@@ -420,6 +422,7 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
                 "source_receipt_sha256": source_row["receipt_sha256"], "semantic_item": items[label].to_dict(),
             })
 
+        client.thinking_type = manifest["action_thinking"]
         skills = {key: value.text for key, value in items.items()}
         dev_target = " " * max(len(skills["A"]), len(skills["B"]))
         dev_skills = {key: value + _generic_length_control(dev_target[len(value):])
