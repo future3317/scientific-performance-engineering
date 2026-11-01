@@ -1,0 +1,70 @@
+research_id: SPE-CDED-ITEM-ATTRIBUTION-20261101
+status: PROVIDER_FREE_METHOD_QUALIFICATION_ONLY
+scope:
+  question: >-
+    When a candidate contains two independently sourced semantic changes,
+    does decision-focused experiment selection identify which change should
+    be retained, specialized, or withheld at lower total validation cost than
+    a fixed experiment order?
+  mechanism: >-
+    Select the safe feasible experiment with the greatest expected reduction
+    in Bayes decision loss per unit cost. Abstain when no safe affordable test
+    can change the preferred evolution action.
+  implementation: experiments/scientific_skill_evolution/discriminative_planner.py
+  reused_foundations:
+    - core/acre/factorial.py
+    - core/skills/semantic.py
+    - core/skills/evolution.py
+  novelty_boundary: >-
+    Factorial estimation and statistical certification already exist. The
+    research question is whether decision-focused selection of item-level
+    discriminating experiments improves future-task decisions over the same
+    test menu under a matched total cost budget.
+provider_free_qualification:
+  status: IMPLEMENTED_NOT_YET_RUN_ON_SERVER
+  tests: tests/test_discriminative_planner.py
+  claim_limit: >-
+    Unit fixtures can establish deterministic planner behavior only. They do
+    not establish Skill efficacy, learning, transfer, or scientific validity.
+prospective_task_study:
+  status: NOT_READY_FOR_EXECUTION
+  treatment_arms:
+    - LENGTH
+    - FROZEN_SKILL
+    - STATIC_CDED
+    - ADAPTIVE_CDED
+    - FIXED_ORDER_CDED
+  factorial_evidence_arms:
+    - parent_00
+    - item_a_10
+    - item_b_01
+    - combined_11
+  independent_unit: task family or predeclared semantic cluster, never rollout
+  primary_estimand: >-
+    Future-task cluster-weighted paired net utility after all scientific hard
+    gates, with uncertainty; unknown outcomes remain separate.
+  required_secondary_outcomes:
+    - item-level contribution and interaction
+    - negative transfer and scientific-gate failures
+    - abstention and coverage
+    - provider, experiment, verification, and deployment cost
+    - non-text mechanism activation
+  frozen_before_live_execution:
+    - eligible task population and family split
+    - task/runtime/verifier/model identities
+    - experiment menu, likelihood model, decision losses, and fixed-order baseline
+    - sample-size feasibility and maximum cost/call/wall limits
+    - stopping, missingness, and unknown-outcome rules
+    - analysis code and independent validation set
+  exclusions:
+    - historical adaptation and exposed task families
+    - sealed/final outcomes not explicitly released
+    - synthetic fixture results as real efficacy evidence
+  authorization:
+    provider_budget: NOT_AUTHORIZED
+    live_execution: BLOCKED_APPROVAL_REQUIRED
+    next_gate: >-
+      A complete source-bound manifest must specify the finite eligible task
+      cohort, model/provider, token and currency caps, stopping rules, and
+      independent validation allocation. Obtain exact stage authorization
+      before any provider request.
