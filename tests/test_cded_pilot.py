@@ -8,6 +8,7 @@ from experiments.scientific_skill_evolution.cded_pilot import (
     MAX_STEPS,
     PRICING,
     WORST_CASE_USD,
+    _first_procedure_step,
     _fixed_order,
     _generic_length_control,
     _length_match,
@@ -27,6 +28,12 @@ def _receipt(cluster, arm, success):
         "environment_won": success,
         "environment_done": True,
     }
+
+
+def test_proposal_item_selection_uses_the_first_generated_step_without_outcome_ranking():
+    assert _first_procedure_step(["inspect the room", "move to the object"]) == "inspect the room"
+    with pytest.raises(ValueError, match="at least one step"):
+        _first_procedure_step([])
 
 
 def test_development_posterior_selects_supported_item_and_requires_complete_cells():

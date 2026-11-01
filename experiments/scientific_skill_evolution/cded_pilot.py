@@ -50,6 +50,7 @@ LOSSES = {
     "abstain": {"A_ONLY": 0.6, "B_ONLY": 0.6, "NEITHER": 0.0},
 }
 DEV_ARMS = ("parent_00", "item_a_10", "item_b_01", "LENGTH")
+PROPOSAL_ITEM_SELECTION = "first_generated_procedure_step_in_model_order"
 CAL_ARMS = ("NO_SKILL", "LENGTH", "STATIC_CDED", "ADAPTIVE_CDED", "FIXED_ORDER_CDED")
 MAX_STEPS = 16
 MAX_EPISODE_CALLS = 16
@@ -163,6 +164,7 @@ def _make_manifest(tasks: Mapping[str, Sequence[Mapping[str, Any]]], *,
         "model": MODEL, "base_url": BASE_URL, "expected_response_identity": list(EXPECTED_IDENTITY),
         "response_identity_binding": "exact_predeclared_identity", "temperature": 0.0,
         "action_thinking": "enabled", "proposal_thinking": "disabled",
+        "proposal_item_selection": PROPOSAL_ITEM_SELECTION,
         "thinking": "enabled", "max_retries": 0, "max_steps": MAX_STEPS,
         "max_calls_per_episode": MAX_EPISODE_CALLS, "max_episode_wall_seconds": 1800,
         "max_usd_per_episode": MAX_EPISODE_USD, "max_usd_per_proposal": MAX_EPISODE_USD,
@@ -253,6 +255,13 @@ def _simple_calibration(rows: Sequence[Mapping[str, Any]]) -> tuple[str, dict[st
         "adaptive_family_differences": adaptive_differences,
         "adaptive_gate_passed": eligible, "frozen_route": frozen_route,
     }
+
+
+def _first_procedure_step(procedure: Sequence[str]) -> str:
+    """Select one ordered semantic item from the complete generated procedure."""
+    if not procedure:
+        raise ValueError("candidate procedure must contain at least one step")
+    return procedure[0]
 
 
 def _generic_length_control(target: str) -> str:
@@ -402,8 +411,7 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
                     "This item will be tested on different ALFWorld task families; state its limits clearly.",
                 ),
             )
-            if len(candidate.procedure) != 1:
-                raise ValueError("candidate must contain exactly one procedural step")
+            selected_step = _first_procedure_step(candidate.procedure)
             proposal_costs.append({
                 "family": family, "provider_calls": budget.calls_reserved - before["calls"],
                 "input_tokens": budget.input_used - before["input"],
@@ -415,10 +423,12 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
             items[label] = SemanticItem(
                 item_id=f"cded-item-{label.casefold()}", section="procedure", kind="procedure",
                 status="recommended", protected=False, semantic_tags=("source-grounded-candidate",),
-                evidence=candidate.source_trial_ids, text=candidate.procedure[0],
+                evidence=candidate.source_trial_ids, text=selected_step,
             )
             _append(output / "proposals.jsonl", {
                 "status": "validated_candidate", "family": family, "skill_digest": candidate.digest,
+                "proposal_item_selection": PROPOSAL_ITEM_SELECTION,
+                "generated_procedure_steps": len(candidate.procedure), "selected_step_index": 0,
                 "source_receipt_sha256": source_row["receipt_sha256"], "semantic_item": items[label].to_dict(),
             })
 
@@ -476,6 +486,7 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
             "final_arms": ["ADAPTIVE_CDED", "CALIBRATION_STRONGEST_SIMPLE"],
             "final_task_clusters": [task["cluster_id"] for task in manifest["plan"]["final"]],
             "candidate_items": {key: value.to_dict() for key, value in items.items()},
+            "proposal_item_selection": PROPOSAL_ITEM_SELECTION,
             "treatments": {
                 "adaptive_sha256": hashlib.sha256((adaptive_skill or "").encode()).hexdigest(),
                 "fixed_order_sha256": hashlib.sha256((fixed_skill or "").encode()).hexdigest(),
@@ -511,6 +522,7 @@ def _run_live(manifest: Mapping[str, Any], pilot_split: Mapping[str, Any],
             "canonical_promotion": False, "acre_certification": "NOT_EVALUATED",
             "cohort": {key: len(value) for key, value in manifest["plan"].items()},
             "candidate_digests": {key: value.digest for key, value in proposals.items()},
+            "proposal_item_selection": PROPOSAL_ITEM_SELECTION,
             "decision_freeze_sha256": freeze_sha256,
             "development": {"posterior": posterior, "action": adaptive_action,
                 "decision_sensitivity": decision_sensitivity,
