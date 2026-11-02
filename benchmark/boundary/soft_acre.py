@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations, product
 from typing import Any, Mapping, Sequence
 
 from .policy_eval import Decision
@@ -40,8 +41,9 @@ def fit_soft_acre(
     feature_names: Sequence[str],
     risk_weight: float = 1.0,
     complexity_penalty: float = 0.01,
+    max_literals: int = 1,
 ) -> SoftAcrePolicy:
-    """Choose global, one-literal selective, or abstaining reuse on calibration.
+    """Choose global, conjunctive selective, or abstaining reuse on calibration.
 
     Outcomes are family-balanced. A failed scientific gate always contributes
     zero utility and blocks deployment. Negative transfer receives an
@@ -52,6 +54,8 @@ def fit_soft_acre(
         raise ValueError("calibration must contain at least one row")
     if risk_weight < 0 or complexity_penalty < 0:
         raise ValueError("risk_weight and complexity_penalty must be non-negative")
+    if max_literals < 1 or max_literals > len(feature_names):
+        raise ValueError("max_literals must lie between one and the feature count")
 
     rows: list[tuple[str, str, Mapping[str, Any], float, bool]] = []
     for row in calibration:
@@ -69,12 +73,20 @@ def fit_soft_acre(
         ("abstain", ()),
         ("global", ()),
     ]
-    for field in feature_names:
-        levels = sorted(
+    levels_by_field = {
+        field: sorted(
             {row[2][field] for row in rows if field in row[2] and isinstance(row[2][field], (str, int, bool))},
             key=lambda value: (type(value).__name__, str(value)),
         )
-        candidates.extend(("selective", ((field, value),)) for value in levels)
+        for field in feature_names
+    }
+    for literal_count in range(1, max_literals + 1):
+        for fields in combinations(feature_names, literal_count):
+            levels = [levels_by_field[field] for field in fields]
+            candidates.extend(
+                ("selective", tuple(zip(fields, values)))
+                for values in product(*levels)
+            )
 
     family_count = len({row[1] for row in rows})
     if family_count == 0:

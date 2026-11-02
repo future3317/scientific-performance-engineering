@@ -12,35 +12,67 @@ from typing import Any
 from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
 
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_REGIME_SIM_20261102_01"
+STUDY_ID = "EVOSPE_SOFT_ACRE_REGIME_SIM_20261102_02"
 SEED = 20261102
 CALIBRATION_FAMILIES = 6
 FINAL_FAMILIES = 8
 CONTEXTS_PER_TYPE = 4
 RISK_WEIGHT = 1.0
-COMPLEXITY_PENALTY = 0.01
-REGIMES = ("broad", "selective", "null")
+COMPLEXITY_PENALTY = 0.002
+MAX_LITERALS = 3
+REGIMES = ("broad", "selective", "selective_interaction", "null")
 TASK_TYPES = ("matched", "adjacent", "distractor")
+SCALES = ("small", "large")
+COMPATIBILITIES = (0, 1)
 
 
 def _family_rows(regime: str, family_index: int, split: str, rng: random.Random):
     family = f"{regime}-{split}-{family_index:02d}"
     rows: list[dict[str, Any]] = []
     scores: dict[str, dict[str, Any]] = {}
-    for task_type in TASK_TYPES:
+    contexts = [
+        {"task_type": task_type, "scientific_gate": True}
+        for task_type in TASK_TYPES
+    ]
+    if regime == "selective_interaction":
+        contexts = [
+            {
+                "task_type": task_type,
+                "scale_regime": scale,
+                "constraint_compatibility": compatibility,
+                "scientific_gate": True,
+            }
+            for task_type in TASK_TYPES
+            for scale in SCALES
+            for compatibility in COMPATIBILITIES
+        ]
+    for context in contexts:
         for repetition in range(CONTEXTS_PER_TYPE):
-            identifier = f"{family}-{task_type}-{repetition}"
+            identifier = f"{family}-{len(rows)}-{repetition}"
+            task_type = context["task_type"]
             if regime == "broad":
                 tau = 0.10 + rng.uniform(-0.02, 0.02)
             elif regime == "selective":
                 center = {"matched": 0.18, "adjacent": 0.02, "distractor": -0.18}[task_type]
                 tau = center + rng.uniform(-0.02, 0.02)
+            elif regime == "selective_interaction":
+                complete_match = (
+                    task_type == "matched"
+                    and context["scale_regime"] == "large"
+                    and context["constraint_compatibility"] == 1
+                )
+                partial_match = sum((
+                    task_type == "matched",
+                    context["scale_regime"] == "large",
+                    context["constraint_compatibility"] == 1,
+                )) == 2
+                tau = (0.25 if complete_match else -0.20 if partial_match else 0.0) + rng.uniform(-0.01, 0.01)
             else:
                 tau = 0.0
             rows.append({
                 "id": identifier,
                 "family": family,
-                "context": {"task_type": task_type, "scientific_gate": True},
+                "context": context,
             })
             scores[identifier] = {"tau": tau, "scientific_gate": True}
     return rows, scores
@@ -93,19 +125,25 @@ def run() -> dict[str, Any]:
     for regime_index, regime in enumerate(REGIMES):
         rng = random.Random(SEED + regime_index)
         calibration, calibration_scores = _make_split(regime, "cal", CALIBRATION_FAMILIES, rng)
+        feature_names = (
+            ("task_type", "scale_regime", "constraint_compatibility")
+            if regime == "selective_interaction" else ("task_type",)
+        )
         soft = fit_soft_acre(
             calibration,
             calibration_scores,
-            feature_names=("task_type",),
+            feature_names=feature_names,
             risk_weight=RISK_WEIGHT,
             complexity_penalty=COMPLEXITY_PENALTY,
+            max_literals=MAX_LITERALS if regime == "selective_interaction" else 1,
         )
         simple = fit_soft_acre(
             calibration,
             calibration_scores,
-            feature_names=("task_type",),
+            feature_names=feature_names,
             risk_weight=0.0,
             complexity_penalty=0.0,
+            max_literals=1,
         )
         evaluation, evaluation_scores = _make_split(regime, "final", FINAL_FAMILIES, rng)
         global_policy = SoftAcrePolicy("global", (), 0.0, 0.0, 0.0, CALIBRATION_FAMILIES)
@@ -131,7 +169,7 @@ def run() -> dict[str, Any]:
                 "mean_family_utility": sum(soft_family.values()) / len(soft_family),
                 **_deployment_metrics(evaluation, evaluation_scores, soft),
             },
-            "strongest_simple": {
+            "strongest_single_feature": {
                 "route": simple.route,
                 "literals": [[field, value] for field, value in simple.literals],
                 "mean_family_utility": sum(simple_family.values()) / len(simple_family),
@@ -165,11 +203,12 @@ def run() -> dict[str, Any]:
         "seed": SEED,
         "contract": {
             "split": {"calibration_families_per_regime": CALIBRATION_FAMILIES, "final_families_per_regime": FINAL_FAMILIES},
-            "contexts_per_task_type_per_family": CONTEXTS_PER_TYPE,
-            "feature_grammar": ["task_type equality"],
+            "repetitions_per_context_cell": CONTEXTS_PER_TYPE,
+            "feature_grammar": ["categorical equality", "conjunctions up to three literals in the interaction regime"],
             "risk_weight": RISK_WEIGHT,
             "complexity_penalty": COMPLEXITY_PENALTY,
-            "strongest_simple": "maximize unpenalized family-balanced utility over never, global, and one-literal predicates",
+            "max_literals": MAX_LITERALS,
+            "strongest_single_feature": "maximize unpenalized family-balanced utility over abstain, global, and one-literal predicates",
             "hard_scientific_gate": "deployment is disabled when context.scientific_gate is not true",
             "final_access": "final outcomes are used only after calibration policy fitting",
         },

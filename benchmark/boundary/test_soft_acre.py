@@ -42,3 +42,47 @@ def test_scientific_gate_remains_hard_for_soft_policy():
     policy = fit_soft_acre(rows, scores, feature_names=("task_type",))
     assert policy.route == "global"
     assert policy.decide(rows[0]["context"]).action == "abstain"
+
+
+def test_soft_acre_recovers_a_three_field_interaction():
+    rows = []
+    scores = {}
+    for family in ("f1", "f2", "f3", "f4"):
+        for task_type in ("matched", "adjacent"):
+            for scale in ("small", "large"):
+                for compatible in (0, 1):
+                    identifier = f"{family}-{task_type}-{scale}-{compatible}"
+                    context = {
+                        "task_type": task_type,
+                        "scale_regime": scale,
+                        "constraint_compatibility": compatible,
+                        "scientific_gate": True,
+                    }
+                    complete_match = task_type == "matched" and scale == "large" and compatible == 1
+                    partial_match = sum((task_type == "matched", scale == "large", compatible == 1)) == 2
+                    rows.append({"id": identifier, "family": family, "context": context})
+                    scores[identifier] = {"tau": 0.25 if complete_match else -0.20 if partial_match else 0.0,
+                                          "scientific_gate": True}
+
+    policy = fit_soft_acre(
+        rows,
+        scores,
+        feature_names=("task_type", "scale_regime", "constraint_compatibility"),
+        risk_weight=1.0,
+        complexity_penalty=0.002,
+        max_literals=3,
+    )
+    simple = fit_soft_acre(
+        rows,
+        scores,
+        feature_names=("task_type", "scale_regime", "constraint_compatibility"),
+        risk_weight=0.0,
+        complexity_penalty=0.0,
+        max_literals=1,
+    )
+    assert policy.literals == (
+        ("task_type", "matched"),
+        ("scale_regime", "large"),
+        ("constraint_compatibility", 1),
+    )
+    assert policy.calibration_utility > simple.calibration_utility
