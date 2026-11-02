@@ -161,6 +161,7 @@ def run() -> dict[str, Any]:
         "comparison_class": "algorithmic_simulation",
         "evidence_level": "micro",
         "data_status": "synthetic_family_heldout",
+        "resource_contract": {"provider_calls": 0, "gpu": "none", "local_runtime": False},
         "seed": SEED,
         "contract": {
             "split": {"calibration_families_per_regime": CALIBRATION_FAMILIES, "final_families_per_regime": FINAL_FAMILIES},
@@ -168,6 +169,7 @@ def run() -> dict[str, Any]:
             "feature_grammar": ["task_type equality"],
             "risk_weight": RISK_WEIGHT,
             "complexity_penalty": COMPLEXITY_PENALTY,
+            "strongest_simple": "maximize unpenalized family-balanced utility over never, global, and one-literal predicates",
             "hard_scientific_gate": "deployment is disabled when context.scientific_gate is not true",
             "final_access": "final outcomes are used only after calibration policy fitting",
         },
