@@ -1,4 +1,4 @@
-from benchmark.boundary.soft_acre import fit_soft_acre
+from benchmark.boundary.soft_acre import fit_soft_acre, select_soft_acre_candidate
 
 
 def _rows(kind):
@@ -86,3 +86,33 @@ def test_soft_acre_recovers_a_three_field_interaction():
         ("constraint_compatibility", 1),
     )
     assert policy.calibration_utility > simple.calibration_utility
+
+
+def test_soft_acre_requires_a_one_se_gain_to_leave_global_reuse():
+    rows = [{"id": f"x{i}", "family": "skill", "context": {"type": "A" if i < 8 else "B"}}
+            for i in range(10)]
+    scores = {row["id"]: {"tau": 0.01 if i < 9 else -0.01, "scientific_gate": True}
+              for i, row in enumerate(rows)}
+    mask = {row["id"]: i < 8 for i, row in enumerate(rows)}
+
+    selected = select_soft_acre_candidate(
+        rows, scores,
+        {"global": {row["id"]: True for row in rows},
+         "abstain": {row["id"]: False for row in rows},
+         "cegis": mask},
+    )
+
+    assert selected.name == "global"
+    assert selected.baseline_name == "global"
+    assert selected.switching_standard_error > 0
+
+
+def test_soft_acre_selects_a_candidate_with_a_clear_calibration_gain():
+    rows, scores = _rows("selective")
+    masks = {
+        "global": {row["id"]: True for row in rows},
+        "abstain": {row["id"]: False for row in rows},
+        "cegis": {row["id"]: row["context"]["task_type"] == "matched" for row in rows},
+    }
+    selected = select_soft_acre_candidate(rows, scores, masks)
+    assert selected.name == "cegis"

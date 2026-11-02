@@ -12,7 +12,7 @@ from typing import Any
 from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
 
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_REGIME_SIM_20261102_02"
+STUDY_ID = "EVOSPE_SOFT_ACRE_REGIME_SIM_20261102_03"
 SEED = 20261102
 CALIBRATION_FAMILIES = 6
 FINAL_FAMILIES = 8
@@ -20,6 +20,7 @@ CONTEXTS_PER_TYPE = 4
 RISK_WEIGHT = 1.0
 COMPLEXITY_PENALTY = 0.002
 MAX_LITERALS = 3
+SWITCHING_MARGIN_SE = 1.0
 REGIMES = ("broad", "selective", "selective_interaction", "null")
 TASK_TYPES = ("matched", "adjacent", "distractor")
 SCALES = ("small", "large")
@@ -136,6 +137,7 @@ def run() -> dict[str, Any]:
             risk_weight=RISK_WEIGHT,
             complexity_penalty=COMPLEXITY_PENALTY,
             max_literals=MAX_LITERALS if regime == "selective_interaction" else 1,
+            switching_margin_se=SWITCHING_MARGIN_SE,
         )
         simple = fit_soft_acre(
             calibration,
@@ -144,6 +146,7 @@ def run() -> dict[str, Any]:
             risk_weight=0.0,
             complexity_penalty=0.0,
             max_literals=1,
+            switching_margin_se=0.0,
         )
         evaluation, evaluation_scores = _make_split(regime, "final", FINAL_FAMILIES, rng)
         global_policy = SoftAcrePolicy("global", (), 0.0, 0.0, 0.0, CALIBRATION_FAMILIES)
@@ -166,6 +169,7 @@ def run() -> dict[str, Any]:
                 "route": soft.route,
                 "literals": [[field, value] for field, value in soft.literals],
                 "calibration_objective": soft.calibration_utility,
+                "switching_standard_error": soft.switching_standard_error,
                 "mean_family_utility": sum(soft_family.values()) / len(soft_family),
                 **_deployment_metrics(evaluation, evaluation_scores, soft),
             },
@@ -207,6 +211,7 @@ def run() -> dict[str, Any]:
             "feature_grammar": ["categorical equality", "conjunctions up to three literals in the interaction regime"],
             "risk_weight": RISK_WEIGHT,
             "complexity_penalty": COMPLEXITY_PENALTY,
+            "switching_margin_se": SWITCHING_MARGIN_SE,
             "max_literals": MAX_LITERALS,
             "strongest_single_feature": "maximize unpenalized family-balanced utility over abstain, global, and one-literal predicates",
             "hard_scientific_gate": "deployment is disabled when context.scientific_gate is not true",

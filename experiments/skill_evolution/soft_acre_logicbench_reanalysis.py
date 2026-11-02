@@ -12,12 +12,13 @@ from typing import Any, Mapping, Sequence
 from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
 
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_REANALYSIS_20261102_01"
-EXTENSION_STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_02"
+STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_MARGIN_REANALYSIS_20261102_02"
+EXTENSION_STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_03"
 EXTENSION_SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 RISK_WEIGHT = 1.0
 COMPLEXITY_PENALTY = 0.002
 MAX_LITERALS = 3
+SWITCHING_MARGIN_SE = 1.0
 
 
 def _read(path: Path) -> Any:
@@ -55,7 +56,7 @@ def _context(features: Mapping[str, Any], cutpoints: Mapping[str, float]) -> dic
 
 def _fit_policy(
     calibration: Sequence[Mapping[str, Any]], *, risk_weight: float, complexity_penalty: float,
-    max_literals: int,
+    max_literals: int, switching_margin_se: float = SWITCHING_MARGIN_SE,
 ) -> tuple[SoftAcrePolicy, dict[str, float]]:
     numeric = ("question_length", "bm25_score", "bm25_margin")
     cutpoints = {
@@ -74,7 +75,7 @@ def _fit_policy(
         rows, scores,
         feature_names=tuple(key for key in rows[0]["context"] if key != "scientific_gate"),
         risk_weight=risk_weight, complexity_penalty=complexity_penalty,
-        max_literals=max_literals,
+        max_literals=max_literals, switching_margin_se=switching_margin_se,
     )
     return policy, cutpoints
 
@@ -156,7 +157,10 @@ def freeze_extension_policies(input_dir: Path, calibration_eval_dir: Path,
             calibration, risk_weight=RISK_WEIGHT,
             complexity_penalty=COMPLEXITY_PENALTY, max_literals=MAX_LITERALS,
         )
-        simple, _ = _fit_policy(calibration, risk_weight=0.0, complexity_penalty=0.0, max_literals=1)
+        simple, _ = _fit_policy(
+            calibration, risk_weight=0.0, complexity_penalty=0.0, max_literals=1,
+            switching_margin_se=0.0,
+        )
         decisions = []
         for row in final_rows:
             context = _context(row["features"], cutpoints)
@@ -176,6 +180,7 @@ def freeze_extension_policies(input_dir: Path, calibration_eval_dir: Path,
             "soft_route": soft.route,
             "soft_predicate": [[key, value] for key, value in soft.literals],
             "soft_calibration_objective": soft.calibration_utility,
+            "soft_switching_standard_error": soft.switching_standard_error,
             "single_feature_route": simple.route,
             "single_feature_predicate": [[key, value] for key, value in simple.literals],
             "final_decisions": decisions,
@@ -193,7 +198,8 @@ def freeze_extension_policies(input_dir: Path, calibration_eval_dir: Path,
         "final_outcomes_read": False,
         "policy_parameters": {
             "risk_weight": RISK_WEIGHT, "complexity_penalty": COMPLEXITY_PENALTY,
-            "max_literals": MAX_LITERALS, "features": list(all_features),
+            "max_literals": MAX_LITERALS, "switching_margin_se": SWITCHING_MARGIN_SE,
+            "features": list(all_features),
             "numeric_features_binned_at_calibration_median": ["question_length", "bm25_score", "bm25_margin"],
         },
         "per_skill": per_skill,
@@ -297,7 +303,10 @@ def run(input_dir: Path) -> dict[str, Any]:
             calibration, risk_weight=RISK_WEIGHT,
             complexity_penalty=COMPLEXITY_PENALTY, max_literals=MAX_LITERALS,
         )
-        simple, _ = _fit_policy(calibration, risk_weight=0.0, complexity_penalty=0.0, max_literals=1)
+        simple, _ = _fit_policy(
+            calibration, risk_weight=0.0, complexity_penalty=0.0, max_literals=1,
+            switching_margin_se=0.0,
+        )
         soft_selected = [soft.decide(_context(row["features"], cutpoints)).action == "reuse" for row in final]
         simple_selected = [simple.decide(_context(row["features"], cutpoints)).action == "reuse" for row in final]
         per_skill.append({
@@ -346,6 +355,7 @@ def run(input_dir: Path) -> dict[str, Any]:
             "risk_weight": RISK_WEIGHT,
             "complexity_penalty": COMPLEXITY_PENALTY,
             "max_literals": MAX_LITERALS,
+            "switching_margin_se": SWITCHING_MARGIN_SE,
             "features": list(all_features),
             "numeric_features_binned_at_calibration_median": ["question_length", "bm25_score", "bm25_margin"],
         },

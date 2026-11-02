@@ -11,12 +11,17 @@ from statistics import median
 from typing import Any, Mapping, Sequence
 
 from benchmark.boundary.families import family_cases
-from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
+from benchmark.boundary.soft_acre import (
+    SoftAcrePolicy,
+    fit_soft_acre,
+    select_soft_acre_candidate,
+)
 from benchmark.families import family_predicate_grammar
+from core.acre.predicates import predicate_complexity
 from scripts.run_support_boundary_analysis import _acre_predictions
 
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_SPE_EVO_REANALYSIS_20261102_02"
+STUDY_ID = "EVOSPE_SOFT_ACRE_SPE_EVO_META_ROUTER_20261102_03"
 SEEDS = (0, 1, 2, 3, 4)
 FAMILIES = (
     "autograd", "checkpoint", "compile", "crystal_generation", "crystal_sampling",
@@ -155,6 +160,7 @@ def run() -> dict[str, Any]:
             simple = fit_soft_acre(
                 cal_rows, cal_scores, feature_names=feature_names,
                 risk_weight=0.0, complexity_penalty=0.0, max_literals=1,
+                switching_margin_se=0.0,
             )
             evaluation_rows = [
                 {"id": item.observation_id, "family": family, "seed": seed,
@@ -165,12 +171,48 @@ def run() -> dict[str, Any]:
                 item.observation_id: {"tau": item.effect, "scientific_gate": item.gate_passed}
                 for item in split["evaluation"]
             }
+            cegis_cal_predictions, cegis_result = _acre_predictions(
+                family, split["synthesis"], split["calibration"], 1.0
+            )
             full_acre_predictions, _ = _acre_predictions(
                 family, split["synthesis"], split["evaluation"], 1.0
             )
+            soft_cal_predictions = {
+                item.observation_id: soft.decide(transform(item.context)).action == "reuse"
+                for item in split["calibration"]
+            }
+            cegis_literals = (
+                predicate_complexity(cegis_result["predicate"])["literals"]
+                if cegis_result and cegis_result.get("predicate") else 0
+            )
+            selection = select_soft_acre_candidate(
+                cal_rows, cal_scores,
+                {
+                    "global": {row["id"]: True for row in cal_rows},
+                    "abstain": {row["id"]: False for row in cal_rows},
+                    "soft_acre": soft_cal_predictions,
+                    "cegis": cegis_cal_predictions,
+                },
+                risk_weight=RISK_WEIGHT,
+                complexity_costs={
+                    "soft_acre": COMPLEXITY_PENALTY * len(soft.literals),
+                    "cegis": COMPLEXITY_PENALTY * cegis_literals,
+                },
+                switching_margin_se=1.0,
+            )
+            candidate_eval_predictions = {
+                "global": {row["id"]: True for row in evaluation_rows},
+                "abstain": {row["id"]: False for row in evaluation_rows},
+                "soft_acre": {
+                    item.observation_id: soft.decide(transform(item.context)).action == "reuse"
+                    for item in split["evaluation"]
+                },
+                "cegis": full_acre_predictions,
+            }
+            meta_predictions = candidate_eval_predictions[selection.name]
             global_policy = SoftAcrePolicy("global", (), 0.0, 0.0, 0.0, len({row["family"] for row in cal_rows}))
             policies = {
-                "soft_acre": soft,
+                "soft_acre_search": soft,
                 "single_feature": simple,
                 "global": global_policy,
             }
@@ -178,6 +220,9 @@ def run() -> dict[str, Any]:
                 name: _policy_metrics(policy, evaluation_rows, eval_scores)
                 for name, policy in policies.items()
             }
+            metrics["soft_acre"] = _policy_metrics(
+                None, evaluation_rows, eval_scores, reuse_by_id=meta_predictions
+            )
             metrics["full_acre"] = _policy_metrics(
                 None, evaluation_rows, eval_scores, reuse_by_id=full_acre_predictions
             )
@@ -186,6 +231,11 @@ def run() -> dict[str, Any]:
                 "calibration_contexts": len(cal_rows), "evaluation_contexts": len(evaluation_rows),
                 "numeric_cutpoints_fit_on_calibration": cutpoints,
                 "soft_route": soft.route, "soft_literals": [[k, v] for k, v in soft.literals],
+                "meta_route": selection.name,
+                "meta_route_baseline": selection.baseline_name,
+                "meta_route_calibration_utility": selection.calibration_utility,
+                "meta_route_switching_standard_error": selection.switching_standard_error,
+                "cegis_predicate_literals": cegis_literals,
                 "simple_route": simple.route, "simple_literals": [[k, v] for k, v in simple.literals],
                 "metrics": metrics,
             })
@@ -240,9 +290,10 @@ def run() -> dict[str, Any]:
             "seeds_per_family": len(SEEDS), "family_seed_units": len(units),
             "surface_count": SURFACE_COUNT,
             "split": "existing deterministic SHA256 observation split: 50% synthesis, 25% calibration, 25% evaluation",
-            "policy_fit": "Soft-ACRE fits paired effects and scientific gate on calibration rows only; numeric cutpoints are calibration medians",
+            "policy_fit": "Soft-ACRE and CEGIS candidates are fit on calibration and synthesis, respectively; a family-balanced one-SE router selects among global, abstain, Soft-ACRE, and synthesis-fit CEGIS using calibration outcomes only",
             "feature_grammar": "registered family feature paths; categorical equality; conjunctions up to three literals",
             "risk_weight": RISK_WEIGHT, "complexity_penalty": COMPLEXITY_PENALTY,
+            "switching_margin_se": 1.0,
         },
         "micro_metrics_over_evaluation_contexts": totals,
         "soft_acre_minus_baseline_family_bootstrap": comparisons,

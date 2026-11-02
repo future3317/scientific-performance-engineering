@@ -14,7 +14,7 @@ import time
 from typing import Any
 from core.acre.resource_budget import ApprovedProviderBudget, ProviderBudgetExceeded, manifest_digest
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_02"
+STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_03"
 SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 MODEL = "deepseek-flash"
 BASE_URL = "https://api.deepseek.com"
@@ -152,7 +152,8 @@ def prepare(input_dir: Path, output_dir: Path) -> dict[str, Any]:
     sra_revision = subprocess.check_output(["git", "-C", str(sra_root), "rev-parse", "HEAD"], text=True).strip()
     value = {
         "study_id": STUDY_ID, "status": "FROZEN_BEFORE_NEW_PROVIDER_CALLS",
-        "supersedes_unexecuted_study_id": "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_01",
+        "supersedes_stopped_study_id": "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_02",
+        "prior_study_record": "one unsuccessful request with zero reported input/output tokens and USD 0 estimated usage; final stage unopened",
         "source_revision": source_revision, "sragents_revision": sra_revision,
         "protocol_id": protocol["experiment"],
         "candidate_selection": "four skills passing the pre-existing verification gate; selection outcomes are development evidence",
@@ -169,9 +170,9 @@ def prepare(input_dir: Path, output_dir: Path) -> dict[str, Any]:
         "stage_instance_ids": stage_ids, "excluded_final_ids_for_calibration_overlap": excluded_final_ids,
         "prompt_bounds": prompt_bounds,
         "verification_gate": protocol["verification_gate"], "verification_screen": verification,
-        "calibration_rule": "fit Soft-ACRE and strongest single-feature route only on calibration outcomes; freeze all final decisions before final Y1 calls",
+        "calibration_rule": "fit Soft-ACRE and strongest single-feature route on calibration outcomes; require a selective route to exceed the positive-global-or-abstain default by one paired standard error; freeze final decisions before final Y1 calls",
         "policy_parameters": {"risk_weight": 1.0, "complexity_penalty": 0.002, "max_literals": 3,
-                             "simple_baseline_max_literals": 1},
+                             "switching_margin_se": 1.0, "simple_baseline_max_literals": 1},
         "final_outcomes_used_for_policy": False,
         "failure_rule": "provider/executor error or missing usage is terminal UNKNOWN; stop and do not retry or replace",
         "claim_boundary": "conditional four-family prospective evaluation of candidates selected by the prior verification gate",
