@@ -11,13 +11,12 @@ from statistics import median
 from typing import Any, Mapping, Sequence
 
 from benchmark.boundary.families import family_cases
-from benchmark.boundary.policy_eval import Decision
 from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
 from benchmark.families import family_predicate_grammar
 from scripts.run_support_boundary_analysis import _acre_predictions
 
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_SPE_EVO_REANALYSIS_20261102_01"
+STUDY_ID = "EVOSPE_SOFT_ACRE_SPE_EVO_REANALYSIS_20261102_02"
 SEEDS = (0, 1, 2, 3, 4)
 FAMILIES = (
     "autograd", "checkpoint", "compile", "crystal_generation", "crystal_sampling",
@@ -88,8 +87,14 @@ def _policy_metrics(
     policy: Any,
     rows: Sequence[Mapping[str, Any]],
     scores: Mapping[str, Mapping[str, Any]],
+    *,
+    reuse_by_id: Mapping[str, bool] | None = None,
 ) -> dict[str, Any]:
-    selected = [policy.decide(row["context"]).action == "reuse" for row in rows]
+    selected = [
+        bool(reuse_by_id[row["id"]]) if reuse_by_id is not None
+        else policy.decide(row["context"]).action == "reuse"
+        for row in rows
+    ]
     n = len(rows)
     deployed = sum(selected)
     harmful = sum(
@@ -163,29 +168,19 @@ def run() -> dict[str, Any]:
             full_acre_predictions, _ = _acre_predictions(
                 family, split["synthesis"], split["evaluation"], 1.0
             )
-            full_acre_by_context = {
-                json.dumps(row["context"], sort_keys=True, separators=(",", ":")):
-                    bool(full_acre_predictions.get(row["id"], False))
-                for row in evaluation_rows
-            }
-
-            class FrozenFullAcre:
-                def decide(self, context):
-                    key = json.dumps(context, sort_keys=True, separators=(",", ":"))
-                    reuse = full_acre_by_context.get(key, False)
-                    return Decision("reuse" if reuse else "abstain", float(reuse), 0.0, "frozen_full_acre")
-
             global_policy = SoftAcrePolicy("global", (), 0.0, 0.0, 0.0, len({row["family"] for row in cal_rows}))
             policies = {
                 "soft_acre": soft,
                 "single_feature": simple,
                 "global": global_policy,
-                "full_acre": FrozenFullAcre(),
             }
             metrics = {
                 name: _policy_metrics(policy, evaluation_rows, eval_scores)
                 for name, policy in policies.items()
             }
+            metrics["full_acre"] = _policy_metrics(
+                None, evaluation_rows, eval_scores, reuse_by_id=full_acre_predictions
+            )
             units.append({
                 "family": family, "seed": seed,
                 "calibration_contexts": len(cal_rows), "evaluation_contexts": len(evaluation_rows),
