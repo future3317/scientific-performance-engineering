@@ -109,7 +109,8 @@ def run(input_dir: Path) -> dict[str, Any]:
                 identifier = item["instance_id"]
                 if identifier not in y0:
                     raise ValueError(f"missing shared Y0 result for {identifier}")
-                features = item["confirmatory_features"]
+                features = dict(item["confirmatory_features"])
+                features.update({name: item[name] for name in all_features if name not in features})
                 if set(features) != set(all_features):
                     raise ValueError(f"feature fields differ from protocol for {identifier}")
                 rows.append({
