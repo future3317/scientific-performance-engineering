@@ -12,7 +12,7 @@ from typing import Any, Mapping, Sequence
 from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
 
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_MARGIN_REANALYSIS_20261102_02"
+STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_MARGIN_REANALYSIS_20261102_03"
 EXTENSION_STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_03"
 EXTENSION_SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 RISK_WEIGHT = 1.0
@@ -317,6 +317,7 @@ def run(input_dir: Path) -> dict[str, Any]:
             "soft_route": soft.route,
             "soft_predicate": [[key, value] for key, value in soft.literals],
             "soft_calibration_objective": soft.calibration_utility,
+            "soft_switching_standard_error": soft.switching_standard_error,
             "single_feature_route": simple.route,
             "single_feature_predicate": [[key, value] for key, value in simple.literals],
             "soft_metrics": _metrics(final, soft_selected),
