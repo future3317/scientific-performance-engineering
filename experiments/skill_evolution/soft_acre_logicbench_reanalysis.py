@@ -13,7 +13,7 @@ from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
 
 
 STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_MARGIN_REANALYSIS_20261102_03"
-EXTENSION_STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_04"
+EXTENSION_STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_05"
 EXTENSION_SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 RISK_WEIGHT = 1.0
 COMPLEXITY_PENALTY = 0.002
@@ -47,7 +47,7 @@ def _metrics(rows: Sequence[Mapping[str, Any]], selected: Sequence[bool]) -> dic
 def _context(features: Mapping[str, Any], cutpoints: Mapping[str, float]) -> dict[str, Any]:
     context: dict[str, Any] = {"scientific_gate": True}
     for name, value in features.items():
-        if name in cutpoints:
+        if name in cutpoints and value is not None:
             context[name] = "low" if float(value) <= cutpoints[name] else "high"
         else:
             context[name] = value
@@ -59,10 +59,11 @@ def _fit_policy(
     max_literals: int, switching_margin_se: float = SWITCHING_MARGIN_SE,
 ) -> tuple[SoftAcrePolicy, dict[str, float]]:
     numeric = ("question_length", "bm25_score", "bm25_margin")
-    cutpoints = {
-        name: median(float(row["features"][name]) for row in calibration)
-        for name in numeric
-    }
+    cutpoints = {}
+    for name in numeric:
+        values = [float(row["features"][name]) for row in calibration if row["features"][name] is not None]
+        if values:
+            cutpoints[name] = median(values)
     rows = [
         {"id": row["id"], "family": row["family"], "context": _context(row["features"], cutpoints)}
         for row in calibration

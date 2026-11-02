@@ -14,7 +14,7 @@ import time
 from typing import Any
 from core.acre.resource_budget import ApprovedProviderBudget, ProviderBudgetExceeded, manifest_digest
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_04"
+STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_05"
 SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 MODEL = "deepseek-flash"
 BASE_URL = "https://api.deepseek.com"
@@ -170,15 +170,18 @@ def prepare(input_dir: Path, output_dir: Path) -> dict[str, Any]:
     value = {
         "study_id": STUDY_ID, "status": "FROZEN_BEFORE_NEW_PROVIDER_CALLS",
         "supersedes_stopped_study_id": "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_02",
-        "prior_study_record": "one unsuccessful request with zero reported input/output tokens and USD 0 estimated usage; final stage unopened",
+        "calibration_receipts_reused_from": "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_04",
+        "prior_study_record": "40 calibration requests completed under study _04; no final outcomes were generated. The calibration receipts are reused after an outcome-independent missing-feature preprocessing correction. Study _02 stopped after one authentication failure with zero reported token usage; invoice status was unknown.",
         "source_revision": source_revision, "sragents_revision": sra_revision,
         "protocol_id": protocol["experiment"],
         "candidate_selection": "four skills passing the pre-existing verification gate; selection outcomes are development evidence",
         "skills": list(SKILLS), "independent_skill_families": len(SKILLS),
         "model": MODEL, "base_url": BASE_URL, "temperature": 0.0, "thinking": False,
         "engine": "direct", "provider": "oracle", "workers": 1,
-        "max_completion_tokens_per_request": MAX_COMPLETION, "max_provider_calls": sum(map(len, stage_ids.values())),
-        "calls_by_stage": {key: len(value) for key, value in stage_ids.items()},
+        "max_completion_tokens_per_request": MAX_COMPLETION, "max_provider_calls": len(stage_ids["final"]),
+        "calls_by_stage": {"calibration": 0, "final": len(stage_ids["final"])},
+        "evidence_ids_by_stage": stage_ids,
+        "new_provider_stages": ["final"],
         "total_new_provider_budget_usd": str(TOTAL_REMAINING_USD),
         "prior_cded_estimate_usd": str(KNOWN_PRIOR_ESTIMATE_USD),
         "per_stage_worst_case_usd": costs,
@@ -205,8 +208,12 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
     manifest = read(output_dir / "STUDY_MANIFEST.json")
     if manifest.get("manifest_sha256") != manifest_digest(manifest):
         raise ValueError("frozen study manifest digest mismatch")
-    if stage not in ("calibration", "final"):
-        raise ValueError("stage must be calibration or final")
+    source_root = Path(__file__).resolve().parents[2]
+    current_revision = subprocess.check_output(["git", "-C", str(source_root), "rev-parse", "HEAD"], text=True).strip()
+    if manifest["source_revision"] != current_revision:
+        raise ValueError("source revision differs from the frozen study manifest")
+    if stage not in manifest["new_provider_stages"]:
+        raise ValueError("stage is not authorized for new provider calls in this study")
     if stage == "final":
         frozen = read(output_dir / "calibration" / "POLICY_FREEZE.json")
         if frozen.get("final_outcomes_read") is not False:
