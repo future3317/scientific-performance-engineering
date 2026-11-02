@@ -36,6 +36,13 @@ def read(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def deepseek_api_key(env: dict[str, str | None]) -> str:
+    key = env.get("DEEPSEEK_API_KEY") or env.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("configured server .env has no supported DeepSeek API key")
+    return key
+
+
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -252,9 +259,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
                                     controller_commit=manifest["source_revision"], stage=stage,
                                     model=MODEL, base_url=BASE_URL)
     env = dotenv_values(env_file)
-    api_key = env.get("OPENAI_API_KEY") or env.get("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise RuntimeError("configured server .env has no supported DeepSeek API key")
+    api_key = deepseek_api_key(env)
     client = OpenAI(api_key=api_key, base_url=BASE_URL, timeout=120.0, max_retries=0)
     raw_dir = output_dir / "raw" / stage
     raw_dir.mkdir(parents=True, exist_ok=True)
