@@ -14,7 +14,7 @@ import time
 from typing import Any
 from core.acre.resource_budget import ApprovedProviderBudget, ProviderBudgetExceeded, manifest_digest
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_03"
+STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_04"
 SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 MODEL = "deepseek-flash"
 BASE_URL = "https://api.deepseek.com"
@@ -60,6 +60,16 @@ def append_jsonl(path: Path, value: Any) -> None:
         stream.write(json.dumps(value, sort_keys=True, ensure_ascii=False) + "\n")
         stream.flush()
         os.fsync(stream.fileno())
+
+
+def validate_final_policy_decisions(policy: dict[str, Any], expected_ids: list[str]) -> None:
+    decision_ids = [
+        item["instance_id"]
+        for skill in policy["per_skill"]
+        for item in skill["final_decisions"]
+    ]
+    if len(decision_ids) != len(expected_ids) or set(decision_ids) != set(expected_ids):
+        raise ValueError("frozen policy decisions do not match the frozen final cohort")
 
 
 @lru_cache(maxsize=1)
@@ -201,8 +211,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
         frozen = read(output_dir / "calibration" / "POLICY_FREEZE.json")
         if frozen.get("final_outcomes_read") is not False:
             raise ValueError("policy freeze indicates final leakage")
-        if sum(len(row["final_decisions"]) for row in frozen["per_skill"]) != 80:
-            raise ValueError("frozen policy decisions do not cover all final IDs")
+        validate_final_policy_decisions(frozen, manifest["stage_instance_ids"]["final"])
     usage_path = output_dir / "API_USAGE.json"
     usage = read(usage_path) if usage_path.exists() else {
         "study_id": STUDY_ID, "prior_cded_estimate_usd": str(KNOWN_PRIOR_ESTIMATE_USD), "stages": {}
