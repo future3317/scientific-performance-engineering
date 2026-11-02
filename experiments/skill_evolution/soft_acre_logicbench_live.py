@@ -93,7 +93,6 @@ def prepare(input_dir: Path, output_dir: Path) -> dict[str, Any]:
     y0_by_id = {row["instance_id"]: bool(row["correct"]) for row in y0_eval["details"]}
     prompt_bounds: dict[str, dict[str, Any]] = {}
     stage_ids: dict[str, list[str]] = {"calibration": [], "final": []}
-    all_seen: set[str] = set()
     verification = {"repairs": 0, "regressions": 0, "n": 0}
     for skill in SKILLS:
         verify = read(paths[f"{skill}_verification"])
@@ -117,26 +116,31 @@ def prepare(input_dir: Path, output_dir: Path) -> dict[str, Any]:
                 identifier = item["instance_id"]
                 if item["confirmatory_skill"] != skill or item["confirmatory_stage"] != stage:
                     raise ValueError(f"{skill} {stage} identity fields differ")
-                if identifier not in y0_by_id or identifier in all_seen or identifier in stage_local:
-                    raise ValueError(f"missing Y0 or overlapping instance: {identifier}")
+                if identifier not in y0_by_id or identifier in stage_local:
+                    raise ValueError(f"missing Y0 or duplicate instance within {skill} {stage}: {identifier}")
                 system, user = prompt_for(item)
                 bound = len(system.encode("utf-8")) + len(user.encode("utf-8")) + INPUT_OVERHEAD_TOKENS
-                prompt_bounds[identifier] = {
+                prompt_bounds[f"{stage}:{identifier}"] = {
                     "skill": skill, "stage": stage, "input_token_bound": bound,
                     "prompt_sha256": hashlib.sha256((system + "\0" + user).encode("utf-8")).hexdigest(),
                 }
                 stage_ids[stage].append(identifier)
                 stage_local.add(identifier)
-                all_seen.add(identifier)
-    if len(stage_ids["calibration"]) != 40 or len(stage_ids["final"]) != 80:
-        raise ValueError("cohort call counts differ from the frozen design")
-    if set(stage_ids["calibration"]) & set(stage_ids["final"]):
-        raise ValueError("calibration and final IDs overlap")
+    calibration_ids, original_final_ids = stage_ids["calibration"], stage_ids["final"]
+    if len(set(calibration_ids)) != len(calibration_ids) or len(set(original_final_ids)) != len(original_final_ids):
+        raise ValueError("duplicate instance across skills within a study stage")
+    excluded_final_ids = sorted(set(calibration_ids) & set(original_final_ids))
+    if len(calibration_ids) != 40 or len(original_final_ids) != 80 or len(excluded_final_ids) != 4:
+        raise ValueError("frozen cohorts or predeclared cross-stage overlap count changed")
+    stage_ids["final"] = [identifier for identifier in original_final_ids if identifier not in set(excluded_final_ids)]
+    for identifier in excluded_final_ids:
+        prompt_bounds.pop(f"final:{identifier}", None)
     costs = {}
     for stage, ids in stage_ids.items():
-        input_tokens, output_tokens = sum(prompt_bounds[i]["input_token_bound"] for i in ids), len(ids) * MAX_COMPLETION
-        costs[stage] = str((Decimal(input_tokens) * Decimal("0.30") +
-                            Decimal(output_tokens) * Decimal("1.32")) / Decimal(1_000_000))
+        input_tokens = sum(prompt_bounds[f"{stage}:{identifier}"]["input_token_bound"] for identifier in ids)
+        output_tokens = len(ids) * MAX_COMPLETION
+        costs[stage] = str((Decimal(input_tokens) * Decimal(PRICING["input_miss_per_million"])
+                            + Decimal(output_tokens) * Decimal(PRICING["output_per_million"])) / Decimal(1_000_000))
         if Decimal(costs[stage]) > STAGE_CAPS[stage]:
             raise ValueError(f"{stage} worst-case token bound exceeds its USD cap")
     source_root = Path(__file__).resolve().parents[2]
@@ -151,14 +155,15 @@ def prepare(input_dir: Path, output_dir: Path) -> dict[str, Any]:
         "skills": list(SKILLS), "independent_skill_families": len(SKILLS),
         "model": MODEL, "base_url": BASE_URL, "temperature": 0.0, "thinking": False,
         "engine": "direct", "provider": "oracle", "workers": 1,
-        "max_completion_tokens_per_request": MAX_COMPLETION, "max_provider_calls": 120,
+        "max_completion_tokens_per_request": MAX_COMPLETION, "max_provider_calls": sum(map(len, stage_ids.values())),
         "calls_by_stage": {key: len(value) for key, value in stage_ids.items()},
         "total_new_provider_budget_usd": str(TOTAL_REMAINING_USD),
         "prior_cded_estimate_usd": str(KNOWN_PRIOR_ESTIMATE_USD),
         "per_stage_worst_case_usd": costs,
         "per_stage_usd_caps": {key: str(value) for key, value in STAGE_CAPS.items()},
         "pricing": PRICING, "input_file_sha256": {key: sha256(path) for key, path in paths.items()},
-        "stage_instance_ids": stage_ids, "prompt_bounds": prompt_bounds,
+        "stage_instance_ids": stage_ids, "excluded_final_ids_for_calibration_overlap": excluded_final_ids,
+        "prompt_bounds": prompt_bounds,
         "verification_gate": protocol["verification_gate"], "verification_screen": verification,
         "calibration_rule": "fit Soft-ACRE and strongest single-feature route only on calibration outcomes; freeze all final decisions before final Y1 calls",
         "policy_parameters": {"risk_weight": 1.0, "complexity_penalty": 0.002, "max_literals": 3,
@@ -202,7 +207,10 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
         path = input_dir / f"confirmatory_y1_{skill}_{stage}_instances.json"
         if sha256(path) != manifest["input_file_sha256"][f"{skill}_{stage}"]:
             raise ValueError(f"frozen input changed: {path.name}")
+        allowed = set(manifest["stage_instance_ids"][stage])
         for item in read(path):
+            if item["instance_id"] not in allowed:
+                continue
             if item["instance_id"] in instances_by_id:
                 raise ValueError("duplicate instance IDs in stage")
             instances_by_id[item["instance_id"]] = item
@@ -211,7 +219,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
         raise ValueError("stage instance IDs differ from frozen manifest")
     for identifier, item in instances_by_id.items():
         system, user = prompt_for(item)
-        if hashlib.sha256((system + "\0" + user).encode("utf-8")).hexdigest() != bounds[identifier]["prompt_sha256"]:
+        if hashlib.sha256((system + "\0" + user).encode("utf-8")).hexdigest() != bounds[f"{stage}:{identifier}"]["prompt_sha256"]:
             raise ValueError(f"prompt changed after freeze: {identifier}")
     stage_manifest = {
         "study_id": STUDY_ID, "run_id": f"{STUDY_ID}_{stage.upper()}",
@@ -229,7 +237,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
         "approved_at_utc": datetime.now(timezone.utc).isoformat(),
         "expiration_utc": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
         "max_provider_calls": len(ids),
-        "max_input_tokens": sum(bounds[i]["input_token_bound"] for i in ids),
+        "max_input_tokens": sum(bounds[f"{stage}:{i}"]["input_token_bound"] for i in ids),
         "max_completion_tokens": len(ids) * MAX_COMPLETION,
         "per_episode_max_steps": 1, "per_request_max_completion_tokens": MAX_COMPLETION,
         "max_wall_seconds": 86400, "max_failed_retries": 0,
@@ -253,7 +261,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
         for identifier in ids:
             item = instances_by_id[identifier]
             _, user = prompt_for(item)
-            budget.reserve(bounds[identifier]["input_token_bound"], MAX_COMPLETION)
+            budget.reserve(bounds[f"{stage}:{identifier}"]["input_token_bound"], MAX_COMPLETION)
             try:
                 response = client.chat.completions.create(
                     model=MODEL, messages=[{"role": "user", "content": user}],
@@ -262,7 +270,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
                 )
             except Exception as exc:
                 budget.mark_unknown("provider_request_exception")
-                append_jsonl(raw_paths[bounds[identifier]["skill"]], {
+                append_jsonl(raw_paths[bounds[f"{stage}:{identifier}"]["skill"]], {
                     "instance_id": identifier, "dataset": "logicbench", "method": "oracle_direct",
                     "model": MODEL, "raw_output": "", "error": type(exc).__name__,
                     "provider_status": "UNKNOWN",
@@ -273,7 +281,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
             output_tokens = getattr(u, "completion_tokens", None) if u else None
             if type(input_tokens) is not int or type(output_tokens) is not int:
                 budget.mark_unknown("provider_usage_missing")
-                append_jsonl(raw_paths[bounds[identifier]["skill"]], {
+                append_jsonl(raw_paths[bounds[f"{stage}:{identifier}"]["skill"]], {
                     "instance_id": identifier, "dataset": "logicbench", "method": "oracle_direct",
                     "model": MODEL, "raw_output": response.choices[0].message.content or "",
                     "provider_status": "UNKNOWN", "usage": None,
@@ -288,7 +296,7 @@ def run_stage(input_dir: Path, output_dir: Path, stage: str, env_file: Path) -> 
                                 cache_miss_tokens=cache_miss)
             response_model = str(getattr(response, "model", MODEL))
             models.add(response_model)
-            append_jsonl(raw_paths[bounds[identifier]["skill"]], {
+            append_jsonl(raw_paths[bounds[f"{stage}:{identifier}"]["skill"]], {
                 "instance_id": identifier, "dataset": "logicbench", "method": "oracle_direct",
                 "model": MODEL, "raw_output": response.choices[0].message.content or "",
                 "provider_status": "RECEIVED", "provider_model": response_model,

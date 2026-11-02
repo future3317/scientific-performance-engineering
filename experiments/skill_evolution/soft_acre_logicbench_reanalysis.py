@@ -113,7 +113,8 @@ def _validate_raw_stage(raw_dir: Path, skill: str, stage: str, expected_ids: set
 
 
 def freeze_extension_policies(input_dir: Path, calibration_eval_dir: Path,
-                              calibration_raw_dir: Path) -> dict[str, Any]:
+                              calibration_raw_dir: Path,
+                              final_instance_ids: Mapping[str, Sequence[str]] | None = None) -> dict[str, Any]:
     """Fit only on calibration outcomes and freeze decisions for final IDs."""
     protocol = _read(input_dir / "confirmatory_protocol.json")
     y0_eval = _read(input_dir / "confirmatory_y0_eval.json")
@@ -138,8 +139,11 @@ def freeze_extension_policies(input_dir: Path, calibration_eval_dir: Path,
         calibration_eval = _read(calibration_eval_dir / f"confirmatory_y1_{skill}_calibration_eval_disabled.json")
         calibration = _stage_rows(calibration_instances, calibration_eval, y0, all_features, skill, "calibration")
         final_instances = _read(input_dir / f"confirmatory_y1_{skill}_final_instances.json")
+        selected_final_ids = set(final_instance_ids[skill]) if final_instance_ids is not None else None
         final_rows = []
         for item in final_instances:
+            if selected_final_ids is not None and item["instance_id"] not in selected_final_ids:
+                continue
             if item["confirmatory_stage"] != "final":
                 raise ValueError(f"unexpected final stage for {item['instance_id']}")
             features = dict(item["confirmatory_features"])
@@ -206,11 +210,13 @@ def score_extension_final(input_dir: Path, final_eval_dir: Path, final_raw_dir: 
     for frozen in policy_freeze["per_skill"]:
         skill = frozen["skill"]
         instances = _read(input_dir / f"confirmatory_y1_{skill}_final_instances.json")
-        _validate_raw_stage(final_raw_dir, skill, "final", {row["instance_id"] for row in instances})
+        decisions = {item["instance_id"]: item for item in frozen["final_decisions"]}
+        selected_ids = set(decisions)
+        instances = [row for row in instances if row["instance_id"] in selected_ids]
+        _validate_raw_stage(final_raw_dir, skill, "final", selected_ids)
         evaluation = _read(final_eval_dir / f"confirmatory_y1_{skill}_final_eval_disabled.json")
         rows = _stage_rows(instances, evaluation, y0,
                            tuple(policy_freeze["policy_parameters"]["features"]), skill, "final")
-        decisions = {item["instance_id"]: item for item in frozen["final_decisions"]}
         if set(decisions) != {row["id"] for row in rows}:
             raise ValueError(f"{skill} frozen decisions do not match final outcomes")
         selected = {
@@ -364,14 +370,28 @@ def main() -> None:
     parser.add_argument("--final-eval-dir", type=Path)
     parser.add_argument("--final-raw-dir", type=Path)
     parser.add_argument("--policy-freeze", type=Path)
+    parser.add_argument("--study-manifest", type=Path, help="use its predeclared final-ID subset during freeze")
     args = parser.parse_args()
     if args.mode == "replay":
         result = run(args.input_dir)
     elif args.mode == "freeze":
         if args.calibration_eval_dir is None or args.calibration_raw_dir is None:
             parser.error("--mode freeze requires calibration eval and raw receipt directories")
+        final_ids = _read(args.study_manifest)["stage_instance_ids"]["final"] if args.study_manifest else None
+        by_skill = None
+        if final_ids is not None:
+            by_skill = {skill: [] for skill in EXTENSION_SKILLS}
+            instance_skill = {}
+            for skill in EXTENSION_SKILLS:
+                items = _read(args.input_dir / f"confirmatory_y1_{skill}_final_instances.json")
+                instance_skill.update({item["instance_id"]: skill for item in items})
+            for identifier in final_ids:
+                skill = instance_skill.get(identifier)
+                if skill is None:
+                    raise ValueError("study manifest contains unknown final instance IDs")
+                by_skill[skill].append(identifier)
         result = freeze_extension_policies(args.input_dir, args.calibration_eval_dir,
-                                           args.calibration_raw_dir)
+                                           args.calibration_raw_dir, by_skill)
     else:
         if args.final_eval_dir is None or args.final_raw_dir is None or args.policy_freeze is None:
             parser.error("--mode score requires final eval/raw directories and --policy-freeze")
