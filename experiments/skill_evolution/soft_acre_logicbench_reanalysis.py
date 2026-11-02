@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 from pathlib import Path
 from statistics import median
+import subprocess
 from typing import Any, Mapping, Sequence
 
 from benchmark.boundary.soft_acre import SoftAcrePolicy, fit_soft_acre
 
 
 STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_REANALYSIS_20261102_01"
+EXTENSION_STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_01"
+EXTENSION_SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 RISK_WEIGHT = 1.0
 COMPLEXITY_PENALTY = 0.002
 MAX_LITERALS = 3
@@ -75,6 +77,170 @@ def _fit_policy(
         max_literals=max_literals,
     )
     return policy, cutpoints
+
+
+def _stage_rows(instances: Sequence[Mapping[str, Any]], evaluation: Mapping[str, Any],
+                y0: Mapping[str, int], all_features: Sequence[str], skill: str,
+                stage: str) -> list[dict[str, Any]]:
+    outcomes = {row["instance_id"]: int(bool(row["correct"])) for row in evaluation["details"]}
+    if set(outcomes) != {row["instance_id"] for row in instances}:
+        raise ValueError(f"{skill} {stage} outcome/instance IDs differ")
+    rows = []
+    for item in instances:
+        if item["confirmatory_stage"] != stage:
+            raise ValueError(f"unexpected stage for {item['instance_id']}")
+        identifier = item["instance_id"]
+        if identifier not in y0:
+            raise ValueError(f"missing shared Y0 result for {identifier}")
+        features = dict(item["confirmatory_features"])
+        features.update({name: item[name] for name in all_features if name not in features})
+        if set(features) != set(all_features):
+            raise ValueError(f"feature fields differ from protocol for {identifier}")
+        rows.append({"id": identifier, "family": skill, "features": features,
+                     "y0": y0[identifier], "y1": outcomes[identifier]})
+    return rows
+
+
+def _validate_raw_stage(raw_dir: Path, skill: str, stage: str, expected_ids: set[str]) -> None:
+    path = raw_dir / f"confirmatory_y1_{skill}_{stage}.jsonl"
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    by_id = {row["instance_id"]: row for row in records}
+    if len(by_id) != len(records) or set(by_id) != expected_ids:
+        raise ValueError(f"{skill} {stage} raw receipts are incomplete or duplicated")
+    failures = [identifier for identifier, row in by_id.items() if row.get("error")]
+    if failures:
+        raise ValueError(f"{skill} {stage} contains provider/executor errors: {failures}")
+
+
+def freeze_extension_policies(input_dir: Path, calibration_eval_dir: Path,
+                              calibration_raw_dir: Path) -> dict[str, Any]:
+    """Fit only on calibration outcomes and freeze decisions for final IDs."""
+    protocol = _read(input_dir / "confirmatory_protocol.json")
+    y0_eval = _read(input_dir / "confirmatory_y0_eval.json")
+    y0 = {row["instance_id"]: int(bool(row["correct"])) for row in y0_eval["details"]}
+    all_features = tuple(protocol["allowed_features"])
+    gates = {"repairs": 0, "regressions": 0}
+    per_skill = []
+    for skill in EXTENSION_SKILLS:
+        verify_instances = _read(input_dir / f"confirmatory_y1_{skill}_verification_instances.json")
+        verify_eval = _read(input_dir / f"confirmatory_y1_{skill}_verification_eval_disabled.json")
+        verification = _stage_rows(verify_instances, verify_eval, y0, all_features, skill, "verification")
+        repairs = sum(row["y0"] == 0 and row["y1"] == 1 for row in verification)
+        regressions = sum(row["y0"] == 1 and row["y1"] == 0 for row in verification)
+        if not (repairs > regressions and repairs >= 2):
+            raise ValueError(f"{skill} does not pass the frozen verification gate")
+        gates["repairs"] += repairs
+        gates["regressions"] += regressions
+
+        calibration_instances = _read(input_dir / f"confirmatory_y1_{skill}_calibration_instances.json")
+        _validate_raw_stage(calibration_raw_dir, skill, "calibration",
+                            {row["instance_id"] for row in calibration_instances})
+        calibration_eval = _read(calibration_eval_dir / f"confirmatory_y1_{skill}_calibration_eval_disabled.json")
+        calibration = _stage_rows(calibration_instances, calibration_eval, y0, all_features, skill, "calibration")
+        final_instances = _read(input_dir / f"confirmatory_y1_{skill}_final_instances.json")
+        final_rows = []
+        for item in final_instances:
+            if item["confirmatory_stage"] != "final":
+                raise ValueError(f"unexpected final stage for {item['instance_id']}")
+            features = dict(item["confirmatory_features"])
+            features.update({name: item[name] for name in all_features if name not in features})
+            if set(features) != set(all_features):
+                raise ValueError(f"feature fields differ from protocol for {item['instance_id']}")
+            final_rows.append({"id": item["instance_id"], "features": features})
+
+        soft, cutpoints = _fit_policy(
+            calibration, risk_weight=RISK_WEIGHT,
+            complexity_penalty=COMPLEXITY_PENALTY, max_literals=MAX_LITERALS,
+        )
+        simple, _ = _fit_policy(calibration, risk_weight=0.0, complexity_penalty=0.0, max_literals=1)
+        decisions = []
+        for row in final_rows:
+            context = _context(row["features"], cutpoints)
+            decisions.append({
+                "instance_id": row["id"],
+                "features": row["features"],
+                "soft_acre_reuse": soft.decide(context).action == "reuse",
+                "single_feature_reuse": simple.decide(context).action == "reuse",
+                "global_reuse": True,
+            })
+        per_skill.append({
+            "skill": skill,
+            "verification_n": len(verification), "verification_repairs": repairs,
+            "verification_regressions": regressions,
+            "calibration_n": len(calibration), "final_n": len(final_rows),
+            "cutpoints": cutpoints,
+            "soft_route": soft.route,
+            "soft_predicate": [[key, value] for key, value in soft.literals],
+            "soft_calibration_objective": soft.calibration_utility,
+            "single_feature_route": simple.route,
+            "single_feature_predicate": [[key, value] for key, value in simple.literals],
+            "final_decisions": decisions,
+        })
+    return {
+        "study_id": EXTENSION_STUDY_ID,
+        "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+        "original_protocol_status": protocol["status"],
+        "model": protocol["model"],
+        "skills": list(EXTENSION_SKILLS),
+        "n_independent_skills": len(EXTENSION_SKILLS),
+        "verification_gate": protocol["verification_gate"],
+        "verification_totals": gates,
+        "calibration_only_fit": True,
+        "final_outcomes_read": False,
+        "policy_parameters": {
+            "risk_weight": RISK_WEIGHT, "complexity_penalty": COMPLEXITY_PENALTY,
+            "max_literals": MAX_LITERALS, "features": list(all_features),
+            "numeric_features_binned_at_calibration_median": ["question_length", "bm25_score", "bm25_margin"],
+        },
+        "per_skill": per_skill,
+    }
+
+
+def score_extension_final(input_dir: Path, final_eval_dir: Path, final_raw_dir: Path,
+                          policy_freeze: Mapping[str, Any]) -> dict[str, Any]:
+    """Score frozen actions on final model outputs without refitting."""
+    y0_eval = _read(input_dir / "confirmatory_y0_eval.json")
+    y0 = {row["instance_id"]: int(bool(row["correct"])) for row in y0_eval["details"]}
+    aggregate_rows = {name: [] for name in ("soft_acre", "strongest_single_feature", "global_reuse", "base")}
+    per_skill = []
+    for frozen in policy_freeze["per_skill"]:
+        skill = frozen["skill"]
+        instances = _read(input_dir / f"confirmatory_y1_{skill}_final_instances.json")
+        _validate_raw_stage(final_raw_dir, skill, "final", {row["instance_id"] for row in instances})
+        evaluation = _read(final_eval_dir / f"confirmatory_y1_{skill}_final_eval_disabled.json")
+        rows = _stage_rows(instances, evaluation, y0,
+                           tuple(policy_freeze["policy_parameters"]["features"]), skill, "final")
+        decisions = {item["instance_id"]: item for item in frozen["final_decisions"]}
+        if set(decisions) != {row["id"] for row in rows}:
+            raise ValueError(f"{skill} frozen decisions do not match final outcomes")
+        selected = {
+            "soft_acre": [bool(decisions[row["id"]]["soft_acre_reuse"]) for row in rows],
+            "strongest_single_feature": [bool(decisions[row["id"]]["single_feature_reuse"]) for row in rows],
+            "global_reuse": [True] * len(rows),
+            "base": [False] * len(rows),
+        }
+        metrics = {name: _metrics(rows, actions) for name, actions in selected.items()}
+        per_skill.append({"skill": skill, "routes": {
+            "soft_acre": frozen["soft_route"],
+            "strongest_single_feature": frozen["single_feature_route"],
+        }, "metrics": metrics})
+        for name, actions in selected.items():
+            aggregate_rows[name].extend((row, action) for row, action in zip(rows, actions))
+
+    aggregate = {
+        name: _metrics([row for row, _ in values], [action for _, action in values])
+        for name, values in aggregate_rows.items()
+    }
+    return {
+        "study_id": policy_freeze["study_id"],
+        "source_revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+        "source_class": "new_paid_llm_paired_final_evaluation",
+        "provider_calls_expected": sum(row["final_n"] for row in policy_freeze["per_skill"]),
+        "n_independent_skills": policy_freeze["n_independent_skills"],
+        "per_skill": per_skill,
+        "final_cohort_metrics": aggregate,
+        "claim_boundary": "Four-skill prospective final split under a fixed DeepSeek Flash and retrieval setup; report as a small benchmark extension with skill-cluster uncertainty, not broad model generalization.",
+    }
 
 
 def run(input_dir: Path) -> dict[str, Any]:
@@ -191,9 +357,27 @@ def run(input_dir: Path) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=("replay", "freeze", "score"), default="replay")
     parser.add_argument("--input-dir", type=Path, required=True)
+    parser.add_argument("--calibration-eval-dir", type=Path)
+    parser.add_argument("--calibration-raw-dir", type=Path)
+    parser.add_argument("--final-eval-dir", type=Path)
+    parser.add_argument("--final-raw-dir", type=Path)
+    parser.add_argument("--policy-freeze", type=Path)
     args = parser.parse_args()
-    print(json.dumps(run(args.input_dir), indent=2, sort_keys=True))
+    if args.mode == "replay":
+        result = run(args.input_dir)
+    elif args.mode == "freeze":
+        if args.calibration_eval_dir is None or args.calibration_raw_dir is None:
+            parser.error("--mode freeze requires calibration eval and raw receipt directories")
+        result = freeze_extension_policies(args.input_dir, args.calibration_eval_dir,
+                                           args.calibration_raw_dir)
+    else:
+        if args.final_eval_dir is None or args.final_raw_dir is None or args.policy_freeze is None:
+            parser.error("--mode score requires final eval/raw directories and --policy-freeze")
+        result = score_extension_final(args.input_dir, args.final_eval_dir,
+                                       args.final_raw_dir, _read(args.policy_freeze))
+    print(json.dumps(result, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
