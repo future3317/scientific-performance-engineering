@@ -14,7 +14,7 @@ import time
 from typing import Any
 from core.acre.resource_budget import ApprovedProviderBudget, ProviderBudgetExceeded, manifest_digest
 
-STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_01"
+STUDY_ID = "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_02"
 SKILLS = ("logicbench_007", "logicbench_011", "logicbench_017", "logicbench_010")
 MODEL = "deepseek-flash"
 BASE_URL = "https://api.deepseek.com"
@@ -144,11 +144,15 @@ def prepare(input_dir: Path, output_dir: Path) -> dict[str, Any]:
         if Decimal(costs[stage]) > STAGE_CAPS[stage]:
             raise ValueError(f"{stage} worst-case token bound exceeds its USD cap")
     source_root = Path(__file__).resolve().parents[2]
+    dirty = subprocess.check_output(["git", "-C", str(source_root), "status", "--porcelain"], text=True)
+    if dirty.strip():
+        raise ValueError("freeze requires a clean source worktree")
     source_revision = subprocess.check_output(["git", "-C", str(source_root), "rev-parse", "HEAD"], text=True).strip()
     sra_root = Path("/home/workspace/lrh/CODE/SR-Agents")
     sra_revision = subprocess.check_output(["git", "-C", str(sra_root), "rev-parse", "HEAD"], text=True).strip()
     value = {
         "study_id": STUDY_ID, "status": "FROZEN_BEFORE_NEW_PROVIDER_CALLS",
+        "supersedes_unexecuted_study_id": "EVOSPE_SOFT_ACRE_LOGICBENCH_EXTENSION_20261102_01",
         "source_revision": source_revision, "sragents_revision": sra_revision,
         "protocol_id": protocol["experiment"],
         "candidate_selection": "four skills passing the pre-existing verification gate; selection outcomes are development evidence",
